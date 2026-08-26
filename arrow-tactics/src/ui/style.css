@@ -1,0 +1,1680 @@
+:root {
+  --ink: #e7e3d8;
+  --ink-dim: #8b8577;
+  --panel: rgba(18, 21, 26, 0.82);
+  --edge: rgba(231, 227, 216, 0.14);
+  /* Meme or que .shop-item-price/playerArrowAccent (0xe8c15c cote 3D) —
+     reutilise la teinte doree deja etablie dans le jeu plutot que d'en
+     inventer une nouvelle. */
+  --accent-gold: #e8c15c;
+  /* Largeur commune du bloc Boutique/Vendre ET de l'encart Or au-dessus
+     (2026-08-14, demande d'Antoine : "je veux que l'encart Gold ait
+     EXACTEMENT la meme largeur que Boutique... n'hardcode pas deux largeurs
+     differentes"). UNE SEULE variable, lue par .shop-button ET .gold-hud —
+     changer la largeur du bloc Boutique/Vendre garde les deux synchronises
+     par construction. */
+  --shop-panel-width: 120px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Halo dore au survol (2026-08-14, demande d'Antoine, capture d'ecran a
+   l'appui : "cet effet orange sur tout les boutons lorsque l'on passe le
+   curseur par dessus") — l'effet visible sur "Continuer" dans sa capture
+   etait en realite l'anneau de focus PAR DEFAUT du navigateur (aucune regle
+   :hover ne le produisait), d'ou son apparition sur un seul bouton a la
+   fois plutot qu'au survol. Regle GENERIQUE sur la balise <button> plutot
+   que classe par classe : tout element cliquable de ce projet est deja un
+   <button> (verifie par recherche avant d'ecrire cette regle, aucun div a
+   handler de clic) — garantit "TOUS les boutons" sans risquer d'en oublier
+   un. :focus-visible aligne au meme style (coherence clavier/souris),
+   `outline: none` pour ne jamais empiler l'anneau natif par-dessus.
+   Exceptions explicites : .shop-undo-button et .danger-button, dont le
+   rouge EST l'identite visuelle complete (bordure + fond, action
+   d'annulation/irreversible) — un halo dore par-dessus brouillerait ce
+   signal, voir plus bas. */
+button:not(:disabled):hover,
+button:not(:disabled):focus-visible {
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 0 1px var(--accent-gold), 0 0 10px rgba(232, 193, 92, 0.55);
+  outline: none;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1b1f26;
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  color: var(--ink);
+  /* Empeche la surbrillance bleue de selection de texte sur toute
+     l'interface (2026-08-15, demande explicite d'Antoine) — `body` sert de
+     racine du jeu (aucun conteneur dedie, voir index.html : chaque overlay
+     s'attache directement a document.body) : menu titre, tous les
+     .screen-panel, inventaire, editeur en heritent tous par cascade CSS
+     normale. Les vrais <input>/<textarea> (curseurs de Parametres, champs
+     numeriques de l'editeur, champ de fichier "Charger une carte") restent
+     explicitement selectionnables/editables via la regle ci-dessous — sans
+     elle, impossible de positionner un curseur de texte dans un champ
+     numerique. N'affecte JAMAIS la delivrance d'evenements pointer/mouse
+     (double-clic de selection multiple en jeu, glisser-deposer d'unites/
+     objets d'inventaire) : user-select ne bloque que la surbrillance
+     visuelle du texte, jamais un evenement DOM. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+canvas {
+  display: block;
+  outline: none;
+}
+
+/* Empeche le "fantome" de glisser-deposer natif du navigateur sur les
+   icones d'objets (2026-08-14, itemIcons.ts) — sans ca, un clic-glisse
+   demarre par erreur une operation de drag HTML native sur l'<img> au lieu
+   du glisser-deposer du JEU (armement d'un objet d'inventaire, vente
+   d'unite). Purement une precaution : aucun <img> de ce projet n'est
+   actuellement glisse directement, mais le risque est le meme que pour la
+   selection de texte ci-dessus. */
+img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.debug-panel,
+.debug-help {
+  position: fixed;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  user-select: none;
+  backdrop-filter: blur(6px);
+}
+
+.debug-panel {
+  top: 12px;
+  left: 12px;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0 16px;
+  min-width: 150px;
+}
+
+.debug-panel .k {
+  color: var(--ink-dim);
+}
+
+.debug-panel .v {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.debug-help {
+  bottom: 12px;
+  left: 12px;
+  color: var(--ink-dim);
+}
+
+.debug-help b {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.debug-help b:first-child {
+  margin-top: 0;
+}
+
+/* Rappel discret pendant le placement d'un batiment achete (2026-08-17,
+   demande d'Antoine : "affiche une petite indication discrete") — meme
+   famille visuelle que .debug-help (fond semi-transparent, texte attenue),
+   centre en bas de l'ecran, juste au-dessus de .placement-panel pour ne
+   jamais le recouvrir. */
+.building-rotation-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--ink-dim);
+  pointer-events: none;
+  user-select: none;
+  backdrop-filter: blur(6px);
+  z-index: 20;
+}
+
+/* Instruction BLOQUANTE de debut de run (2026-08-18, placement obligatoire
+ * de la tour) — nettement plus prominente que le simple rappel discret
+ * ci-dessus : centree en haut de l'ecran, teinte doree (coherente avec le
+ * halo de survol des boutons, --accent-gold) pour signaler une action
+ * requise plutot qu'un rappel optionnel. */
+.tower-placement-banner {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 28px;
+  background: var(--panel);
+  border: 1px solid var(--accent-gold);
+  box-shadow: 0 0 16px rgba(232, 193, 92, 0.35);
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent-gold);
+  pointer-events: none;
+  user-select: none;
+  backdrop-filter: blur(6px);
+  z-index: 20;
+}
+
+.combat-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Barre de PV — refonte 2026-08-14 (largeur FIXE par unite, voir
+   ui/combatOverlay.ts createBar / config/constants.ts HEALTH_BAR_WIDTH_*).
+   Remplace l'ancien systeme de pips discrets (un carre par tranche de PV,
+   dont le nombre — et donc la LARGEUR — grandissait avec maxHp) : la
+   largeur du conteneur ne depend plus jamais des PV, seul le REMPLISSAGE
+   interne (.health-bar-fill) varie. */
+.health-bar {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px;
+  background: rgba(10, 12, 8, 0.65);
+  border-radius: 2px;
+  transform: translate(-50%, -100%);
+  /* Largeur posee par instance (voir combatOverlay.ts, createBar) — repli
+     de securite si jamais absente. */
+  width: var(--bar-width, 32px);
+}
+
+.health-bar-track {
+  position: relative;
+  width: 100%;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.health-bar-fill {
+  height: 100%;
+  background: #63e04a;
+  /* Largeur ecrite en JS a chaque frame (updateFill) — pas de transition
+     CSS ici, une barre de PV doit refleter l'etat REEL sans decalage. */
+}
+
+/* Trait de segment decoratif (2026-08-14, "un petit trait tous les 10 HP,
+   mais ne cree surtout pas 50 petits carres") — un simple repere visuel sur
+   le REMPLISSAGE, jamais un decoupage physique de la barre elle-meme. */
+.health-bar-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+/* Shield temporaire (Provocation de la Sentinelle, 2026-08-14) — fine barre
+   bleu clair sous la barre de PV, voir ui/combatOverlay.ts createBar/
+   updateShield. Reste TRES compact (demande explicite d'Antoine), masquee
+   par defaut (aucune unite sans Shield actif ne l'affiche). Largeur TOUJOURS
+   100% du conteneur a largeur fixe — ne l'allonge jamais. */
+.shield-bar {
+  width: 100%;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.shield-bar-fill {
+  height: 100%;
+  background: #8fd0ff;
+  box-shadow: 0 0 2px rgba(143, 208, 255, 0.7);
+}
+
+.miss-text {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  animation-name: miss-float;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+@keyframes miss-float {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -100%);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -160%);
+  }
+}
+
+.heal-text {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #63e04a;
+  animation-name: miss-float;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+/* Cible SECONDAIRE d'un soin en chaine (2026-08-13, boutique d'amelioration
+   "Parchemin de soin") — plus petit/discret que la cible principale, point
+   29 de la demande. */
+.heal-text--secondary {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.screen-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 16, 0.72);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+  /* Fondu generique (2026-08-09, demande d'Antoine : "sequencer proprement
+     les differentes phases") plutot qu'un bascule display:none/flex instantane
+     — display doit rester "flex" en permanence pour que l'opacite soit
+     transitionnable ; pointer-events:none evite de bloquer les clics sur le
+     canvas (placement/tir) tant que l'ecran n'est pas reellement affiche. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.screen-overlay--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.screen-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 32px 40px;
+  min-width: 280px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+}
+
+.screen-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+.screen-text {
+  margin: 0;
+  max-width: 260px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+  text-align: center;
+}
+
+.screen-button {
+  min-width: 180px;
+  padding: 10px 24px;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  color: var(--ink);
+  background: rgba(231, 227, 216, 0.08);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.screen-button:hover {
+  background: rgba(231, 227, 216, 0.16);
+}
+
+/* Bouton d'achat boutique : nom a gauche, cout + icone piece a droite
+   (2026-08-11, demande d'Antoine : "l'icône de gold à côté de chaque
+   prix"). */
+.shop-item-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* Ligne d'achat d'une unite : bouton simple + "×5" (2026-08-13, demande
+   d'Antoine : "plus confortable pour acheter plusieurs unités"). */
+.shop-unit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.shop-unit-row .shop-item-button {
+  flex: 1;
+  min-width: 0;
+}
+
+.shop-x5-button {
+  flex: none;
+  min-width: 0;
+  padding: 10px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  background: rgba(231, 227, 216, 0.08);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.shop-x5-button:hover:not(:disabled) {
+  background: rgba(231, 227, 216, 0.16);
+}
+
+/* Nom + icone de l'objet colles l'un a l'autre (2026-08-14, voir
+   screens.ts, shopItemButton) — meme principe que .shop-item-price-group. */
+.shop-item-name-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shop-item-icon {
+  flex: none;
+  display: block;
+}
+
+/* Prix + icone colles l'un a l'autre (voir screens.ts, shopItemButton) —
+   meme gap que .shop-gold juste en dessous, pour un espacement uniforme
+   entre chaque montant et son icone de piece dans toute la boutique. */
+.shop-item-price-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shop-item-price {
+  font-weight: 700;
+  color: #e8c15c;
+}
+
+/* "Annuler le dernier achat" (2026-08-13) — style secondaire/discret, teinte
+   rougeatre (coherente avec une action d'annulation/remboursement) plutot
+   que le bleu neutre des autres boutons de la boutique. */
+.shop-undo-button {
+  min-width: 0;
+  padding: 6px 14px;
+  font-size: 11px;
+  color: rgba(231, 227, 216, 0.75);
+  border-color: rgba(224, 90, 74, 0.4);
+}
+
+/* Specificite (3 classes/pseudo-classes) volontairement superieure a la
+   regle generique button:hover ci-dessus : garde le rouge (identite
+   "annulation") intact au survol plutot qu'un halo dore qui brouillerait
+   le signal. */
+.shop-undo-button:hover:not(:disabled) {
+  background: rgba(224, 90, 74, 0.14);
+  border-color: rgba(224, 90, 74, 0.7);
+  box-shadow: 0 0 0 1px rgba(224, 90, 74, 0.7), 0 0 10px rgba(224, 74, 74, 0.35);
+}
+
+/* Bouton de DANGER FORT (2026-08-16, demande d'Antoine : confirmation de
+   sortie de run — "fond rouge sombre / rouge, bordure rouge, hover plus
+   lumineux, texte tres lisible... doit clairement se distinguer du bouton
+   Annuler"). Volontairement plus appuye que les nuances subtiles deja
+   existantes (.shop-undo-button/.editor-button--danger, un simple leger
+   tint) : le fond doit se lire comme "action irreversible" au premier coup
+   d'oeil, pas seulement au survol. Nom GENERIQUE (pas ".quit-run-button")
+   pour rester reutilisable par une future action tout aussi dangereuse,
+   demande explicite : "ne cree pas une deuxieme architecture de popup". */
+.danger-button {
+  background: #5a1414;
+  border-color: #c23b3b;
+  color: #f5e6e6;
+}
+
+/* Meme specificite/motif que .shop-undo-button:hover ci-dessus — garde le
+   rouge (jamais un halo dore) au survol, juste plus lumineux qu'au repos. */
+.danger-button:hover:not(:disabled),
+.danger-button:focus-visible:not(:disabled) {
+  background: #8a1f1f;
+  border-color: #ff6b6b;
+  box-shadow: 0 0 0 1px #ff6b6b, 0 0 12px rgba(255, 90, 90, 0.5);
+  outline: none;
+}
+
+/* Bouton de debug "+1 point de talent" (2026-08-14, demande explicite
+   d'Antoine, "ce bouton sera retiré, c'est juste pour tester les talents")
+   — bordure en tirets + teinte violette pour se distinguer visuellement de
+   tout bouton de gameplay reel, signal clair "temporaire". */
+.talent-debug-button {
+  min-width: 0;
+  padding: 6px 14px;
+  font-size: 11px;
+  color: rgba(200, 170, 255, 0.85);
+  border-style: dashed;
+  border-color: rgba(170, 130, 255, 0.5);
+}
+
+.talent-debug-button:hover:not(:disabled) {
+  background: rgba(170, 130, 255, 0.12);
+  border-color: rgba(170, 130, 255, 0.8);
+  box-shadow: 0 0 0 1px rgba(170, 130, 255, 0.8), 0 0 10px rgba(170, 130, 255, 0.35);
+}
+
+/* Bouton de DEBUG "+100 or" (2026-08-17) — meme famille visuelle que
+   .talent-debug-button (bordure en tirets, teinte distincte de couleur) —
+   A RETIRER en meme temps que le bouton lui-meme (voir ui/screens.ts). */
+.shop-debug-button {
+  min-width: 0;
+  padding: 6px 14px;
+  font-size: 11px;
+  color: rgba(255, 210, 130, 0.85);
+  border-style: dashed;
+  border-color: rgba(255, 190, 80, 0.5);
+}
+
+.shop-debug-button:hover:not(:disabled) {
+  background: rgba(255, 190, 80, 0.12);
+  border-color: rgba(255, 190, 80, 0.8);
+  box-shadow: 0 0 0 1px rgba(255, 190, 80, 0.8), 0 0 10px rgba(255, 190, 80, 0.35);
+}
+
+.shop-gold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* --- Onglets de la boutique (2026-08-11, demande d'Antoine : "classer les
+   objets de la boutique dans des fenêtres distinctes") --- */
+
+.shop-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.shop-tab {
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.shop-tab:hover {
+  color: var(--ink);
+}
+
+.shop-tab--active {
+  color: var(--ink);
+  background: rgba(231, 227, 216, 0.12);
+  border-color: var(--ink-dim);
+}
+
+.shop-tab-content {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.shop-tab-content--active {
+  display: flex;
+}
+
+/* Description sous un bouton d'achat (2026-08-14, Nova de glace) — plus
+   petite/attenuee que le texte normal, ne pousse jamais le bouton lui-meme
+   hors de sa taille habituelle. */
+.shop-item-description {
+  font-size: 12px;
+  opacity: 0.75;
+  margin: -6px 0 0;
+  text-align: center;
+  max-width: 260px;
+}
+
+/* --- Boutique d'amelioration permanente des unites (2026-08-13, demande
+   d'Antoine) — une carte generique par unite ameliorable, voir ui/screens.ts
+   buildUnitUpgradeCard/data/unitUpgrades.ts. --- */
+
+.screen-unit-upgrade-shop .screen-panel {
+  min-width: 640px;
+  max-width: 90vw;
+}
+
+.upgrade-cards {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  margin: 4px 0;
+}
+
+.upgrade-card {
+  width: 190px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  background: rgba(231, 227, 216, 0.06);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  text-align: left;
+}
+
+.upgrade-card-name {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.upgrade-card-line {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* Ligne "Prochaine amélioration" — mise en avant (voir point 27 de la
+   demande : rendre tres clair qu'un achat va franchir un palier d'attaque). */
+.upgrade-card-next {
+  margin-top: 4px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.upgrade-card-dim {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.upgrade-card-buy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.upgrade-card-button {
+  min-width: 0;
+  padding: 6px 14px;
+  font-size: 11px;
+}
+
+.placement-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  backdrop-filter: blur(6px);
+  z-index: 5;
+}
+
+.placement-validate {
+  min-width: 220px;
+  padding: 10px 24px;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  color: var(--ink);
+  background: rgba(99, 224, 74, 0.14);
+  border: 1px solid rgba(99, 224, 74, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.placement-validate:hover {
+  background: rgba(99, 224, 74, 0.24);
+}
+
+.arrow-cooldown {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 160px;
+  height: 10px;
+  padding: 2px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  z-index: 5;
+}
+
+.arrow-cooldown-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: rgba(232, 193, 92, 0.5);
+  transition: width 0.05s linear;
+}
+
+.arrow-cooldown--ready .arrow-cooldown-fill {
+  background: #e8c15c;
+}
+
+/* Indicateur "Vague N" (voir ui/waveIndicator.ts) — coin haut-centre, jamais
+   superpose au panneau de debug (haut-gauche) ni a la boutique/vente
+   (droite). */
+.wave-indicator {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  z-index: 5;
+}
+
+/* --- Boutique + vente d'unites pendant le placement (chantier economie) --- */
+
+.sell-zone-container {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  /* Au-dessus de .screen-overlay (z-index 10, voir plus bas) : demande
+     d'Antoine, 2026-08-10, "je voudrais que l'on puisse continuer a appuyer
+     sur Boutique pour en sortir rapidement" — le bouton doit rester
+     cliquable PAR-DESSUS la boutique elle-meme une fois ouverte pour la
+     refermer d'un clic, pas seulement via "Continuer". Un enfant ne peut
+     jamais depasser le z-index de son PARENT vis-a-vis d'un frere de ce
+     parent (regle de contexte d'empilement CSS) : c'est le conteneur entier
+     qu'il faut remonter, pas juste le bouton. Sans consequence sur "Vendre" :
+     le canvas reste couvert par le fond de la boutique, impossible d'y
+     demarrer un glisser d'unite pendant qu'elle est ouverte. */
+  z-index: 15;
+}
+
+/* Pendant la bataille (2026-08-14) : reste visible mais inutilisable plutot
+   que de disparaitre — voir sellZone.ts, setEnabled. */
+.sell-zone-container--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.shop-button {
+  width: var(--shop-panel-width);
+  padding: 10px 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.shop-button:hover {
+  background: rgba(231, 227, 216, 0.16);
+}
+
+/* --- Affichage permanent de l'or (2026-08-11) — voir goldHud.ts. Pose
+   au-dessus du bloc Boutique/Vendre (bottom:16px, hauteur totale du bloc
+   ~112px + un peu de marge) : bottom:140px, meme colonne (right:16px). --- */
+
+.gold-hud {
+  position: fixed;
+  right: 16px;
+  bottom: 140px;
+  /* Largeur/alignement/rayon de bordure partages avec .shop-button
+     (2026-08-14, demande d'Antoine — voir --shop-panel-width dans :root) :
+     meme colonne droite (right:16px), meme largeur, memes bords, contenu
+     CENTRE comme le texte d'un bouton plutot qu'aligne a gauche. */
+  width: var(--shop-panel-width);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  z-index: 5;
+}
+
+.gold-hud-icon {
+  display: block;
+}
+
+.gold-hud-amount {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #e8c15c;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Icones "pixel art" generees par code (2026-08-11) — voir pixelIcon.ts.
+   image-rendering: pixelated evite tout lissage lors de la mise a l'echelle
+   du SVG (le style bloc n'a de sens que si les bords restent nets). --- */
+
+.pixel-icon {
+  display: inline-block;
+  vertical-align: middle;
+  image-rendering: pixelated;
+}
+
+/* Texte flottant "+N or" au-dessus d'une unite ennemie qui vient d'etre
+   tuee (2026-08-11, demande d'Antoine) — meme fabrique que miss-text/
+   heal-text (voir combatOverlay.ts, spawnFloatingText), teinte doree comme
+   coin-popup--gain. */
+.gold-text {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #e8c15c;
+  animation-name: miss-float;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+/* --- Inventaire (chantier inventaire, 2026-08-09) --- */
+/* A gauche du bloc Boutique/Vendre (right:16px, largeur 120px) : 16+120+12 = 148. */
+
+.inventory-bar {
+  position: fixed;
+  right: 148px;
+  bottom: 16px;
+  display: none;
+  flex-wrap: wrap;
+  /* Capacite doublee (2026-08-14, 6 -> 12) : s'enroule sur plusieurs lignes
+     de 6 emplacements plutot que de retrecir les icones (demande explicite
+     d'Antoine) — largeur figee a exactement 6 colonnes (6 * 48px + 5 * 6px
+     de gap), la grille grandit vers le HAUT depuis l'ancre bottom:16px au
+     fur et a mesure que des lignes supplementaires apparaissent. */
+  max-width: 318px;
+  justify-content: flex-end;
+  gap: 6px;
+  z-index: 5;
+}
+
+.inventory-slot {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Pastille de quantite (2026-08-14, chantier stack — voir inventoryBar.ts,
+   buildDisplayStacks) : coin bas-droit, seulement quand une pile contient
+   plus d'un exemplaire. */
+.inventory-slot-count {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+  background: rgba(20, 18, 14, 0.85);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  padding: 1px 3px;
+  pointer-events: none;
+}
+
+.inventory-slot:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.inventory-slot:not(:disabled):hover {
+  background: rgba(231, 227, 216, 0.16);
+}
+
+.inventory-slot--armed {
+  border-color: rgba(99, 224, 74, 0.7);
+  background: rgba(99, 224, 74, 0.16);
+}
+
+.inventory-slot--enter svg {
+  animation: inventory-slot-enter 0.25s ease-out;
+}
+
+@keyframes inventory-slot-enter {
+  from {
+    transform: translateX(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.inventory-cursor-icon {
+  position: fixed;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px rgba(99, 224, 74, 0.7));
+  z-index: 7;
+}
+
+.sell-zone {
+  width: var(--shop-panel-width);
+  height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  background: var(--panel);
+  border: 1px dashed var(--edge);
+  border-radius: 6px;
+  /* Desormais aussi un bouton cliquable direct (2026-08-14, voir sellZone.ts
+     setSelection) en plus d'une zone de drop — curseur pointeur pour le
+     signaler, sauf quand rien n'est selectionnable (.sell-zone--inactive). */
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+/* Rien a vendre (2026-08-14) : bouton visuellement attenue/desactive — voir
+   sellZone.ts, le clic ne fait rien tant que cette classe est presente. */
+.sell-zone--inactive {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.sell-zone-label {
+  line-height: 1.2;
+}
+
+/* Montant total de la vente en cours (2026-08-14, "VENDRE (5) +10 Gold",
+   point 29 de la demande — facultatif mais garde car lisible) — ligne
+   secondaire plus discrete, vide (donc invisible) tant qu'aucune unite n'est
+   selectionnee. */
+.sell-zone-amount {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--accent-gold);
+  min-height: 12px;
+}
+
+.sell-zone--armed {
+  color: #e05a5a;
+  background: rgba(224, 74, 74, 0.16);
+  border-color: rgba(224, 74, 74, 0.5);
+}
+
+.sell-zone--armed .sell-zone-amount {
+  color: #e05a5a;
+}
+
+.sell-ghost {
+  position: fixed;
+  display: none;
+  transform: translate(-50%, -50%);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: rgba(231, 227, 216, 0.16);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 6;
+}
+
+/* --- Rectangle de selection multiple pendant le placement (style RTS) --- */
+
+.selection-box {
+  position: fixed;
+  display: none;
+  background: rgba(99, 224, 74, 0.14);
+  border: 1px solid rgba(99, 224, 74, 0.6);
+  pointer-events: none;
+  z-index: 6;
+}
+
+.coin-popup {
+  position: fixed;
+  transform: translate(-50%, 0);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 20;
+  animation: coin-popup-rise 0.9s ease-out forwards;
+}
+
+.coin-popup--gain {
+  color: #e8c15c;
+}
+
+.coin-popup--loss {
+  color: #e05a5a;
+}
+
+@keyframes coin-popup-rise {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -32px);
+  }
+}
+
+/* --- Editeur de maps (etape 2, chantier en cours — voir CLAUDE.md) --- */
+
+.editor-ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.editor-toolbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--edge);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+
+.editor-toolbar-title {
+  font-size: 11px;
+  color: var(--ink-dim);
+  letter-spacing: 0.02em;
+}
+
+.editor-size-input {
+  width: 52px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: rgba(231, 227, 216, 0.08);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+}
+
+.editor-asset-browser {
+  position: fixed;
+  top: 52px;
+  bottom: 40px;
+  left: 0;
+  width: 200px;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--panel);
+  border-right: 1px solid var(--edge);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+
+.editor-asset-group {
+  margin: 16px 0 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--edge);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink);
+}
+
+.editor-asset-group:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.editor-asset-category {
+  margin: 12px 0 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+}
+
+.editor-asset-category:first-child {
+  margin-top: 0;
+}
+
+.editor-asset-card {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: var(--ink);
+  background: rgba(231, 227, 216, 0.06);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.editor-asset-card:hover {
+  background: rgba(231, 227, 216, 0.14);
+}
+
+.editor-properties {
+  position: fixed;
+  top: 52px;
+  bottom: 40px;
+  right: 0;
+  width: 220px;
+  padding: 12px;
+  background: var(--panel);
+  border-left: 1px solid var(--edge);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+
+.editor-properties-title {
+  margin-bottom: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+}
+
+.editor-properties-body {
+  margin-bottom: 12px;
+}
+
+.editor-properties-line {
+  margin-bottom: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.editor-button {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: rgba(231, 227, 216, 0.08);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.editor-button:hover {
+  background: rgba(231, 227, 216, 0.16);
+}
+
+.editor-button--danger {
+  background: rgba(224, 74, 74, 0.14);
+  border-color: rgba(224, 74, 74, 0.4);
+}
+
+.editor-button--danger:hover {
+  background: rgba(224, 74, 74, 0.24);
+}
+
+.editor-status {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 10px 14px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  background: var(--panel);
+  border-top: 1px solid var(--edge);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+
+/* Sequence de fin de vague (voir ui/waveTransition.ts) — banniere sur le
+   champ de bataille encore visible, puis rideau noir plein ecran par-dessus. */
+.wave-transition-banner {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 350ms ease;
+  z-index: 50;
+}
+
+.wave-transition-banner--visible {
+  opacity: 1;
+}
+
+.wave-transition-curtain {
+  position: fixed;
+  inset: 0;
+  background: rgb(10, 12, 16);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 400ms ease;
+  z-index: 100;
+}
+
+.wave-transition-curtain--visible {
+  opacity: 1;
+  /* Bloque les clics tant que l'ecran est masque, pour eviter un clic
+     "a travers" le rideau sur l'ecran qui apparait juste en dessous. */
+  pointer-events: auto;
+}
+
+.talent-point-toast {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translate(-50%, -8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  max-width: 420px;
+  padding: 9px 20px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid #e8c15c;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 300ms ease, transform 300ms ease;
+  z-index: 20;
+}
+
+.talent-point-toast--visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.talent-point-toast-headline {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #e8c15c;
+}
+
+/* Direction + resume de l'arbre (2026-08-14) — plus discret que le titre,
+   voir TalentPointToast.show. */
+.talent-point-toast-detail {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+  opacity: 0.8;
+}
+
+/* Toast "nouvelle unité débloquée" (2026-08-15) — voir ui/unitUnlockToast.ts.
+   Meme patron que .talent-point-toast (fondu haut->bas, jamais recree) mais
+   volontairement plus discret/simple : une seule ligne, teinte distincte
+   (playerZone, "nouvelle capacite" plutot que "ressource gagnee" — evite la
+   confusion avec le toast de point de talent, qui reste dore). */
+.unit-unlock-toast {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translate(-50%, -8px);
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
+  color: var(--ink);
+  background: var(--panel);
+  /* Meme bleu que COLORS.playerZone (cote 3D) — pas de var CSS partagee avec
+     le rendu Three.js, valeur reprise telle quelle pour rester coherente. */
+  border: 1px solid #4a90d9;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 20;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.unit-unlock-toast--visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* Arbre de talents — DEUXIEME refonte visuelle 2026-08-14 (demande complete
+   d'Antoine, ~37 sections) : le premier essai (une ligne flexbox par
+   palier, `justify-content: center`) traitait chaque palier comme une
+   simple LISTE centree, perdant la relation "cette carte est centree sous
+   SON parent". Remplace par un positionnement ABSOLU (une seule strategie
+   de layout, section 34 — plus de flex generique pour les cartes) calcule
+   par un vrai algorithme d'arbre en JS, voir ui/talentTreeLayout.ts et
+   ui/screens.ts, buildTalentTree — toutes les coordonnees ci-dessous sont
+   donc posees en `left`/`top` inline par le JS, jamais par ces regles CSS. */
+.screen-talents .screen-panel {
+  /* Plus de largeur FIXE dediee a un nombre de branches — l'arbre peut
+     defiler horizontalement en interne si un palier contient beaucoup de
+     talents (voir .talent-tree-scroll), donc le panneau peut rester large
+     sans jamais risquer de deborder de l'ecran. */
+  width: min(96vw, 1200px);
+  max-width: 96vw;
+}
+
+/* Conteneur EXTERIEUR : la zone qui defile horizontalement (.talent-tree-scroll)
+   a gauche, la colonne de libelles de palier (.talent-tree-tier-labels) a
+   DROITE, rapprochee du contenu (gap reduit — section 18 : "je ne veux pas
+   qu'ils donnent l'impression d'être dans une colonne complètement
+   séparée") — cette colonne reste HORS de la zone de scroll, donc toujours
+   visible meme si l'utilisateur fait defiler une ligne tres large (section
+   24). Les deux partagent la MEME hauteur (`align-items: stretch` par
+   defaut), necessaire pour que le `top` absolu de chaque libelle (calcule
+   en JS depuis le meme repere Y que les cartes) reste correct. */
+.talent-tree-outer {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  max-width: 100%;
+}
+
+/* Overflow-x:auto SEULEMENT (section 17 : scroll horizontal si un palier
+   deborde) — AUCUN padding-bottom artificiel ici (2026-08-14, correctif :
+   un premier essai avec 100px de marge basse, pensee pour laisser de la
+   place a l'ancienne info-bulle en position absolue, creait un vrai
+   scrollbar VERTICAL INTERNE indesirable des que le contenu depassait la
+   hauteur naturelle du conteneur — exactement le bug remonte par Antoine,
+   "je ne veux pas cette barre"). Le tooltip est desormais `position: fixed`
+   (voir .talent-tooltip) : il n'a plus besoin d'aucune marge reservee ici.
+   Un petit padding reste pour laisser un peu de place a un eventuel
+   scrollbar horizontal sans qu'il touche le bord des cartes. */
+.talent-tree-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 14px;
+}
+
+/* Position:relative pour ancrer les enfants `position: absolute` (cartes +
+   SVG des connecteurs) — largeur/hauteur posees en JS depuis
+   layout.totalWidth/totalHeight (ui/talentTreeLayout.ts), donc TOUJOURS
+   exactement la taille reelle du contenu, jamais une valeur figee ici. */
+.talent-tree-canvas {
+  position: relative;
+}
+
+/* Un seul SVG superpose a TOUT l'arbre — chaque relation parent -> enfant
+   (y compris racine -> palier I) est dessinee comme un edge INDEPENDANT
+   par ui/screens.ts, buildTalentTree/drawEdges (jamais une ligne globale
+   partagee par tout un palier, section 9-13) — aucune coordonnee ni
+   dimension fixee ici, tout vient du JS. */
+.talent-tree-connectors {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* Colonne de libelles "Palier N", HORS de la zone de scroll horizontal —
+   largeur fixe reduite (rapprochee du contenu, voir .talent-tree-outer),
+   position relative pour que chaque libelle (position absolue, `top`
+   calcule en JS au meme Y que sa ligne de cartes) se positionne par
+   rapport a cette colonne. */
+.talent-tree-tier-labels {
+  position: relative;
+  width: 74px;
+  flex-shrink: 0;
+}
+
+/* Style sobre demande explicitement (section 8) : texte seul, legerement
+   desature, PAS un bouton/encadre. */
+.talent-tier-row-label {
+  position: absolute;
+  left: 0;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+/* Carte de talent — position ABSOLUE (left/top poses en JS depuis
+   ui/talentTreeLayout.ts), LARGEUR ET HAUTEUR FIXES (2026-08-14, section 8 :
+   "je préfère des cartes ayant une hauteur uniforme... pas quelques pixels
+   de différence dus à leur contenu") — `width`/`height` DOIVENT rester
+   synchronises avec TALENT_TREE_LAYOUT_OPTIONS.cardWidth/cardHeight dans
+   ui/screens.ts (140/72), commente aux deux endroits faute de constante
+   partagee CSS<->JS dans ce projet. `overflow: hidden` en filet de securite
+   si un nom de talent venait a etre plus long que prevu, plutot qu'un
+   debordement visuel casse le layout absolu des voisins. */
+.talent-node {
+  position: absolute;
+  z-index: 1;
+  width: 140px;
+  height: 72px;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: rgba(231, 227, 216, 0.06);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.talent-node-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  /* Le nom peut revenir a la ligne (carte a hauteur fixe, voir ci-dessus) —
+     jamais plus de 2 lignes avant d'etre coupe proprement (overflow:hidden
+     du parent), pour ne jamais pousser .talent-node-cost hors de la carte. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Tooltip PARTAGE, `position: fixed` (2026-08-14, demande explicite
+   d'Antoine : "le tooltip ne doit pas pousser les cartes... il doit
+   flotter... reste entièrement dans la fenêtre") — un seul element reutilise
+   pour n'importe quelle carte survolee (voir ui/screens.ts,
+   showTalentTooltip/hideTalentTooltip), positionne dynamiquement en JS
+   (droite -> gauche -> au-dessus/en dessous selon la place disponible).
+   Remplace l'ancien `.talent-node-desc` (position absolue relative a la
+   carte, qui pouvait recouvrir les cartes voisines). */
+.talent-tooltip {
+  display: none;
+  position: fixed;
+  width: 220px;
+  padding: 8px 10px;
+  /* Fond NOIR opaque, texte BLANC (2026-08-11, demande d'Antoine : "sans
+     transparence") — var(--panel)/var(--ink-dim) ont de l'alpha (voir
+     :root) et se fondaient mal avec le fond du plateau derriere. */
+  background: #000000;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: #ffffff;
+  text-align: left;
+  /* Au-dessus de TOUT (menus, panneaux d'ecran...) — un tooltip flottant ne
+     doit jamais se retrouver sous un autre element de l'interface. */
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.talent-tooltip--visible {
+  display: block;
+}
+
+.talent-tooltip-name {
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.talent-node-cost {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* Verrouille : prerequis manquant ou pas assez de points — jamais cliquable. */
+.talent-node--locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Achetable maintenant : prerequis rempli ET assez de points — meme bleu que
+   COLORS.playerZone (0x4a90d9), deja la teinte "case du joueur" ailleurs. */
+.talent-node--unlockable {
+  border-color: rgba(74, 144, 217, 0.7);
+  background: rgba(74, 144, 217, 0.14);
+}
+
+.talent-node--unlockable:hover {
+  background: rgba(74, 144, 217, 0.24);
+}
+
+/* Deja debloque : jamais recliquable (voir refreshTalents, disabled = true). */
+.talent-node--unlocked {
+  border-color: rgba(99, 224, 74, 0.6);
+  background: rgba(99, 224, 74, 0.12);
+  cursor: default;
+}
+
+/* Ecran Parametres (2026-08-12) — curseurs et case a cocher stylises, pas
+   l'apparence brute du navigateur (demande explicite d'Antoine). Meme bleu
+   d'accent que .talent-node--unlockable (COLORS.playerZone) pour rester
+   coherent avec le reste de l'interface. */
+.screen-settings .screen-panel {
+  min-width: 340px;
+  max-width: 90vw;
+}
+
+.settings-slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.settings-slider-label-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.settings-slider-value {
+  color: var(--ink-dim);
+  min-width: 42px;
+  text-align: right;
+}
+
+/* Piste + poignet entierement redessines (::-webkit/::-moz) — un
+   <input type=range> natif reste dessous pour la souris/le tactile
+   "gratuitement", mais ne ressemble plus a un controle de navigateur. */
+.settings-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+}
+
+.settings-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(231, 227, 216, 0.12);
+  border: 1px solid var(--edge);
+}
+
+.settings-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(231, 227, 216, 0.12);
+  border: 1px solid var(--edge);
+}
+
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  margin-top: -7px;
+  background: rgba(74, 144, 217, 0.9);
+  border: 2px solid var(--ink);
+  cursor: pointer;
+}
+
+.settings-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(74, 144, 217, 0.9);
+  border: 2px solid var(--ink);
+  cursor: pointer;
+}
+
+.settings-slider:hover::-webkit-slider-thumb {
+  background: rgba(74, 144, 217, 1);
+}
+
+.settings-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-checkbox-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.settings-checkbox-box {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: rgba(231, 227, 216, 0.06);
+  position: relative;
+}
+
+.settings-checkbox-input:checked ~ .settings-checkbox-box {
+  background: rgba(74, 144, 217, 0.9);
+  border-color: rgba(74, 144, 217, 0.9);
+}
+
+.settings-checkbox-input:checked ~ .settings-checkbox-box::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--ink);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.settings-checkbox-label {
+  color: var(--ink);
+  font-size: 13px;
+}

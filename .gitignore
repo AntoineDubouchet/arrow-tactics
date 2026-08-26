@@ -1,0 +1,10 @@
+# Dépendances et build
+node_modules/
+dist/
+
+# Fichiers OS
+.DS_Store
+Thumbs.db
+
+# Config Claude Code spécifique à cette machine (pas à partager/versionner)
+.claude/settings.local.json
