@@ -1623,12 +1623,34 @@ function startPlacement(): void {
   }
 }
 
+/** Remet a zero l'etat de placement/occupation qui vit hors de RunState, pour
+ *  qu'une nouvelle run (et d'abord le placement de la tour, qui passe par
+ *  isValidPlacementTile) n'herite d'aucune case occupee par la run
+ *  precedente. A appeler apres `currentRun = createNewRun(...)` :
+ *  refreshOwnedBuildingViews reconstruit depuis la nouvelle run. */
+function resetRunPlacementState(): void {
+  placementSlots = [];
+  clearSelection();
+  lastUnitClickSlot = null;
+  lastUnitPurchase = null;
+  cancelUnitDrag();
+  cancelGroundDrag();
+  cancelBuildingPlacement();
+  selectedBuildingIndex = null;
+  updateBuildingSelectionRing();
+  disarmItem();
+  playerPreview.clear();
+  enemyPreview.clear();
+  refreshOwnedBuildingViews();
+}
+
 /** Clic sur "Jouer" au menu principal : demarre une run TOUTE NEUVE (or et
  *  armee reinitialises, voir createNewRun) avant d'entrer en placement —
  *  contrairement a "Continuer" depuis la boutique, qui reutilise la run en
  *  cours pour passer a la vague suivante (voir startPlacement seul). */
 function startNewRun(): void {
   currentRun = createNewRun(computeStartingGoldBonus(metaProgress), effectivePlayerUnitMaxHp('fantassin', metaProgress));
+  resetRunPlacementState();
   // Une run PRECEDENTE peut avoir agrandi le plateau (2026-08-18, voir
   // applyMapExpansionForCompletedWave) — currentMap est un module partage
   // entre runs, currentRun.mapExpansion vient de repartir de zero ci-dessus
@@ -4284,6 +4306,8 @@ function quitToMenu(): void {
   cancelUnitDrag();
   cancelGroundDrag();
   clearSelection();
+  // L'occupation de la run abandonnee ne doit pas survivre au retour menu.
+  placementSlots = [];
   playerPreview.clear();
   enemyPreview.clear();
   world.clear();
