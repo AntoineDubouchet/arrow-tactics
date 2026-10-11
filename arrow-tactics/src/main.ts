@@ -635,6 +635,15 @@ async function resetGameBoardToDefaultMap(): Promise<void> {
  *  Vide pendant le placement (aucune Entity n'existe encore). */
 const buildingViewsByEntityId = new Map<number, BuildingView>();
 
+/** Flash blanc de degats pour n'importe quelle entite touchee : batiment
+ *  gameplay (BuildingView) ou unite (UnitViews, qui ne connait pas les
+ *  batiments). Point d'entree unique pour toutes les sources de degats. */
+function playHitFlash(entityId: number): void {
+  const buildingView = buildingViewsByEntityId.get(entityId);
+  if (buildingView) buildingView.playHit();
+  else unitViews.playHit(entityId);
+}
+
 /** Vrai tant qu'aucun camp n'a encore ete elimine sur la bataille en cours. */
 let battleOver = false;
 
@@ -3717,11 +3726,7 @@ const loop = new Loop(
       // de HP_PER_PIP) de la barre de PV. Batiments gameplay (2026-08-16) :
       // routes vers BuildingView plutot que UnitViews (qui ne les connait
       // pas — pas d'effet, pas d'erreur, simple id absent de sa propre Map).
-      if (event.result === 'hit') {
-        const bv = buildingViewsByEntityId.get(target.id);
-        if (bv) bv.playHit();
-        else unitViews.playHit(target.id);
-      }
+      if (event.result === 'hit') playHitFlash(target.id);
 
       // Talent "Aux petits oignons" (specialisation Soigneur, 2026-08-11 —
       // seuil refondu le 2026-08-15, demande explicite d'Antoine) : declenche
@@ -3776,13 +3781,13 @@ const loop = new Loop(
     // ruee elle-meme (deplacement direct, deja tres rapide) fait l'essentiel
     // du travail de lisibilite ("accélération très nette").
     for (const event of world.abilityEvents) {
-      if (event.type === 'charge-impact') unitViews.playHit(event.targetId);
+      if (event.type === 'charge-impact') playHitFlash(event.targetId);
       // Boule de feu du Mage (2026-08-11) : meme flash blanc que tout autre
       // impact, applique a CHAQUE cible touchee dans le rayon (pas seulement
       // la position visee) + l'onde/flash au sol (voir FireballView).
       if (event.type === 'blast-impact') {
         vfxManager.spawn('fireballImpact', { x: event.x, z: event.z, radiusTiles: event.radiusTiles });
-        for (const id of event.hitIds) unitViews.playHit(id);
+        for (const id of event.hitIds) playHitFlash(id);
       }
       // Provocation de la Sentinelle (2026-08-14) : geste procedural sur la
       // Sentinelle elle-meme (voir UnitViews.playTaunt — priorite sur une
@@ -3801,7 +3806,7 @@ const loop = new Loop(
     // flash blanc que tout autre impact + petit impact violet SOBRE (voir
     // ShadowProjectileView, "pas de grosse explosion").
     for (const event of world.shadowProjectileEvents) {
-      unitViews.playHit(event.targetId);
+      playHitFlash(event.targetId);
       vfxManager.spawn('shadowImpact', { x: event.x, z: event.z });
     }
 
@@ -3814,7 +3819,7 @@ const loop = new Loop(
     // creation. Un tick sans aucune cible dans le rayon ne declenche aucun
     // flash (hitIds vide).
     for (const event of world.areaEffectEvents) {
-      for (const id of event.hitIds) unitViews.playHit(id);
+      for (const id of event.hitIds) playHitFlash(id);
     }
 
     // Mine (talent "Le temps, c'est de l'argent", 2026-08-14) : or genere en
@@ -4098,7 +4103,7 @@ const loop = new Loop(
         // resolution EST au moment de l'arrivee visuelle du trait
         // (stepPlayerArrow attend la fin du vol simule), donc pas de
         // decalage a corriger contrairement au combat automatique.
-        unitViews.playHit(event.targetId);
+        playHitFlash(event.targetId);
       } else {
         combatOverlay.spawnMissText(event.x, event.z);
       }
