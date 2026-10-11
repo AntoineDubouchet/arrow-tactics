@@ -54,6 +54,7 @@ import {
   buildUnitGhost,
   buildUnitView,
   createSelectionRing as createEditorSelectionRing,
+  createSelectionRingHitArea,
 } from './editor/editorScene';
 import { EditorUI } from './editor/editorUI';
 import { downloadMapDef, exportMapDef, loadMapDefFromFile } from './editor/mapSerializer';
@@ -1800,6 +1801,10 @@ function rebuildEditorBoard(): void {
 const editorSelectionRing = createEditorSelectionRing(1);
 editorSelectionRing.visible = false;
 renderer.scene.add(editorSelectionRing);
+// Zone de saisie (invisible, plus large que le trait) qui fait de l'anneau la
+// poignee de rotation d'un decor selectionne — voir tryStartRingRotate.
+const editorRingHitArea = createSelectionRingHitArea();
+editorSelectionRing.add(editorRingHitArea);
 
 /**
  * Historique d'annulation de l'éditeur (2026-08-16, Part U de la demande) —
@@ -1818,15 +1823,16 @@ const editorHistory = new EditorHistory();
  * demande — "si TransformControls est déjà disponible/facile à intégrer,
  * utilise-le proprement"). Attaché UNIQUEMENT à l'obstacle sélectionné (voir
  * refreshEditorObjects) — jamais à une unité, qui reste grid-snappée par
- * clic. Mode par défaut 'translate' (W), 'rotate' (E) — voir le listener
- * clavier plus bas ; seul l'axe Y est actif en rotation (silhouettes
- * verticales, aucun besoin de basculer sur les autres axes), seul le plan
- * XZ est actif en translation (les décors restent au sol, jamais soulevés).
+ * clic. Toujours en translation, plan XZ seulement (les décors restent au
+ * sol, jamais soulevés) : la rotation passe par l'anneau de sélection (voir
+ * ringRotateDrag) et Ctrl+molette, pas par un mode du gizmo.
  */
 const transformControls = new TransformControls(renderer.camera, canvas);
 transformControls.size = 0.65;
+transformControls.showY = false;
+transformControls.showXY = false;
+transformControls.showYZ = false;
 renderer.scene.add(transformControls.getHelper());
-applyGizmoAxisRestriction();
 
 /** Vrai tant qu'un glisser de gizmo est en cours (voir 'dragging-changed') —
  *  garde nos propres listeners de clic/pan (qui tournent sur le MEME
@@ -1836,16 +1842,6 @@ applyGizmoAxisRestriction();
  *  donc ce flag est deja a jour au moment ou nos listeners s'executent. */
 let transformDragging = false;
 
-function applyGizmoAxisRestriction(): void {
-  const rotating = transformControls.mode === 'rotate';
-  transformControls.showX = !rotating;
-  transformControls.showZ = !rotating;
-  transformControls.showY = false;
-  transformControls.showXY = false;
-  transformControls.showYZ = false;
-  transformControls.showXZ = !rotating;
-}
-
 /** Transform capture au dernier 'mouseDown' du gizmo — sert a construire UNE
  *  SEULE commande d'annulation au relachement (Part U : "pendant un drag de
  *  2 secondes, ne cree pas 300 entrees Undo"), jamais une par 'objectChange'. */
@@ -1853,17 +1849,6 @@ let transformDragStart: { id: number; x: number; z: number; rotationY: number } 
 
 transformControls.addEventListener('dragging-changed', (event) => {
   transformDragging = Boolean(event.value);
-});
-
-// Part P de la demande : rotation LIBRE par defaut, mais Shift maintenu
-// accroche la rotation par pas de 15 degres — jamais applique au
-// deplacement (reste toujours libre, voir Part L). window (pas canvas) pour
-// capter Shift meme si le focus n'est pas exactement sur le canvas.
-window.addEventListener('keydown', (event) => {
-  if (event.key === 'Shift') transformControls.rotationSnap = THREE.MathUtils.degToRad(15);
-});
-window.addEventListener('keyup', (event) => {
-  if (event.key === 'Shift') transformControls.rotationSnap = null;
 });
 
 transformControls.addEventListener('mouseDown', () => {
@@ -1877,13 +1862,13 @@ transformControls.addEventListener('objectChange', () => {
   const obstacle = editorState?.selectedObstacle;
   const object = transformControls.object;
   if (!editorState || !obstacle || !object) return;
-  // Les decors restent au sol (Part N : uniquement deplacement + rotation
-  // pour cette premiere version, jamais de hauteur) — defensif en plus du
+  // Les decors restent au sol, jamais de hauteur — defensif en plus du
   // masquage des poignees Y/XY/YZ (showY=false ci-dessus n'empeche pas
   // absolument tout, une securite directe est plus sure qu'un raisonnement
-  // implicite sur les poignees visibles).
+  // implicite sur les poignees visibles). Le gizmo ne fait que deplacer : il
+  // n'ecrit jamais rotationY.
   object.position.y = 0;
-  editorState.setObstacleTransform(obstacle.id, object.position.x, object.position.z, object.rotation.y);
+  editorState.moveSelected(object.position.x, object.position.z);
   refreshEditorObjects();
 });
 
@@ -1908,6 +1893,111 @@ transformControls.addEventListener('mouseUp', () => {
       refreshEditorObjects();
     },
   });
+});
+
+/**
+ * Rotation d'un decor par l'anneau de selection : clic gauche maintenu sur
+ * l'anneau, puis glisser autour de l'objet. L'angle est toujours calcule
+ * depuis le repere capture au clic (jamais accumule), donc aucun saut au
+ * passage 0°/360°. Une seule commande d'historique par glisser, poussee au
+ * relachement (voir endRingRotateDrag).
+ */
+interface RingRotateDrag {
+  id: number;
+  startRotation: number;
+  startPointerAngle: number;
+  currentRotation: number;
+}
+let ringRotateDrag: RingRotateDrag | null = null;
+
+/** Orientation actuelle d'un decor : rotationY si elle a ete fixee, sinon
+ *  l'orientation aleatoire tiree a sa creation, portee par la racine de son
+ *  mesh — partir de 0 le ferait sauter au premier mouvement. */
+function currentObstacleRotation(obstacle: { id: number; rotationY?: number }): number {
+  return obstacle.rotationY ?? editorMeshes.get(obstacle.id)?.rotation.y ?? 0;
+}
+
+/** Angle du curseur autour de (cx, cz) sur le plan du sol, dans la meme
+ *  convention que rotation.y (tourner de +θ ajoute θ a atan2(x, z)). */
+function pointerAngleAround(event: MouseEvent, cx: number, cz: number): number | null {
+  setRaycasterFromEvent(event);
+  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return null;
+  return Math.atan2(groundHit.x - cx, groundHit.z - cz);
+}
+
+/** Demarre un glisser de rotation si le clic touche l'anneau d'un DECOR
+ *  selectionne (jamais une unite) en outil selection. Renvoie true si le
+ *  clic est consomme. Les fleches du gizmo restent prioritaires : un clic
+ *  sur une fleche n'arrive jamais ici (transformDragging deja vrai). */
+function tryStartRingRotate(event: MouseEvent): boolean {
+  if (!editorState || editorState.tool.type !== 'select') return false;
+  const obstacle = editorState.selectedObstacle;
+  if (!obstacle) return false;
+  setRaycasterFromEvent(event);
+  editorSelectionRing.updateMatrixWorld(true);
+  if (raycaster.intersectObject(editorRingHitArea, false).length === 0) return false;
+  const center = obstacleCenter(obstacle);
+  const pointerAngle = pointerAngleAround(event, center.x, center.z);
+  if (pointerAngle === null) return false;
+  const startRotation = currentObstacleRotation(obstacle);
+  ringRotateDrag = { id: obstacle.id, startRotation, startPointerAngle: pointerAngle, currentRotation: startRotation };
+  return true;
+}
+
+function updateRingRotateDrag(event: MouseEvent): void {
+  if (!ringRotateDrag || !editorState) return;
+  const drag = ringRotateDrag;
+  const obstacle = editorState.obstacles.find((o) => o.id === drag.id);
+  if (!obstacle) return;
+  const center = obstacleCenter(obstacle);
+  const pointerAngle = pointerAngleAround(event, center.x, center.z);
+  if (pointerAngle === null) return;
+  editorState.setObstacleRotation(drag.id, drag.startRotation + pointerAngle - drag.startPointerAngle);
+  drag.currentRotation = obstacle.rotationY ?? drag.startRotation;
+  refreshEditorObjects();
+}
+
+/** Valide le glisser en cours : UNE seule commande d'historique, et seulement
+ *  si l'angle a reellement change (un simple clic sur l'anneau ne pousse rien). */
+function endRingRotateDrag(): void {
+  const drag = ringRotateDrag;
+  ringRotateDrag = null;
+  if (!drag || drag.currentRotation === drag.startRotation) return;
+  pushObstacleRotationCommand(drag.id, drag.startRotation, drag.currentRotation);
+}
+
+function pushObstacleRotationCommand(id: number, from: number, to: number): void {
+  editorHistory.push({
+    undo: () => {
+      editorState?.setObstacleRotation(id, from);
+      refreshEditorObjects();
+    },
+    redo: () => {
+      editorState?.setObstacleRotation(id, to);
+      refreshEditorObjects();
+    },
+  });
+}
+
+/** Ctrl+molette (±15°) / Ctrl+Maj+molette (±1°) sur le decor selectionne —
+ *  une commande d'historique par cran. */
+function rotateSelectedObstacleBy(deltaRad: number): void {
+  const obstacle = editorState?.selectedObstacle;
+  if (!editorState || !obstacle) return;
+  const from = currentObstacleRotation(obstacle);
+  editorState.setObstacleRotation(obstacle.id, from + deltaRad);
+  pushObstacleRotationCommand(obstacle.id, from, obstacle.rotationY ?? from);
+  refreshEditorObjects();
+}
+
+window.addEventListener('mousemove', (event) => {
+  if (ringRotateDrag) updateRingRotateDrag(event);
+});
+window.addEventListener('mouseup', (event) => {
+  if (event.button === 0 && ringRotateDrag) endRingRotateDrag();
+});
+window.addEventListener('blur', () => {
+  if (ringRotateDrag) endRingRotateDrag();
 });
 
 const editorUI = new EditorUI({
@@ -1964,6 +2054,7 @@ const editorUI = new EditorUI({
     try {
       const map = await loadMapDefFromFile(file);
       editorBaseMap = map;
+      ringRotateDrag = null;
       editorState = new EditorState(map);
       editorObjectsGroup.clear();
       editorMeshes.clear();
@@ -2126,6 +2217,7 @@ async function enterEditor(): Promise<void> {
 
 function exitEditor(): void {
   inEditorMode = false;
+  ringRotateDrag = null;
   editorState = null;
   editorObjectsGroup.clear();
   editorMeshes.clear();
@@ -4697,30 +4789,9 @@ window.addEventListener('keydown', (event) => {
     case 'A':
       renderer.adjustZoom(-2);
       break;
-    case 'w':
-    case 'W':
-      // Part O de la demande (raccourcis W=deplacement, E=rotation) :
-      // uniquement pertinent en mode editeur avec un decor selectionne
-      // (TransformControls attache, voir plus haut) — W est inutilise
-      // ailleurs dans le jeu, aucun conflit a arbitrer.
-      if (inEditorMode && editorState?.selectedObstacle) {
-        transformControls.mode = 'translate';
-        applyGizmoAxisRestriction();
-      }
-      break;
     case 'e':
     case 'E':
-      // Meme conflit deja resolu pour 'R' ci-dessous (voir son commentaire) :
-      // E reste "zoom avant" partout SAUF en mode editeur avec un decor
-      // selectionne, ou il bascule le gizmo en rotation plutot que de
-      // zoomer — la camera reste pilotable normalement des qu'aucun decor
-      // n'est selectionne.
-      if (inEditorMode && editorState?.selectedObstacle) {
-        transformControls.mode = 'rotate';
-        applyGizmoAxisRestriction();
-      } else {
-        renderer.adjustZoom(2);
-      }
+      renderer.adjustZoom(2);
       break;
     case 'r':
     case 'R':
@@ -5035,6 +5106,7 @@ canvas.addEventListener('mousedown', (event) => {
   // temps (le navigateur livre 'pointerdown' avant 'mousedown' pour un
   // meme clic, ce flag est donc deja a jour ici, voir son commentaire).
   if (event.button !== 0 || !inEditorMode || dragging || transformDragging) return;
+  if (tryStartRingRotate(event)) return;
   handleEditorClick(event);
 });
 
@@ -5307,6 +5379,15 @@ canvas.addEventListener(
     // rotation constant, arbitraire mais previsible).
     if (buildingPlacementMode && event.ctrlKey) {
       rotateBuildingPlacement(Math.sign(event.deltaY));
+      return;
+    }
+    // Editeur : Ctrl+molette tourne le decor selectionne (±15°, ±1° avec Maj)
+    // au lieu de zoomer — preventDefault ci-dessus empeche aussi le zoom du
+    // navigateur. Avec Maj, Windows transforme le defilement en horizontal
+    // (deltaY = 0, valeur dans deltaX), d'ou le repli sur deltaX.
+    if (inEditorMode && event.ctrlKey && !ringRotateDrag && editorState?.selectedObstacle) {
+      const wheelDelta = event.deltaY || event.deltaX;
+      if (wheelDelta !== 0) rotateSelectedObstacleBy(-Math.sign(wheelDelta) * THREE.MathUtils.degToRad(event.shiftKey ? 1 : 15));
       return;
     }
     renderer.adjustZoom(Math.sign(event.deltaY) * CAMERA.wheelZoomStep);

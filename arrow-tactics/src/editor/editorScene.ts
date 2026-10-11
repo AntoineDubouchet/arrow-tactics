@@ -64,6 +64,19 @@ export function createSelectionRing(radius: number): THREE.Mesh {
 }
 
 /**
+ * Zone de saisie de la poignee de rotation, a ajouter en ENFANT de l'anneau
+ * de selection (meme position/echelle). Plus large que le trait visible
+ * (0.85-1.0) pour etre confortable a attraper. Jamais dessinee
+ * (`visible = false`) mais toujours raycastable : THREE.Raycaster ne teste
+ * pas la visibilite des objets.
+ */
+export function createSelectionRingHitArea(): THREE.Mesh {
+  const hitArea = new THREE.Mesh(new THREE.RingGeometry(0.6, 1.3, 32), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  hitArea.visible = false;
+  return hitArea;
+}
+
+/**
  * Rend `mesh` semi-transparent en clonant chaque materiau rencontre avant de
  * modifier son opacite. Necessaire pour les rochers/arbres .glb : leurs
  * clones partagent leurs materiaux entre instances (voir assetLibrary.ts,

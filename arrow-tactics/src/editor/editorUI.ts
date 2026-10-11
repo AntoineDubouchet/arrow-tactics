@@ -604,9 +604,10 @@ export class EditorUI {
     const status = document.createElement('div');
     status.className = 'editor-status';
     const statusLine1 = document.createElement('div');
-    statusLine1.textContent = 'Clic : sélectionner / placer — Clic droit : annuler / désélectionner — W : déplacer — E : tourner';
+    statusLine1.textContent =
+      'Clic : sélectionner / placer — Clic droit : annuler / désélectionner — Glisser les flèches : déplacer — Glisser l’anneau : tourner';
     const statusLine2 = document.createElement('div');
-    statusLine2.textContent = 'Maj : accrocher la rotation à 15° — Ctrl+Z / Ctrl+Y : annuler / rétablir — Suppr : supprimer';
+    statusLine2.textContent = 'Ctrl+molette : rotation 15° (Maj : 1°) — R : +90° — Ctrl+Z / Ctrl+Y : annuler / rétablir — Suppr : supprimer';
     status.appendChild(statusLine1);
     status.appendChild(statusLine2);
     this.root.appendChild(status);
@@ -629,7 +630,8 @@ export class EditorUI {
   showObstacleProperties(obstacle: EditorObstacle): void {
     this.propertiesPanel.style.display = '';
     this.rotateButton.style.display = '';
-    const rotationDeg = Math.round(((obstacle.rotationY ?? 0) * 180) / Math.PI);
+    // Toujours affiche entre 0 et 359 (un arrondi de 359.6° donnerait sinon 360).
+    const rotationDeg = ((Math.round(((obstacle.rotationY ?? 0) * 180) / Math.PI) % 360) + 360) % 360;
     this.propertiesBody.innerHTML = '';
     const kindLabel =
       obstacle.kind === 'tree' ? 'arbre' : obstacle.kind === 'prop' ? 'prop' : obstacle.kind === 'building' ? 'bâtiment' : 'rocher';
@@ -647,6 +649,12 @@ export class EditorUI {
       `Rotation : ${rotationDeg}°`,
     ].filter((l): l is string => l !== null);
     this.renderPropertyLines(lines);
+    // Rend la rotation a la molette decouvrable sans lire l'aide du bas
+    // (objets rotatifs uniquement : showUnitProperties ne l'affiche pas).
+    const hint = document.createElement('div');
+    hint.className = 'editor-properties-hint';
+    hint.textContent = 'Ctrl + molette : ±15° • Maj : ±1°';
+    this.propertiesBody.appendChild(hint);
   }
 
   /** Panneau proprietes pour une unite selectionnee — pas de rotation

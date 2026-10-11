@@ -329,6 +329,16 @@ export class EditorState {
     o.rotationY = rotationY;
   }
 
+  /** Ecrit uniquement la rotation d'un obstacle (normalisee dans [0, 2π)),
+   *  sans toucher a sa position — utilise par la poignee de rotation de
+   *  l'anneau et par Ctrl+molette. */
+  setObstacleRotation(id: number, rotationY: number): void {
+    const o = this.obstacles.find((obstacle) => obstacle.id === id);
+    if (!o) return;
+    const fullTurn = Math.PI * 2;
+    o.rotationY = ((rotationY % fullTurn) + fullTurn) % fullTurn;
+  }
+
   /** Deplace l'unite selectionnee et recalcule son camp — une unite trainee
    *  de l'autre cote du plateau doit changer de couleur, pas garder son
    *  camp d'origine. Refuse silencieusement (Part AL) si la case cible n'a

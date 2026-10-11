@@ -1185,6 +1185,13 @@ img {
   line-height: 1.5;
 }
 
+.editor-properties-hint {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+
 .editor-button {
   display: block;
   width: 100%;
