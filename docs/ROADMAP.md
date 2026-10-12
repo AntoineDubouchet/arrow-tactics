@@ -37,7 +37,7 @@ L'intérêt doit venir :
 - de la **progression permanente** : Runes, talents, collection ;
 - de la **rejouabilité** : des runs qui ne se ressemblent pas.
 
-Les intentions de design détaillées relèveront de `GAME_DESIGN.md`.
+Les intentions de design détaillées relèvent de `GAME_DESIGN.md`.
 
 ---
 
@@ -46,19 +46,16 @@ Les intentions de design détaillées relèveront de `GAME_DESIGN.md`.
 Remettre la base documentaire et technique au propre, puis préparer les
 systèmes de progression.
 
-### C1 — Finir la restructuration documentaire — *Direction forte*
+### C1 — Restructuration documentaire — *Terminé*
 
-- **Objectif** : terminer la nouvelle documentation, dans cet ordre :
-  `ROADMAP.md` → `EDITOR.md` → `ASSETS.md` → `GAME_DESIGN.md` →
-  `DESIGN_DECISIONS.md`. Réécrire `CLAUDE.md` en dernier, comme simple guide de
-  travail. Appliquer au passage la correction documentaire KI-18.
-- **Pourquoi** : sans intentions de design écrites, les chantiers suivants
-  n'ont pas de critère de réussite clair.
-- **Dépendances** : aucune.
-- **Décisions ouvertes** : le contenu de `GAME_DESIGN.md`, à écrire ou valider
-  par Antoine.
-- **Ce qui doit attendre** : tout nouveau contenu de jeu d'envergure, jusqu'à
-  ce que la vision soit écrite.
+- **Résultat** :
+  - documents créés dans `docs/` : `ARCHITECTURE.md`, `CURRENT_STATE.md`,
+    `KNOWN_ISSUES.md`, `ROADMAP.md`, `EDITOR.md`, `ASSETS.md`,
+    `GAME_DESIGN.md`, `DESIGN_DECISIONS.md` ;
+  - ancien `CLAUDE.md` archivé dans `docs/archive/CLAUDE_LEGACY_2026.md` ;
+  - nouveau `CLAUDE.md` réécrit comme guide de travail court.
+- **Hors de C1** : le README (KI-17) et `.claude/settings.json` (KI-14), traités
+  séparément.
 
 ### C2 — Socle de vérification et harnais de simulation — *Direction forte*
 

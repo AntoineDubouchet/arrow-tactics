@@ -40,7 +40,13 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-15 | Aucune suite de tests automatisée | Dette |
 | KI-16 | Assets inutilisés copiés dans le build | Confirmé (mesuré) |
 | KI-17 | `README.md` obsolète | Confirmé |
-| KI-18 | `CURRENT_STATE.md` : visibilité de l'amélioration « Soins excédentaires » | Confirmé |
+| KI-19 | Raccourcis clavier actifs pendant la saisie dans un champ | Confirmé (lecture du code) |
+| KI-20 | Validation partielle des positions dans l'éditeur | Dette |
+| KI-21 | Justificatifs de provenance et de droits des assets non archivés | Dette |
+| KI-22 | Assets suivis directement par Git, sans Git LFS | Dette |
+
+Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
+(c'est le cas de KI-18).
 
 ---
 
@@ -180,6 +186,55 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 - **Piste** : une métadonnée optionnelle sur les obstacles
   `kind: 'building'`, ou une option du test.
 
+### KI-19 — Raccourcis clavier actifs pendant la saisie dans un champ
+
+- **Statut** : Confirmé par lecture du code, non reproduit manuellement.
+- **Certain dans le code** :
+  - `main.ts` n'a qu'un seul écouteur `keydown`, posé sur `window` ;
+  - il ne filtre pas la cible de l'événement : rien dans `src/` ne teste
+    `event.target`, `tagName` ou `document.activeElement` ;
+  - les champs exposés sont les deux `<input type=number>` « Taille » de
+    l'éditeur (`editor/editorUI.ts`) et les contrôles de l'écran Paramètres
+    (`ui/screens.ts`).
+- **Effets attendus, non observés à l'écran** :
+  - Retour arrière ou Suppr dans un champ « Taille » supprimerait aussi le
+    décor ou l'unité sélectionné ;
+  - les flèches modifieraient la valeur du champ et feraient en plus pivoter
+    ou incliner la caméra ;
+  - A, E et Espace agiraient sur la caméra ;
+  - R tournerait la sélection dans l'éditeur.
+- **Impact actuel** : risque de suppression ou de mouvement de caméra
+  involontaire pendant une saisie.
+- **Vérification** : sélectionner un décor dans l'éditeur, cliquer dans le
+  champ « Taille », appuyer sur Retour arrière, puis vérifier si le décor
+  existe toujours.
+- **Piste** : ignorer les raccourcis quand le focus est sur un champ de saisie.
+
+### KI-20 — Validation partielle des positions dans l'éditeur
+
+- **Statut** : Dette. Le premier point est confirmé par lecture du code.
+- **Point 1 — emprises de plusieurs cases réduites à leur case centrale** :
+  - `canRemoveCell` et `canPlaceUnitAt` (`editor/editorState.ts`) comparent
+    uniquement la case qui contient le **centre** d'un obstacle bloquant
+    (`floor(obstacleCenter(o))`) à la case testée ;
+  - conséquence : on peut retirer une case de terrain sous le bord d'un
+    rocher ou d'un bâtiment de plusieurs cases, ou y poser une unité.
+- **Point 2 — déplacer une unité est moins strict que la poser** :
+  - `canPlaceUnitAt` refuse une case occupée par un obstacle bloquant ou par
+    une autre unité ;
+  - `moveSelectedUnit` et `moveSelectedGroup` vérifient seulement que la case
+    de terrain existe ;
+  - un commentaire du code présente cette absence de contrôle d'occupation
+    comme un choix historique de l'éditeur (laisser l'utilisateur ajuster à la
+    main). C'est donc une **asymétrie**, pas un bug de gameplay établi.
+- **Impact actuel** : une carte peut contenir des unités superposées ou posées
+  sur un obstacle, sans avertissement.
+- **Vérification** : poser une unité, la déplacer sur un rocher ou sur une
+  autre unité ; retirer une case au bord d'un bâtiment 2×2.
+- **Piste** : tester toute l'emprise d'un obstacle, et décider si le
+  déplacement doit appliquer la même règle que la pose.
+- Voir aussi `EDITOR.md` §7 et §17.
+
 ## C. Incohérences entre documentation et code
 
 ### KI-08 — Commentaire de Maître de la forge : « jamais sous 1 rune »
@@ -260,7 +315,12 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
   - `run/metaProgress.ts`, `canPurchaseUpgrade` : mentionne un « plafond
     Caserne » ; le mécanisme `maxLevel` reste générique mais n'est plus
     utilisé ;
-  - `data/units.ts` : vitesse de la flèche dans un commentaire du Mage.
+  - `data/units.ts` : vitesse de la flèche dans un commentaire du Mage ;
+  - `render/assetLibrary.ts` : l'en-tête affirme qu'aucun autre asset graphique
+    n'est utilisé dans le jeu, et un commentaire renvoie à un `License.txt`
+    « copié avec les fichiers », absent du dépôt ;
+  - `render/board.ts` : un commentaire affirme que seuls les rochers et les
+    arbres viennent de modèles `.glb`.
 - **Impact actuel** : risque d'induire en erreur un développeur ou un agent.
 - **Piste** : un passage de nettoyage des commentaires.
 
@@ -297,7 +357,11 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
     `archer_red_attack.glb` : environ 13 Mo au total, l'attaque de l'Archer
     est procédurale ;
   - `public/models/ballista/ballista_level1.obj` et sa texture, remplacés par
-    le modèle FBX.
+    le modèle FBX ;
+  - `public/models/ballista/fbx/Ballista_Idle_Anim.fbx` et
+    `Ballista_Arrow.fbx` : jamais chargés ;
+  - `public/textures/vfx/fire_01.png` et `magic_01.png` : jamais référencés.
+- **Détail** : voir `ASSETS.md` §4.
 - **Impact actuel** : Vite copie tout `public/` dans `dist/`. Le build mesuré
   pèse environ 288 Mo, dont environ 150 Mo jamais chargés. Le dépôt Git est
   alourdi d'autant.
@@ -314,12 +378,35 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 - **Impact actuel** : information fausse pour quiconque découvre le projet.
 - **Piste** : réécrire le README, ou le faire pointer vers `docs/`.
 
-### KI-18 — `CURRENT_STATE.md` : visibilité de l'amélioration « Soins excédentaires »
+### KI-21 — Justificatifs de provenance et de droits des assets non archivés
 
-- **Statut** : Confirmé (correction documentaire à faire).
-- **Écart** : dans la boutique d'amélioration, la carte « Soins excédentaires »
-  est **masquée tant que le talent du même nom n'est pas débloqué**
-  (`ui/screens.ts`, `refreshUnitUpgradeShop`). La carte Mine, elle, est
-  toujours visible. Le §14 de `CURRENT_STATE.md` ne le précise pas.
-- **Impact actuel** : documentation incomplète.
-- **Piste** : ajouter cette précision au §14 de `CURRENT_STATE.md`.
+- **Statut** : Dette (documentaire).
+- **Écart** :
+  - la provenance et les droits d'usage sont connus pour plusieurs familles
+    d'assets (voir `ASSETS.md` §8) : modèles Meshy avec droits commerciaux
+    confirmés par Antoine, packs Kenney et KayKit, autres assets dont
+    l'utilisation dans le jeu est confirmée ;
+  - aucun justificatif n'est archivé dans le dépôt : pas de fichier `LICENSE`,
+    `License.txt` ou `CREDITS` à côté des assets, aucune trace des pages de
+    licence ni de l'historique Meshy.
+- **Impact actuel** : aucun sur le jeu. Ces preuves seront nécessaires avant
+  une commercialisation publique.
+- **Piste** : archiver les licences des packs et les preuves de provenance
+  (historique Meshy, pages de licence), et compléter les provenances encore
+  non documentées dans `ASSETS.md` §8.
+
+### KI-22 — Assets suivis directement par Git, sans Git LFS
+
+- **Statut** : Dette.
+- **Écart** :
+  - aucun suivi Git LFS n'est configuré et aucun `.gitattributes`
+    correspondant n'existe ;
+  - les fichiers d'assets de `public/` sont suivis directement par Git :
+    374 fichiers d'assets au moment de l'audit.
+- **Ordres de grandeur** (instantané de l'audit) : environ 287 Mo pour le
+  dossier `public/`, environ 169 Mo pour le stockage compressé de Git (pack).
+  Ce sont deux mesures distinctes.
+- **Impact actuel** : le dépôt grossit à chaque ajout ou remplacement d'un
+  asset lourd, et l'historique conserve les anciennes versions.
+- **Piste** : décider d'un mode de stockage des assets lourds (Git LFS ou
+  autre) avant d'en ajouter beaucoup d'autres. Indépendant de KI-16.

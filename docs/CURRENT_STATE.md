@@ -365,6 +365,12 @@ Elles sont accessibles depuis le menu principal (boutique d'amélioration).
 | Caserne | +1 Fantassin par production ; −1 s d'intervalle tous les 3 niveaux (minimum 1 s) | +5 or par niveau |
 | Soins excédentaires | +0,5 dégât par projectile ; +1 projectile tous les 3 niveaux | — |
 
+Dans la boutique d'améliorations permanentes, toutes les cartes sont visibles
+en permanence, sauf « Soins excédentaires », qui n'apparaît qu'une fois le
+talent du même nom débloqué. Réinitialiser les talents ne touche pas aux
+niveaux d'amélioration déjà achetés : la carte est seulement masquée, puis
+retrouve ses niveaux quand le talent est de nouveau débloqué.
+
 ## 15. Sauvegarde : ce qui persiste
 
 Sources : `run/metaProgress.ts`, `run/userSettings.ts`.
