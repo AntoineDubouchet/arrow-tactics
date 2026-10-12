@@ -39,14 +39,13 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-14 | `.claude/settings.json` versionné avec des chemins d'une autre machine | Confirmé |
 | KI-15 | Aucune suite de tests automatisée | Dette |
 | KI-16 | Assets inutilisés copiés dans le build | Confirmé (mesuré) |
-| KI-17 | `README.md` obsolète | Confirmé |
 | KI-19 | Raccourcis clavier actifs pendant la saisie dans un champ | Confirmé (lecture du code) |
 | KI-20 | Validation partielle des positions dans l'éditeur | Dette |
 | KI-21 | Justificatifs de provenance et de droits des assets non archivés | Dette |
 | KI-22 | Assets suivis directement par Git, sans Git LFS | Dette |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
-(c'est le cas de KI-18).
+(c'est le cas de KI-17 et KI-18).
 
 ---
 
@@ -368,15 +367,6 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 - **Vérification** : taille de `dist/` après `npm run build`, et absence de
   référence à ces fichiers dans `src/`.
 - **Piste** : retirer ces fichiers de `public/`, ou les archiver ailleurs.
-
-### KI-17 — `README.md` obsolète
-
-- **Statut** : Confirmé.
-- **Écart** : `arrow-tactics/README.md` décrit la première version (« pas
-  encore de combat, de PV, de flèche, ni d'or »), avec d'anciens contrôles,
-  dont une touche Entrée qui n'existe plus.
-- **Impact actuel** : information fausse pour quiconque découvre le projet.
-- **Piste** : réécrire le README, ou le faire pointer vers `docs/`.
 
 ### KI-21 — Justificatifs de provenance et de droits des assets non archivés
 
