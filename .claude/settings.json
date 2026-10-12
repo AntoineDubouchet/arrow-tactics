@@ -1,26 +1,5 @@
 {
   "permissions": {
-    "allow": [
-      "PowerShell(cd 'c:\\\\Users\\\\Antoine\\\\Downloads\\\\arrow-tactics-v0.1\\\\arrow-tactics'; npm run build; echo \"EXIT CODE: $LASTEXITCODE\")",
-      "PowerShell(node \"C:\\\\Users\\\\Antoine\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Antoine-Downloads-arrow-tactics-v0-1\\\\47495632-a6fe-4f77-a32f-0f89f46c5844\\\\scratchpad\\\\measure-buildings.mjs\")",
-      "PowerShell(node \"C:\\\\Users\\\\Antoine\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Antoine-Downloads-arrow-tactics-v0-1\\\\47495632-a6fe-4f77-a32f-0f89f46c5844\\\\scratchpad\\\\measure-neutral.mjs\")",
-      "PowerShell(Get-Process -Name node -ErrorAction SilentlyContinue)",
-      "PowerShell(Get-Process | Where-Object { $_.ProcessName -match 'node' } | Select-Object Id, ProcessName)",
-      "PowerShell(try { $r = Invoke-WebRequest -Uri http://localhost:5173 -UseBasicParsing -TimeoutSec 5; Write-Output \"Server OK: $\\($r.StatusCode\\)\" } catch { Write-Output \"Server not responding: $_\" })",
-      "PowerShell(Get-ChildItem \"$env:LOCALAPPDATA\\\\ms-playwright\" | Select-Object Name)",
-      "PowerShell(node -e \"console.log\\(8.4+1.5\\); console.log\\(9.9-2\\); console.log\\(\\(8.4+1.5\\).toString\\(\\)\\); console.log\\(10-0.1\\); let g=10; g-=0.1; g+=0.1; g-=0.1; console.log\\(g\\);\")",
-      "Read(//c/Users/Antoine/.claude/projects/c--Users-Antoine-Downloads-arrow-tactics-v0-1/**)",
-      "PowerShell(cd C:\\\\Users\\\\Antoine\\\\.claude\\\\projects\\\\c--Users-Antoine-Downloads-arrow-tactics-v0-1; Select-String -Path .\\\\47495632-a6fe-4f77-a32f-0f89f46c5844.jsonl -Pattern 'largeur fixe' | Select-Object -First 5 | ForEach-Object { $_.LineNumber })",
-      "PowerShell(cd C:\\\\Users\\\\Antoine\\\\.claude\\\\projects\\\\c--Users-Antoine-Downloads-arrow-tactics-v0-1; $line = \\(Get-Content .\\\\47495632-a6fe-4f77-a32f-0f89f46c5844.jsonl -TotalCount 12381\\)[-1]; $obj = $line | ConvertFrom-Json; $obj.message.content | ForEach-Object { if \\($_.type -eq 'text'\\) { $_.text } elseif \\($_.text\\) { $_.text } })",
-      "PowerShell(cd C:\\\\Users\\\\Antoine\\\\.claude\\\\projects\\\\c--Users-Antoine-Downloads-arrow-tactics-v0-1; $line = \\(Get-Content .\\\\47495632-a6fe-4f77-a32f-0f89f46c5844.jsonl -TotalCount 12381\\)[-1]; $obj = $line | ConvertFrom-Json; $obj.message.role; $obj.type; \\($obj.message.content | ConvertTo-Json -Depth 5\\) | Select-Object -First 1)",
-      "PowerShell(cd C:\\\\Users\\\\Antoine\\\\.claude\\\\projects\\\\c--Users-Antoine-Downloads-arrow-tactics-v0-1; Select-String -Path .\\\\47495632-a6fe-4f77-a32f-0f89f46c5844.jsonl -Pattern 'largeur clamp' | Select-Object -First 5 | ForEach-Object { $_.LineNumber })",
-      "PowerShell(cd C:\\\\Users\\\\Antoine\\\\.claude\\\\projects\\\\c--Users-Antoine-Downloads-arrow-tactics-v0-1; $line = \\(Get-Content .\\\\47495632-a6fe-4f77-a32f-0f89f46c5844.jsonl -TotalCount 25109\\)[-1]; $obj = $line | ConvertFrom-Json; $obj.message.role; $obj.type; $obj.message.content.GetType\\(\\).Name)",
-      "PowerShell(cd C:\\\\Users\\\\Antoine\\\\.claude\\\\projects\\\\c--Users-Antoine-Downloads-arrow-tactics-v0-1; Select-String -Path .\\\\47495632-a6fe-4f77-a32f-0f89f46c5844.jsonl -Pattern 'Refonte barres de PV' | Select-Object -First 3 | ForEach-Object { $_.LineNumber })",
-      "PowerShell(Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue)",
-      "Read(//c/Users/Antoine/Desktop/**)",
-      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Antoine\\\\Desktop\" -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match \"particle|vfx|kenney\" } | Select-Object -First 20 FullName)",
-      "PowerShell(cd c:\\\\Users\\\\Antoine\\\\Downloads\\\\arrow-tactics-v0.1\\\\arrow-tactics; npx tsc --noEmit 2>&1; echo \"EXIT: $LASTEXITCODE\")",
-      "PowerShell(cd c:\\\\Users\\\\Antoine\\\\Downloads\\\\arrow-tactics-v0.1\\\\arrow-tactics; try { $r = Invoke-WebRequest -Uri http://localhost:5173/ -UseBasicParsing -TimeoutSec 3; echo \"dev server up, status $\\($r.StatusCode\\)\" } catch { echo \"dev server not responding: $_\" })"
-    ]
+    "allow": []
   }
 }

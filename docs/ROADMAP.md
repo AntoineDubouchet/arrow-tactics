@@ -54,8 +54,8 @@ systèmes de progression.
     `GAME_DESIGN.md`, `DESIGN_DECISIONS.md` ;
   - ancien `CLAUDE.md` archivé dans `docs/archive/CLAUDE_LEGACY_2026.md` ;
   - nouveau `CLAUDE.md` réécrit comme guide de travail court.
-- **Hors de C1** : le README a été réécrit séparément. Le nettoyage de
-  `.claude/settings.json` (KI-14) reste hors de C1.
+- **Hors de C1** : le README et les réglages Claude du projet
+  (`.claude/settings.json`) ont été nettoyés séparément.
 
 ### C2 — Socle de vérification et harnais de simulation — *Direction forte*
 

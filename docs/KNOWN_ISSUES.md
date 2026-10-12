@@ -36,7 +36,6 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-11 | Nom trompeur `MAGE_UNLOCK_WAVE` | Dette |
 | KI-12 | Sens implicite du « record de vague » | Dette |
 | KI-13 | Commentaires de code périmés | Dette |
-| KI-14 | `.claude/settings.json` versionné avec des chemins d'une autre machine | Confirmé |
 | KI-15 | Aucune suite de tests automatisée | Dette |
 | KI-16 | Assets inutilisés copiés dans le build | Confirmé (mesuré) |
 | KI-19 | Raccourcis clavier actifs pendant la saisie dans un champ | Confirmé (lecture du code) |
@@ -45,7 +44,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-22 | Assets suivis directement par Git, sans Git LFS | Dette |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
-(c'est le cas de KI-17 et KI-18).
+(c'est le cas de KI-14, KI-17 et KI-18).
 
 ---
 
@@ -324,16 +323,6 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 - **Piste** : un passage de nettoyage des commentaires.
 
 ## D. Outillage et dépôt
-
-### KI-14 — `.claude/settings.json` versionné avec des chemins d'une autre machine
-
-- **Statut** : Confirmé.
-- **Écart** : 12 permissions de `.claude/settings.json` pointent vers
-  `C:\Users\Antoine\Downloads\arrow-tactics-v0.1\…` ou vers un ancien dossier
-  temporaire. Elles sont inopérantes sur la machine actuelle.
-- **Impact actuel** : bruit dans la configuration, sans effet fonctionnel.
-- **Piste** : nettoyer le fichier, ou déplacer ces réglages en local
-  (`settings.local.json` est déjà ignoré par Git).
 
 ### KI-15 — Aucune suite de tests automatisée
 
