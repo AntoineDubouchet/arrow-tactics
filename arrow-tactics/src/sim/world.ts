@@ -5,6 +5,7 @@ import { Rng, randomSeed } from '../core/rng';
 import type { BuildingDef } from '../data/buildings';
 import { getUnit, type UnitStats } from '../data/units';
 import type { Entity, Team } from './entity';
+import { applyCommands, resolveOrders, type CommandResult, type PlayerCommand } from './orders';
 import {
   createPlayerArrowState,
   fireArrowVolley,
@@ -98,6 +99,10 @@ export class World {
    *  pour appeler le vrai World.spawn avec les stats/talents effectifs (sim/
    *  ne les connait pas). */
   barracksSpawnEvents: BarracksSpawnEvent[] = [];
+  /** Resultats des commandes appliquees au debut du dernier step (voir
+   *  issueCommand, sim/orders.ts). Vide et repeuple a chaque tick, comme
+   *  combatEvents. */
+  commandResults: CommandResult[] = [];
   /** Obstacles et dimensions du plateau actuellement charge (voir setMap) —
    *  distinct de l'etat de bataille : clear() ne les reinitialise PAS, changer
    *  de map ne doit pas forcement passer par la remise a zero d'une bataille
@@ -131,6 +136,9 @@ export class World {
    *  IMMÉDIATEMENT à destruction", demande explicite d'Antoine). Vide pour
    *  toute bataille sans bâtiment gameplay détruit — coût nul dans ce cas. */
   private readonly buildingFootprints = new Map<number, ObstacleDef>();
+
+  /** Commandes du joueur en attente, appliquees au debut du prochain step. */
+  private commandQueue: PlayerCommand[] = [];
 
   constructor(seed: number = randomSeed()) {
     this.seed = seed;
@@ -229,6 +237,7 @@ export class World {
       hp: hp ?? statOverrides?.maxHp ?? def.stats.maxHp,
       alive: true,
       targetId: null,
+      order: { type: 'assault' },
       attackTimer: 0,
       sidestepTimer: 0,
       sidestepX: 0,
@@ -349,6 +358,9 @@ export class World {
       hp: hp ?? effectiveMaxHp,
       alive: true,
       targetId: null,
+      // Un batiment n'est jamais commandable (voir sim/orders.ts,
+      // isCommandable) : cette valeur par defaut n'est jamais modifiee.
+      order: { type: 'assault' },
       attackTimer: 0,
       sidestepTimer: 0,
       sidestepX: 0,
@@ -473,6 +485,8 @@ export class World {
     this.shadowProjectiles = [];
     this.shadowProjectileEvents = [];
     this.barracksSpawnEvents = [];
+    this.commandQueue = [];
+    this.commandResults = [];
     this.buildingFootprints.clear();
     this.seed = seed;
     this.rng = new Rng(seed);
@@ -543,11 +557,27 @@ export class World {
     }
   }
 
+  /** Met une commande du joueur en file (voir sim/orders.ts). Elle n'est pas
+   *  appliquee tout de suite mais au debut du prochain step, comme tout
+   *  changement d'etat de la simulation. La liste d'ids est copiee :
+   *  l'appelant peut modifier sa propre selection ensuite sans effet. */
+  issueCommand(command: PlayerCommand): void {
+    this.commandQueue.push({ ...command, entityIds: [...command.entityIds] });
+  }
+
   step(dt: number): void {
     for (const e of this.entities) {
       e.prevX = e.x;
       e.prevZ = e.z;
     }
+
+    // Ordres manuels (sim/orders.ts) : appliques a une frontiere de pas fixe,
+    // jamais au moment de l'evenement d'entree. Aucun systeme ne lit encore
+    // Entity.order, le comportement reste donc identique a avant.
+    const lookup = (id: number): Entity | undefined => this.entityById.get(id);
+    this.commandResults = applyCommands(this.commandQueue, lookup);
+    this.commandQueue = [];
+    resolveOrders(this.entities, lookup);
 
     targetingSystem(this.entities, dt);
     // Avant movementSystem : une charge qui vient de se declencher (ou qui se

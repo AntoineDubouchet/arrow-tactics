@@ -1,6 +1,7 @@
 import type { AbilityDef } from '../data/abilities';
 import type { ObstacleDef } from '../config/constants';
 import type { UnitStats } from '../data/units';
+import type { UnitOrder } from './orders';
 
 export type Team = 'player' | 'enemy';
 
@@ -74,6 +75,10 @@ export interface Entity {
    *  pour que deux unites se fixent jusqu'a la mort de l'une au lieu de
    *  changer d'adversaire a chaque tick. */
   targetId: number | null;
+  /** Ordre manuel courant (voir sim/orders.ts). `assault` par defaut. Seules
+   *  les unites vivantes du joueur peuvent en recevoir un autre. Aucun
+   *  systeme ne le lit encore : il n'a pas d'effet sur le comportement. */
+  order: UnitOrder;
   /** Secondes avant la prochaine attaque possible. Descend sous zero pendant
    *  l'approche ; l'attaque part des le premier tick a portee. */
   attackTimer: number;
