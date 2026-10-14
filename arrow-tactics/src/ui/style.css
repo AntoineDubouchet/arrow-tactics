@@ -694,45 +694,24 @@ img {
   background: rgba(99, 224, 74, 0.24);
 }
 
-.arrow-cooldown {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  width: 160px;
-  height: 10px;
-  padding: 2px;
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 4px;
-  z-index: 5;
-}
-
-.arrow-cooldown-fill {
-  height: 100%;
-  border-radius: 2px;
-  background: rgba(232, 193, 92, 0.5);
-  transition: width 0.05s linear;
-}
-
-.arrow-cooldown--ready .arrow-cooldown-fill {
-  background: #e8c15c;
-}
-
 /* Indicateur "Vague N" (voir ui/waveIndicator.ts) — coin haut-centre, jamais
    superpose au panneau de debug (haut-gauche) ni a la boutique/vente
    (droite). */
-/* Contexte de controle pendant la bataille (prototype RTS, provisoire) :
-   en bas au centre, zone libre pendant la bataille (le panneau de
-   placement n'est affiche qu'en phase de placement). */
-.battle-mode-indicator {
+/* HUD de la Baliste (tir sur Q, voir ui/ballistaIndicator.ts) : etat, barre
+   de recharge integree et, en petit, la selection RTS. En bas au centre,
+   zone libre pendant la bataille (le panneau de placement n'est affiche
+   qu'en phase de placement). */
+.ballista-indicator {
   position: fixed;
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 6px 14px;
+  min-width: 200px;
+  padding: 6px 14px 7px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.03em;
+  text-align: center;
   color: var(--ink-dim);
   background: var(--panel);
   border: 1px solid var(--edge);
@@ -741,9 +720,48 @@ img {
   z-index: 5;
 }
 
-.battle-mode-indicator--command {
+.ballista-indicator-bar {
+  height: 6px;
+  margin-top: 5px;
+  padding: 1px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+}
+
+.ballista-indicator-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: rgba(232, 193, 92, 0.5);
+  transition: width 0.05s linear;
+}
+
+.ballista-indicator-selection {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-dim);
+  opacity: 0.8;
+}
+
+.ballista-indicator--ready {
   color: var(--accent-gold);
   border-color: var(--accent-gold);
+}
+
+.ballista-indicator--ready .ballista-indicator-fill {
+  background: #e8c15c;
+}
+
+/* Recharge terminee mais volee encore en vol : l'etat reste lisible en
+   clair, barre pleine mais pas encore doree. */
+.ballista-indicator--inFlight .ballista-indicator-state {
+  color: var(--ink);
+}
+
+.ballista-indicator--destroyed {
+  opacity: 0.6;
 }
 
 .wave-indicator {

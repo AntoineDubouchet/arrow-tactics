@@ -142,11 +142,10 @@ import type { ArrowShotSpec } from './sim/playerArrow';
 import { obstacleBounds } from './sim/geometry';
 import { World } from './sim/world';
 import { initAudio, persistAudioSettings } from './audio';
-import { ArrowCooldownIndicator } from './ui/arrowCooldown';
 import { BuildingRotationHint } from './ui/buildingRotationHint';
 import { TowerPlacementBanner } from './ui/towerPlacementBanner';
 import { WaveIndicator } from './ui/waveIndicator';
-import { BattleModeIndicator, type BattleControlMode } from './ui/battleModeIndicator';
+import { BallistaIndicator, type BallistaStatus } from './ui/ballistaIndicator';
 import { GoldHud } from './ui/goldHud';
 import { CombatOverlay } from './ui/combatOverlay';
 import { spawnCoinPopup } from './ui/coinPopup';
@@ -167,17 +166,15 @@ const unitViews = new UnitViews();
 const combatOverlay = new CombatOverlay(renderer);
 const projectiles = new Projectiles();
 const playerArrowView = new PlayerArrowView();
-const arrowCooldown = new ArrowCooldownIndicator();
 const waveIndicator = new WaveIndicator();
 const buildingRotationHint = new BuildingRotationHint();
 const towerPlacementBanner = new TowerPlacementBanner();
 
-// Prototype RTS, etape 1 : deux contextes de controle pendant la bataille.
-// En mode Baliste, le clic gauche tire comme avant ; en mode Commandement, il
-// selectionne une unite alliee (aucun ordre n'est encore envoye). Bascule
-// provisoire avec la touche B (voir toggleBattleControlMode).
-const battleModeIndicator = new BattleModeIndicator();
-let battleControlMode: BattleControlMode = 'ballista';
+// Pendant la bataille, le joueur est toujours en controle RTS : clic gauche
+// pour selectionner, clic droit pour ordonner. La Baliste tire avec Q (voir
+// fireBallistaFromKey) ; un seul HUD affiche son etat, sa recharge et la
+// selection.
+const ballistaIndicator = new BallistaIndicator();
 // Modeles d'anneaux, jamais ajoutes a la scene : BattleSelection les clone
 // (geometrie et materiau partages) pour chaque unite selectionnee.
 const battleSelectionMarker = createEditorSelectionRing(1);
@@ -2568,26 +2565,46 @@ const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const groundHit = new THREE.Vector3();
 
 function setRaycasterFromEvent(event: MouseEvent): void {
+  setRaycasterFromClient(event.clientX, event.clientY);
+}
+
+function setRaycasterFromClient(clientX: number, clientY: number): void {
   const rect = canvas.getBoundingClientRect();
-  const ndc = new THREE.Vector2(
-    ((event.clientX - rect.left) / rect.width) * 2 - 1,
-    -((event.clientY - rect.top) / rect.height) * 2 + 1,
-  );
+  const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
   raycaster.setFromCamera(ndc, renderer.camera);
 }
 
 // --- Vise et tir de la fleche du joueur ---------------------------------
 //
-// Vise libre au sol (decision d'Antoine) : la souris deplace un reticule sur
-// le plateau pendant la bataille, le clic gauche tire vers ce point exact —
-// pas un verrouillage sur une unite, la cible peut donc bouger et esquiver un
-// tir mal anticipe. Le clic gauche etait deja reserve a cet usage (voir plus
-// bas, "clic gauche reste libre pour le placement puis... le tir").
+// Vise libre au sol (decision d'Antoine) : le point vise est le sol sous le
+// curseur, Q tire vers ce point exact — pas un verrouillage sur une unite, la
+// cible peut donc bouger et esquiver un tir mal anticipe.
 
 const aimReticle = createAimReticle();
 renderer.scene.add(aimReticle);
 let playerAimX = 0;
 let playerAimZ = 0;
+
+/** Derniere position ecran connue du curseur (tout mousemove, quelle que
+ *  soit la phase), null tant que la souris n'a jamais bouge. La visee est
+ *  recalculee depuis elle (voir aimAtPointer) plutot que figee au dernier
+ *  mousemove : une rotation ou un deplacement de camera sans mouvement de
+ *  souris change le point du sol sous le curseur. */
+let lastPointerClient: { x: number; y: number } | null = null;
+
+/** Recalcule playerAimX/Z : rayon camera -> sol sous la derniere position
+ *  connue du curseur, ou sous le centre du canvas si la souris n'a jamais
+ *  bouge. Appelee a chaque frame de bataille (reticule, orientation de la
+ *  Baliste) et juste avant chaque tir. */
+function aimAtPointer(): void {
+  const rect = canvas.getBoundingClientRect();
+  const x = lastPointerClient?.x ?? rect.left + rect.width / 2;
+  const y = lastPointerClient?.y ?? rect.top + rect.height / 2;
+  setRaycasterFromClient(x, y);
+  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
+  playerAimX = groundHit.x;
+  playerAimZ = groundHit.z;
+}
 
 /** Vrai uniquement pendant une bataille en cours (ni menu, ni placement, ni
  *  ecran de fin de vague) : c'est la seule phase ou viser/tirer a un sens. */
@@ -2602,14 +2619,6 @@ function currentPhase(): GamePhase | null {
   if (inPlacementPhase) return 'placement';
   if (inBattlePhase()) return 'battle';
   return null;
-}
-
-function updateAimFromEvent(event: MouseEvent): void {
-  if (!inBattlePhase()) return;
-  setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
-  playerAimX = groundHit.x;
-  playerAimZ = groundHit.z;
 }
 
 /** Les 2 ennemis vivants les plus proches de (cursorX, cursorZ), dans
@@ -2691,24 +2700,30 @@ function buildBallistaVolleyShots(originX: number, originZ: number, cursorX: num
   return shots;
 }
 
-/** Tente un tir vers le point de visee ACTUEL (playerAimX/Z, deja tenu a
- *  jour par chaque mousemove, voir updateAimFromEvent) — SOURCE UNIQUE de
- *  "tirer maintenant", partagee par le clic manuel (handleBattleFireClick)
- *  ET le tir automatique en maintien de clic (voir attemptAutoFire
- *  ci-dessous, 2026-08-13). `World.fireArrowVolley` reste la seule autorite
+/** Baliste detruite (2026-08-16, architecture BUILDING) : le batiment
+ *  gameplay de la bataille en cours est a 0 PV. `ballistaEntityId === null`
+ *  (ex. "Tester le scenario" — setupTestBattle ne spawne jamais de batiment
+ *  gameplay) : jamais detruite. L'entite doit bien etre la Baliste : apres
+ *  un retour a l'editeur, l'ancien id peut designer une unite du test. */
+function isBallistaDestroyed(): boolean {
+  if (ballistaEntityId === null) return false;
+  const entity = world.getById(ballistaEntityId);
+  return entity !== undefined && entity.isBuilding && entity.unitId === 'ballista' && !entity.alive;
+}
+
+/** Tente un tir vers le point de visee ACTUEL (playerAimX/Z) — SOURCE UNIQUE
+ *  de "tirer maintenant", partagee par l'appui sur Q (fireBallistaFromKey)
+ *  ET le tir automatique en maintien de Q (voir attemptAutoFire ci-dessous,
+ *  2026-08-13). `World.fireArrowVolley` reste la seule autorite
  *  sur "l'arme peut-elle tirer" (cooldown ecoule, aucun carreau d'une volee
- *  precedente deja en vol) — ni le clic ni la boucle de tir auto ne
+ *  precedente deja en vol) — ni l'appui ni la boucle de tir auto ne
  *  dupliquent cette verification, aucun risque de double tir/double volee.
  *  UN SEUL appel a fireArrowVolley par tir (jamais 3 appels independants
  *  a fireArrow) : "Une attaque = un declenchement", un seul cooldown pour
  *  toute la volee, meme avec Mitraillette. */
 function fireArrowIfReady(): void {
-  // Baliste detruite (2026-08-16, architecture BUILDING) : un batiment
-  // gameplay a 0 PV ne peut plus tirer — verifie AVANT tout calcul de tir.
-  // `ballistaEntityId === null` (hors bataille, ex. "Tester le scenario" —
-  // setupTestBattle ne spawne jamais de batiment gameplay) laisse le tir
-  // fonctionner comme avant cette architecture, sans regression.
-  if (ballistaEntityId !== null && world.getById(ballistaEntityId)?.alive === false) return;
+  // Baliste detruite : verifie AVANT tout calcul de tir.
+  if (isBallistaDestroyed()) return;
   // Meme valeur de degats EFFECTIVE pour les 3 carreaux (talent Tir rapide +
   // amelioration Baliste deja inclus) — jamais reduite/partagee entre eux
   // (demande explicite : "chaque carreau = degats normaux de la Baliste").
@@ -2726,55 +2741,65 @@ function fireArrowIfReady(): void {
   if (fired) playBallistaShot(ballista);
 }
 
-function handleBattleFireClick(event: MouseEvent): void {
-  if (!inBattlePhase()) return;
-  if (useArmedItemOnClick(event)) return;
-  updateAimFromEvent(event);
-  fireArrowIfReady();
+/** La Baliste ne tire que pendant un combat actif, temps en marche : jamais en
+ *  pause (menu ou timeScale 0), pendant la transition de fin de vague
+ *  (battleOver) ni hors bataille (placement, editeur, menu). Le clavier
+ *  n'etant pas bloque par l'overlay de pause, contrairement a la souris, ce
+ *  garde-fou est indispensable : sans lui, une volee preparee pendant la
+ *  pause partirait a la reprise. */
+function canFireBallista(): boolean {
+  return inBattlePhase() && !pauseMenuOpen && loop.timeScale > 0;
 }
 
-/** Maintien du clic pour tirer en rafale (2026-08-13, demande d'Antoine :
- *  "Tir rapide" accorde desormais "le joueur peut maintenir le clic enfoncé
- *  pour continuer à tirer automatiquement"). `true` tant que le bouton
- *  gauche est physiquement enfonce sur le canvas — l'INTENTION de tir
- *  seulement, jamais un minuteur/compteur de tirs : le RYTHME reel reste
- *  entierement determine par World.fireArrowAt/effectivePlayerArrowCooldown
- *  (voir attemptAutoFire, appelee depuis le PAS DE SIMULATION FIXE — jamais
- *  depuis le rendu variable, pour qu'aucun tir ne depende du framerate). */
-let fireButtonHeld = false;
+/** Q maintenu (2026-08-13, talent "Tir rapide" : "le joueur peut maintenir
+ *  [la commande de tir] pour continuer a tirer automatiquement"). L'INTENTION
+ *  de tir seulement, jamais un minuteur/compteur de tirs : le RYTHME reel
+ *  reste entierement determine par World.fireArrowVolley/
+ *  effectivePlayerArrowCooldown (voir attemptAutoFire, appelee depuis le PAS
+ *  DE SIMULATION FIXE — jamais depuis le rendu variable, pour qu'aucun tir ne
+ *  depende du framerate). Remis a false au relachement de Q, a la perte de
+ *  focus, en pause, en fin de bataille et a chaque nouvelle bataille. */
+let fireKeyHeld = false;
+
+/** Appui sur Q (hors repetition automatique du clavier, voir le listener
+ *  keydown) : tir immediat vers le sol sous le curseur, rayon recalcule a
+ *  cet instant (la camera a pu bouger depuis le dernier mousemove). Ne
+ *  touche ni a la selection RTS, ni a un rectangle en cours, ni a un objet
+ *  arme, qui reste arme. */
+function fireBallistaFromKey(): void {
+  if (!canFireBallista()) return;
+  fireKeyHeld = true;
+  aimAtPointer();
+  fireArrowIfReady();
+}
 
 /** A appeler UNE FOIS PAR PAS DE SIMULATION (voir la boucle de jeu,
  *  `loop`, callback onStep) — no-op si Tir rapide n'est pas debloque (le
- *  maintien du clic ne doit JAMAIS accorder cet avantage sans le talent,
- *  demande explicite d'Antoine, point 13), si le bouton n'est pas
- *  maintenu, ou hors phase de bataille (couvre implicitement pause/
- *  placement/editeur : inBattlePhase() est deja false dans tous ces cas).
- *  Un objet arme (parchemin) a priorite sur le tir, meme logique que le
- *  clic manuel (useArmedItemOnClick avant fireArrowIfReady) — par
- *  construction, `armedItemIndex` redevient deja null des la resolution du
- *  premier clic (consommation ou desarmement), donc ce garde-fou ne
- *  bloque jamais un tir automatique legitime en pratique. */
+ *  maintien ne doit JAMAIS accorder cet avantage sans le talent, demande
+ *  explicite d'Antoine, point 13), si Q n'est pas maintenu, ou si la
+ *  Baliste ne peut pas tirer (voir canFireBallista). Pas de double tir avec
+ *  l'appui initial : fireArrowVolley refuse tant que la recharge court. */
 function attemptAutoFire(): void {
-  if (!fireButtonHeld || !isTalentActive('tir_rapide') || !inBattlePhase() || armedItemIndex !== null) return;
+  if (!fireKeyHeld || !isTalentActive('tir_rapide') || !canFireBallista()) return;
+  aimAtPointer();
   fireArrowIfReady();
 }
 
-/** Bascule Baliste <-> Commandement (prototype RTS, touche B provisoire).
- *  Seulement pendant une bataille en cours, jamais depuis le menu pause.
- *  Coupe le maintien de tir en cours pour qu'aucune rafale ne continue en
- *  mode Commandement, et abandonne la selection en revenant en mode Baliste. */
-function toggleBattleControlMode(): void {
-  if (!inBattlePhase() || pauseMenuOpen) return;
-  battleControlMode = battleControlMode === 'ballista' ? 'command' : 'ballista';
-  fireButtonHeld = false;
-  if (battleControlMode === 'ballista') {
-    battleSelection.clear();
-    cancelCommandDrag();
-  }
+/** Etat affiche par le HUD de la Baliste (voir ui/ballistaIndicator.ts) —
+ *  "prete" exactement quand fireArrowVolley accepterait un tir : recharge
+ *  terminee et aucune volee precedente encore en vol. La duree totale de la
+ *  recharge est la recharge EFFECTIVE (bonus de cadence compris), celle-la
+ *  meme qui a ete posee au dernier tir (voir fireArrowIfReady). */
+function currentBallistaStatus(): BallistaStatus {
+  if (isBallistaDestroyed()) return { kind: 'destroyed' };
+  const arrow = world.playerArrow;
+  if (arrow.cooldown > 0) return { kind: 'reloading', cooldownSeconds: arrow.cooldown, totalSeconds: effectivePlayerArrowCooldown() };
+  if (arrow.flights.length > 0) return { kind: 'inFlight' };
+  return { kind: 'ready' };
 }
 
-/** Clic gauche maintenu en mode Commandement, en attente de son relachement :
- *  sous UNIT_DRAG_THRESHOLD_PX c'est un clic (voir resolveCommandModeClick),
+/** Clic gauche maintenu en bataille, en attente de son relachement :
+ *  sous UNIT_DRAG_THRESHOLD_PX c'est un clic (voir resolveBattleSelectionClick),
  *  au-dela un rectangle de selection (meme SelectionBox que le placement),
  *  jamais les deux. */
 interface CommandDragState {
@@ -2796,12 +2821,12 @@ function cancelCommandDrag(): void {
 let lastBattleUnitClickId: number | null = null;
 let lastBattleUnitClickTime = 0;
 
-/** Clic gauche (sans glisser) en mode Commandement. Sans Shift : l'unite
+/** Clic gauche (sans glisser) en bataille. Sans Shift : l'unite
  *  alliee vivante sous le curseur devient l'unique selection, un clic
  *  ailleurs (terrain, ennemi, batiment) vide la selection, un double-clic
  *  selectionne les unites visibles du meme type. Avec Shift : ajoute ou
  *  retire l'unite, ne change rien ailleurs. Aucun ordre n'est transmis. */
-function resolveCommandModeClick(event: MouseEvent): void {
+function resolveBattleSelectionClick(event: MouseEvent): void {
   const picked = pickEntityAtScreen(world.entities, event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
   const unit = picked !== null && picked.team === 'player' && !picked.isBuilding ? picked : null;
 
@@ -2829,22 +2854,23 @@ function resolveCommandModeClick(event: MouseEvent): void {
   battleSelection.set([unit.id]);
 }
 
-/** Rectangle de selection relache en mode Commandement : remplace la
+/** Rectangle de selection relache en bataille : remplace la
  *  selection par les unites alliees vivantes encadrees a l'ecran. */
 function selectBattleUnitsInRect(rect: ScreenRect): void {
   const inside = selectableUnitsInScreenRect(world.entities, rect, worldToScreen, (id) => unitViews.getPosition(id));
   battleSelection.set(inside.map((e) => e.id));
 }
 
-/** Debut de chaque bataille (reelle ou "Tester le scenario") : retour
- *  provisoire au mode Baliste, sans selection ni ordre au clic droit en
- *  attente. A reevaluer apres playtest. */
+/** Debut de chaque bataille (reelle ou "Tester le scenario") : aucune
+ *  selection, aucun ordre au clic droit en attente, Q relache, visee
+ *  recalculee sous le curseur. */
 function resetBattleControls(): void {
-  battleControlMode = 'ballista';
   battleSelection.clear();
   cancelCommandDrag();
   lastBattleUnitClickId = null;
   pendingRightClickOrder = false;
+  fireKeyHeld = false;
+  aimAtPointer();
 }
 
 /** Un ordre RTS ne peut etre emis que pendant un combat actif, temps en
@@ -2852,16 +2878,16 @@ function resetBattleControls(): void {
  *  fin de vague (timeScale 0, battleOver) ni hors bataille. Empeche de mettre
  *  le jeu en pause pour programmer un ordre execute a la reprise. */
 function canIssueRtsOrder(): boolean {
-  return battleControlMode === 'command' && inBattlePhase() && !pauseMenuOpen && loop.timeScale > 0;
+  return inBattlePhase() && !pauseMenuOpen && loop.timeScale > 0;
 }
 
-/** Clic droit seul en mode Commandement, en attente de son relachement : il
+/** Clic droit seul en bataille, en attente de son relachement : il
  *  devient un ordre au relachement, quel que soit le mouvement de la souris
  *  entre-temps. Annule si un clic gauche s'y ajoute (pan, voir cameraDrag) ;
  *  jamais pose pour Maj + clic droit (rotation). */
 let pendingRightClickOrder = false;
 
-/** Clic droit court en mode Commandement, pour toute la selection : attaque
+/** Clic droit court en bataille, pour toute la selection : attaque
  *  ciblee de la meme entite si une entite hostile vivante est sous le curseur
  *  (unite ou batiment ennemi), sinon deplacement de groupe autour du point du
  *  sol — l'orchestration n'envoie que ce point, la simulation repartit les
@@ -2883,7 +2909,7 @@ function issueRightClickOrder(event: MouseEvent): void {
   world.issueCommand({ kind: 'move', entityIds, x: point.x, z: point.z });
 }
 
-/** S en mode Commandement : interrompt l'ordre de toutes les unites
+/** S en bataille : interrompt l'ordre de toutes les unites
  *  selectionnees, qui passent en Garde. */
 function issueStopOrder(): void {
   const entityIds = battleSelection.ids;
@@ -2928,19 +2954,9 @@ function armInventorySlot(index: number): void {
   if (!def.usablePhases.includes(phase)) return;
   armedItemIndex = armedItemIndex === index ? null : index;
   inventoryBar.setArmed(armedItemIndex, armedItemIndex !== null ? owned.itemId : undefined);
-  if (armedItemIndex === null) {
-    healTargetRing.visible = false;
-  } else {
-    // Entree en mode de ciblage d'un objet de bataille (Nova, parchemin...) :
-    // suspend PROPREMENT une intention de tir de Baliste deja en cours
-    // (2026-08-15, demande d'Antoine, point 11 : "si le joueur était en
-    // train de maintenir le bouton avant de sélectionner Nova, le système
-    // ne doit pas reprendre un tir fantôme pendant le clic de validation").
-    // Filet de securite en plus du garde-fou pose au mousedown ci-dessous
-    // (armedItemIndex !== null) — couvre aussi le cas ou fireButtonHeld
-    // etait deja vrai AVANT l'armement.
-    fireButtonHeld = false;
-  }
+  // Le tir de Baliste est sur Q, independant du clic gauche qui utilise
+  // l'objet : armer un objet n'interrompt plus un tir maintenu.
+  if (armedItemIndex === null) healTargetRing.visible = false;
 }
 
 /** Point du sol (position REELLE du clic, pas alignee sur une case) sous le
@@ -3099,8 +3115,7 @@ function applyPlayerHeal(target: { hp: number }, maxHp: number, requestedHeal: n
  * effet — un clic sans cible valide a portee ANNULE l'armement plutot que
  * de rester en attente indefiniment (meme principe que la deselection de
  * groupe en placement). Retourne true si le clic a ete consomme par
- * l'objet : l'appelant (handleBattleFireClick) ne doit alors pas tirer la
- * fleche en plus.
+ * l'objet (toujours le cas des qu'un objet est arme).
  *
  * Cibles SECONDAIRES (2026-08-13, boutique d'amelioration "Parchemin de
  * soin") : appliquees UNIQUEMENT ici et dans la version placement
@@ -4102,8 +4117,8 @@ const loop = new Loop(
         battleOver = true;
         loop.timeScale = 0;
         // Fin de combat (2026-08-13) : n'importe quel tir automatique en
-        // cours doit s'arreter net, meme si le bouton est reste enfonce.
-        fireButtonHeld = false;
+        // cours doit s'arreter net, meme si Q est reste enfonce.
+        fireKeyHeld = false;
         if (inTestMode) {
           // Demande d'Antoine : "Tester le scenario" revient a l'editeur des
           // que la derniere unite tombe, PAS a l'ecran de fin de vague normal
@@ -4331,7 +4346,7 @@ const loop = new Loop(
     // apres world.clear() est abandonnee par sync() lui-meme.
     if (inBattlePhase()) battleSelection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id));
     else battleSelection.clear();
-    battleModeIndicator.update(inBattlePhase() && !pauseMenuOpen, battleControlMode, battleSelection.size);
+    ballistaIndicator.update(inBattlePhase() && !pauseMenuOpen, currentBallistaStatus(), battleSelection.size);
 
     // Fait avancer les fleches en attente de depart (voir pendingArrowSpawns) :
     // temps REEL, independant de la simulation — une fleche part des que son
@@ -4457,16 +4472,19 @@ const loop = new Loop(
     debugPanel.update(realDt);
 
     const inBattle = inBattlePhase();
-    // Prototype RTS : en mode Commandement, le clic gauche ne tire plus — le
-    // reticule et l'orientation de la Baliste vers le curseur sont suspendus.
-    // En mode Baliste, comportement identique a avant.
-    const aiming = inBattle && battleControlMode === 'ballista';
+    // Visee permanente pendant la bataille (tir sur Q) : point du sol sous le
+    // curseur recalcule a chaque frame, la camera ayant pu bouger sans
+    // mouvement de souris. Reticule discret pour ne pas gener la selection
+    // RTS : plus visible quand la Baliste est prete, presque transparent
+    // pendant la recharge, masque si elle est detruite.
+    const aiming = inBattle && !isBallistaDestroyed();
     aimReticle.visible = aiming;
     if (aiming) {
+      aimAtPointer();
       aimReticle.position.x = playerAimX;
       aimReticle.position.z = playerAimZ;
       const ready = world.playerArrow.cooldown <= 0 && world.playerArrow.flights.length === 0;
-      (aimReticle.material as THREE.MeshBasicMaterial).opacity = ready ? 0.9 : 0.35;
+      (aimReticle.material as THREE.MeshBasicMaterial).opacity = ready ? 0.55 : 0.15;
 
       // La baliste suit le curseur en continu pendant la bataille, meme
       // convention de cap que le reste du rendu (voir UnitViews.computeFacing) :
@@ -4476,8 +4494,6 @@ const loop = new Loop(
       const dz = playerAimZ - playerArrowOrigin.z;
       if (Math.hypot(dx, dz) > 1e-4) ballista.rotation.y = Math.atan2(-dx, -dz);
     }
-    arrowCooldown.setVisible(inBattle);
-    arrowCooldown.update(world.playerArrow.cooldown);
     // Anime le modele de la baliste (2026-08-13, FBX riggé) — temps REEL,
     // comme le reste des animations cosmetiques (UnitViews, Projectiles) ;
     // inconditionnel (pas seulement pendant `aiming`) pour laisser le clip
@@ -4519,7 +4535,7 @@ function openPauseMenu(): void {
   if (inEditorMode || pauseMenuOpen || (!inBattlePhase() && !inPlacementPhase)) return;
   pauseMenuOpen = true;
   loop.timeScale = 0;
-  fireButtonHeld = false;
+  fireKeyHeld = false;
   if (inPlacementPhase) {
     sellZone.setVisible(false);
     placementPanel.hide();
@@ -4585,7 +4601,7 @@ function quitToMenu(): void {
   inventoryBar.setVisible(false);
   disarmItem();
   cancelBuildingPlacement();
-  fireButtonHeld = false;
+  fireKeyHeld = false;
   cancelUnitDrag();
   cancelGroundDrag();
   clearSelection();
@@ -5064,15 +5080,24 @@ window.addEventListener('keydown', (event) => {
     case 'X':
       loop.timeScale = loop.timeScale === 2 ? 1 : 2;
       break;
-    case 'b':
-    case 'B':
-      toggleBattleControlMode();
+    case 'q':
+    case 'Q':
+      // Tir de la Baliste : jamais dans un champ de saisie (voir KI-19),
+      // jamais sur la repetition automatique du clavier — le maintien de Q
+      // est gere par attemptAutoFire (talent Tir rapide).
+      if (!event.repeat && !isTypingInField(event.target)) fireBallistaFromKey();
       break;
     case 's':
     case 'S':
       if (!isTypingInField(event.target)) issueStopOrder();
       break;
   }
+});
+
+// Relachement de Q : fin du tir maintenu (Tir rapide). Majuscule ou non
+// selon l'etat de Maj au relachement, d'ou les deux valeurs.
+window.addEventListener('keyup', (event) => {
+  if (event.key === 'q' || event.key === 'Q') fireKeyHeld = false;
 });
 
 // Camera a la souris, trois intentions distinguees par les boutons et Maj au
@@ -5156,13 +5181,12 @@ canvas.addEventListener('mousedown', (event) => {
 
   // Clic gauche deja enfonce (`event.buttons`, masque des boutons
   // ACTUELLEMENT enfonces) : pan. Le geste gauche en cours (rectangle de
-  // selection, glisser d'unite, tir maintenu) est abandonne d'abord
+  // selection, glisser d'unite, placement de la tour) est abandonne d'abord
   // (2026-08-11, bug remonte par Antoine : "si je clique gauche en premier
   // puis droit... la grille de multi selection apparait") ; aucune action
   // ponctuelle du clic droit.
   if (event.buttons & 1) {
     cancelLeftPointerGestures();
-    fireButtonHeld = false;
     startCameraDrag('pan', event);
     return;
   }
@@ -5181,7 +5205,7 @@ canvas.addEventListener('mousedown', (event) => {
   const disarmedItem = armedItemIndex !== null;
   if (disarmedItem) disarmItem();
 
-  // Prototype RTS : en mode Commandement, avec au moins une unite selectionnee,
+  // Prototype RTS : en bataille, avec au moins une unite selectionnee,
   // ce clic droit devient un ordre (attaque ou deplacement) a son relachement
   // (voir le mouseup plus bas), meme si la souris a un peu bouge. Jamais si
   // ce clic vient de desarmer un objet, ni si un clic gauche s'y ajoute
@@ -5302,56 +5326,28 @@ canvas.addEventListener('mousedown', (event) => {
 });
 
 canvas.addEventListener('mousedown', (event) => {
-  if (event.button !== 0 || inEditorMode || leftClickReservedForCamera(event)) return;
-  // PRIORITE explicite (2026-08-15, bug remonte par Antoine : Nova de glace
-  // declenchait aussi une salve fantome de Baliste) — UI > mode de ciblage
-  // d'un objet de bataille > tir de Baliste. Un objet arme CONSOMME
-  // ENTIEREMENT ce clic : `fireButtonHeld` ne doit meme pas etre pose pour
-  // ce clic, sinon le tick de simulation SUIVANT (voir attemptAutoFire)
-  // verrait `armedItemIndex` deja redevenu null (l'objet vient d'etre
-  // consomme par handleBattleFireClick/useArmedItemOnClick sur CE MEME
-  // clic) et `fireButtonHeld` toujours vrai — un tir de Baliste "fantome" se
-  // declenchait alors au tick suivant, meme sur un simple clic (pas
-  // seulement un clic maintenu), des que le talent "Tir rapide" est
-  // debloque. Cause racine : l'ancien code posait `fireButtonHeld = true`
-  // INCONDITIONNELLEMENT avant meme de savoir si le clic serait consomme.
-  if (armedItemIndex !== null) {
-    handleBattleFireClick(event);
-    return;
-  }
-  // Mode Commandement (prototype RTS) : le clic gauche selectionne au lieu de
-  // tirer — fireButtonHeld n'est pas pose, donc Tir rapide ne tire pas non
-  // plus. Un objet arme garde la priorite (branche ci-dessus). Resolu au
+  if (event.button !== 0 || inEditorMode || leftClickReservedForCamera(event) || !inBattlePhase()) return;
+  // Clic gauche en bataille : un objet arme (parchemin, Nova...) CONSOMME
+  // ENTIEREMENT ce clic (2026-08-15, PRIORITE explicite d'Antoine : UI > mode
+  // de ciblage d'un objet > reste) ; sinon selection RTS, resolue au
   // relachement : clic simple ou rectangle selon le deplacement (voir le
-  // mousemove et le mouseup plus bas).
-  if (battleControlMode === 'command' && inBattlePhase()) {
-    commandDrag = { startClientX: event.clientX, startClientY: event.clientY, dragging: false };
+  // mousemove et le mouseup plus bas). Le tir de Baliste est sur Q.
+  if (armedItemIndex !== null) {
+    useArmedItemOnClick(event);
     return;
   }
-  // Maintien du clic (2026-08-13, "Tir rapide") : pose l'INTENTION de tir
-  // AVANT le tir immediat ci-dessous — sans consequence sur ce tir (deja
-  // gere par handleBattleFireClick/fireArrowIfReady), mais garantit que le
-  // relais automatique (attemptAutoFire, boucle de simulation) prend le
-  // relais des le tick suivant si le bouton reste enfonce.
-  fireButtonHeld = true;
-  handleBattleFireClick(event);
+  commandDrag = { startClientX: event.clientX, startClientY: event.clientY, dragging: false };
 });
 
-// Relachement du clic gauche N'IMPORTE OU sur la fenetre (pas seulement sur
-// le canvas) : arrete immediatement le tir automatique, sans tir
-// supplementaire "en attente" (demande explicite d'Antoine, point 15).
-// pointercancel/blur ci-dessous couvrent les cas ou aucun mouseup n'arrive
-// du tout (alt-tab, geste tactile interrompu...).
-window.addEventListener('mouseup', (event) => {
-  if (event.button === 0) fireButtonHeld = false;
-});
+// pointercancel/blur : cas ou aucun mouseup/keyup n'arrive du tout (alt-tab,
+// geste tactile interrompu...) — aucun tir maintenu ne doit survivre.
 window.addEventListener('pointercancel', () => {
-  fireButtonHeld = false;
+  fireKeyHeld = false;
   buildingClickCandidate = null;
   if (buildingPlacementMode) cancelBuildingPlacement();
 });
 window.addEventListener('blur', () => {
-  fireButtonHeld = false;
+  fireKeyHeld = false;
   pendingRightClickOrder = false;
   cameraDrag = null;
   towerPlacementClickPending = false;
@@ -5459,16 +5455,16 @@ window.addEventListener('mouseup', (event) => {
   selectUnitsInRect(selectionBox.toRect(drag.startClientX, drag.startClientY, event.clientX, event.clientY));
 });
 
-// Clic gauche relache en mode Commandement (prototype RTS) : clic simple sous
+// Clic gauche relache en bataille (selection RTS) : clic simple sous
 // le seuil, rectangle de selection au-dela — un vrai glisser ne produit
-// jamais de clic. Abandonne si la bataille ou le mode ont change entre-temps.
+// jamais de clic. Abandonne si la bataille s'est terminee entre-temps.
 window.addEventListener('mouseup', (event) => {
   if (event.button !== 0 || !commandDrag) return;
   const drag = commandDrag;
   cancelCommandDrag();
-  if (battleControlMode !== 'command' || !inBattlePhase()) return;
+  if (!inBattlePhase()) return;
   if (drag.dragging) selectBattleUnitsInRect(selectionBox.toRect(drag.startClientX, drag.startClientY, event.clientX, event.clientY));
-  else resolveCommandModeClick(event);
+  else resolveBattleSelectionClick(event);
 });
 
 window.addEventListener('mousemove', (event) => {
@@ -5482,8 +5478,9 @@ window.addEventListener('mousemove', (event) => {
   selectionBox.update(commandDrag.startClientX, commandDrag.startClientY, event.clientX, event.clientY);
 });
 
+// Derniere position du curseur, lue par aimAtPointer (visee de la Baliste).
 window.addEventListener('mousemove', (event) => {
-  updateAimFromEvent(event);
+  lastPointerClient = { x: event.clientX, y: event.clientY };
 });
 
 window.addEventListener('mousemove', (event) => {
