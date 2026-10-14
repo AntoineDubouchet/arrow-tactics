@@ -99,7 +99,8 @@ simulation exécutable sans navigateur (scripts Node ponctuels).
 Dans `main.ts` (`new Loop(...)`) :
 
 - **`onStep(dt)`** : `world.step(dt)`, puis tir automatique de la flèche
-  (maintien du clic), puis lecture des événements du tick (§8).
+  (maintien de Q avec le talent Tir rapide), puis lecture des événements du
+  tick (§8).
 - **`onRender(alpha)`** : synchronisation des vues avec la simulation
   (interpolation `prevX/prevZ → x/z`), animations et VFX en temps réel
   (`realDt`), puis `renderer.render()`.

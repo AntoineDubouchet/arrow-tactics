@@ -189,8 +189,9 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 - **Statut** : Confirmé par lecture du code, non reproduit manuellement.
 - **Certain dans le code** :
   - `main.ts` n'a qu'un seul écouteur `keydown`, posé sur `window` ;
-  - il ne filtre pas la cible de l'événement : rien dans `src/` ne teste
-    `event.target`, `tagName` ou `document.activeElement` ;
+  - seules les touches **S** (Stop) et **Q** (tir de la Baliste) ignorent
+    un champ de saisie (`isTypingInField`) ; les autres raccourcis ne
+    filtrent pas la cible de l'événement ;
   - les champs exposés sont les deux `<input type=number>` « Taille » de
     l'éditeur (`editor/editorUI.ts`) et les contrôles de l'écran Paramètres
     (`ui/screens.ts`).

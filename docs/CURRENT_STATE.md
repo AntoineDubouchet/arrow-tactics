@@ -72,8 +72,19 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
    « Prêt pour la bataille » lance le combat. Une confirmation est demandée
    s'il reste plus de 30 % de l'or du début du placement
    (`PLACEMENT_GOLD_WARNING_RATIO`).
-4. **Bataille automatique**. Le joueur intervient avec la Baliste et les
-   parchemins de bataille.
+4. **Bataille automatique**. Le joueur intervient avec la Baliste, les
+   parchemins de bataille et des ordres à ses unités. Le contrôle RTS est
+   **permanent** pendant la bataille ; il n'y a pas de mode à basculer :
+   - **clic gauche** : sélectionner une unité alliée, Maj + clic pour
+     ajouter ou retirer, glisser pour un rectangle de sélection, double-clic
+     pour les unités visibles du même type ; si un parchemin est armé, le
+     clic gauche sert à l'utiliser ;
+   - **clic droit** : ordre aux unités sélectionnées (attaque si un ennemi
+     est sous le curseur, sinon déplacement de groupe) ;
+   - **S** : Stop, les unités sélectionnées passent en Garde ;
+   - **Q** : tir de la Baliste (voir §5) ;
+   - caméra : Maj + clic droit pour pivoter, clic gauche + clic droit pour
+     déplacer, molette pour zoomer (détail dans `EDITOR.md`, §12).
 5. **Fin de bataille**, dès qu'un camp n'a plus de combattant (unités et
    bâtiments du joueur comptent tous les deux) :
    - **Victoire** : bonus d'or, Runes, étape d'expansion de la carte, écran de
@@ -136,21 +147,45 @@ Sources : `config/constants.ts` (`PLAYER_ARROW_*`, `TALENT_*`,
   joueur. Une fois détruite, elle ne tire plus.
 - **Position** : choisie par le joueur en début de run, puis conservée pour
   toute la run.
-- **Tir** : un clic tire un carreau en arc vers le curseur.
+- **Tir** : un appui sur **Q** tire un carreau en arc vers le point du sol
+  sous le curseur, recalculé au moment de l'appui (la caméra a pu bouger
+  depuis le dernier mouvement de souris).
   - Valeurs de base : 2 dégâts, recharge d'environ 2,31 s
     (`PLAYER_ARROW_COOLDOWN = 3 / 1.3`).
   - Vitesse 13,5 cases/s, rayon d'impact 0,63.
+  - Le tir est refusé pendant la recharge et tant que la volée précédente
+    est encore en vol.
+  - Q est sans effet hors bataille, en pause, pendant la transition de fin
+    de vague et quand le focus est dans un champ de saisie. La répétition
+    automatique du clavier ne déclenche pas de tir.
+  - Tirer ne modifie ni la sélection des unités, ni un rectangle de
+    sélection en cours, et n'émet aucun ordre.
 - **Avec le talent Tir rapide** :
   - cadence +60 %, vitesse du projectile +100 %, +2 dégâts ;
-  - maintenir le clic tire automatiquement à la cadence effective.
+  - maintenir Q tire automatiquement à la cadence effective. Sans le
+    talent, maintenir Q ne tire qu'une fois.
 - **Avec le talent Mitraillette** :
   - le total des bonus de cadence est multiplié par 3 ;
   - chaque tir envoie 3 carreaux sous une seule recharge. Les deux
     supplémentaires visent les deux ennemis les plus proches du curseur, dans
     un rayon de 3.
 - **Amélioration permanente** : voir §14.
-- Quand un parchemin est armé, le clic sert au parchemin : aucun tir de
-  Baliste ne part en même temps.
+- **Parchemin armé** : le clic gauche sert au parchemin. Q tire quand même
+  avec la Baliste, et le parchemin reste armé.
+- **Réticule** : un anneau doré discret suit le sol sous le curseur pendant
+  la bataille, plus visible quand la Baliste est prête, presque transparent
+  pendant la recharge, masqué si elle est détruite. La Baliste s'oriente
+  vers lui.
+- **HUD de la Baliste** (`ui/ballistaIndicator.ts`), unique, en bas au
+  centre, visible en bataille hors pause :
+  - `[Q] BALISTE — <état>`, avec l'état `PRÊTE`, le temps de recharge
+    restant (`1.4 s`), `EN VOL` (recharge terminée mais volée précédente
+    encore en vol) ou `DÉTRUITE` (bloc grisé) ;
+  - une barre de recharge intégrée, calculée sur la recharge **effective**
+    (bonus de cadence compris) : pleine et dorée quand la Baliste est
+    prête, pleine en vol, vide si elle est détruite ;
+  - en petit, le nombre d'unités sélectionnées (ligne masquée quand rien
+    n'est sélectionné).
 
 ## 6. Bâtiments gameplay : Mine et Caserne
 
@@ -442,6 +477,10 @@ de la documentation. L'historique des retraits relèvera de
   vagues. La carte de départ est toujours la même ; seule l'expansion A/B/C
   la modifie.
 - **Sauvegarde** : pas de sauvegarde d'une run en cours.
+- **Contrôles en bataille** : pas de mode Commandement / Baliste, et la
+  touche B n'a plus de fonction. La Baliste ne tire plus au clic gauche,
+  seulement avec Q. Il n'y a plus d'indicateur de mode ni de barre de
+  recharge séparée en bas à droite : un seul HUD de Baliste (§5).
 - **Éditeur** : pas de mode rotation W/E. La rotation se fait par l'anneau
   de sélection et par Ctrl+molette.
 - **Tests** : pas de tests automatisés (voir `ARCHITECTURE.md`, §17).
