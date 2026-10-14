@@ -3,6 +3,7 @@ import {
   NEUTRAL_STUCK_CHECK_DURATION,
   NEUTRAL_STUCK_PROGRESS_THRESHOLD,
   OBSTACLE_AVOIDANCE_MARGIN,
+  obstacleBounds,
   OBSTACLE_LOOKAHEAD,
   ORBIT_CHECK_DURATION,
   ORBIT_PROGRESS_THRESHOLD,
@@ -14,13 +15,7 @@ import {
   type ObstacleDef,
 } from '../../config/constants';
 import { clamp } from '../../core/math';
-import {
-  findBlockingObstacle,
-  getObstacleBoundsList,
-  getShrunkObstacleBoundsList,
-  obstacleBounds,
-  segmentIntersectsBox,
-} from '../geometry';
+import { findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, segmentIntersectsBox } from '../geometry';
 import { forwardDir, type Entity } from '../entity';
 import { finishOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
 import { buildPathGrid, findPath, type PathGrid } from '../pathfinding';

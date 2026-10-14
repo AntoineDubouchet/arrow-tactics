@@ -1,5 +1,4 @@
-import { TILE, type ObstacleDef } from '../config/constants';
-import { obstacleBounds } from './geometry';
+import { obstacleBounds, TILE, type ObstacleDef } from '../config/constants';
 
 /**
  * Pathfinding en grille (2026-08-10, voir CLAUDE.md, "Correctif de

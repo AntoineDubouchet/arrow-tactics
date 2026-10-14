@@ -1,5 +1,4 @@
-import { isCollidableObstacle, type ObstacleDef } from '../../config/constants';
-import { obstacleBounds } from '../geometry';
+import { isCollidableObstacle, obstacleBounds, type ObstacleDef } from '../../config/constants';
 import { forwardDir, type Entity, type Team } from '../entity';
 
 /**

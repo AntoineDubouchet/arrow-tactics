@@ -64,6 +64,14 @@ export interface MapDef {
    *  contrairement a enemyUnits, qui est la position REELLE de depart. */
   playerUnits: MapUnitPlacement[];
   enemyUnits: MapUnitPlacement[];
+  /** Centre de la Baliste, en coordonnees monde (meme convention que
+   *  computePlayerArrowOrigin et que l'origine de computeBallistaObstacle),
+   *  pose dans l'editeur de maps. OPTIONNEL : absent sur toute map anterieure
+   *  et tant que la Baliste n'a pas ete deplacee dans l'editeur — repli
+   *  computePlayerArrowOrigin(map), voir resolveBallistaOrigin. Sert a
+   *  l'editeur et a "Tester le scenario" ; une vraie run garde son placement
+   *  obligatoire de la tour (RunState.ballistaPosition). */
+  ballista?: { x: number; z: number };
 }
 
 /** Cle stable d'une cellule — sert de cle de Map/Set (lookup O(1) "cette
@@ -302,6 +310,29 @@ export function computePlayerArrowOrigin(map: Pick<MapDef, 'width' | 'height'>):
   const halfW = (map.width * TILE) / 2;
   const halfH = (map.height * TILE) / 2;
   return { x: halfW - PLAYER_ARROW_CORNER_INSET, z: halfH - PLAYER_ARROW_CORNER_INSET };
+}
+
+/** Position de la Baliste d'une map : celle posee dans l'editeur
+ *  (MapDef.ballista) si presente, sinon le repli historique du coin
+ *  (computePlayerArrowOrigin). SOURCE UNIQUE pour l'editeur et "Tester le
+ *  scenario" — jamais utilisee par une vraie run, qui a son propre
+ *  placement obligatoire de la tour. */
+export function resolveBallistaOrigin(map: Pick<MapDef, 'width' | 'height' | 'ballista'>): { x: number; z: number } {
+  return map.ballista ? { x: map.ballista.x, z: map.ballista.z } : computePlayerArrowOrigin(map);
+}
+
+/** Cote, en cases ENTIERES, de la grille de placement de la Baliste — la
+ *  meme que le placement obligatoire de la tour en vraie run (main.ts,
+ *  TOWER_PLACEMENT_FOOTPRINT_TILES) : BALLISTA_TOWER_FOOTPRINT (2,4) arrondi
+ *  au-dessus, soit 3×3. */
+export const BALLISTA_PLACEMENT_TILES = Math.ceil(BALLISTA_TOWER_FOOTPRINT);
+
+/** Centre de la Baliste cale sur la grille 3×3 la plus proche du point
+ *  (x, z) — meme regle que le placement de la tour en vraie run (coin
+ *  arrondi, centre = coin + 1,5). */
+export function snapBallistaOrigin(x: number, z: number): { x: number; z: number } {
+  const half = BALLISTA_PLACEMENT_TILES / 2;
+  return { x: Math.round(x - half) + half, z: Math.round(z - half) + half };
 }
 
 /**

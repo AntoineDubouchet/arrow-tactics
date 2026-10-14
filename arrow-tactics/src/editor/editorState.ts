@@ -1,9 +1,12 @@
-import { isCollidableObstacle, obstacleCenter, type ObstacleDef } from '../config/constants';
+import { isCollidableObstacle, obstacleBounds, obstacleCenter, type ObstacleBounds, type ObstacleDef } from '../config/constants';
 import {
   buildCellIndex,
   cellKey,
+  computeBallistaObstacle,
+  computePlayerArrowOrigin,
   DEFAULT_MAP,
   resolveMapCells,
+  snapBallistaOrigin,
   type MapDef,
   type MapUnitPlacement,
   type TerrainCellDef,
@@ -61,6 +64,9 @@ export type EditorSelection =
   | { kind: 'obstacle'; id: number }
   | { kind: 'unit'; id: number }
   | { kind: 'unit-group'; ids: number[] }
+  /** La Baliste (unique, toujours presente) : deplacable, jamais supprimee
+   *  ni tournee. */
+  | { kind: 'ballista' }
   | null;
 
 export type EditorTool =
@@ -75,6 +81,12 @@ export type EditorTool =
  *  plateau (voir render/board.ts, createZonesGroup). */
 function teamForZ(z: number): Team {
   return z >= 0 ? 'player' : 'enemy';
+}
+
+/** Les deux rectangles se chevauchent (un simple contact de bord ne compte
+ *  pas). */
+function boundsOverlap(a: ObstacleBounds, b: ObstacleBounds): boolean {
+  return a.minX < b.maxX && a.maxX > b.minX && a.minZ < b.maxZ && a.maxZ > b.minZ;
 }
 
 export class EditorState {
@@ -99,6 +111,16 @@ export class EditorState {
 
   private nextId = 1;
 
+  /** Centre de la Baliste du brouillon (voir MapDef.ballista). */
+  ballista: { x: number; z: number };
+  /** Faux tant que la Baliste n'a jamais ete deplacee dans l'editeur (map
+   *  sans champ `ballista`) : la position suit alors le repli historique
+   *  computePlayerArrowOrigin, y compris apres un changement de taille, et
+   *  l'export n'ecrit aucun champ — une ancienne map rouverte puis
+   *  reenregistree reste identique. Vrai des qu'elle est deplacee ou si la
+   *  map en definit une. */
+  ballistaExplicit: boolean;
+
   /** Par defaut, repart de la map actuelle : l'editeur sert d'abord a
    *  AJUSTER ce qui existe deja, pas a repartir d'une carte vide. Un appelant
    *  peut fournir une autre MapDef (voir main.ts, chargement d'un fichier
@@ -112,6 +134,99 @@ export class EditorState {
     this.width = source.width;
     this.height = source.height;
     this.cellMap = buildCellIndex(resolveMapCells(source));
+
+    this.ballistaExplicit = source.ballista !== undefined;
+    this.ballista = source.ballista ? { x: source.ballista.x, z: source.ballista.z } : computePlayerArrowOrigin(source);
+    // Position chargee invalide (fichier modifie a la main, carte dont les
+    // cases ont change...) : la valide la plus proche sur la grille de la
+    // Baliste. Le repli historique d'une map SANS champ n'est jamais deplace
+    // automatiquement (comportement inchange pour les anciennes maps).
+    if (this.ballistaExplicit && !this.canPlaceBallistaAt(this.ballista.x, this.ballista.z)) {
+      const nearest = this.findNearestValidBallistaOrigin(this.ballista.x, this.ballista.z);
+      if (nearest) {
+        console.warn(`Position de Baliste invalide (${this.ballista.x}, ${this.ballista.z}) : deplacee en (${nearest.x}, ${nearest.z}).`);
+        this.ballista = nearest;
+      } else {
+        console.warn(`Position de Baliste invalide (${this.ballista.x}, ${this.ballista.z}) et aucune position valide trouvee : conservee telle quelle.`);
+      }
+    }
+  }
+
+  /** Rectangle de collision de la Baliste centree en (x, z) — l'empreinte
+   *  REELLE de la bataille (computeBallistaObstacle), jamais une autre
+   *  taille. */
+  private ballistaBoundsAt(x: number, z: number): ObstacleBounds {
+    return obstacleBounds(computeBallistaObstacle({ x, z }));
+  }
+
+  /** Vrai si le point (x, z) est dans l'empreinte de la Baliste actuelle
+   *  (bord exclu). */
+  isInsideBallista(x: number, z: number): boolean {
+    const b = this.ballistaBoundsAt(this.ballista.x, this.ballista.z);
+    return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ;
+  }
+
+  /** Vrai si la case (x, z) est sous l'empreinte de la Baliste actuelle. */
+  private isCellUnderBallista(x: number, z: number): boolean {
+    return boundsOverlap({ minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 }, this.ballistaBoundsAt(this.ballista.x, this.ballista.z));
+  }
+
+  /** Vrai si la Baliste peut etre centree en (x, z) : toutes les cases sous
+   *  son empreinte existent (donc ni hors du plateau ni au-dessus d'un
+   *  trou), aucun obstacle COLLIDABLE ne la chevauche et aucune unite n'a son
+   *  centre dedans. SOURCE UNIQUE de la validation, deplacement comme
+   *  relocalisation. Aucune restriction de moitie de plateau (dependra du
+   *  futur chantier de zone constructible). */
+  canPlaceBallistaAt(x: number, z: number): boolean {
+    const b = this.ballistaBoundsAt(x, z);
+    for (let cz = Math.floor(b.minZ); cz < b.maxZ; cz++) {
+      for (let cx = Math.floor(b.minX); cx < b.maxX; cx++) {
+        if (!this.hasCellAt(cx, cz)) return false;
+      }
+    }
+    if (this.obstacles.some((o) => isCollidableObstacle(o) && boundsOverlap(b, obstacleBounds(o)))) return false;
+    return !this.units.some((u) => u.x > b.minX && u.x < b.maxX && u.z > b.minZ && u.z < b.maxZ);
+  }
+
+  /** Position valide la plus proche de (x, z) sur la grille de la Baliste,
+   *  ou null. Deterministe : anneaux de distance croissante autour du point
+   *  cale, candidats tries par distance puis z puis x. */
+  private findNearestValidBallistaOrigin(x: number, z: number): { x: number; z: number } | null {
+    const start = snapBallistaOrigin(x, z);
+    const maxRing = Math.max(this.width, this.height);
+    for (let ring = 0; ring <= maxRing; ring++) {
+      const candidates: { x: number; z: number; d: number }[] = [];
+      for (let dz = -ring; dz <= ring; dz++) {
+        for (let dx = -ring; dx <= ring; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+          const c = { x: start.x + dx, z: start.z + dz };
+          candidates.push({ ...c, d: (c.x - x) ** 2 + (c.z - z) ** 2 });
+        }
+      }
+      candidates.sort((a, b) => a.d - b.d || a.z - b.z || a.x - b.x);
+      const found = candidates.find((c) => this.canPlaceBallistaAt(c.x, c.z));
+      if (found) return { x: found.x, z: found.z };
+    }
+    return null;
+  }
+
+  /** Deplace la Baliste vers la position calee sur sa grille la plus proche
+   *  de (x, z), si elle est valide — la rend explicite. Renvoie false (rien
+   *  ne change) si la position est invalide ou identique. */
+  moveBallista(x: number, z: number): boolean {
+    const target = snapBallistaOrigin(x, z);
+    if (target.x === this.ballista.x && target.z === this.ballista.z) return false;
+    if (!this.canPlaceBallistaAt(target.x, target.z)) return false;
+    this.ballista = target;
+    this.ballistaExplicit = true;
+    return true;
+  }
+
+  /** Ecrit directement position et statut explicite — annuler/retablir
+   *  (voir main.ts), sans validation : on revient a un etat deja valide. */
+  setBallista(position: { x: number; z: number }, explicit: boolean): void {
+    this.ballista = { x: position.x, z: position.z };
+    this.ballistaExplicit = explicit;
   }
 
   /** Cellules RÉELLEMENT présentes — nouveau tableau à chaque appel (le
@@ -148,6 +263,8 @@ export class EditorState {
    *  l'aperçu vert/rouge de l'outil (Part AF), pour ne jamais diverger. */
   canRemoveCell(x: number, z: number): boolean {
     if (!this.cellMap.has(cellKey(x, z))) return false;
+    // Case necessaire sous la Baliste.
+    if (this.isCellUnderBallista(x, z)) return false;
 
     const occupiedByUnit = this.units.some((u) => Math.floor(u.x) === x && Math.floor(u.z) === z);
     if (occupiedByUnit) return false;
@@ -196,6 +313,9 @@ export class EditorState {
         if (!this.cellMap.has(key)) this.cellMap.set(key, { x, z, terrain: 'grass' });
       }
     }
+    // Baliste jamais deplacee : elle suit le repli historique du coin, comme
+    // le ferait "Tester le scenario" sur la map exportee (sans champ).
+    if (!this.ballistaExplicit) this.ballista = computePlayerArrowOrigin(this);
   }
 
   get selectedObstacle(): EditorObstacle | null {
@@ -278,6 +398,7 @@ export class EditorState {
     const cellX = Math.floor(x);
     const cellZ = Math.floor(z);
     if (!this.hasCellAt(cellX, cellZ)) return false;
+    if (this.isInsideBallista(x, z)) return false;
 
     const onObstacle = this.obstacles.some((o) => {
       if (!isCollidableObstacle(o)) return false;
@@ -347,6 +468,7 @@ export class EditorState {
     const u = this.selectedUnit;
     if (!u) return;
     if (!this.hasCellAt(Math.floor(x), Math.floor(z))) return;
+    if (this.isInsideBallista(x, z)) return;
     u.x = x;
     u.z = z;
     u.team = teamForZ(z);
@@ -370,7 +492,9 @@ export class EditorState {
     const deltaX = x - anchor.x;
     const deltaZ = z - anchor.z;
     const members = ids.map((id) => this.units.find((unit) => unit.id === id)).filter((u): u is EditorUnit => u !== undefined);
-    const allOnValidCells = members.every((u) => this.hasCellAt(Math.floor(u.x + deltaX), Math.floor(u.z + deltaZ)));
+    const allOnValidCells = members.every(
+      (u) => this.hasCellAt(Math.floor(u.x + deltaX), Math.floor(u.z + deltaZ)) && !this.isInsideBallista(u.x + deltaX, u.z + deltaZ),
+    );
     if (!allOnValidCells) return;
 
     for (const u of members) {
@@ -388,7 +512,8 @@ export class EditorState {
 
   deleteSelected(): void {
     const sel = this.selection;
-    if (!sel) return;
+    // La Baliste est unique et toujours presente : jamais supprimee.
+    if (!sel || sel.kind === 'ballista') return;
     if (sel.kind === 'obstacle') {
       this.obstacles = this.obstacles.filter((o) => o.id !== sel.id);
     } else if (sel.kind === 'unit') {

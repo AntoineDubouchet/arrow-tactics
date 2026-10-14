@@ -34,6 +34,10 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
     // continus avant ce chantier, aucun changement necessaire ici.
     playerUnits: state.units.filter((u) => u.team === 'player').map(({ unitId, x, z }) => ({ unitId, x, z })),
     enemyUnits: state.units.filter((u) => u.team === 'enemy').map(({ unitId, x, z }) => ({ unitId, x, z })),
+    // Position de la Baliste ecrite SEULEMENT si elle a ete posee/deplacee
+    // (voir EditorState.ballistaExplicit) : une map qui n'en avait pas reste
+    // sans champ, et garde le repli historique au chargement.
+    ...(state.ballistaExplicit ? { ballista: { x: state.ballista.x, z: state.ballista.z } } : {}),
   };
 }
 
@@ -86,5 +90,16 @@ export async function loadMapDefFromFile(file: File): Promise<MapDef> {
     obstacles: data.obstacles,
     playerUnits: data.playerUnits,
     enemyUnits: data.enemyUnits,
+    // `ballista` OPTIONNEL (voir MapDef.ballista) — lu explicitement (cette
+    // fonction reconstruit la map champ par champ : un champ oublie ici
+    // serait perdu au chargement) et conserve seulement si x et z sont des
+    // nombres finis.
+    ...(isFinitePoint(data.ballista) ? { ballista: { x: data.ballista.x, z: data.ballista.z } } : {}),
   };
+}
+
+function isFinitePoint(value: unknown): value is { x: number; z: number } {
+  if (typeof value !== 'object' || value === null) return false;
+  const { x, z } = value as Record<string, unknown>;
+  return typeof x === 'number' && Number.isFinite(x) && typeof z === 'number' && Number.isFinite(z);
 }

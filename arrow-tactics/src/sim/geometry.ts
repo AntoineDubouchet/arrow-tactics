@@ -1,32 +1,4 @@
-import { obstacleCenter, TILE, type ObstacleDef } from '../config/constants';
-
-/** Bornes d'un obstacle en coordonnees monde, calculees une seule fois pour
- *  eviter de repeter le meme calcul dans chaque systeme qui en a besoin. */
-export interface ObstacleBounds {
-  minX: number;
-  maxX: number;
-  minZ: number;
-  maxZ: number;
-}
-
-/** 2026-08-16 : derive desormais du CENTRE (voir obstacleCenter, qui prefere
- *  la position continue x/z si presente) plutot que directement de
- *  cornerX/cornerZ — fonctionne identiquement pour un obstacle QUELCONQUE,
- *  aligne sur la grille ou pose librement entre deux cases (voir CLAUDE.md,
- *  chantier placement libre). Le rectangle de collision reste EXACTEMENT
- *  tilesX x tilesZ cases de large, juste centre a un endroit qui n'est plus
- *  force d'etre un coin de case. */
-export function obstacleBounds(obstacle: ObstacleDef): ObstacleBounds {
-  const center = obstacleCenter(obstacle);
-  const halfW = (obstacle.tilesX * TILE) / 2;
-  const halfD = (obstacle.tilesZ * TILE) / 2;
-  return {
-    minX: center.x - halfW,
-    maxX: center.x + halfW,
-    minZ: center.z - halfD,
-    maxZ: center.z + halfD,
-  };
-}
+import { obstacleBounds, type ObstacleBounds, type ObstacleDef } from '../config/constants';
 
 /**
  * Bornes de TOUS les obstacles d'une liste, mises en cache par REFERENCE de

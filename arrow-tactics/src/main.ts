@@ -30,11 +30,13 @@ import {
   TALENT_PROJECTILE_DAMAGE_BONUS,
   TALENT_PROJECTILE_SPEED_BONUS,
   TILE,
+  obstacleBounds,
 } from './config/constants';
 import {
   computeBallistaObstacle,
   computePlayerArrowOrigin,
   DEFAULT_MAP,
+  resolveBallistaOrigin,
   type MapDef,
   type MapUnitPlacement,
 } from './config/mapDef';
@@ -139,7 +141,6 @@ import {
 } from './run/runState';
 import { forwardDir, type Entity, type Team } from './sim/entity';
 import type { ArrowShotSpec } from './sim/playerArrow';
-import { obstacleBounds } from './sim/geometry';
 import { World } from './sim/world';
 import { initAudio, persistAudioSettings } from './audio';
 import { BuildingRotationHint } from './ui/buildingRotationHint';
@@ -273,9 +274,9 @@ playerArrowView.setLaunchHeight(mountHeight + DEFAULT_LAUNCH_HEIGHT);
  *  testScenario, returnToEditorAfterTest), puisque le coin du plateau bouge
  *  avec elle. Seule la baliste (pas la tour) s'oriente : la plateforme
  *  elle-meme ne tourne jamais. */
-function repositionBallista(): void {
-  ballistaPlatform.position.set(playerArrowOrigin.x, 0, playerArrowOrigin.z);
-  ballista.rotation.y = Math.atan2(playerArrowOrigin.x, playerArrowOrigin.z);
+function repositionBallista(origin: { x: number; z: number } = playerArrowOrigin): void {
+  ballistaPlatform.position.set(origin.x, 0, origin.z);
+  ballista.rotation.y = Math.atan2(origin.x, origin.z);
 }
 
 /**
@@ -2154,6 +2155,8 @@ const editorUI = new EditorUI({
     editorState.setSize(width, height);
     rebuildEditorBoard();
     editorUI.setMapSize(editorState.width, editorState.height);
+    // Une Baliste jamais deplacee suit le coin du nouveau plateau.
+    refreshEditorObjects();
   },
   onTestScenario: () => testScenario(),
 });
@@ -2239,9 +2242,14 @@ function refreshEditorObjects(): void {
     editorGroupRings.set(id, ring);
   }
 
+  // Baliste du brouillon : le modele (partage avec le jeu, voir
+  // ballistaPlatform) suit la position de l'editeur, la seule enregistree.
+  repositionBallista(editorState.ballista);
+
   const selectedObstacle = editorState.selectedObstacle;
   const selectedUnit = editorState.selectedUnit;
-  editorSelectionRing.visible = selectedObstacle !== null || selectedUnit !== null;
+  const ballistaSelected = editorState.selection?.kind === 'ballista';
+  editorSelectionRing.visible = selectedObstacle !== null || selectedUnit !== null || ballistaSelected;
   if (selectedObstacle) {
     const center = obstacleCenter(selectedObstacle);
     editorSelectionRing.position.set(center.x, 0.02, center.z);
@@ -2251,6 +2259,11 @@ function refreshEditorObjects(): void {
     editorSelectionRing.position.set(selectedUnit.x, 0.02, selectedUnit.z);
     editorSelectionRing.scale.setScalar(0.5);
     editorUI.showUnitProperties(selectedUnit);
+  } else if (ballistaSelected) {
+    // Meme convention d'echelle que les decors, sur l'empreinte reelle.
+    editorSelectionRing.position.set(editorState.ballista.x, 0.02, editorState.ballista.z);
+    editorSelectionRing.scale.setScalar(BALLISTA_TOWER_FOOTPRINT * 0.7);
+    editorUI.hideProperties();
   } else {
     editorUI.hideProperties();
   }
@@ -2308,6 +2321,9 @@ function exitEditor(): void {
   editorUI.setVisible(false);
   editorUI.hideProperties();
   board.group.visible = true;
+  // Le modele de la Baliste suivait la position de l'editeur : retour a
+  // celle du jeu.
+  repositionBallista();
   screens.show('menu');
 }
 
@@ -2354,8 +2370,9 @@ async function testScenario(): Promise<void> {
   renderer.scene.add(testBoard.group);
 
   // Origine de tir, modele visuel et collision de la Baliste a la meme
-  // position, calculee comme en vraie bataille (voir spawnBallistaBuilding).
-  playerArrowOrigin = computePlayerArrowOrigin(currentMap);
+  // position, calculee comme en vraie bataille (voir spawnBallistaBuilding) :
+  // celle posee dans l'editeur, sinon le repli historique du coin.
+  playerArrowOrigin = resolveBallistaOrigin(currentMap);
   ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
 
@@ -2566,14 +2583,22 @@ function handleEditorClick(event: MouseEvent): void {
   // dans le vide deselectionne.
   const obstacleHit = raycaster.intersectObjects(editorObjectsGroup.children, true)[0];
   const unitHit = raycaster.intersectObjects(editorUnitsGroup.children, true)[0];
+  // La Baliste (modele partage avec le jeu, voir ballistaPlatform) est aussi
+  // cliquable directement.
+  const ballistaHit = raycaster.intersectObject(ballistaPlatform, true)[0];
   // En cas de double hit (rare, objets tres proches), on garde le plus proche
-  // de la camera plutot qu'une priorite arbitraire obstacle/unite.
-  const hit =
-    obstacleHit && unitHit ? (obstacleHit.distance <= unitHit.distance ? obstacleHit : unitHit) : (obstacleHit ?? unitHit);
-  const clickedObstacleId = hit ? findEditorObstacleId(hit.object) : null;
-  const clickedUnitId = clickedObstacleId === null && hit ? findEditorUnitId(hit.object) : null;
+  // de la camera plutot qu'une priorite arbitraire obstacle/unite/Baliste.
+  const hit = [obstacleHit, unitHit, ballistaHit].reduce<THREE.Intersection | undefined>(
+    (best, h) => (h && (!best || h.distance < best.distance) ? h : best),
+    undefined,
+  );
+  const clickedBallista = hit !== undefined && hit === ballistaHit;
+  const clickedObstacleId = hit && !clickedBallista ? findEditorObstacleId(hit.object) : null;
+  const clickedUnitId = clickedObstacleId === null && hit && !clickedBallista ? findEditorUnitId(hit.object) : null;
 
-  if (clickedObstacleId !== null) {
+  if (clickedBallista) {
+    editorState.select({ kind: 'ballista' });
+  } else if (clickedObstacleId !== null) {
     editorState.select({ kind: 'obstacle', id: clickedObstacleId });
   } else if (clickedUnitId !== null) {
     // Double-clic MANUEL (2026-08-11, meme technique que la phase de
@@ -2593,10 +2618,34 @@ function handleEditorClick(event: MouseEvent): void {
     editorState.moveSelectedUnit(snapToTileCenter(groundHit.x), snapToTileCenter(groundHit.z));
   } else if (editorState.selection?.kind === 'unit-group') {
     editorState.moveSelectedGroup(snapToTileCenter(groundHit.x), snapToTileCenter(groundHit.z));
+  } else if (editorState.selection?.kind === 'ballista') {
+    moveEditorBallista(groundHit.x, groundHit.z);
   } else {
     editorState.select(null);
   }
   refreshEditorObjects();
+}
+
+/** Baliste selectionnee + clic au sol : deplacement cale sur sa grille 3×3
+ *  s'il est valide (voir EditorState.moveBallista, canPlaceBallistaAt) ;
+ *  sinon rien ne change et la Baliste reste selectionnee. Un deplacement
+ *  reussi entre dans l'historique, statut explicite compris (meme patron que
+ *  le deplacement d'un decor, voir le 'mouseUp' de transformControls). */
+function moveEditorBallista(x: number, z: number): void {
+  if (!editorState) return;
+  const from = { position: { ...editorState.ballista }, explicit: editorState.ballistaExplicit };
+  if (!editorState.moveBallista(x, z)) return;
+  const to = { position: { ...editorState.ballista }, explicit: editorState.ballistaExplicit };
+  editorHistory.push({
+    undo: () => {
+      editorState?.setBallista(from.position, from.explicit);
+      refreshEditorObjects();
+    },
+    redo: () => {
+      editorState?.setBallista(to.position, to.explicit);
+      refreshEditorObjects();
+    },
+  });
 }
 
 // Raycast souris : sert a la fois a detecter un clic sur une unite et, a

@@ -472,6 +472,36 @@ export function obstacleCenter(o: Pick<ObstacleDef, 'x' | 'z' | 'cornerX' | 'cor
   return { x: (o.cornerX ?? 0) + (o.tilesX * TILE) / 2, z: (o.cornerZ ?? 0) + (o.tilesZ * TILE) / 2 };
 }
 
+/** Bornes d'un obstacle en coordonnees monde, calculees une seule fois pour
+ *  eviter de repeter le meme calcul dans chaque systeme qui en a besoin. */
+export interface ObstacleBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/** 2026-08-16 : derive desormais du CENTRE (voir obstacleCenter, qui prefere
+ *  la position continue x/z si presente) plutot que directement de
+ *  cornerX/cornerZ — fonctionne identiquement pour un obstacle QUELCONQUE,
+ *  aligne sur la grille ou pose librement entre deux cases (voir CLAUDE.md,
+ *  chantier placement libre). Le rectangle de collision reste EXACTEMENT
+ *  tilesX x tilesZ cases de large, juste centre a un endroit qui n'est plus
+ *  force d'etre un coin de case. Fonction pure, a cote d'obstacleCenter dans
+ *  config/ (couche neutre) : partagee par la simulation, l'editeur et
+ *  main.ts sans qu'aucun d'eux depende d'un autre. */
+export function obstacleBounds(obstacle: ObstacleDef): ObstacleBounds {
+  const center = obstacleCenter(obstacle);
+  const halfW = (obstacle.tilesX * TILE) / 2;
+  const halfD = (obstacle.tilesZ * TILE) / 2;
+  return {
+    minX: center.x - halfW,
+    maxX: center.x + halfW,
+    minZ: center.z - halfD,
+    maxZ: center.z + halfD,
+  };
+}
+
 /** Distance (en cases) a laquelle une unite en marche neutre (pas encore de
  *  cible verrouillee) sonde le terrain devant elle pour anticiper un
  *  contournement, plutot que de foncer tout droit dans un obstacle avant de
