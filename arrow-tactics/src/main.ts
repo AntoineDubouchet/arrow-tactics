@@ -382,9 +382,22 @@ function confirmTowerPlacement(event: MouseEvent): void {
   startPlacement();
 }
 
+/** Clic gauche de placement de la tour, en attente de son relachement : la
+ *  tour n'est posee qu'au relachement, pour qu'un clic droit ajoute entre-
+ *  temps (pan gauche + droit, voir cancelLeftPointerGestures) annule le
+ *  placement au lieu de poser la tour par accident. */
+let towerPlacementClickPending = false;
+
 canvas.addEventListener('mousedown', (event) => {
-  if (event.button !== 0 || !towerPlacementActive || dragging) return;
-  confirmTowerPlacement(event);
+  if (event.button !== 0 || !towerPlacementActive || leftClickReservedForCamera(event)) return;
+  towerPlacementClickPending = true;
+});
+
+window.addEventListener('mouseup', (event) => {
+  if (event.button !== 0 || !towerPlacementClickPending) return;
+  towerPlacementClickPending = false;
+  // Relache sur une interface HTML plutot que sur le plateau : aucun placement.
+  if (event.target === canvas) confirmTowerPlacement(event);
 });
 
 window.addEventListener('mousemove', (event) => {
@@ -2831,7 +2844,7 @@ function resetBattleControls(): void {
   battleSelection.clear();
   cancelCommandDrag();
   lastBattleUnitClickId = null;
-  pendingRightClickOrder = null;
+  pendingRightClickOrder = false;
 }
 
 /** Un ordre RTS ne peut etre emis que pendant un combat actif, temps en
@@ -2842,10 +2855,11 @@ function canIssueRtsOrder(): boolean {
   return battleControlMode === 'command' && inBattlePhase() && !pauseMenuOpen && loop.timeScale > 0;
 }
 
-/** Clic droit en mode Commandement, en attente de son relachement : un clic
- *  court devient un ordre de deplacement, un glisser au-dela du seuil
- *  devient une rotation de camera et n'emet jamais d'ordre. */
-let pendingRightClickOrder: { startClientX: number; startClientY: number } | null = null;
+/** Clic droit seul en mode Commandement, en attente de son relachement : il
+ *  devient un ordre au relachement, quel que soit le mouvement de la souris
+ *  entre-temps. Annule si un clic gauche s'y ajoute (pan, voir cameraDrag) ;
+ *  jamais pose pour Maj + clic droit (rotation). */
+let pendingRightClickOrder = false;
 
 /** Clic droit court en mode Commandement, pour toute la selection : attaque
  *  ciblee de la meme entite si une entite hostile vivante est sous le curseur
@@ -5061,9 +5075,14 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
-// Camera a la souris : clic droit maintenu pour pivoter/incliner, molette pour
-// zoomer. Le clic gauche reste libre pour le placement puis, pendant la
-// bataille, le ciblage/tir de la fleche du joueur.
+// Camera a la souris, trois intentions distinguees par les boutons et Maj au
+// moment de l'appui (jamais par un seuil de deplacement) :
+//  - clic droit seul : action ponctuelle (ordre RTS en bataille, desarmer un
+//    objet, annuler un placement, annuler/deselectionner dans l'editeur),
+//    jamais de mouvement de camera ;
+//  - Maj + clic droit maintenu : rotation/inclinaison ;
+//  - clic gauche + clic droit maintenus : deplacement (pan).
+// Molette : zoom. Le bouton du milieu n'est pas utilise.
 //
 // Menu contextuel du navigateur supprime PARTOUT dans l'interface (2026-08-15,
 // chantier polish/equilibrage, demande explicite d'Antoine) — pas seulement
@@ -5076,39 +5095,98 @@ window.addEventListener('keydown', (event) => {
 // ET l'editeur de maps en une seule fois. Intercepte UNIQUEMENT l'evenement
 // `contextmenu` (menu du navigateur) — n'a AUCUN effet sur `mousedown`/
 // `pointerdown` (event.button === 2), le mecanisme completement independant
-// dont depend deja tout le clic droit du JEU lui-meme (pan de camera,
+// dont depend deja tout le clic droit du JEU lui-meme (ordre RTS,
 // annulation du ciblage d'un objet arme, clic droit de l'editeur qui annule
 // un placement en cours — voir plus bas) : preventDefault() sur contextmenu
 // ne bloque jamais la DELIVRANCE d'un autre type d'evenement.
 document.body.addEventListener('contextmenu', (event) => event.preventDefault());
 
-let dragging = false;
+/** Geste camera en cours, decide une fois pour toutes au mousedown qui le
+ *  demarre (voir plus bas) : `rotate` (Maj + clic droit) ou `pan` (clic
+ *  gauche + clic droit). Tant qu'il est actif, aucun clic gauche ne demarre
+ *  de geste de jeu (placement, selection, tir, editeur) et aucun ordre n'est
+ *  emis. */
+let cameraDrag: 'rotate' | 'pan' | null = null;
 let lastMouseX = 0;
 let lastMouseY = 0;
 
-canvas.addEventListener('mousedown', (event) => {
-  if (event.button !== 2) return;
-  dragging = true;
+function startCameraDrag(mode: 'rotate' | 'pan', event: MouseEvent): void {
+  cameraDrag = mode;
   lastMouseX = event.clientX;
   lastMouseY = event.clientY;
+  pendingRightClickOrder = false;
+}
+
+/** Vrai si un clic gauche doit etre ignore par les gestes de jeu : un geste
+ *  camera est en cours, ou le clic droit est deja enfonce (ce clic gauche
+ *  demarre alors un pan, voir le mousedown camera). */
+function leftClickReservedForCamera(event: MouseEvent): boolean {
+  return cameraDrag !== null || (event.buttons & 2) !== 0;
+}
+
+/** Abandonne net tout geste du clic gauche en cours (clic de placement de la
+ *  tour, rectangle de selection en placement ou en bataille, glisser
+ *  d'unite) : un autre bouton qui s'ajoute ne doit jamais laisser le cadre de
+ *  selection ou le fantome de vente suivre le curseur en parallele, ni poser
+ *  la tour au relachement. */
+function cancelLeftPointerGestures(): void {
+  towerPlacementClickPending = false;
+  if (groundDrag) {
+    selectionBox.hide();
+    groundDrag = null;
+  }
+  cancelCommandDrag();
+  if (unitDrag) {
+    sellZone.hideGhost();
+    placementHighlight.hide();
+    unitDrag = null;
+  }
+}
+
+// Clic droit deja enfonce, puis clic gauche : pan. Le clic droit en attente
+// n'emettra plus d'ordre (voir startCameraDrag) ; les gestes de jeu du clic
+// gauche l'ignorent (voir leftClickReservedForCamera).
+canvas.addEventListener('mousedown', (event) => {
+  if (event.button !== 0 || !(event.buttons & 2)) return;
+  startCameraDrag('pan', event);
+});
+
+canvas.addEventListener('mousedown', (event) => {
+  if (event.button !== 2) return;
+
+  // Clic gauche deja enfonce (`event.buttons`, masque des boutons
+  // ACTUELLEMENT enfonces) : pan. Le geste gauche en cours (rectangle de
+  // selection, glisser d'unite, tir maintenu) est abandonne d'abord
+  // (2026-08-11, bug remonte par Antoine : "si je clique gauche en premier
+  // puis droit... la grille de multi selection apparait") ; aucune action
+  // ponctuelle du clic droit.
+  if (event.buttons & 1) {
+    cancelLeftPointerGestures();
+    fireButtonHeld = false;
+    startCameraDrag('pan', event);
+    return;
+  }
+  // Maj + clic droit : rotation, decidee ici pour tout le geste (relacher ou
+  // appuyer Maj ensuite ne change rien) ; aucune action ponctuelle.
+  if (event.shiftKey) {
+    startCameraDrag('rotate', event);
+    return;
+  }
 
   // Clic droit = annule le ciblage d'un objet d'inventaire arme (2026-08-14,
   // demande explicite d'Antoine : "on est obligé de l'utiliser pour retirer
   // le curseur de visée, il faut pouvoir appuyer sur clic droit pour sortir
   // de la visée du parchemin") — meme effet que Echap (disarmItem, ne
-  // consomme JAMAIS l'objet), le pan de camera demarre normalement juste
-  // apres en plus (les deux ne s'excluent pas).
+  // consomme JAMAIS l'objet).
   const disarmedItem = armedItemIndex !== null;
   if (disarmedItem) disarmItem();
 
   // Prototype RTS : en mode Commandement, avec au moins une unite selectionnee,
-  // ce clic droit devient un ordre (attaque ou deplacement) s'il est relache sans avoir glisse
-  // (voir le mousemove camera et le mouseup plus bas). Jamais si ce clic
-  // vient de desarmer un objet, ni s'il s'ajoute a un clic gauche (pan).
-  pendingRightClickOrder =
-    !disarmedItem && !(event.buttons & 1) && battleSelection.size > 0 && canIssueRtsOrder()
-      ? { startClientX: event.clientX, startClientY: event.clientY }
-      : null;
+  // ce clic droit devient un ordre (attaque ou deplacement) a son relachement
+  // (voir le mouseup plus bas), meme si la souris a un peu bouge. Jamais si
+  // ce clic vient de desarmer un objet, ni si un clic gauche s'y ajoute
+  // ensuite (pan).
+  pendingRightClickOrder = !disarmedItem && battleSelection.size > 0 && canIssueRtsOrder();
 
   // Mode placement d'un BATIMENT achete (2026-08-17, demande explicite
   // d'Antoine, point 10 : "Escape ou clic droit -> annule le placement,
@@ -5125,9 +5203,7 @@ canvas.addEventListener('mousedown', (event) => {
   // annule d'abord le PLACEMENT en cours ("objet/unité/prop en main"), sinon
   // désélectionne l'objet actuellement sélectionné — même règle, même ordre
   // de priorité que la touche Échap en mode éditeur (voir plus haut, listener
-  // clavier) : ne supprime jamais rien, le pan de caméra démarre normalement
-  // juste après (les deux gestes ne s'excluent pas, voir armedItemIndex
-  // ci-dessus pour le même principe). Le menu contextuel du navigateur est
+  // clavier) : ne supprime jamais rien. Le menu contextuel du navigateur est
   // déjà empêché sur toute l'interface (2026-08-15, voir le listener
   // `contextmenu` sur `document.body` plus haut), donc rien de plus à faire
   // ici pour "ne pas ouvrir le menu contextuel".
@@ -5141,38 +5217,12 @@ canvas.addEventListener('mousedown', (event) => {
       refreshEditorObjects();
     }
   }
-
-  // Ordre inverse du geste de pan (2026-08-11, bug remonte par Antoine :
-  // "si je clique gauche en premier puis droit... la grille de multi
-  // selection apparait") : le gauche etait deja enfonce (`event.buttons`,
-  // masque des boutons ACTUELLEMENT enfonces) quand le droit demarre —
-  // un geste gauche (rectangle de selection au sol, ou glisser d'unite)
-  // etait donc deja en cours. On l'annule net des que le pan s'active,
-  // plutot que de le laisser continuer en parallele : sans ca, le cadre de
-  // selection/le fantome de vente restaient actifs et suivaient le curseur
-  // pendant tout le pan, puisque leurs propres listeners `mousemove` ne
-  // regardent que leur etat (`groundDrag`/`unitDrag`), jamais `dragging`.
-  if (event.buttons & 1) {
-    if (groundDrag) {
-      selectionBox.hide();
-      groundDrag = null;
-    }
-    // Meme regle en bataille : le clic gauche deja enfonce (clic ou
-    // rectangle en mode Commandement) est abandonne au profit du pan.
-    cancelCommandDrag();
-    if (unitDrag) {
-      sellZone.hideGhost();
-      placementHighlight.hide();
-      unitDrag = null;
-    }
-  }
 });
 
 canvas.addEventListener('mousedown', (event) => {
-  // Clic droit deja maintenu (voir plus haut) : le clic gauche qui s'ajoute
-  // sert exclusivement au geste de glisser la camera (pan), jamais a une
-  // action de placement normale — voir le mousemove plus bas.
-  if (event.button !== 0 || !inPlacementPhase || inEditorMode || dragging) return;
+  // Geste camera (voir plus haut) : le clic gauche qui s'ajoute n'est jamais
+  // une action de placement.
+  if (event.button !== 0 || !inPlacementPhase || inEditorMode || leftClickReservedForCamera(event)) return;
   // Mode placement d'un BATIMENT achete (2026-08-17, demande explicite
   // d'Antoine) : ce clic CONFIRME (ou refuse silencieusement, si invalide —
   // meme convention qu'un clic de placement d'unite raté) l'emplacement
@@ -5252,7 +5302,7 @@ canvas.addEventListener('mousedown', (event) => {
 });
 
 canvas.addEventListener('mousedown', (event) => {
-  if (event.button !== 0 || inEditorMode || dragging) return;
+  if (event.button !== 0 || inEditorMode || leftClickReservedForCamera(event)) return;
   // PRIORITE explicite (2026-08-15, bug remonte par Antoine : Nova de glace
   // declenchait aussi une salve fantome de Baliste) — UI > mode de ciblage
   // d'un objet de bataille > tir de Baliste. Un objet arme CONSOMME
@@ -5302,7 +5352,9 @@ window.addEventListener('pointercancel', () => {
 });
 window.addEventListener('blur', () => {
   fireButtonHeld = false;
-  pendingRightClickOrder = null;
+  pendingRightClickOrder = false;
+  cameraDrag = null;
+  towerPlacementClickPending = false;
   cancelCommandDrag();
   buildingClickCandidate = null;
   if (buildingPlacementMode) cancelBuildingPlacement();
@@ -5314,21 +5366,22 @@ canvas.addEventListener('mousedown', (event) => {
   // selection/le placement/le deplacement normal de l'editeur pendant ce
   // temps (le navigateur livre 'pointerdown' avant 'mousedown' pour un
   // meme clic, ce flag est donc deja a jour ici, voir son commentaire).
-  if (event.button !== 0 || !inEditorMode || dragging || transformDragging) return;
+  if (event.button !== 0 || !inEditorMode || leftClickReservedForCamera(event) || transformDragging) return;
   if (tryStartRingRotate(event)) return;
   handleEditorClick(event);
 });
 
 window.addEventListener('mouseup', (event) => {
   if (event.button === 2) {
-    dragging = false;
-    // Clic droit relache sans glisser (prototype RTS) : attaque ou
-    // deplacement. Un glisser a deja annule pendingRightClickOrder (camera
-    // seulement).
+    // Fin d'un geste camera (rotation ou pan), sinon clic droit seul relache
+    // (prototype RTS) : attaque ou deplacement, au point de relachement.
     const pending = pendingRightClickOrder;
-    pendingRightClickOrder = null;
-    if (pending && !(event.buttons & 1)) issueRightClickOrder(event);
+    pendingRightClickOrder = false;
+    if (cameraDrag !== null) cameraDrag = null;
+    else if (pending && !(event.buttons & 1)) issueRightClickOrder(event);
   }
+  // Le pan exige les deux boutons : relacher le gauche y met fin.
+  if (event.button === 0 && cameraDrag === 'pan') cameraDrag = null;
   if (event.button !== 0 || !unitDrag) return;
 
   const drag = unitDrag;
@@ -5588,29 +5641,23 @@ window.addEventListener('mouseup', (event) => {
 });
 
 window.addEventListener('mousemove', (event) => {
-  if (!dragging) return;
-  // Clic droit en attente d'ordre (prototype RTS) : tant que le curseur reste
-  // sous le seuil de glisser, la camera ne bouge pas. Au-dela (ou si le clic
-  // gauche s'y ajoute pour un pan), le geste devient une rotation de camera
-  // et ne produira jamais d'ordre. lastMouseX/Y ne sont pas mis a jour avant
-  // le seuil : le mouvement deja fait est applique d'un coup ensuite.
-  if (pendingRightClickOrder) {
-    const moved = Math.hypot(event.clientX - pendingRightClickOrder.startClientX, event.clientY - pendingRightClickOrder.startClientY);
-    if (moved < UNIT_DRAG_THRESHOLD_PX && !(event.buttons & 1)) return;
-    pendingRightClickOrder = null;
+  if (cameraDrag === null) return;
+  // Bouton relache hors de la fenetre (aucun mouseup recu) : `event.buttons`
+  // (masque des boutons ACTUELLEMENT enfonces) ne contient plus les boutons
+  // du geste, il s'arrete.
+  const required = cameraDrag === 'pan' ? 3 : 2;
+  if ((event.buttons & required) !== required) {
+    cameraDrag = null;
+    return;
   }
   const dx = event.clientX - lastMouseX;
   const dy = event.clientY - lastMouseY;
   lastMouseX = event.clientX;
   lastMouseY = event.clientY;
-  // Clic droit + gauche maintenus (2026-08-11, demande d'Antoine : "pouvoir
+  // Clic gauche + droit (pan, 2026-08-11, demande d'Antoine : "pouvoir
   // deplacer la camera... pour aller admirer certains details de la
-  // bataille") : glisser la camera (pan) au lieu de pivoter/incliner.
-  // `event.buttons` est un masque de bits des boutons ACTUELLEMENT enfonces,
-  // independant du bouton qui a declenche cet evenement — le seul moyen fiable
-  // de detecter que le gauche est *aussi* enfonce pendant un glisser deja en
-  // cours au clic droit.
-  if (event.buttons & 1) {
+  // bataille") ; Maj + clic droit : rotation/inclinaison.
+  if (cameraDrag === 'pan') {
     renderer.pan(dx, dy);
   } else {
     renderer.adjustYaw(dx * CAMERA.mouseYawSensitivity);
