@@ -226,14 +226,7 @@ export function movementSystem(
       const dx = target.x - e.x;
       const dz = target.z - e.z;
       const d = Math.hypot(dx, dz);
-      // engageRange (voir data/units.ts, UnitStats — 2026-08-11, ajoute pour
-      // le Mage) : distance a laquelle une unite arrete de POURSUIVRE,
-      // distincte de son attackRange de repli au corps a corps quand son
-      // attaque PRINCIPALE porte bien plus loin. Absent = retombe sur
-      // attackRange, comportement IDENTIQUE a avant pour toute unite qui ne
-      // le definit pas.
-      const engageRange = e.stats.engageRange ?? e.stats.attackRange;
-      const inAttackRange = d <= engageRange + target.stats.radius;
+      const inAttackRange = d <= engagementStopDistance(e, target);
 
       if (inAttackRange) {
         e.steerX = null;
@@ -345,6 +338,24 @@ function applySeparationPair(a: Entity, b: Entity, i: number, subDt: number): vo
   a.z -= dz * push;
   b.x += dx * push;
   b.z += dz * push;
+}
+
+/**
+ * Distance (centre a centre) en dessous de laquelle une unite n'a plus besoin
+ * de se rapprocher de sa cible. Seule source de verite pour l'arret de la
+ * poursuite, l'anti-blocage et la progression d'un ordre d'attaque : si ces
+ * trois calculs divergent, une unite arretee volontairement est prise pour
+ * une unite bloquee et oscille.
+ *
+ * - engageRange defini (voir data/units.ts, UnitStats — ajoute pour le
+ *   Mage) : portee de son attaque PRINCIPALE (la Boule de feu), deja
+ *   exprimee centre a centre comme maxRangeTiles. Retournee telle quelle :
+ *   y ajouter le rayon de la cible arretait le Mage hors de portee de tir.
+ * - Sinon : attackRange bord a bord, comportement historique inchange.
+ */
+function engagementStopDistance(e: Entity, target: Entity): number {
+  if (e.stats.engageRange !== undefined) return e.stats.engageRange;
+  return e.stats.attackRange + target.stats.radius;
 }
 
 /**
@@ -476,8 +487,7 @@ function updateStuckState(
     // pendant le suivi d'un chemin A*. Echec : Garde.
     if (e.order.type === 'attack' && e.tauntSourceId === null && e.order.targetEntityId === target.id) {
       const distToTarget = Math.hypot(target.x - e.x, target.z - e.z);
-      const engageRange = e.stats.engageRange ?? e.stats.attackRange;
-      if (distToTarget <= engageRange + target.stats.radius) {
+      if (distToTarget <= engagementStopDistance(e, target)) {
         e.orderProgressTimer = 0;
         e.orderProgressRef = distToTarget;
       } else if (orderMadeNoProgress(e, distToTarget, dt, NEUTRAL_STUCK_CHECK_DURATION, ORBIT_PROGRESS_THRESHOLD)) {
@@ -489,7 +499,7 @@ function updateStuckState(
     const wantsToMove =
       e.sidestepTimer <= 0 &&
       e.unstickTimer <= 0 &&
-      Math.hypot(target.x - e.x, target.z - e.z) > e.stats.attackRange + target.stats.radius;
+      Math.hypot(target.x - e.x, target.z - e.z) > engagementStopDistance(e, target);
 
     if (!wantsToMove) {
       e.stuckTimer = 0;
