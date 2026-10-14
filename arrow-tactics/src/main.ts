@@ -59,6 +59,7 @@ import {
 import { EditorUI } from './editor/editorUI';
 import { downloadMapDef, exportMapDef, loadMapDefFromFile } from './editor/mapSerializer';
 import { buildBallistaTowerPlatform, playBallistaShot, tickBallista } from './render/ballista';
+import { BattleSelection, pickEntityAtScreen } from './render/battleSelection';
 import { loadEnvironmentAssets, type EnvironmentAssets } from './render/assetLibrary';
 import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
@@ -145,6 +146,7 @@ import { ArrowCooldownIndicator } from './ui/arrowCooldown';
 import { BuildingRotationHint } from './ui/buildingRotationHint';
 import { TowerPlacementBanner } from './ui/towerPlacementBanner';
 import { WaveIndicator } from './ui/waveIndicator';
+import { BattleModeIndicator, type BattleControlMode } from './ui/battleModeIndicator';
 import { GoldHud } from './ui/goldHud';
 import { CombatOverlay } from './ui/combatOverlay';
 import { spawnCoinPopup } from './ui/coinPopup';
@@ -169,6 +171,19 @@ const arrowCooldown = new ArrowCooldownIndicator();
 const waveIndicator = new WaveIndicator();
 const buildingRotationHint = new BuildingRotationHint();
 const towerPlacementBanner = new TowerPlacementBanner();
+
+// Prototype RTS, etape 1 : deux contextes de controle pendant la bataille.
+// En mode Baliste, le clic gauche tire comme avant ; en mode Commandement, il
+// selectionne une unite alliee (aucun ordre n'est encore envoye). Bascule
+// provisoire avec la touche B (voir toggleBattleControlMode).
+const battleModeIndicator = new BattleModeIndicator();
+let battleControlMode: BattleControlMode = 'ballista';
+const battleSelectionMarker = createEditorSelectionRing(1);
+// Couleur du camp joueur plutot que l'or par defaut de l'anneau : l'or est deja
+// celui du reticule de visee de la Baliste, les deux se confondraient.
+(battleSelectionMarker.material as THREE.MeshBasicMaterial).color.set(COLORS.playerZone);
+renderer.scene.add(battleSelectionMarker);
+const battleSelection = new BattleSelection(battleSelectionMarker);
 const goldHud = new GoldHud();
 const telegraphView = new TelegraphView();
 const fireballView = new FireballView();
@@ -2724,6 +2739,26 @@ function attemptAutoFire(): void {
   fireArrowIfReady();
 }
 
+/** Bascule Baliste <-> Commandement (prototype RTS, touche B provisoire).
+ *  Seulement pendant une bataille en cours, jamais depuis le menu pause.
+ *  Coupe le maintien de tir en cours pour qu'aucune rafale ne continue en
+ *  mode Commandement, et abandonne la selection en revenant en mode Baliste. */
+function toggleBattleControlMode(): void {
+  if (!inBattlePhase() || pauseMenuOpen) return;
+  battleControlMode = battleControlMode === 'ballista' ? 'command' : 'ballista';
+  fireButtonHeld = false;
+  if (battleControlMode === 'ballista') battleSelection.clear();
+}
+
+/** Clic gauche en mode Commandement : selectionne l'unite alliee vivante sous
+ *  le curseur ; un clic sur le terrain, un ennemi ou un batiment deselectionne.
+ *  Ne transmet aucun ordre a la simulation. */
+function handleCommandModeClick(event: MouseEvent): void {
+  const picked = pickEntityAtScreen(world.entities, event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
+  const selectable = picked !== null && picked.team === 'player' && !picked.isBuilding ? picked : null;
+  battleSelection.select(selectable?.id ?? null);
+}
+
 // --- Inventaire (chantier en cours, 2026-08-09) -------------------------
 //
 // Premier objet : le parchemin de soin (voir data/items.ts), utilisable en
@@ -4151,6 +4186,14 @@ const loop = new Loop(
     // ce rendu (realDt continu), voir UnitViews.sync pour le detail du bug.
     unitViews.sync(nonBuildingEntities, alpha, realDt, loop.timeScale === 0);
 
+    // Selection RTS (prototype) : APRES unitViews.sync pour suivre la position
+    // rendue de ce frame. Hors bataille en cours, aucune selection ne survit
+    // (fin de vague, placement, menu, editeur). Une entite morte ou disparue
+    // apres world.clear() est abandonnee par sync() lui-meme.
+    if (inBattlePhase()) battleSelection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id));
+    else battleSelection.clear();
+    battleModeIndicator.update(inBattlePhase() && !pauseMenuOpen, battleControlMode);
+
     // Fait avancer les fleches en attente de depart (voir pendingArrowSpawns) :
     // temps REEL, independant de la simulation — une fleche part des que son
     // delai cosmetique s'ecoule, meme si la bataille est mise en pause entre
@@ -4274,7 +4317,11 @@ const loop = new Loop(
     }
     debugPanel.update(realDt);
 
-    const aiming = inBattlePhase();
+    const inBattle = inBattlePhase();
+    // Prototype RTS : en mode Commandement, le clic gauche ne tire plus — le
+    // reticule et l'orientation de la Baliste vers le curseur sont suspendus.
+    // En mode Baliste, comportement identique a avant.
+    const aiming = inBattle && battleControlMode === 'ballista';
     aimReticle.visible = aiming;
     if (aiming) {
       aimReticle.position.x = playerAimX;
@@ -4290,7 +4337,7 @@ const loop = new Loop(
       const dz = playerAimZ - playerArrowOrigin.z;
       if (Math.hypot(dx, dz) > 1e-4) ballista.rotation.y = Math.atan2(-dx, -dz);
     }
-    arrowCooldown.setVisible(aiming);
+    arrowCooldown.setVisible(inBattle);
     arrowCooldown.update(world.playerArrow.cooldown);
     // Anime le modele de la baliste (2026-08-13, FBX riggé) — temps REEL,
     // comme le reste des animations cosmetiques (UnitViews, Projectiles) ;
@@ -4878,6 +4925,10 @@ window.addEventListener('keydown', (event) => {
     case 'X':
       loop.timeScale = loop.timeScale === 2 ? 1 : 2;
       break;
+    case 'b':
+    case 'B':
+      toggleBattleControlMode();
+      break;
   }
 });
 
@@ -5074,6 +5125,13 @@ canvas.addEventListener('mousedown', (event) => {
   // INCONDITIONNELLEMENT avant meme de savoir si le clic serait consomme.
   if (armedItemIndex !== null) {
     handleBattleFireClick(event);
+    return;
+  }
+  // Mode Commandement (prototype RTS) : le clic gauche selectionne au lieu de
+  // tirer — fireButtonHeld n'est pas pose, donc Tir rapide ne tire pas non
+  // plus. Un objet arme garde la priorite (branche ci-dessus).
+  if (battleControlMode === 'command' && inBattlePhase()) {
+    handleCommandModeClick(event);
     return;
   }
   // Maintien du clic (2026-08-13, "Tir rapide") : pose l'INTENTION de tir

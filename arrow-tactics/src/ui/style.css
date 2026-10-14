@@ -721,6 +721,31 @@ img {
 /* Indicateur "Vague N" (voir ui/waveIndicator.ts) — coin haut-centre, jamais
    superpose au panneau de debug (haut-gauche) ni a la boutique/vente
    (droite). */
+/* Contexte de controle pendant la bataille (prototype RTS, provisoire) :
+   en bas au centre, zone libre pendant la bataille (le panneau de
+   placement n'est affiche qu'en phase de placement). */
+.battle-mode-indicator {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--ink-dim);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.battle-mode-indicator--command {
+  color: var(--accent-gold);
+  border-color: var(--accent-gold);
+}
+
 .wave-indicator {
   position: fixed;
   top: 16px;
