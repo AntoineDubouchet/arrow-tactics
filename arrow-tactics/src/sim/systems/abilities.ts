@@ -301,16 +301,30 @@ function advanceBlasts(
       applyDamageToEntity(target, b.damage);
       hitIds.push(target.id);
 
-      if (b.knockbackTiles) {
-        const dx = target.x - b.targetX;
-        const dz = target.z - b.targetZ;
-        const pushLen = d > 1e-4 ? d : 1;
-        // Cible pile sur le point d'impact (d ~ 0) : direction radiale
-        // indefinie, on pousse arbitrairement vers +Z plutot que de ne rien
-        // faire — rare (il faudrait etre exactement au centre) mais evite
-        // un recul nul silencieux dans ce cas limite.
-        const pushX = (d > 1e-4 ? dx / pushLen : 0) * b.knockbackTiles * TILE;
-        const pushZ = (d > 1e-4 ? dz / pushLen : 1) * b.knockbackTiles * TILE;
+      // Batiments (Mine, Baliste) : degats, mais jamais de recul — exclus de
+      // movementSystem, rien ne les ramenerait ensuite sur leur case.
+      if (b.knockbackTiles && !target.isBuilding) {
+        let dirX: number;
+        let dirZ: number;
+        if (d > 1e-4) {
+          dirX = (target.x - b.targetX) / d;
+          dirZ = (target.z - b.targetZ) / d;
+        } else {
+          // Cible pile sur le point d'impact (d ~ 0) : direction radiale
+          // indefinie. Cas FREQUENT — l'impact est verrouille sur la position
+          // d'un ennemi (findBestAreaImpact), donc toute cible restee
+          // immobile pendant l'incantation et le vol est exactement au
+          // centre. On continue la direction de vol du projectile (lanceur ->
+          // impact, figee dans le projectile, valable meme si le lanceur est
+          // mort) : la cible est repoussee LOIN du lanceur, comme la Charge.
+          // L'ancien +Z fixe la tirait vers un Mage du joueur. +Z ne reste
+          // qu'en dernier recours, si le vol lui-meme est degenere.
+          const flight = dist(b.fromX, b.fromZ, b.targetX, b.targetZ);
+          dirX = flight > 1e-4 ? (b.targetX - b.fromX) / flight : 0;
+          dirZ = flight > 1e-4 ? (b.targetZ - b.fromZ) / flight : 1;
+        }
+        const pushX = dirX * b.knockbackTiles * TILE;
+        const pushZ = dirZ * b.knockbackTiles * TILE;
         target.x = clamp(target.x + pushX, -halfW + target.stats.radius, halfW - target.stats.radius);
         target.z = clamp(target.z + pushZ, -halfH + target.stats.radius, halfH - target.stats.radius);
       }
