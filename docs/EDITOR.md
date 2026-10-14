@@ -200,12 +200,28 @@ Mêmes contrôles qu'en partie, avec deux différences dans l'éditeur.
 
 | Contrôle | Effet |
 |---|---|
-| Clic droit maintenu + glisser | Pivoter / incliner |
-| Clic droit + clic gauche maintenus + glisser | Déplacer la caméra |
+| Maj + clic droit maintenu + glisser | Pivoter / incliner |
+| Clic gauche + clic droit maintenus + glisser (dans n'importe quel ordre) | Déplacer la caméra |
 | Molette | Zoom |
 | ← → / ↑ ↓ | Pivoter / incliner |
 | A / E | Zoom arrière / avant |
 | Espace | Réinitialiser la caméra |
+
+Le geste est décidé au moment où le clic droit est enfoncé, jamais selon
+la distance parcourue par la souris :
+
+- **Clic droit seul** : ne bouge jamais la caméra, même si la souris glisse
+  un peu. C'est une action ponctuelle selon le contexte. Dans l'éditeur,
+  elle annule l'outil actif, sinon désélectionne. En partie, elle désarme un
+  parchemin, annule le placement d'un bâtiment, ou donne un ordre RTS aux
+  unités sélectionnées pendant la bataille.
+- **Maj + clic droit** : reste une rotation jusqu'au relâchement, même si
+  Maj est relâché en cours de geste. Il ne déclenche ni action ponctuelle ni
+  ordre, et ne désélectionne donc rien.
+- **Clic gauche + clic droit** : déplace la caméra. Le geste du clic gauche
+  en cours (rectangle de sélection, etc.) est annulé, et aucun ordre ni
+  aucune sélection n'est produit.
+- **Bouton du milieu** (clic molette) : non utilisé.
 
 Différences avec la partie :
 
@@ -336,9 +352,9 @@ Conventions actuelles :
 | Clic gauche (outil de case actif) | Ajouter ou supprimer une case |
 | Glisser une flèche du gizmo | Déplacer le décor |
 | Glisser l'anneau jaune | Tourner le décor |
-| Clic droit | Annuler l'outil actif, sinon désélectionner |
-| Clic droit maintenu + glisser | Pivoter / incliner la caméra |
-| Clic droit + gauche maintenus + glisser | Déplacer la caméra |
+| Clic droit seul | Annuler l'outil actif, sinon désélectionner (jamais de mouvement de caméra) |
+| Maj + clic droit maintenu + glisser | Pivoter / incliner la caméra |
+| Clic gauche + clic droit maintenus + glisser | Déplacer la caméra |
 | Molette | Zoom |
 | Ctrl + molette | Tourner le décor de ±15° |
 | Ctrl + Maj + molette | Tourner le décor de ±1° |

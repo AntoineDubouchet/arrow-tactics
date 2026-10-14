@@ -60,7 +60,9 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
 2. **Placement obligatoire de la tour**. Une bannière demande de placer la
    tour dans la zone de spawn. Son empreinte de 3×3 cases doit tenir
    entièrement dans la zone joueur. Échap est sans effet tant que la tour
-   n'est pas posée.
+   n'est pas posée. La tour est validée au **relâchement** du clic gauche,
+   sur le plateau : si un clic droit s'ajoute avant le relâchement (geste
+   clic gauche + clic droit pour déplacer la caméra), rien n'est posé.
 3. **Phase de placement**. La boutique s'ouvre automatiquement. Le joueur
    peut :
    - déplacer, sélectionner et vendre ses unités ;
