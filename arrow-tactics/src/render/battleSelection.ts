@@ -59,9 +59,15 @@ export class BattleSelection {
   private selectedId: number | null = null;
 
   /** `marker` : anneau de rayon 1 deja ajoute a la scene par l'appelant,
-   *  mis a l'echelle ici selon l'unite selectionnee. */
-  constructor(private readonly marker: THREE.Object3D) {
+   *  mis a l'echelle ici selon l'unite selectionnee. `targetMarker` : anneau
+   *  du meme type, place sous la cible d'un ordre d'attaque de l'unite
+   *  selectionnee (retour visuel leger). */
+  constructor(
+    private readonly marker: THREE.Object3D,
+    private readonly targetMarker: THREE.Object3D,
+  ) {
     this.marker.visible = false;
+    this.targetMarker.visible = false;
   }
 
   get selectedEntityId(): number | null {
@@ -70,7 +76,10 @@ export class BattleSelection {
 
   select(entityId: number | null): void {
     this.selectedId = entityId;
-    if (entityId === null) this.marker.visible = false;
+    if (entityId === null) {
+      this.marker.visible = false;
+      this.targetMarker.visible = false;
+    }
   }
 
   clear(): void {
@@ -91,5 +100,19 @@ export class BattleSelection {
     this.marker.position.set(pos.x, 0.03, pos.z);
     this.marker.scale.setScalar(entity.stats.radius * MARKER_RADIUS_FACTOR);
     this.marker.visible = true;
+
+    // Cible de l'ordre d'attaque en cours (lecture seule de l'etat de la
+    // simulation) : visible tant que l'ordre existe, y compris pendant une
+    // Provocation qui le suspend.
+    const order = entity.order;
+    const target = order.type === 'attack' ? lookup(order.targetEntityId) : undefined;
+    if (target && target.alive) {
+      const targetPos = renderedPosition(target.id) ?? { x: target.x, z: target.z };
+      this.targetMarker.position.set(targetPos.x, 0.03, targetPos.z);
+      this.targetMarker.scale.setScalar(target.stats.radius * MARKER_RADIUS_FACTOR);
+      this.targetMarker.visible = true;
+    } else {
+      this.targetMarker.visible = false;
+    }
   }
 }

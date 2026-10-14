@@ -76,9 +76,14 @@ export interface Entity {
    *  changer d'adversaire a chaque tick. */
   targetId: number | null;
   /** Ordre manuel courant (voir sim/orders.ts). `assault` par defaut. Seules
-   *  les unites vivantes du joueur peuvent en recevoir un autre. Aucun
-   *  systeme ne le lit encore : il n'a pas d'effet sur le comportement. */
+   *  les unites vivantes du joueur peuvent en recevoir un autre. Lu par
+   *  targetingSystem et movementSystem. */
   order: UnitOrder;
+  /** Mesure de progression d'un ordre `move` ou `attack` (voir
+   *  sim/orders.ts, orderMadeNoProgress) : secondes ecoulees dans la fenetre
+   *  courante, et distance restante au debut de cette fenetre. */
+  orderProgressTimer: number;
+  orderProgressRef: number;
   /** Secondes avant la prochaine attaque possible. Descend sous zero pendant
    *  l'approche ; l'attaque part des le premier tick a portee. */
   attackTimer: number;

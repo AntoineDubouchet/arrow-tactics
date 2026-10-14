@@ -1,5 +1,6 @@
 import { dist } from '../../core/math';
 import type { Entity } from '../entity';
+import { resetOrderProgress } from '../orders';
 import { SpatialGrid } from '../spatialGrid';
 
 /** Meme famille de probleme que la separation (movement.ts,
@@ -43,7 +44,8 @@ const TARGETING_GRID_THRESHOLD = 120;
  *
  * Ordres manuels (sim/orders.ts) : priorite Provocation > ordre manuel >
  * comportement autonome. Une unite en deplacement manuel (`move`) n'a pas de
- * cible. Les ordres `assault` et `guard` utilisent le ciblage normal.
+ * cible ; une attaque ciblee (`attack`) impose sa cible. Les ordres `assault`
+ * et `guard` utilisent le ciblage normal.
  */
 export function targetingSystem(entities: Entity[], dt: number): void {
   const alive = entities.filter((e) => e.alive);
@@ -100,22 +102,29 @@ export function targetingSystem(entities: Entity[], dt: number): void {
       // latence, pas de targetId perime).
       e.tauntSourceId = null;
       e.tauntTimer = 0;
-      // Un deplacement manuel suspendu par la Provocation reprend : sa
-      // fenetre de mesure de progres (voir movementSystem) repart de zero,
-      // elle mesurait jusqu'ici la distance a la Sentinelle.
-      if (e.order.type === 'move') {
-        e.orbitTimer = 0;
-        e.orbitCheckDist = Number.POSITIVE_INFINITY;
-      }
+      // Un ordre manuel suspendu par la Provocation reprend : sa mesure de
+      // progression (sim/orders.ts) repart de zero, la distance mesuree
+      // pendant la Provocation n'a plus de sens.
+      if (e.order.type === 'move' || e.order.type === 'attack') resetOrderProgress(e);
     }
 
-    // Deplacement manuel (sim/orders.ts) : l'unite ignore son aggro et
-    // n'acquiert aucune cible, donc ni combat ni capacite ne se declenchent en
-    // chemin. Passe APRES la Provocation, qui reste prioritaire et suspend
-    // l'ordre sans l'effacer.
+    // Ordres manuels (sim/orders.ts), APRES la Provocation, qui reste
+    // prioritaire et suspend l'ordre sans l'effacer.
+    // Deplacement : aucune cible, donc ni combat ni capacite en chemin.
     if (e.order.type === 'move') {
       e.targetId = null;
       continue;
+    }
+    // Attaque ciblee : la cible designee est imposee, quels que soient l'aggro
+    // et les autres ennemis (meme plus proches ou deja a portee). Si elle a
+    // disparu ce pas-ci, resolveOrders terminera l'ordre au pas suivant ; en
+    // attendant, ciblage normal.
+    if (e.order.type === 'attack') {
+      const ordered = byId.get(e.order.targetEntityId);
+      if (ordered) {
+        e.targetId = ordered.id;
+        continue;
+      }
     }
 
     const isPlayer = e.team === 'player';

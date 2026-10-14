@@ -22,7 +22,7 @@ import {
   segmentIntersectsBox,
 } from '../geometry';
 import { forwardDir, type Entity } from '../entity';
-import type { UnitOrder } from '../orders';
+import { finishOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
 import { buildPathGrid, findPath, type PathGrid } from '../pathfinding';
 import { SpatialGrid } from '../spatialGrid';
 
@@ -96,6 +96,8 @@ export function movementSystem(
   obstacles: ObstacleDef[],
   boardWidth: number,
   boardHeight: number,
+  /** Recoit les fins d'ordres manuels du pas (voir sim/orders.ts). */
+  orderEvents: OrderEndEvent[] = [],
 ): void {
   const alive = entities.filter((e) => e.alive);
   const byId = new Map(alive.map((e) => [e.id, e]));
@@ -128,7 +130,7 @@ export function movementSystem(
   // des ce tick si un blocage prolonge vient d'etre detecte.
   const pathGrid = buildPathGrid(obstacles, boardWidth, boardHeight);
 
-  updateStuckState(movable, byId, dt, obstacles, pathGrid);
+  updateStuckState(movable, byId, dt, obstacles, pathGrid, orderEvents);
 
   // Rayon max une seule fois (les rayons ne changent pas pendant la
   // resolution) : taille de cellule de la grille de separation — voir
@@ -201,7 +203,7 @@ export function movementSystem(
       // qui suspend l'ordre sans l'effacer — l'unite poursuit alors la
       // Sentinelle normalement, et reprend son trajet ensuite.
       if (e.order.type === 'move' && e.tauntSourceId === null) {
-        followMoveOrder(e, e.order, obstacles, pathGrid, subDt);
+        followMoveOrder(e, e.order, obstacles, pathGrid, subDt, orderEvents);
         continue;
       }
 
@@ -240,7 +242,14 @@ export function movementSystem(
         continue;
       }
 
-      pursueTargetWithPathfinding(e, target, obstacles, pathGrid, subDt);
+      const routeFound = pursueTargetWithPathfinding(e, target, obstacles, pathGrid, subDt);
+      // Attaque ciblee vers une cible sans aucune route (A* ne trouve rien,
+      // plateau deconnecte) : l'ordre echoue au lieu de laisser l'unite
+      // tourner indefiniment avec l'evitement local. Une poursuite autonome
+      // garde son comportement d'avant (repli sur l'evitement local).
+      if (!routeFound && e.order.type === 'attack' && e.tauntSourceId === null && e.order.targetEntityId === target.id) {
+        finishOrder(e, orderEvents, 'failed', 'unreachable');
+      }
     }
 
     // 2. Separation entre corps
@@ -360,6 +369,7 @@ function updateStuckState(
   dt: number,
   obstacles: ObstacleDef[],
   grid: PathGrid,
+  orderEvents: OrderEndEvent[],
 ): void {
   for (const e of movable) {
     if (e.rootTimer > 0) {
@@ -377,28 +387,21 @@ function updateStuckState(
 
     // Deplacement manuel : les filets de secours de la poursuite et de la
     // marche neutre ne s'appliquent pas (ils viseraient la mauvaise
-    // destination). Une seule mesure : si la distance a la destination ne
-    // diminue pas de ORBIT_PROGRESS_THRESHOLD en ORBIT_CHECK_DURATION, hors
-    // suivi d'un chemin A* (un detour peut eloigner temporairement), l'unite
-    // abandonne et passe en Garde — destination occupee par un obstacle, ou
-    // unite bloquee par la foule.
+    // destination). Une seule mesure (sim/orders.ts, orderMadeNoProgress) :
+    // si la distance a la destination ne diminue pas de
+    // ORBIT_PROGRESS_THRESHOLD en ORBIT_CHECK_DURATION, hors suivi d'un chemin
+    // A* (un detour peut eloigner temporairement), l'unite abandonne et passe
+    // en Garde — destination occupee par un obstacle, ou unite bloquee.
     if (e.order.type === 'move' && e.tauntSourceId === null) {
       e.stuckTimer = 0;
       e.stuckCheckX = e.x;
       e.stuckCheckZ = e.z;
+      e.orbitTimer = 0;
       e.neutralStuckTimer = 0;
       e.neutralProgressZ = e.z;
       const remaining = Math.hypot(e.order.x - e.x, e.order.z - e.z);
-      if (e.path !== null && e.path.length > 0) {
-        e.orbitTimer = 0;
-        e.orbitCheckDist = remaining;
-        continue;
-      }
-      e.orbitTimer += dt;
-      if (e.orbitTimer >= ORBIT_CHECK_DURATION) {
-        if (e.orbitCheckDist - remaining < ORBIT_PROGRESS_THRESHOLD) enterGuard(e);
-        e.orbitTimer = 0;
-        e.orbitCheckDist = remaining;
+      if (orderMadeNoProgress(e, remaining, dt, ORBIT_CHECK_DURATION, ORBIT_PROGRESS_THRESHOLD)) {
+        finishOrder(e, orderEvents, 'failed', 'no-progress');
       }
       continue;
     }
@@ -464,6 +467,24 @@ function updateStuckState(
     // retour en marche neutre.
     e.neutralStuckTimer = 0;
     e.neutralProgressZ = e.z;
+
+    // Attaque ciblee (sim/orders.ts) : meme mesure de progression que le
+    // deplacement manuel, mais sur une fenetre plus longue
+    // (NEUTRAL_STUCK_CHECK_DURATION) — la cible bouge, et la poursuite garde
+    // ses propres filets de secours ci-dessous. Suspendue tant que l'unite est
+    // a portee d'engagement (elle combat, sa distance n'a pas a diminuer) et
+    // pendant le suivi d'un chemin A*. Echec : Garde.
+    if (e.order.type === 'attack' && e.tauntSourceId === null && e.order.targetEntityId === target.id) {
+      const distToTarget = Math.hypot(target.x - e.x, target.z - e.z);
+      const engageRange = e.stats.engageRange ?? e.stats.attackRange;
+      if (distToTarget <= engageRange + target.stats.radius) {
+        e.orderProgressTimer = 0;
+        e.orderProgressRef = distToTarget;
+      } else if (orderMadeNoProgress(e, distToTarget, dt, NEUTRAL_STUCK_CHECK_DURATION, ORBIT_PROGRESS_THRESHOLD)) {
+        finishOrder(e, orderEvents, 'failed', 'no-progress');
+        continue;
+      }
+    }
 
     const wantsToMove =
       e.sidestepTimer <= 0 &&
@@ -637,13 +658,16 @@ function moveStraightTowards(e: Entity, aimX: number, aimZ: number, subDt: numbe
  * l'evitement reactif, un chemin en grille ne peut pas se retrouver "dans
  * une impasse" au milieu d'un bosquet : A* a une vue complete du plateau.
  */
-function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: ObstacleDef[], grid: PathGrid, subDt: number): void {
+/** Renvoie false uniquement quand A* ne trouve AUCUNE route vers la cible
+ *  (plateau deconnecte) — utilise pour faire echouer une attaque ciblee. Le
+ *  deplacement de repli de ce cas reste celui d'avant. */
+function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: ObstacleDef[], grid: PathGrid, subDt: number): boolean {
   // target.footprintObstacle (2026-08-16) : meme correctif que combatSystem —
   // un batiment cible ne doit jamais se declarer bloquant envers lui-meme.
   if (findBlockingObstacle(e.x, e.z, target.x, target.z, obstacles, target.footprintObstacle) === null) {
     e.path = null;
     moveStraightTowards(e, target.x, target.z, subDt);
-    return;
+    return true;
   }
 
   const goalTileX = Math.floor(target.x + grid.halfW);
@@ -660,8 +684,10 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
     // Aucune route trouvee (cas degrade rarissime, ex. cible totalement
     // enfermee) : repli sur l'ancien evitement reactif plutot que de ne rien
     // faire — moins bon qu'un vrai chemin, mais jamais pire qu'avant.
+    // `[]` (deja sur la case de la cible) n'est pas une absence de route.
+    const routeFound = e.path !== null;
     pursueTowards(e, target.x, target.z, obstacles, subDt);
-    return;
+    return routeFound;
   }
 
   let next = e.path[0]!;
@@ -669,20 +695,13 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
     e.path.shift();
     if (e.path.length === 0) {
       moveStraightTowards(e, target.x, target.z, subDt);
-      return;
+      return true;
     }
     next = e.path[0]!;
   }
 
   moveStraightTowards(e, next.x, next.z, subDt);
-}
-
-/** Termine l'ordre courant : l'unite passe en Garde, sur place. */
-function enterGuard(e: Entity): void {
-  e.order = { type: 'guard' };
-  e.path = null;
-  e.steerX = null;
-  e.steerZ = null;
+  return true;
 }
 
 /**
@@ -692,7 +711,7 @@ function enterGuard(e: Entity): void {
  * fois et suivi point par point. Arrivee : centre de l'unite a moins de son
  * propre rayon de la destination (au moins PATH_WAYPOINT_REACHED_DIST) — la
  * separation et les collisions empechent souvent d'atteindre le point exact.
- * Aucune route : l'unite passe directement en Garde.
+ * Aucune route : l'unite passe directement en Garde (echec signale).
  */
 function followMoveOrder(
   e: Entity,
@@ -700,10 +719,11 @@ function followMoveOrder(
   obstacles: ObstacleDef[],
   grid: PathGrid,
   subDt: number,
+  orderEvents: OrderEndEvent[],
 ): void {
   const arrivalDist = Math.max(PATH_WAYPOINT_REACHED_DIST, e.stats.radius);
   if (Math.hypot(order.x - e.x, order.z - e.z) <= arrivalDist) {
-    enterGuard(e);
+    finishOrder(e, orderEvents, 'completed', 'arrived');
     return;
   }
 
@@ -720,7 +740,7 @@ function followMoveOrder(
     e.pathGoalTileX = goalTileX;
     e.pathGoalTileZ = goalTileZ;
     if (e.path === null) {
-      enterGuard(e);
+      finishOrder(e, orderEvents, 'failed', 'unreachable');
       return;
     }
   }

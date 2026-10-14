@@ -7,14 +7,15 @@ import type { Entity } from './entity';
  *  - `assault` : comportement autonome historique, inchange ;
  *  - `move` : pas de cible, deplacement vers le point, puis Garde a
  *    l'arrivee (voir movementSystem) ;
+ *  - `attack` : la cible designee est imposee, quels que soient l'aggro et
+ *    les autres ennemis ; Garde quand elle meurt ou devient inaccessible ;
  *  - `guard` : ciblage automatique normal, mais plus de marche neutre vers
- *    l'avant quand l'unite n'a pas de cible ;
- *  - `attack` : pas encore execute (etape suivante).
+ *    l'avant quand l'unite n'a pas de cible.
  *
- * Priorite visee a terme : Provocation > ordre manuel > comportement
- * autonome. La Provocation agit uniquement sur `targetId` (voir
- * targetingSystem) et ne touche jamais `order` : elle SUSPEND donc un ordre
- * sans l'effacer, et l'ordre peut reprendre a la fin de la Provocation.
+ * Priorite : Provocation > ordre manuel > comportement autonome. La
+ * Provocation agit uniquement sur `targetId` (voir targetingSystem) et ne
+ * touche jamais `order` : elle SUSPEND un ordre sans l'effacer, et l'ordre
+ * reprend a la fin de la Provocation s'il est encore valide.
  */
 
 /** Ordre courant d'une entite. `assault` = comportement autonome actuel
@@ -49,6 +50,21 @@ export interface CommandResult {
   rejection: CommandRejectionReason | null;
 }
 
+/** Raison de la fin d'un ordre manuel. `completed` : arrivee, cible tuee ou
+ *  disparue. `failed` : destination ou cible inaccessible (aucune route), ou
+ *  aucun progres pendant la fenetre de mesure. */
+export type OrderEndReason = 'arrived' | 'target-lost' | 'unreachable' | 'no-progress';
+
+/** Fin d'un ordre manuel pendant le dernier pas (voir World.orderEvents) —
+ *  l'unite est passee en Garde. Distinct de CommandResult, qui ne concerne
+ *  que l'acceptation ou le refus d'une commande au moment de l'appliquer. */
+export interface OrderEndEvent {
+  entityId: number;
+  order: 'move' | 'attack';
+  outcome: 'completed' | 'failed';
+  reason: OrderEndReason;
+}
+
 type EntityLookup = (id: number) => Entity | undefined;
 
 /** Seules les unites vivantes du joueur sont commandables : jamais un
@@ -59,7 +75,7 @@ export function isCommandable(entity: Entity | undefined): entity is Entity {
 
 /** Cible valide pour un ordre d'attaque : une entite vivante d'un autre camp
  *  que celui des unites commandees (les batiments sont acceptes). */
-function isValidAttackTarget(target: Entity | undefined): target is Entity {
+export function isValidAttackTarget(target: Entity | undefined): target is Entity {
   return target !== undefined && target.alive && target.team !== 'player';
 }
 
@@ -70,12 +86,54 @@ export interface BoardHalfExtents {
   halfH: number;
 }
 
+/** Remet a zero la mesure de progression d'un ordre (voir
+ *  orderMadeNoProgress). La premiere fenetre ne peut pas echouer. */
+export function resetOrderProgress(entity: Entity): void {
+  entity.orderProgressTimer = 0;
+  entity.orderProgressRef = Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Mesure de progression partagee par les ordres `move` et `attack` : vrai si
+ * la distance restante (`remaining`) n'a pas diminue d'au moins
+ * `minProgress` sur une fenetre de `windowSeconds`. Pendant le suivi d'un
+ * chemin A*, la mesure est suspendue : un detour peut legitimement eloigner
+ * l'unite de son but pendant un moment.
+ */
+export function orderMadeNoProgress(entity: Entity, remaining: number, dt: number, windowSeconds: number, minProgress: number): boolean {
+  if (entity.path !== null && entity.path.length > 0) {
+    entity.orderProgressTimer = 0;
+    entity.orderProgressRef = remaining;
+    return false;
+  }
+  entity.orderProgressTimer += dt;
+  if (entity.orderProgressTimer < windowSeconds) return false;
+  const failed = entity.orderProgressRef - remaining < minProgress;
+  entity.orderProgressTimer = 0;
+  entity.orderProgressRef = remaining;
+  return failed;
+}
+
+/** Termine l'ordre manuel courant (`move` ou `attack`) : l'unite passe en
+ *  Garde sur place et un evenement est ajoute pour l'interface. */
+export function finishOrder(entity: Entity, events: OrderEndEvent[], outcome: OrderEndEvent['outcome'], reason: OrderEndReason): void {
+  const type = entity.order.type;
+  if (type === 'move' || type === 'attack') {
+    events.push({ entityId: entity.id, order: type, outcome, reason });
+  }
+  entity.order = { type: 'guard' };
+  entity.path = null;
+  entity.steerX = null;
+  entity.steerZ = null;
+  resetOrderProgress(entity);
+}
+
 /**
  * Remet a zero la memoire de navigation d'une unite qui recoit un nouvel
  * ordre : chemin, point de contournement, manoeuvres de degagement et fenetre
  * de mesure de progres. Sans ca, un chemin calcule pour l'ancien
  * comportement serait suivi vers la mauvaise destination, et la premiere
- * mesure de progres du deplacement comparerait une distance perimee.
+ * mesure de progres comparerait une distance perimee.
  */
 function resetNavigation(entity: Entity): void {
   entity.targetId = null;
@@ -91,6 +149,7 @@ function resetNavigation(entity: Entity): void {
   entity.stuckCheckZ = entity.z;
   entity.orbitTimer = 0;
   entity.orbitCheckDist = Number.POSITIVE_INFINITY;
+  resetOrderProgress(entity);
 }
 
 /**
@@ -159,16 +218,17 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
 
 /**
  * Transitions automatiques des ordres, appelees a chaque pas apres
- * applyCommands : fin d'une attaque ciblee (cible morte ou disparue) -> Garde.
- * L'arrivee d'un deplacement est detectee par movementSystem, qui connait la
- * position atteinte apres chaque petit pas.
+ * applyCommands : une attaque dont la cible est morte ou a disparu se termine
+ * (Garde), y compris si la cible est morte pendant une Provocation.
+ * L'arrivee d'un deplacement et les echecs (inaccessible, aucun progres) sont
+ * detectes par movementSystem, qui connait la position atteinte.
  */
-export function resolveOrders(entities: readonly Entity[], lookup: EntityLookup): void {
+export function resolveOrders(entities: readonly Entity[], lookup: EntityLookup, events: OrderEndEvent[]): void {
   for (const entity of entities) {
     if (!entity.alive) continue;
     const order = entity.order;
     if (order.type === 'attack' && !isValidAttackTarget(lookup(order.targetEntityId))) {
-      entity.order = { type: 'guard' };
+      finishOrder(entity, events, 'completed', 'target-lost');
     }
   }
 }

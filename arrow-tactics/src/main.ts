@@ -183,7 +183,11 @@ const battleSelectionMarker = createEditorSelectionRing(1);
 // celui du reticule de visee de la Baliste, les deux se confondraient.
 (battleSelectionMarker.material as THREE.MeshBasicMaterial).color.set(COLORS.playerZone);
 renderer.scene.add(battleSelectionMarker);
-const battleSelection = new BattleSelection(battleSelectionMarker);
+// Anneau rouge sous la cible d'un ordre d'attaque de l'unite selectionnee.
+const battleOrderTargetMarker = createEditorSelectionRing(1);
+(battleOrderTargetMarker.material as THREE.MeshBasicMaterial).color.set(COLORS.enemyZone);
+renderer.scene.add(battleOrderTargetMarker);
+const battleSelection = new BattleSelection(battleSelectionMarker, battleOrderTargetMarker);
 const goldHud = new GoldHud();
 const telegraphView = new TelegraphView();
 const fireballView = new FireballView();
@@ -2783,12 +2787,21 @@ function canIssueRtsOrder(): boolean {
  *  devient une rotation de camera et n'emet jamais d'ordre. */
 let pendingRightClickOrder: { startClientX: number; startClientY: number } | null = null;
 
-/** Ordre de deplacement de l'unite selectionnee vers le point du sol sous le
- *  curseur. La simulation valide encore la commande (unite vivante du
- *  joueur, destination dans le plateau) au debut du prochain pas. */
-function issueMoveOrderAt(event: MouseEvent): void {
+/** Clic droit court en mode Commandement : attaque ciblee si une entite
+ *  hostile vivante est sous le curseur (unite ou batiment ennemi), sinon
+ *  deplacement vers le point du sol. La simulation valide encore la commande
+ *  (unite vivante du joueur, cible hostile vivante ou destination dans le
+ *  plateau) au debut du prochain pas. */
+function issueRightClickOrder(event: MouseEvent): void {
   const selectedId = battleSelection.selectedEntityId;
   if (selectedId === null || !canIssueRtsOrder()) return;
+
+  const picked = pickEntityAtScreen(world.entities, event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
+  if (picked !== null && picked.team !== 'player') {
+    world.issueCommand({ kind: 'attack', entityIds: [selectedId], targetEntityId: picked.id });
+    return;
+  }
+
   const point = computeGroundPoint(event);
   if (!point) return;
   world.issueCommand({ kind: 'move', entityIds: [selectedId], x: point.x, z: point.z });
@@ -5027,7 +5040,7 @@ canvas.addEventListener('mousedown', (event) => {
   if (disarmedItem) disarmItem();
 
   // Prototype RTS : en mode Commandement, avec une unite selectionnee, ce clic
-  // droit devient un ordre de deplacement s'il est relache sans avoir glisse
+  // droit devient un ordre (attaque ou deplacement) s'il est relache sans avoir glisse
   // (voir le mousemove camera et le mouseup plus bas). Jamais si ce clic
   // vient de desarmer un objet, ni s'il s'ajoute a un clic gauche (pan).
   pendingRightClickOrder =
@@ -5241,11 +5254,12 @@ canvas.addEventListener('mousedown', (event) => {
 window.addEventListener('mouseup', (event) => {
   if (event.button === 2) {
     dragging = false;
-    // Clic droit relache sans glisser (prototype RTS) : ordre de deplacement.
-    // Un glisser a deja annule pendingRightClickOrder (camera seulement).
+    // Clic droit relache sans glisser (prototype RTS) : attaque ou
+    // deplacement. Un glisser a deja annule pendingRightClickOrder (camera
+    // seulement).
     const pending = pendingRightClickOrder;
     pendingRightClickOrder = null;
-    if (pending && !(event.buttons & 1)) issueMoveOrderAt(event);
+    if (pending && !(event.buttons & 1)) issueRightClickOrder(event);
   }
   if (event.button !== 0 || !unitDrag) return;
 

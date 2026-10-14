@@ -5,7 +5,7 @@ import { Rng, randomSeed } from '../core/rng';
 import type { BuildingDef } from '../data/buildings';
 import { getUnit, type UnitStats } from '../data/units';
 import type { Entity, Team } from './entity';
-import { applyCommands, resolveOrders, type CommandResult, type PlayerCommand } from './orders';
+import { applyCommands, resolveOrders, type CommandResult, type OrderEndEvent, type PlayerCommand } from './orders';
 import {
   createPlayerArrowState,
   fireArrowVolley,
@@ -103,6 +103,10 @@ export class World {
    *  issueCommand, sim/orders.ts). Vide et repeuple a chaque tick, comme
    *  combatEvents. */
   commandResults: CommandResult[] = [];
+  /** Ordres manuels termines pendant le dernier step (arrivee, cible perdue,
+   *  inaccessible, aucun progres) — voir sim/orders.ts, OrderEndEvent. Vide
+   *  et repeuple a chaque tick. Permet a l'interface de signaler un echec. */
+  orderEvents: OrderEndEvent[] = [];
   /** Obstacles et dimensions du plateau actuellement charge (voir setMap) —
    *  distinct de l'etat de bataille : clear() ne les reinitialise PAS, changer
    *  de map ne doit pas forcement passer par la remise a zero d'une bataille
@@ -238,6 +242,8 @@ export class World {
       alive: true,
       targetId: null,
       order: { type: 'assault' },
+      orderProgressTimer: 0,
+      orderProgressRef: Number.POSITIVE_INFINITY,
       attackTimer: 0,
       sidestepTimer: 0,
       sidestepX: 0,
@@ -361,6 +367,8 @@ export class World {
       // Un batiment n'est jamais commandable (voir sim/orders.ts,
       // isCommandable) : cette valeur par defaut n'est jamais modifiee.
       order: { type: 'assault' },
+      orderProgressTimer: 0,
+      orderProgressRef: Number.POSITIVE_INFINITY,
       attackTimer: 0,
       sidestepTimer: 0,
       sidestepX: 0,
@@ -487,6 +495,7 @@ export class World {
     this.barracksSpawnEvents = [];
     this.commandQueue = [];
     this.commandResults = [];
+    this.orderEvents = [];
     this.buildingFootprints.clear();
     this.seed = seed;
     this.rng = new Rng(seed);
@@ -580,7 +589,8 @@ export class World {
       halfH: (this.boardHeight * TILE) / 2,
     });
     this.commandQueue = [];
-    resolveOrders(this.entities, lookup);
+    this.orderEvents = [];
+    resolveOrders(this.entities, lookup, this.orderEvents);
 
     targetingSystem(this.entities, dt);
     // Avant movementSystem : une charge qui vient de se declencher (ou qui se
@@ -590,7 +600,7 @@ export class World {
     // de step(), voir plus bas) — sert de "battleElapsedTime" au verrou
     // initial de Provocation (2026-08-14, voir sim/systems/abilities.ts).
     this.abilityEvents = abilitySystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.blasts, this.time);
-    movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight);
+    movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents);
     this.combatEvents = combatSystem(this.entities, dt, this.rng, this.obstacles);
     this.areaEffectEvents = tickPersistentAreaEffects(this.iceNovaZones, dt, this.entities);
     this.playerArrowEvents = stepPlayerArrow(this.playerArrow, dt, this.entities);
