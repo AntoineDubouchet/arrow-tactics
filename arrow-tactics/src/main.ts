@@ -928,11 +928,15 @@ let lastBattleGoldEarned = 0;
  *  deux tableaux. */
 let lastUnitPurchase: { unitId: string; cost: number } | null = null;
 
-/** Scene de test directe (raccourci clavier Entree) : bataille immediate,
- *  sans passer par la phase de placement, pour iterer vite sur le combat. */
+/** Bataille de "Tester le scenario" : bataille immediate, sans phase de
+ *  placement, avec les unites de la carte et une VRAIE Baliste (batiment de
+ *  simulation : PV, collision, condition de defaite), exactement comme en
+ *  vraie bataille. `playerArrowOrigin` et `ballistaObstacleDef` doivent avoir
+ *  ete calcules par l'appelant (voir testScenario), apres world.setMap. */
 function setupTestBattle(): void {
   resetBattleControls();
   world.clear();
+  forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
   mineIncomeAccumulator = 0;
@@ -962,6 +966,8 @@ function setupTestBattle(): void {
     );
   }
   for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z);
+  // Apres les unites, comme en vraie bataille (voir onValidatePlacement).
+  spawnBallistaBuilding();
 }
 
 // --- Phase de placement -----------------------------------------------
@@ -1501,6 +1507,7 @@ function onValidatePlacement(): void {
   board.zones.visible = false;
 
   world.clear();
+  forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
   mineIncomeAccumulator = 0;
@@ -1586,11 +1593,24 @@ function onValidatePlacement(): void {
   });
 
   // La Baliste est TOUJOURS presente (jamais achetee, contrairement a la
-  // Mine/la Caserne ci-dessus). PV max EFFECTIFS (2026-08-16, amelioration
-  // permanente "+10 PV/niveau" — voir run/ballistaUpgradeEffects.ts) : `hp`
-  // (5e param apres le footprint) omis expres pour retomber sur ce plafond
-  // EFFECTIF (voir World.spawnBuilding) — sans ca, une Baliste amelioree
-  // apparaitrait avec plus de PV MAX mais pas plus de PV ACTUELS.
+  // Mine/la Caserne ci-dessus).
+  spawnBallistaBuilding();
+
+  loop.timeScale = 1;
+}
+
+/** Cree le batiment de simulation de la Baliste pour la bataille en cours —
+ *  SOURCE UNIQUE partagee par une vraie bataille (onValidatePlacement) et
+ *  "Tester le scenario" (setupTestBattle). A `playerArrowOrigin`, avec
+ *  l'empreinte `ballistaObstacleDef` (meme position que le modele visuel et
+ *  l'origine du tir : les trois doivent avoir ete calcules juste avant).
+ *  PV max EFFECTIFS (2026-08-16, amelioration permanente "+10 PV/niveau" —
+ *  voir run/ballistaUpgradeEffects.ts) : `hp` omis expres pour retomber sur
+ *  ce plafond EFFECTIF (voir World.spawnBuilding) — sans ca, une Baliste
+ *  amelioree apparaitrait avec plus de PV MAX mais pas plus de PV ACTUELS.
+ *  Remet aussi le visuel a neuf (une Baliste detruite lors d'une bataille
+ *  precedente redevient visible). */
+function spawnBallistaBuilding(): void {
   ballistaBuildingView.reset();
   ballistaEntityId = world.spawnBuilding(
     getBuilding('ballista'),
@@ -1602,8 +1622,21 @@ function onValidatePlacement(): void {
     effectiveBallistaMaxHp(metaProgress),
   ).id;
   buildingViewsByEntityId.set(ballistaEntityId, ballistaBuildingView);
+}
 
-  loop.timeScale = 1;
+/** A appeler a chaque `world.clear()` : les ids d'entites repartent de 1
+ *  dans la bataille suivante, donc aucune reference a un batiment de la
+ *  bataille videe ne doit survivre (l'ancien id de la Baliste ou d'une Mine
+ *  pourrait designer une tout autre entite du test suivant). Remet aussi le
+ *  visuel de la Baliste dans son etat normal : detruite pendant la bataille
+ *  videe, elle doit reapparaitre des la preparation suivante (ou le
+ *  placement de tour d'une nouvelle run, ou l'editeur), pas seulement au
+ *  lancement de la prochaine bataille. Visuel seulement : l'entite et sa
+ *  collision ne sont recreees que par spawnBallistaBuilding. */
+function forgetBattleBuildings(): void {
+  ballistaEntityId = null;
+  buildingViewsByEntityId.clear();
+  ballistaBuildingView.reset();
 }
 
 function startPlacement(): void {
@@ -2308,7 +2341,8 @@ async function testScenario(): Promise<void> {
   inTestMode = true;
   // Bâtiments possédés (Mine/Caserne) jamais injectés pendant "Tester le
   // scénario" — une carte d'éditeur n'a aucun lien avec la progression d'une
-  // run réelle (voir setupTestBattle, qui ne spawne aucun bâtiment).
+  // run réelle. Seule la Baliste, toujours présente, est créée (voir
+  // setupTestBattle).
 
   currentMap = testMap;
   world.setMap(currentMap);
@@ -2319,7 +2353,10 @@ async function testScenario(): Promise<void> {
   testBoard.zones.visible = false;
   renderer.scene.add(testBoard.group);
 
+  // Origine de tir, modele visuel et collision de la Baliste a la meme
+  // position, calculee comme en vraie bataille (voir spawnBallistaBuilding).
   playerArrowOrigin = computePlayerArrowOrigin(currentMap);
+  ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
 
   setupTestBattle();
@@ -2336,6 +2373,9 @@ function returnToEditorAfterTest(): void {
   battleOver = false;
 
   world.clear();
+  // Remet aussi le modele de la Baliste a neuf si elle a ete detruite pendant
+  // le test (voir forgetBattleBuildings).
+  forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
   mineIncomeAccumulator = 0;
@@ -2356,6 +2396,7 @@ function returnToEditorAfterTest(): void {
   currentMap = DEFAULT_MAP;
   world.setMap(currentMap);
   playerArrowOrigin = computePlayerArrowOrigin(currentMap);
+  ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
   refreshOwnedBuildingViews();
 
@@ -2702,9 +2743,9 @@ function buildBallistaVolleyShots(originX: number, originZ: number, cursorX: num
 
 /** Baliste detruite (2026-08-16, architecture BUILDING) : le batiment
  *  gameplay de la bataille en cours est a 0 PV. `ballistaEntityId === null`
- *  (ex. "Tester le scenario" — setupTestBattle ne spawne jamais de batiment
- *  gameplay) : jamais detruite. L'entite doit bien etre la Baliste : apres
- *  un retour a l'editeur, l'ancien id peut designer une unite du test. */
+ *  (aucune bataille en cours, voir forgetBattleBuildings) : jamais
+ *  detruite. Verifie en plus que l'entite est bien la Baliste, par
+ *  prudence. */
 function isBallistaDestroyed(): boolean {
   if (ballistaEntityId === null) return false;
   const entity = world.getById(ballistaEntityId);
@@ -4207,6 +4248,7 @@ const loop = new Loop(
             // plutot qu'a onValidatePlacement() (le debut de la PROCHAINE
             // bataille) comme avant ce correctif.
             world.clear();
+            forgetBattleBuildings();
             rewardedEnemyDeaths.clear();
             belowAutoHealThreshold.clear();
             pendingArrowSpawns.length = 0;
@@ -4610,6 +4652,7 @@ function quitToMenu(): void {
   playerPreview.clear();
   enemyPreview.clear();
   world.clear();
+  forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
   mineIncomeAccumulator = 0;
