@@ -3,10 +3,13 @@ import type { Entity } from './entity';
 /**
  * Ordres manuels des unites (controle RTS pendant la bataille).
  *
- * Etape 0 : modele et file de commandes seulement. AUCUN systeme de
- * simulation ne lit encore `Entity.order` — une unite continue de se
- * comporter exactement comme avant, qu'elle ait recu un ordre ou non.
- * Le deplacement et le ciblage s'y brancheront dans les etapes suivantes.
+ * Lu par targetingSystem et movementSystem :
+ *  - `assault` : comportement autonome historique, inchange ;
+ *  - `move` : pas de cible, deplacement vers le point, puis Garde a
+ *    l'arrivee (voir movementSystem) ;
+ *  - `guard` : ciblage automatique normal, mais plus de marche neutre vers
+ *    l'avant quand l'unite n'a pas de cible ;
+ *  - `attack` : pas encore execute (etape suivante).
  *
  * Priorite visee a terme : Provocation > ordre manuel > comportement
  * autonome. La Provocation agit uniquement sur `targetId` (voir
@@ -60,12 +63,44 @@ function isValidAttackTarget(target: Entity | undefined): target is Entity {
   return target !== undefined && target.alive && target.team !== 'player';
 }
 
+/** Demi-dimensions du plateau jouable (en cases), centre en (0, 0) — meme
+ *  convention que le confinement de movementSystem. */
+export interface BoardHalfExtents {
+  halfW: number;
+  halfH: number;
+}
+
+/**
+ * Remet a zero la memoire de navigation d'une unite qui recoit un nouvel
+ * ordre : chemin, point de contournement, manoeuvres de degagement et fenetre
+ * de mesure de progres. Sans ca, un chemin calcule pour l'ancien
+ * comportement serait suivi vers la mauvaise destination, et la premiere
+ * mesure de progres du deplacement comparerait une distance perimee.
+ */
+function resetNavigation(entity: Entity): void {
+  entity.targetId = null;
+  entity.path = null;
+  entity.pathGoalTileX = null;
+  entity.pathGoalTileZ = null;
+  entity.steerX = null;
+  entity.steerZ = null;
+  entity.sidestepTimer = 0;
+  entity.unstickTimer = 0;
+  entity.stuckTimer = 0;
+  entity.stuckCheckX = entity.x;
+  entity.stuckCheckZ = entity.z;
+  entity.orbitTimer = 0;
+  entity.orbitCheckDist = Number.POSITIVE_INFINITY;
+}
+
 /**
  * Applique les commandes dans leur ordre d'emission. Deterministe : aucune
  * source de hasard, et une entite commandee plusieurs fois dans le meme pas
- * garde le dernier ordre recu.
+ * garde le dernier ordre recu. Une destination hors du plateau est refusee ;
+ * une destination sur un obstacle est acceptee (l'unite s'en approche puis
+ * passe en Garde, voir movementSystem).
  */
-export function applyCommands(commands: readonly PlayerCommand[], lookup: EntityLookup): CommandResult[] {
+export function applyCommands(commands: readonly PlayerCommand[], lookup: EntityLookup, board: BoardHalfExtents): CommandResult[] {
   const results: CommandResult[] = [];
 
   for (const command of commands) {
@@ -88,7 +123,12 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
     let order: UnitOrder;
     switch (command.kind) {
       case 'move':
-        if (!Number.isFinite(command.x) || !Number.isFinite(command.z)) {
+        if (
+          !Number.isFinite(command.x) ||
+          !Number.isFinite(command.z) ||
+          Math.abs(command.x) > board.halfW ||
+          Math.abs(command.z) > board.halfH
+        ) {
           result.rejection = 'invalid-destination';
           continue;
         }
@@ -109,6 +149,7 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
     for (const entity of accepted) {
       // Objet neuf par entite : aucun ordre n'est partage entre deux unites.
       entity.order = { ...order };
+      resetNavigation(entity);
       result.acceptedEntityIds.push(entity.id);
     }
   }
@@ -118,9 +159,9 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
 
 /**
  * Transitions automatiques des ordres, appelees a chaque pas apres
- * applyCommands. Etape 0 : seule la fin d'une attaque ciblee (cible morte ou
- * disparue) est geree, l'unite passe alors en Garde. L'arrivee d'un
- * deplacement sera geree avec le mouvement.
+ * applyCommands : fin d'une attaque ciblee (cible morte ou disparue) -> Garde.
+ * L'arrivee d'un deplacement est detectee par movementSystem, qui connait la
+ * position atteinte apres chaque petit pas.
  */
 export function resolveOrders(entities: readonly Entity[], lookup: EntityLookup): void {
   for (const entity of entities) {

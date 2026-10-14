@@ -22,6 +22,7 @@ import {
   segmentIntersectsBox,
 } from '../geometry';
 import { forwardDir, type Entity } from '../entity';
+import type { UnitOrder } from '../orders';
 import { buildPathGrid, findPath, type PathGrid } from '../pathfinding';
 import { SpatialGrid } from '../spatialGrid';
 
@@ -195,9 +196,27 @@ export function movementSystem(
         continue;
       }
 
+      // Deplacement manuel (sim/orders.ts) : prioritaire sur la poursuite et la
+      // marche neutre, sauf pendant une Provocation (tauntSourceId non nul),
+      // qui suspend l'ordre sans l'effacer — l'unite poursuit alors la
+      // Sentinelle normalement, et reprend son trajet ensuite.
+      if (e.order.type === 'move' && e.tauntSourceId === null) {
+        followMoveOrder(e, e.order, obstacles, pathGrid, subDt);
+        continue;
+      }
+
       const target = e.targetId !== null ? byId.get(e.targetId) ?? null : null;
 
       if (target === null) {
+        // Garde sans cible : l'unite reste sur place au lieu de reprendre la
+        // marche neutre vers l'avant. Elle repartira des que le ciblage lui
+        // trouvera un ennemi dans son aggro.
+        if (e.order.type === 'guard') {
+          e.path = null;
+          e.steerX = null;
+          e.steerZ = null;
+          continue;
+        }
         pursueNeutralWithPathfinding(e, obstacles, subDt);
         continue;
       }
@@ -356,7 +375,46 @@ function updateStuckState(
       continue;
     }
 
+    // Deplacement manuel : les filets de secours de la poursuite et de la
+    // marche neutre ne s'appliquent pas (ils viseraient la mauvaise
+    // destination). Une seule mesure : si la distance a la destination ne
+    // diminue pas de ORBIT_PROGRESS_THRESHOLD en ORBIT_CHECK_DURATION, hors
+    // suivi d'un chemin A* (un detour peut eloigner temporairement), l'unite
+    // abandonne et passe en Garde — destination occupee par un obstacle, ou
+    // unite bloquee par la foule.
+    if (e.order.type === 'move' && e.tauntSourceId === null) {
+      e.stuckTimer = 0;
+      e.stuckCheckX = e.x;
+      e.stuckCheckZ = e.z;
+      e.neutralStuckTimer = 0;
+      e.neutralProgressZ = e.z;
+      const remaining = Math.hypot(e.order.x - e.x, e.order.z - e.z);
+      if (e.path !== null && e.path.length > 0) {
+        e.orbitTimer = 0;
+        e.orbitCheckDist = remaining;
+        continue;
+      }
+      e.orbitTimer += dt;
+      if (e.orbitTimer >= ORBIT_CHECK_DURATION) {
+        if (e.orbitCheckDist - remaining < ORBIT_PROGRESS_THRESHOLD) enterGuard(e);
+        e.orbitTimer = 0;
+        e.orbitCheckDist = remaining;
+      }
+      continue;
+    }
+
     const target = e.targetId !== null ? byId.get(e.targetId) ?? null : null;
+
+    // Garde sans cible : immobile par choix, aucun blocage a detecter.
+    if (target === null && e.order.type === 'guard') {
+      e.stuckTimer = 0;
+      e.stuckCheckX = e.x;
+      e.stuckCheckZ = e.z;
+      e.orbitTimer = 0;
+      e.neutralStuckTimer = 0;
+      e.neutralProgressZ = e.z;
+      continue;
+    }
 
     if (target === null) {
       // Marche neutre (2026-08-16, bug remonte par Antoine sur une grande
@@ -616,6 +674,73 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
     next = e.path[0]!;
   }
 
+  moveStraightTowards(e, next.x, next.z, subDt);
+}
+
+/** Termine l'ordre courant : l'unite passe en Garde, sur place. */
+function enterGuard(e: Entity): void {
+  e.order = { type: 'guard' };
+  e.path = null;
+  e.steerX = null;
+  e.steerZ = null;
+}
+
+/**
+ * Ordre de deplacement manuel (sim/orders.ts) : meme logique que la poursuite
+ * d'une cible (pursueTargetWithPathfinding), avec un point fixe a la place de
+ * la cible. Ligne droite si elle est degagee, sinon chemin A* calcule une
+ * fois et suivi point par point. Arrivee : centre de l'unite a moins de son
+ * propre rayon de la destination (au moins PATH_WAYPOINT_REACHED_DIST) — la
+ * separation et les collisions empechent souvent d'atteindre le point exact.
+ * Aucune route : l'unite passe directement en Garde.
+ */
+function followMoveOrder(
+  e: Entity,
+  order: Extract<UnitOrder, { type: 'move' }>,
+  obstacles: ObstacleDef[],
+  grid: PathGrid,
+  subDt: number,
+): void {
+  const arrivalDist = Math.max(PATH_WAYPOINT_REACHED_DIST, e.stats.radius);
+  if (Math.hypot(order.x - e.x, order.z - e.z) <= arrivalDist) {
+    enterGuard(e);
+    return;
+  }
+
+  if (findBlockingObstacle(e.x, e.z, order.x, order.z, obstacles) === null) {
+    e.path = null;
+    moveStraightTowards(e, order.x, order.z, subDt);
+    return;
+  }
+
+  const goalTileX = Math.floor(order.x + grid.halfW);
+  const goalTileZ = Math.floor(order.z + grid.halfH);
+  if (e.path === null || e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ) {
+    e.path = findPath(grid, e.x, e.z, order.x, order.z);
+    e.pathGoalTileX = goalTileX;
+    e.pathGoalTileZ = goalTileZ;
+    if (e.path === null) {
+      enterGuard(e);
+      return;
+    }
+  }
+
+  // Chemin epuise : approche finale en ligne droite (la destination peut se
+  // trouver dans un obstacle, voir la mesure de progres dans updateStuckState).
+  if (e.path.length === 0) {
+    moveStraightTowards(e, order.x, order.z, subDt);
+    return;
+  }
+
+  let next = e.path[0]!;
+  if (Math.hypot(next.x - e.x, next.z - e.z) < PATH_WAYPOINT_REACHED_DIST) {
+    e.path.shift();
+    if (e.path.length === 0) {
+      moveStraightTowards(e, order.x, order.z, subDt);
+      return;
+    }
+    next = e.path[0]!;
+  }
   moveStraightTowards(e, next.x, next.z, subDt);
 }
 

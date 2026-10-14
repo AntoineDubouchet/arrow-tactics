@@ -916,6 +916,7 @@ let lastUnitPurchase: { unitId: string; cost: number } | null = null;
 /** Scene de test directe (raccourci clavier Entree) : bataille immediate,
  *  sans passer par la phase de placement, pour iterer vite sur le combat. */
 function setupTestBattle(): void {
+  resetBattleControls();
   world.clear();
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
@@ -1458,6 +1459,7 @@ function requestValidatePlacement(): void {
 }
 
 function onValidatePlacement(): void {
+  resetBattleControls();
   inPlacementPhase = false;
   placementPanel.hide();
   // Reste visible mais desactive pendant la bataille (2026-08-14, demande
@@ -2757,6 +2759,54 @@ function handleCommandModeClick(event: MouseEvent): void {
   const picked = pickEntityAtScreen(world.entities, event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
   const selectable = picked !== null && picked.team === 'player' && !picked.isBuilding ? picked : null;
   battleSelection.select(selectable?.id ?? null);
+}
+
+/** Debut de chaque bataille (reelle ou "Tester le scenario") : retour
+ *  provisoire au mode Baliste, sans selection ni ordre au clic droit en
+ *  attente. A reevaluer apres playtest. */
+function resetBattleControls(): void {
+  battleControlMode = 'ballista';
+  battleSelection.clear();
+  pendingRightClickOrder = null;
+}
+
+/** Un ordre RTS ne peut etre emis que pendant un combat actif, temps en
+ *  marche : jamais en pause (menu ou timeScale 0), pendant la transition de
+ *  fin de vague (timeScale 0, battleOver) ni hors bataille. Empeche de mettre
+ *  le jeu en pause pour programmer un ordre execute a la reprise. */
+function canIssueRtsOrder(): boolean {
+  return battleControlMode === 'command' && inBattlePhase() && !pauseMenuOpen && loop.timeScale > 0;
+}
+
+/** Clic droit en mode Commandement, en attente de son relachement : un clic
+ *  court devient un ordre de deplacement, un glisser au-dela du seuil
+ *  devient une rotation de camera et n'emet jamais d'ordre. */
+let pendingRightClickOrder: { startClientX: number; startClientY: number } | null = null;
+
+/** Ordre de deplacement de l'unite selectionnee vers le point du sol sous le
+ *  curseur. La simulation valide encore la commande (unite vivante du
+ *  joueur, destination dans le plateau) au debut du prochain pas. */
+function issueMoveOrderAt(event: MouseEvent): void {
+  const selectedId = battleSelection.selectedEntityId;
+  if (selectedId === null || !canIssueRtsOrder()) return;
+  const point = computeGroundPoint(event);
+  if (!point) return;
+  world.issueCommand({ kind: 'move', entityIds: [selectedId], x: point.x, z: point.z });
+}
+
+/** S en mode Commandement : interrompt l'ordre de l'unite selectionnee, qui
+ *  passe en Garde. */
+function issueStopOrder(): void {
+  const selectedId = battleSelection.selectedEntityId;
+  if (selectedId === null || !canIssueRtsOrder()) return;
+  world.issueCommand({ kind: 'stop', entityIds: [selectedId] });
+}
+
+/** Vrai si le focus clavier est dans un champ de saisie : un raccourci de
+ *  jeu ne doit pas se declencher pendant une frappe (voir KI-19). */
+function isTypingInField(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable;
 }
 
 // --- Inventaire (chantier en cours, 2026-08-09) -------------------------
@@ -4929,6 +4979,10 @@ window.addEventListener('keydown', (event) => {
     case 'B':
       toggleBattleControlMode();
       break;
+    case 's':
+    case 'S':
+      if (!isTypingInField(event.target)) issueStopOrder();
+      break;
   }
 });
 
@@ -4969,7 +5023,17 @@ canvas.addEventListener('mousedown', (event) => {
   // de la visée du parchemin") — meme effet que Echap (disarmItem, ne
   // consomme JAMAIS l'objet), le pan de camera demarre normalement juste
   // apres en plus (les deux ne s'excluent pas).
-  if (armedItemIndex !== null) disarmItem();
+  const disarmedItem = armedItemIndex !== null;
+  if (disarmedItem) disarmItem();
+
+  // Prototype RTS : en mode Commandement, avec une unite selectionnee, ce clic
+  // droit devient un ordre de deplacement s'il est relache sans avoir glisse
+  // (voir le mousemove camera et le mouseup plus bas). Jamais si ce clic
+  // vient de desarmer un objet, ni s'il s'ajoute a un clic gauche (pan).
+  pendingRightClickOrder =
+    !disarmedItem && !(event.buttons & 1) && battleSelection.selectedEntityId !== null && canIssueRtsOrder()
+      ? { startClientX: event.clientX, startClientY: event.clientY }
+      : null;
 
   // Mode placement d'un BATIMENT achete (2026-08-17, demande explicite
   // d'Antoine, point 10 : "Escape ou clic droit -> annule le placement,
@@ -5158,6 +5222,7 @@ window.addEventListener('pointercancel', () => {
 });
 window.addEventListener('blur', () => {
   fireButtonHeld = false;
+  pendingRightClickOrder = null;
   buildingClickCandidate = null;
   if (buildingPlacementMode) cancelBuildingPlacement();
 });
@@ -5174,7 +5239,14 @@ canvas.addEventListener('mousedown', (event) => {
 });
 
 window.addEventListener('mouseup', (event) => {
-  if (event.button === 2) dragging = false;
+  if (event.button === 2) {
+    dragging = false;
+    // Clic droit relache sans glisser (prototype RTS) : ordre de deplacement.
+    // Un glisser a deja annule pendingRightClickOrder (camera seulement).
+    const pending = pendingRightClickOrder;
+    pendingRightClickOrder = null;
+    if (pending && !(event.buttons & 1)) issueMoveOrderAt(event);
+  }
   if (event.button !== 0 || !unitDrag) return;
 
   const drag = unitDrag;
@@ -5412,6 +5484,16 @@ window.addEventListener('mouseup', (event) => {
 
 window.addEventListener('mousemove', (event) => {
   if (!dragging) return;
+  // Clic droit en attente d'ordre (prototype RTS) : tant que le curseur reste
+  // sous le seuil de glisser, la camera ne bouge pas. Au-dela (ou si le clic
+  // gauche s'y ajoute pour un pan), le geste devient une rotation de camera
+  // et ne produira jamais d'ordre. lastMouseX/Y ne sont pas mis a jour avant
+  // le seuil : le mouvement deja fait est applique d'un coup ensuite.
+  if (pendingRightClickOrder) {
+    const moved = Math.hypot(event.clientX - pendingRightClickOrder.startClientX, event.clientY - pendingRightClickOrder.startClientY);
+    if (moved < UNIT_DRAG_THRESHOLD_PX && !(event.buttons & 1)) return;
+    pendingRightClickOrder = null;
+  }
   const dx = event.clientX - lastMouseX;
   const dy = event.clientY - lastMouseY;
   lastMouseX = event.clientX;

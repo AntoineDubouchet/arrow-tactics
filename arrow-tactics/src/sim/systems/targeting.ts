@@ -40,6 +40,10 @@ const TARGETING_GRID_THRESHOLD = 120;
  * IMMEDIATEMENT (meme tick) et le ciblage normal reprend la main sans
  * attendre un tick de plus — aucune unite ne reste jamais bloquee avec un
  * `targetId` invalide.
+ *
+ * Ordres manuels (sim/orders.ts) : priorite Provocation > ordre manuel >
+ * comportement autonome. Une unite en deplacement manuel (`move`) n'a pas de
+ * cible. Les ordres `assault` et `guard` utilisent le ciblage normal.
  */
 export function targetingSystem(entities: Entity[], dt: number): void {
   const alive = entities.filter((e) => e.alive);
@@ -96,6 +100,22 @@ export function targetingSystem(entities: Entity[], dt: number): void {
       // latence, pas de targetId perime).
       e.tauntSourceId = null;
       e.tauntTimer = 0;
+      // Un deplacement manuel suspendu par la Provocation reprend : sa
+      // fenetre de mesure de progres (voir movementSystem) repart de zero,
+      // elle mesurait jusqu'ici la distance a la Sentinelle.
+      if (e.order.type === 'move') {
+        e.orbitTimer = 0;
+        e.orbitCheckDist = Number.POSITIVE_INFINITY;
+      }
+    }
+
+    // Deplacement manuel (sim/orders.ts) : l'unite ignore son aggro et
+    // n'acquiert aucune cible, donc ni combat ni capacite ne se declenchent en
+    // chemin. Passe APRES la Provocation, qui reste prioritaire et suspend
+    // l'ordre sans l'effacer.
+    if (e.order.type === 'move') {
+      e.targetId = null;
+      continue;
     }
 
     const isPlayer = e.team === 'player';

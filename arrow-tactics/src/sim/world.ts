@@ -1,4 +1,4 @@
-import { BOARD_H, BOARD_W, isCollidableObstacle, OBSTACLES, type ObstacleDef } from '../config/constants';
+import { BOARD_H, BOARD_W, isCollidableObstacle, OBSTACLES, TILE, type ObstacleDef } from '../config/constants';
 import { buildCellIndex, cellKey, computeMapCellBounds, resolveMapCells, type MapBounds, type MapDef } from '../config/mapDef';
 import { dist } from '../core/math';
 import { Rng, randomSeed } from '../core/rng';
@@ -572,10 +572,13 @@ export class World {
     }
 
     // Ordres manuels (sim/orders.ts) : appliques a une frontiere de pas fixe,
-    // jamais au moment de l'evenement d'entree. Aucun systeme ne lit encore
-    // Entity.order, le comportement reste donc identique a avant.
+    // jamais au moment de l'evenement d'entree. Une unite sans ordre manuel
+    // (`assault`) garde exactement son comportement d'avant.
     const lookup = (id: number): Entity | undefined => this.entityById.get(id);
-    this.commandResults = applyCommands(this.commandQueue, lookup);
+    this.commandResults = applyCommands(this.commandQueue, lookup, {
+      halfW: (this.boardWidth * TILE) / 2,
+      halfH: (this.boardHeight * TILE) / 2,
+    });
     this.commandQueue = [];
     resolveOrders(this.entities, lookup);
 
