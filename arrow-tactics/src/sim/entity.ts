@@ -148,6 +148,11 @@ export interface Entity {
    *  la cible sur une courte duree sans que ce soit un vrai blocage. */
   orbitCheckDist: number;
   orbitTimer: number;
+  /** Cible a laquelle se rapporte orbitCheckDist. Une autre cible (premiere
+   *  acquisition, changement, Provocation) ou null (l'unite ne poursuivait
+   *  plus) : la mesure repart de la distance actuelle au lieu de comparer
+   *  une reference perimee, qui declenchait un faux degagement. */
+  orbitCheckTargetId: number | null;
 
   /** Manoeuvre de degagement en deux temps (grand pas en arriere puis pas de
    *  cote vers la zone la moins encombree) declenchee par un blocage detecte.

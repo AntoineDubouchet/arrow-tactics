@@ -149,6 +149,7 @@ function resetNavigation(entity: Entity): void {
   entity.stuckCheckZ = entity.z;
   entity.orbitTimer = 0;
   entity.orbitCheckDist = Number.POSITIVE_INFINITY;
+  entity.orbitCheckTargetId = null;
   resetOrderProgress(entity);
 }
 

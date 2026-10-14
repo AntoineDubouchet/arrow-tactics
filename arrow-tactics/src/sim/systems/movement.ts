@@ -391,6 +391,7 @@ function updateStuckState(
       e.stuckCheckX = e.x;
       e.stuckCheckZ = e.z;
       e.orbitTimer = 0;
+      e.orbitCheckTargetId = null;
       e.neutralStuckTimer = 0;
       e.neutralProgressZ = e.z;
       continue;
@@ -408,6 +409,7 @@ function updateStuckState(
       e.stuckCheckX = e.x;
       e.stuckCheckZ = e.z;
       e.orbitTimer = 0;
+      e.orbitCheckTargetId = null;
       e.neutralStuckTimer = 0;
       e.neutralProgressZ = e.z;
       const remaining = Math.hypot(e.order.x - e.x, e.order.z - e.z);
@@ -425,6 +427,7 @@ function updateStuckState(
       e.stuckCheckX = e.x;
       e.stuckCheckZ = e.z;
       e.orbitTimer = 0;
+      e.orbitCheckTargetId = null;
       e.neutralStuckTimer = 0;
       e.neutralProgressZ = e.z;
       continue;
@@ -447,6 +450,7 @@ function updateStuckState(
       e.stuckCheckX = e.x;
       e.stuckCheckZ = e.z;
       e.orbitTimer = 0;
+      e.orbitCheckTargetId = null;
 
       if (e.sidestepTimer > 0 || e.unstickTimer > 0 || (e.path && e.path.length > 0)) {
         e.neutralStuckTimer = 0;
@@ -478,6 +482,19 @@ function updateStuckState(
     // retour en marche neutre.
     e.neutralStuckTimer = 0;
     e.neutralProgressZ = e.z;
+
+    // Nouvelle cible poursuivie (premiere acquisition, cible tuee puis
+    // remplacee, Provocation, retour d'un ordre, fin de Root) : la reference
+    // de la detection d'orbite appartenait a une autre cible, ou valait 0
+    // depuis le spawn. La comparer a la distance actuelle concluait a tort
+    // a une absence de progres ORBIT_CHECK_DURATION plus tard, et
+    // declenchait un degagement en pleine approche. Fenetre fraiche a la
+    // place, sans aucun degagement sur cette transition.
+    if (e.orbitCheckTargetId !== target.id) {
+      e.orbitCheckTargetId = target.id;
+      e.orbitTimer = 0;
+      e.orbitCheckDist = Math.hypot(target.x - e.x, target.z - e.z);
+    }
 
     // Attaque ciblee (sim/orders.ts) : meme mesure de progression que le
     // deplacement manuel, mais sur une fenetre plus longue
