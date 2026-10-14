@@ -1,5 +1,6 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import type { Entity } from '../sim/entity';
+import { isCommandable } from '../sim/orders';
 
 /** Tolerance minimale du clic de selection, en pixels, quand l'unite parait
  *  tres petite a l'ecran (zoom arriere). */
@@ -50,69 +51,135 @@ export function pickEntityAtScreen(
   return best;
 }
 
+/** Rectangle en pixels ecran (meme forme que SelectionBox.toRect). */
+export interface ScreenRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
 /**
- * Selection RTS pendant la bataille (prototype, selection simple). Vit cote
- * rendu/orchestration, jamais dans la simulation : elle ne retient qu'un id
- * d'entite et un anneau, sans rien ecrire dans le World.
+ * Unites selectionnables (unites vivantes du joueur, jamais un ennemi ni un
+ * batiment) dont la position RENDUE, projetee a l'ecran, tombe dans `rect`.
+ * Meme test que le rectangle de la phase de placement (selectUnitsInRect,
+ * main.ts) ; sert aussi au double-clic avec le viewport comme rectangle.
+ */
+export function selectableUnitsInScreenRect(
+  entities: readonly Entity[],
+  rect: ScreenRect,
+  project: ScreenProjector,
+  renderedPosition: RenderedPosition,
+): Entity[] {
+  const inside: Entity[] = [];
+  for (const e of entities) {
+    if (!isCommandable(e)) continue;
+    const pos = renderedPosition(e.id) ?? { x: e.x, z: e.z };
+    const p = project(pos.x, pos.z);
+    if (p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom) inside.push(e);
+  }
+  return inside;
+}
+
+/**
+ * Selection RTS pendant la bataille (prototype). Vit cote rendu/orchestration,
+ * jamais dans la simulation : elle ne retient que des ids d'entites et des
+ * anneaux, sans rien ecrire dans le World.
+ *
+ * Anneaux : une reserve d'objets crees a la demande par `clone()` des
+ * modeles fournis (geometrie et materiau partages, aucun materiau d'unite
+ * modifie), jamais detruits, simplement masques quand ils ne servent plus.
  */
 export class BattleSelection {
-  private selectedId: number | null = null;
+  /** A ajouter a la scene par l'appelant : contient tous les anneaux. */
+  readonly group = new THREE.Group();
+  private readonly selected = new Set<number>();
+  private readonly rings: THREE.Object3D[] = [];
+  private readonly targetRings: THREE.Object3D[] = [];
 
-  /** `marker` : anneau de rayon 1 deja ajoute a la scene par l'appelant,
-   *  mis a l'echelle ici selon l'unite selectionnee. `targetMarker` : anneau
-   *  du meme type, place sous la cible d'un ordre d'attaque de l'unite
-   *  selectionnee (retour visuel leger). */
+  /** `ringTemplate` : anneau de rayon 1 pour chaque unite selectionnee.
+   *  `targetRingTemplate` : anneau du meme type, place sous la cible d'un
+   *  ordre d'attaque d'une unite selectionnee (une seule fois par cible). */
   constructor(
-    private readonly marker: THREE.Object3D,
-    private readonly targetMarker: THREE.Object3D,
-  ) {
-    this.marker.visible = false;
-    this.targetMarker.visible = false;
+    private readonly ringTemplate: THREE.Object3D,
+    private readonly targetRingTemplate: THREE.Object3D,
+  ) {}
+
+  /** Ids selectionnes, dans l'ordre d'ajout. */
+  get ids(): number[] {
+    return [...this.selected];
   }
 
-  get selectedEntityId(): number | null {
-    return this.selectedId;
+  get size(): number {
+    return this.selected.size;
   }
 
-  select(entityId: number | null): void {
-    this.selectedId = entityId;
-    if (entityId === null) {
-      this.marker.visible = false;
-      this.targetMarker.visible = false;
-    }
+  has(entityId: number): boolean {
+    return this.selected.has(entityId);
+  }
+
+  /** Remplace toute la selection. */
+  set(entityIds: Iterable<number>): void {
+    this.selected.clear();
+    for (const id of entityIds) this.selected.add(id);
+    if (this.selected.size === 0) this.hideRings();
+  }
+
+  /** Ajoute l'unite si elle n'est pas selectionnee, la retire sinon. */
+  toggle(entityId: number): void {
+    if (!this.selected.delete(entityId)) this.selected.add(entityId);
   }
 
   clear(): void {
-    this.select(null);
+    this.set([]);
   }
 
-  /** A appeler une fois par frame. Abandonne la selection si l'entite a
-   *  disparu (World vide) ou est morte ; sinon place l'anneau sous sa
-   *  position rendue. */
+  /** A appeler une fois par frame. Retire de la selection les entites
+   *  disparues (World vide) ou mortes, puis place un anneau sous la position
+   *  rendue de chaque unite restante. */
   sync(lookup: (id: number) => Entity | undefined, renderedPosition: RenderedPosition): void {
-    if (this.selectedId === null) return;
-    const entity = lookup(this.selectedId);
-    if (!entity || !entity.alive) {
-      this.clear();
-      return;
+    const targetIds = new Set<number>();
+    let used = 0;
+    for (const id of this.selected) {
+      const entity = lookup(id);
+      if (!entity || !entity.alive) {
+        this.selected.delete(id);
+        continue;
+      }
+      placeRing(this.ringAt(this.rings, this.ringTemplate, used++), entity, renderedPosition);
+      // Cible de l'ordre d'attaque en cours (lecture seule de l'etat de la
+      // simulation) : visible tant que l'ordre existe, y compris pendant une
+      // Provocation qui le suspend.
+      if (entity.order.type === 'attack') targetIds.add(entity.order.targetEntityId);
     }
-    const pos = renderedPosition(entity.id) ?? { x: entity.x, z: entity.z };
-    this.marker.position.set(pos.x, 0.03, pos.z);
-    this.marker.scale.setScalar(entity.stats.radius * MARKER_RADIUS_FACTOR);
-    this.marker.visible = true;
+    for (let i = used; i < this.rings.length; i++) this.rings[i]!.visible = false;
 
-    // Cible de l'ordre d'attaque en cours (lecture seule de l'etat de la
-    // simulation) : visible tant que l'ordre existe, y compris pendant une
-    // Provocation qui le suspend.
-    const order = entity.order;
-    const target = order.type === 'attack' ? lookup(order.targetEntityId) : undefined;
-    if (target && target.alive) {
-      const targetPos = renderedPosition(target.id) ?? { x: target.x, z: target.z };
-      this.targetMarker.position.set(targetPos.x, 0.03, targetPos.z);
-      this.targetMarker.scale.setScalar(target.stats.radius * MARKER_RADIUS_FACTOR);
-      this.targetMarker.visible = true;
-    } else {
-      this.targetMarker.visible = false;
+    let usedTargets = 0;
+    for (const id of targetIds) {
+      const target = lookup(id);
+      if (target && target.alive) placeRing(this.ringAt(this.targetRings, this.targetRingTemplate, usedTargets++), target, renderedPosition);
     }
+    for (let i = usedTargets; i < this.targetRings.length; i++) this.targetRings[i]!.visible = false;
   }
+
+  private ringAt(pool: THREE.Object3D[], template: THREE.Object3D, index: number): THREE.Object3D {
+    while (pool.length <= index) {
+      const ring = template.clone();
+      this.group.add(ring);
+      pool.push(ring);
+    }
+    return pool[index]!;
+  }
+
+  private hideRings(): void {
+    for (const ring of this.rings) ring.visible = false;
+    for (const ring of this.targetRings) ring.visible = false;
+  }
+}
+
+function placeRing(ring: THREE.Object3D, entity: Entity, renderedPosition: RenderedPosition): void {
+  const pos = renderedPosition(entity.id) ?? { x: entity.x, z: entity.z };
+  ring.position.set(pos.x, 0.03, pos.z);
+  ring.scale.setScalar(entity.stats.radius * MARKER_RADIUS_FACTOR);
+  ring.visible = true;
 }

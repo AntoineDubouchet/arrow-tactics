@@ -153,12 +153,79 @@ function resetNavigation(entity: Entity): void {
   resetOrderProgress(entity);
 }
 
+/** Ecart libre entre deux destinations voisines d'un groupe, en plus du
+ *  diametre de la plus grosse unite : sans lui, la separation entre corps
+ *  repousserait une unite deja arrivee hors de son point. */
+const GROUP_MOVE_GAP = 0.3;
+
+/**
+ * Repartit un deplacement de groupe autour du point vise (`x`, `z`) : une
+ * destination distincte par unite, sur une grille compacte centree sur le
+ * point. Deterministe et sans hasard — le resultat ne depend que des
+ * positions et des ids des unites.
+ *
+ *  - Grille : ceil(sqrt(n)) colonnes, autant de rangees que necessaire, la
+ *    derniere rangee incomplete centree. Pas = diametre de la plus grosse
+ *    unite + GROUP_MOVE_GAP. Pas de rotation : rangees alignees sur X.
+ *  - Attribution : unites triees par Z (puis X, puis id) et reparties par
+ *    rangees, chaque rangee triee par X (puis id). Chaque unite garde a peu
+ *    pres sa place relative dans le groupe, ce qui evite que les trajets se
+ *    croisent.
+ *  - Bords : la grille entiere est decalee vers l'interieur si elle deborde
+ *    du plateau, puis chaque point est borne au plateau (rayon compris).
+ *    Une destination secondaire peut tomber sur un obstacle : meme regle
+ *    qu'un deplacement simple (l'unite s'en approche puis passe en Garde).
+ */
+export function assignGroupDestinations(
+  entities: readonly Entity[],
+  x: number,
+  z: number,
+  board: BoardHalfExtents,
+): Map<number, { x: number; z: number }> {
+  const n = entities.length;
+  const destinations = new Map<number, { x: number; z: number }>();
+  if (n === 0) return destinations;
+
+  let maxRadius = 0;
+  for (const e of entities) maxRadius = Math.max(maxRadius, e.stats.radius);
+  const spacing = 2 * maxRadius + GROUP_MOVE_GAP;
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+
+  // Decalage du centre pour que la grille tienne dans le plateau (si elle
+  // est plus large que le plateau lui-meme, centre du plateau).
+  const fitCentre = (c: number, halfSpan: number, halfBoard: number): number =>
+    halfSpan >= halfBoard ? 0 : Math.min(halfBoard - halfSpan, Math.max(-halfBoard + halfSpan, c));
+  const cx = fitCentre(x, ((cols - 1) / 2) * spacing + maxRadius, board.halfW);
+  const cz = fitCentre(z, ((rows - 1) / 2) * spacing + maxRadius, board.halfH);
+
+  const byId = (a: Entity, b: Entity): number => a.id - b.id;
+  const ranked = [...entities].sort((a, b) => a.z - b.z || a.x - b.x || byId(a, b));
+
+  for (let r = 0; r < rows; r++) {
+    const row = ranked.slice(r * cols, (r + 1) * cols).sort((a, b) => a.x - b.x || byId(a, b));
+    for (let c = 0; c < row.length; c++) {
+      const e = row[c]!;
+      const px = cx + (c - (row.length - 1) / 2) * spacing;
+      const pz = cz + (r - (rows - 1) / 2) * spacing;
+      const rad = e.stats.radius;
+      destinations.set(e.id, {
+        x: Math.min(board.halfW - rad, Math.max(-board.halfW + rad, px)),
+        z: Math.min(board.halfH - rad, Math.max(-board.halfH + rad, pz)),
+      });
+    }
+  }
+  return destinations;
+}
+
 /**
  * Applique les commandes dans leur ordre d'emission. Deterministe : aucune
  * source de hasard, et une entite commandee plusieurs fois dans le meme pas
  * garde le dernier ordre recu. Une destination hors du plateau est refusee ;
  * une destination sur un obstacle est acceptee (l'unite s'en approche puis
- * passe en Garde, voir movementSystem).
+ * passe en Garde, voir movementSystem). Un deplacement de plusieurs unites
+ * exprime une intention ("aller autour de ce point") : chaque unite recoit sa
+ * propre destination (voir assignGroupDestinations).
  */
 export function applyCommands(commands: readonly PlayerCommand[], lookup: EntityLookup, board: BoardHalfExtents): CommandResult[] {
   const results: CommandResult[] = [];
@@ -206,9 +273,12 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
         break;
     }
 
+    const groupDestinations = command.kind === 'move' && accepted.length > 1 ? assignGroupDestinations(accepted, command.x, command.z, board) : null;
+
     for (const entity of accepted) {
       // Objet neuf par entite : aucun ordre n'est partage entre deux unites.
-      entity.order = { ...order };
+      const destination = groupDestinations?.get(entity.id);
+      entity.order = destination ? { type: 'move', x: destination.x, z: destination.z } : { ...order };
       resetNavigation(entity);
       result.acceptedEntityIds.push(entity.id);
     }

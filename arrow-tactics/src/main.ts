@@ -59,7 +59,7 @@ import {
 import { EditorUI } from './editor/editorUI';
 import { downloadMapDef, exportMapDef, loadMapDefFromFile } from './editor/mapSerializer';
 import { buildBallistaTowerPlatform, playBallistaShot, tickBallista } from './render/ballista';
-import { BattleSelection, pickEntityAtScreen } from './render/battleSelection';
+import { BattleSelection, pickEntityAtScreen, selectableUnitsInScreenRect, type ScreenRect } from './render/battleSelection';
 import { loadEnvironmentAssets, type EnvironmentAssets } from './render/assetLibrary';
 import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
@@ -178,16 +178,17 @@ const towerPlacementBanner = new TowerPlacementBanner();
 // provisoire avec la touche B (voir toggleBattleControlMode).
 const battleModeIndicator = new BattleModeIndicator();
 let battleControlMode: BattleControlMode = 'ballista';
+// Modeles d'anneaux, jamais ajoutes a la scene : BattleSelection les clone
+// (geometrie et materiau partages) pour chaque unite selectionnee.
 const battleSelectionMarker = createEditorSelectionRing(1);
 // Couleur du camp joueur plutot que l'or par defaut de l'anneau : l'or est deja
 // celui du reticule de visee de la Baliste, les deux se confondraient.
 (battleSelectionMarker.material as THREE.MeshBasicMaterial).color.set(COLORS.playerZone);
-renderer.scene.add(battleSelectionMarker);
-// Anneau rouge sous la cible d'un ordre d'attaque de l'unite selectionnee.
+// Anneau rouge sous la cible d'un ordre d'attaque d'une unite selectionnee.
 const battleOrderTargetMarker = createEditorSelectionRing(1);
 (battleOrderTargetMarker.material as THREE.MeshBasicMaterial).color.set(COLORS.enemyZone);
-renderer.scene.add(battleOrderTargetMarker);
 const battleSelection = new BattleSelection(battleSelectionMarker, battleOrderTargetMarker);
+renderer.scene.add(battleSelection.group);
 const goldHud = new GoldHud();
 const telegraphView = new TelegraphView();
 const fireballView = new FireballView();
@@ -2753,16 +2754,73 @@ function toggleBattleControlMode(): void {
   if (!inBattlePhase() || pauseMenuOpen) return;
   battleControlMode = battleControlMode === 'ballista' ? 'command' : 'ballista';
   fireButtonHeld = false;
-  if (battleControlMode === 'ballista') battleSelection.clear();
+  if (battleControlMode === 'ballista') {
+    battleSelection.clear();
+    cancelCommandDrag();
+  }
 }
 
-/** Clic gauche en mode Commandement : selectionne l'unite alliee vivante sous
- *  le curseur ; un clic sur le terrain, un ennemi ou un batiment deselectionne.
- *  Ne transmet aucun ordre a la simulation. */
-function handleCommandModeClick(event: MouseEvent): void {
+/** Clic gauche maintenu en mode Commandement, en attente de son relachement :
+ *  sous UNIT_DRAG_THRESHOLD_PX c'est un clic (voir resolveCommandModeClick),
+ *  au-dela un rectangle de selection (meme SelectionBox que le placement),
+ *  jamais les deux. */
+interface CommandDragState {
+  startClientX: number;
+  startClientY: number;
+  dragging: boolean;
+}
+let commandDrag: CommandDragState | null = null;
+
+function cancelCommandDrag(): void {
+  if (commandDrag?.dragging) selectionBox.hide();
+  commandDrag = null;
+}
+
+/** Double-clic MANUEL en bataille, meme patron que lastUnitClickSlot en
+ *  placement (deux clics sur la meme unite en moins de
+ *  DOUBLE_CLICK_WINDOW_MS) ; etat separe, les ids d'entites n'ont rien a voir
+ *  avec les index de placement. */
+let lastBattleUnitClickId: number | null = null;
+let lastBattleUnitClickTime = 0;
+
+/** Clic gauche (sans glisser) en mode Commandement. Sans Shift : l'unite
+ *  alliee vivante sous le curseur devient l'unique selection, un clic
+ *  ailleurs (terrain, ennemi, batiment) vide la selection, un double-clic
+ *  selectionne les unites visibles du meme type. Avec Shift : ajoute ou
+ *  retire l'unite, ne change rien ailleurs. Aucun ordre n'est transmis. */
+function resolveCommandModeClick(event: MouseEvent): void {
   const picked = pickEntityAtScreen(world.entities, event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
-  const selectable = picked !== null && picked.team === 'player' && !picked.isBuilding ? picked : null;
-  battleSelection.select(selectable?.id ?? null);
+  const unit = picked !== null && picked.team === 'player' && !picked.isBuilding ? picked : null;
+
+  if (event.shiftKey) {
+    if (unit) battleSelection.toggle(unit.id);
+    lastBattleUnitClickId = null;
+    return;
+  }
+  if (!unit) {
+    battleSelection.clear();
+    lastBattleUnitClickId = null;
+    return;
+  }
+
+  const now = performance.now();
+  if (unit.id === lastBattleUnitClickId && now - lastBattleUnitClickTime < DOUBLE_CLICK_WINDOW_MS) {
+    lastBattleUnitClickId = null;
+    // Unites du meme type visibles a l'ecran : le viewport sert de rectangle.
+    const visible = selectableUnitsInScreenRect(world.entities, canvas.getBoundingClientRect(), worldToScreen, (id) => unitViews.getPosition(id));
+    battleSelection.set(visible.filter((e) => e.unitId === unit.unitId).map((e) => e.id));
+    return;
+  }
+  lastBattleUnitClickId = unit.id;
+  lastBattleUnitClickTime = now;
+  battleSelection.set([unit.id]);
+}
+
+/** Rectangle de selection relache en mode Commandement : remplace la
+ *  selection par les unites alliees vivantes encadrees a l'ecran. */
+function selectBattleUnitsInRect(rect: ScreenRect): void {
+  const inside = selectableUnitsInScreenRect(world.entities, rect, worldToScreen, (id) => unitViews.getPosition(id));
+  battleSelection.set(inside.map((e) => e.id));
 }
 
 /** Debut de chaque bataille (reelle ou "Tester le scenario") : retour
@@ -2771,6 +2829,8 @@ function handleCommandModeClick(event: MouseEvent): void {
 function resetBattleControls(): void {
   battleControlMode = 'ballista';
   battleSelection.clear();
+  cancelCommandDrag();
+  lastBattleUnitClickId = null;
   pendingRightClickOrder = null;
 }
 
@@ -2787,32 +2847,34 @@ function canIssueRtsOrder(): boolean {
  *  devient une rotation de camera et n'emet jamais d'ordre. */
 let pendingRightClickOrder: { startClientX: number; startClientY: number } | null = null;
 
-/** Clic droit court en mode Commandement : attaque ciblee si une entite
- *  hostile vivante est sous le curseur (unite ou batiment ennemi), sinon
- *  deplacement vers le point du sol. La simulation valide encore la commande
- *  (unite vivante du joueur, cible hostile vivante ou destination dans le
- *  plateau) au debut du prochain pas. */
+/** Clic droit court en mode Commandement, pour toute la selection : attaque
+ *  ciblee de la meme entite si une entite hostile vivante est sous le curseur
+ *  (unite ou batiment ennemi), sinon deplacement de groupe autour du point du
+ *  sol — l'orchestration n'envoie que ce point, la simulation repartit les
+ *  destinations (voir assignGroupDestinations, sim/orders.ts). La simulation
+ *  valide encore la commande (unites vivantes du joueur, cible hostile
+ *  vivante ou destination dans le plateau) au debut du prochain pas. */
 function issueRightClickOrder(event: MouseEvent): void {
-  const selectedId = battleSelection.selectedEntityId;
-  if (selectedId === null || !canIssueRtsOrder()) return;
+  const entityIds = battleSelection.ids;
+  if (entityIds.length === 0 || !canIssueRtsOrder()) return;
 
   const picked = pickEntityAtScreen(world.entities, event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
   if (picked !== null && picked.team !== 'player') {
-    world.issueCommand({ kind: 'attack', entityIds: [selectedId], targetEntityId: picked.id });
+    world.issueCommand({ kind: 'attack', entityIds, targetEntityId: picked.id });
     return;
   }
 
   const point = computeGroundPoint(event);
   if (!point) return;
-  world.issueCommand({ kind: 'move', entityIds: [selectedId], x: point.x, z: point.z });
+  world.issueCommand({ kind: 'move', entityIds, x: point.x, z: point.z });
 }
 
-/** S en mode Commandement : interrompt l'ordre de l'unite selectionnee, qui
- *  passe en Garde. */
+/** S en mode Commandement : interrompt l'ordre de toutes les unites
+ *  selectionnees, qui passent en Garde. */
 function issueStopOrder(): void {
-  const selectedId = battleSelection.selectedEntityId;
-  if (selectedId === null || !canIssueRtsOrder()) return;
-  world.issueCommand({ kind: 'stop', entityIds: [selectedId] });
+  const entityIds = battleSelection.ids;
+  if (entityIds.length === 0 || !canIssueRtsOrder()) return;
+  world.issueCommand({ kind: 'stop', entityIds });
 }
 
 /** Vrai si le focus clavier est dans un champ de saisie : un raccourci de
@@ -4255,7 +4317,7 @@ const loop = new Loop(
     // apres world.clear() est abandonnee par sync() lui-meme.
     if (inBattlePhase()) battleSelection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id));
     else battleSelection.clear();
-    battleModeIndicator.update(inBattlePhase() && !pauseMenuOpen, battleControlMode);
+    battleModeIndicator.update(inBattlePhase() && !pauseMenuOpen, battleControlMode, battleSelection.size);
 
     // Fait avancer les fleches en attente de depart (voir pendingArrowSpawns) :
     // temps REEL, independant de la simulation — une fleche part des que son
@@ -5039,12 +5101,12 @@ canvas.addEventListener('mousedown', (event) => {
   const disarmedItem = armedItemIndex !== null;
   if (disarmedItem) disarmItem();
 
-  // Prototype RTS : en mode Commandement, avec une unite selectionnee, ce clic
-  // droit devient un ordre (attaque ou deplacement) s'il est relache sans avoir glisse
+  // Prototype RTS : en mode Commandement, avec au moins une unite selectionnee,
+  // ce clic droit devient un ordre (attaque ou deplacement) s'il est relache sans avoir glisse
   // (voir le mousemove camera et le mouseup plus bas). Jamais si ce clic
   // vient de desarmer un objet, ni s'il s'ajoute a un clic gauche (pan).
   pendingRightClickOrder =
-    !disarmedItem && !(event.buttons & 1) && battleSelection.selectedEntityId !== null && canIssueRtsOrder()
+    !disarmedItem && !(event.buttons & 1) && battleSelection.size > 0 && canIssueRtsOrder()
       ? { startClientX: event.clientX, startClientY: event.clientY }
       : null;
 
@@ -5095,6 +5157,9 @@ canvas.addEventListener('mousedown', (event) => {
       selectionBox.hide();
       groundDrag = null;
     }
+    // Meme regle en bataille : le clic gauche deja enfonce (clic ou
+    // rectangle en mode Commandement) est abandonne au profit du pan.
+    cancelCommandDrag();
     if (unitDrag) {
       sellZone.hideGhost();
       placementHighlight.hide();
@@ -5206,9 +5271,11 @@ canvas.addEventListener('mousedown', (event) => {
   }
   // Mode Commandement (prototype RTS) : le clic gauche selectionne au lieu de
   // tirer — fireButtonHeld n'est pas pose, donc Tir rapide ne tire pas non
-  // plus. Un objet arme garde la priorite (branche ci-dessus).
+  // plus. Un objet arme garde la priorite (branche ci-dessus). Resolu au
+  // relachement : clic simple ou rectangle selon le deplacement (voir le
+  // mousemove et le mouseup plus bas).
   if (battleControlMode === 'command' && inBattlePhase()) {
-    handleCommandModeClick(event);
+    commandDrag = { startClientX: event.clientX, startClientY: event.clientY, dragging: false };
     return;
   }
   // Maintien du clic (2026-08-13, "Tir rapide") : pose l'INTENTION de tir
@@ -5236,6 +5303,7 @@ window.addEventListener('pointercancel', () => {
 window.addEventListener('blur', () => {
   fireButtonHeld = false;
   pendingRightClickOrder = null;
+  cancelCommandDrag();
   buildingClickCandidate = null;
   if (buildingPlacementMode) cancelBuildingPlacement();
 });
@@ -5336,6 +5404,29 @@ window.addEventListener('mouseup', (event) => {
 
   selectionBox.hide();
   selectUnitsInRect(selectionBox.toRect(drag.startClientX, drag.startClientY, event.clientX, event.clientY));
+});
+
+// Clic gauche relache en mode Commandement (prototype RTS) : clic simple sous
+// le seuil, rectangle de selection au-dela — un vrai glisser ne produit
+// jamais de clic. Abandonne si la bataille ou le mode ont change entre-temps.
+window.addEventListener('mouseup', (event) => {
+  if (event.button !== 0 || !commandDrag) return;
+  const drag = commandDrag;
+  cancelCommandDrag();
+  if (battleControlMode !== 'command' || !inBattlePhase()) return;
+  if (drag.dragging) selectBattleUnitsInRect(selectionBox.toRect(drag.startClientX, drag.startClientY, event.clientX, event.clientY));
+  else resolveCommandModeClick(event);
+});
+
+window.addEventListener('mousemove', (event) => {
+  if (!commandDrag) return;
+  if (!commandDrag.dragging) {
+    const moved = Math.hypot(event.clientX - commandDrag.startClientX, event.clientY - commandDrag.startClientY);
+    if (moved < UNIT_DRAG_THRESHOLD_PX) return;
+    commandDrag.dragging = true;
+    selectionBox.show();
+  }
+  selectionBox.update(commandDrag.startClientX, commandDrag.startClientY, event.clientX, event.clientY);
 });
 
 window.addEventListener('mousemove', (event) => {
