@@ -20,13 +20,16 @@ const TEAM_COLORS: Record<Team, number> = {
   enemy: COLORS.enemyZone,
 };
 
-/** Taille de l'anneau par rapport au rayon de l'unite. */
-const RING_RADIUS_FACTOR = 1.4;
+/** Taille de l'anneau par rapport au rayon de l'unite : un peu en dessous de
+ *  l'empreinte reelle, pour que les anneaux d'un groupe dense (une unite par
+ *  case) restent distincts au lieu de former un amas. Ancienne valeur : 1,4. */
+const RING_RADIUS_FACTOR = 0.9;
 /** Hauteur au-dessus du sol, pour eviter le scintillement avec le terrain. */
 const RING_HEIGHT = 0.03;
 
-/** Geometrie de rayon 1, partagee par tous les anneaux (mise a l'echelle). */
-const ringGeometry = new THREE.RingGeometry(0.85, 1, 24);
+/** Geometrie de rayon 1, partagee par tous les anneaux (mise a l'echelle).
+ *  Bande de 20 % du rayon : un anneau compact reste lisible. */
+const ringGeometry = new THREE.RingGeometry(0.8, 1, 32);
 /** Un materiau par couleur, partage par tous les anneaux de cette couleur et
  *  JAMAIS modifie apres creation : changer la couleur d'un anneau consiste a
  *  lui assigner un autre materiau, jamais a muter celui-ci (il recolorerait

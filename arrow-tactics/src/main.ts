@@ -542,6 +542,20 @@ function findOwnedBuildingIndex(object: THREE.Object3D | null): number | null {
 /** Retrouve, sous le curseur, l'index d'un bâtiment DEJA POSSEDE — utilise
  *  par le clic simple pendant le placement (voir requestMoveBuilding), meme
  *  patron que findHoveredSlot pour les unites. */
+/** Le curseur vise-t-il la base de la Baliste en preparation ? Seule son
+ *  empreinte au sol compte (ballistaObstacleDef : la meme collision que celle
+ *  qui bloque le placement des unites), jamais la silhouette haute de la
+ *  tour : un clic sur sa partie haute dont le point au sol tombe ailleurs
+ *  reste un geste normal (rectangle, deplacement). Un modele d'unite touche
+ *  par le rayon garde la priorite. */
+function isBallistaHoveredInPlacement(event: MouseEvent): boolean {
+  const point = computeGroundPoint(event);
+  if (!point) return false;
+  const b = obstacleBounds(ballistaObstacleDef);
+  if (!(point.x > b.minX && point.x < b.maxX && point.z > b.minZ && point.z < b.maxZ)) return false;
+  return findHoveredSlot(event) === null;
+}
+
 function findHoveredOwnedBuilding(event: MouseEvent): number | null {
   setRaycasterFromEvent(event);
   const hit = raycaster.intersectObjects(
@@ -1533,6 +1547,7 @@ function onValidatePlacement(): void {
   // et sans effet si aucun placement n'etait en cours.
   cancelBuildingPlacement();
   selectedBuildingIndex = null;
+  placementBallistaSelected = false;
   updateBuildingSelectionRing();
   clearSelection();
   playerPreview.clear();
@@ -1747,6 +1762,7 @@ function resetRunPlacementState(): void {
   cancelGroundDrag();
   cancelBuildingPlacement();
   selectedBuildingIndex = null;
+  placementBallistaSelected = false;
   updateBuildingSelectionRing();
   disarmItem();
   playerPreview.clear();
@@ -3730,6 +3746,16 @@ let buildingClickCandidate: BuildingClickCandidate | null = null;
  *  simple clic sans glisser — voir updateBuildingSelectionRing. Distinct de
  *  buildingPlacementMode.movingIndex : la selection ne deplace jamais rien. */
 let selectedBuildingIndex: number | null = null;
+
+/** Baliste selectionnee en preparation (simple clic sur la tour) : meme
+ *  bascule et meme anneau que la selection d'un bâtiment possede, mais elle
+ *  ne se deplace jamais pendant la preparation. Exclusive avec
+ *  selectedBuildingIndex. */
+let placementBallistaSelected = false;
+
+/** Camp du joueur de la run : proprietaire des bâtiments possedes et de la
+ *  Baliste, dont l'anneau de selection prend la couleur (teamColor). */
+const RUN_OWNER_TEAM: Team = 'player';
 let buildingSelectionRing: THREE.Mesh | null = null;
 
 /** Reconstruit l'anneau de selection d'un bâtiment (2026-08-18) — un objet
@@ -3747,17 +3773,26 @@ function updateBuildingSelectionRing(): void {
     (buildingSelectionRing.material as THREE.Material).dispose();
     buildingSelectionRing = null;
   }
-  if (selectedBuildingIndex === null) return;
-  const owned = currentRun.buildings[selectedBuildingIndex];
-  if (!owned) {
-    selectedBuildingIndex = null;
-    return;
+  if (placementBallistaSelected) {
+    // Meme taille que l'anneau de la Baliste dans l'editeur.
+    buildingSelectionRing = createEditorSelectionRing(BALLISTA_TOWER_FOOTPRINT * 0.7);
+    buildingSelectionRing.position.set(playerArrowOrigin.x, 0.02, playerArrowOrigin.z);
+  } else {
+    if (selectedBuildingIndex === null) return;
+    const owned = currentRun.buildings[selectedBuildingIndex];
+    if (!owned) {
+      selectedBuildingIndex = null;
+      return;
+    }
+    const def = getBuilding(owned.buildingId);
+    const tilesX = def.footprintTilesX ?? 1;
+    const tilesZ = def.footprintTilesZ ?? 1;
+    buildingSelectionRing = createEditorSelectionRing(Math.hypot(tilesX, tilesZ) / 2 + 0.2);
+    buildingSelectionRing.position.set(owned.x, 0.02, owned.z);
   }
-  const def = getBuilding(owned.buildingId);
-  const tilesX = def.footprintTilesX ?? 1;
-  const tilesZ = def.footprintTilesZ ?? 1;
-  buildingSelectionRing = createEditorSelectionRing(Math.hypot(tilesX, tilesZ) / 2 + 0.2);
-  buildingSelectionRing.position.set(owned.x, 0.02, owned.z);
+  // Materiau propre a cet anneau (recree a chaque selection) : couleur du
+  // camp proprietaire, jamais l'or reserve aux objets neutres.
+  (buildingSelectionRing.material as THREE.MeshBasicMaterial).color.setHex(teamColor(RUN_OWNER_TEAM));
   renderer.scene.add(buildingSelectionRing);
 }
 
@@ -3853,6 +3888,7 @@ function requestMoveBuilding(index: number): void {
   if (!owned) return;
   disarmItem();
   selectedBuildingIndex = null;
+  placementBallistaSelected = false;
   updateBuildingSelectionRing();
   buildingPlacementMode = { buildingId: owned.buildingId, rotationY: owned.rotationY ?? 0, movingIndex: index };
   buildingRotationHint.setVisible(true);
@@ -4035,7 +4071,7 @@ function placementHoverMoveProposal(event: MouseEvent): UnitMoveProposal | null 
   // deplacement (la zone laisse passer les evenements jusqu'au canvas).
   if (unitDrag) return unitDrag.dragging && !sellZone.isPointOver(event.clientX, event.clientY) ? placementDragProposal(unitDrag, event) : null;
   if (selectedIndices.length === 0) return null;
-  if (findHoveredSlot(event) !== null || findHoveredOwnedBuilding(event) !== null) return null;
+  if (findHoveredSlot(event) !== null || findHoveredOwnedBuilding(event) !== null || isBallistaHoveredInPlacement(event)) return null;
   if (findFallbackSlot(event, event.shiftKey) !== null) return null;
   const point = computeGroundPoint(event);
   return point ? placementMoveProposal(selectedIndices, point) : null;
@@ -5634,14 +5670,28 @@ canvas.addEventListener('mousedown', (event) => {
   // dedie plus bas) declenche desormais requestMoveBuilding.
   const hoveredBuilding = findHoveredOwnedBuilding(event);
   if (hoveredBuilding !== null) {
+    placementBallistaSelected = false;
     buildingClickCandidate = { index: hoveredBuilding, startClientX: event.clientX, startClientY: event.clientY };
+    return;
+  }
+  // Clic sur la tour de la Baliste : selection seule, meme bascule qu'un
+  // bâtiment possede. Aucun glisser ni deplacement pendant la preparation.
+  if (isBallistaHoveredInPlacement(event)) {
+    placementBallistaSelected = !placementBallistaSelected;
+    selectedBuildingIndex = null;
+    updateBuildingSelectionRing();
+    if (placementBallistaSelected && selectedIndices.length > 0) {
+      clearSelection();
+      refreshPlayerPreview();
+    }
     return;
   }
   // Clic ailleurs qu'un bâtiment possede : deselectionne l'anneau de
   // selection actif s'il y en a un (2026-08-18) — ne court-circuite jamais
   // la suite (selection d'unite normale ci-dessous).
-  if (selectedBuildingIndex !== null) {
+  if (selectedBuildingIndex !== null || placementBallistaSelected) {
     selectedBuildingIndex = null;
+    placementBallistaSelected = false;
     updateBuildingSelectionRing();
   }
 
@@ -5941,6 +5991,12 @@ window.addEventListener('mouseup', (event) => {
     buildingClickCandidate = null;
     selectedBuildingIndex = selectedBuildingIndex === index ? null : index;
     updateBuildingSelectionRing();
+    // Une seule famille selectionnee a la fois (unites OU bâtiment OU
+    // Baliste) : selectionner un bâtiment vide la selection d'unites.
+    if (selectedBuildingIndex !== null && selectedIndices.length > 0) {
+      clearSelection();
+      refreshPlayerPreview();
+    }
     return;
   }
 
