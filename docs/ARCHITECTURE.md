@@ -204,7 +204,11 @@ voir §9.
   coins, et repli sur la case libre la plus proche si la case visée est
   bloquée.
 - **Géométrie** (`sim/geometry.ts`) :
-  - `obstacleBounds` donne le rectangle exact d'un obstacle ;
+  - `obstacleBounds` (`config/constants.ts`) donne le rectangle exact d'un
+    obstacle. Cette fonction pure vit dans `config/`, à côté
+    d'`obstacleCenter`, parce qu'elle est partagée par la simulation,
+    l'éditeur (validation de la Baliste) et `main.ts`. L'éditeur ne dépend
+    donc toujours de `sim/` que pour des types ;
   - `obstacleCenter` (`config/constants.ts`) préfère la position libre
     `x`/`z` à l'ancien coin de grille `cornerX`/`cornerZ` ;
   - `findBlockingObstacle` teste la ligne de tir (méthode des tranches), avec
@@ -365,7 +369,7 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
 | Fichier | Rôle |
 |---|---|
-| `editor/editorState.ts` | État pur : obstacles, unités, cellules, sélection, outil actif |
+| `editor/editorState.ts` | État pur : obstacles, unités, cellules, position de la Baliste (`ballista`, `ballistaExplicit`), sélection, outil actif |
 | `editor/editorScene.ts` | Construction des meshes (réutilise les fabriques du jeu), fantômes, aperçus de cellule, anneau de sélection |
 | `editor/editorUI.ts` | Interface DOM : catalogue d'assets, barre d'outils, panneau de propriétés |
 | `editor/history.ts` | Pile de commandes undo/redo (`{undo, redo}`) ; la coalescence d'un geste en une commande est faite par l'appelant |
@@ -378,7 +382,10 @@ L'orchestration reste dans `main.ts` :
 - `TransformControls` en translation seule ;
 - rotation par l'anneau de sélection et par Ctrl+molette ;
 - « Tester le scénario » bascule temporairement `currentMap` et lance une
-  vraie bataille.
+  vraie bataille. La Baliste y est créée par la même fonction qu'en partie
+  (`spawnBallistaBuilding`), à `resolveBallistaOrigin(map)` (`config/mapDef.ts`) ;
+- le modèle unique de la Baliste (`ballistaPlatform`) est partagé entre le
+  jeu, l'éditeur et le test : il est replacé à chaque transition.
 
 Le détail d'usage relève de `EDITOR.md`.
 

@@ -29,7 +29,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-04 | Contrat implicite « ordre de spawn = ordre de l'armée » | Dette |
 | KI-05 | L'undo d'un déplacement au gizmo peut réorienter un décor | Confirmé (lecture du code) |
 | KI-06 | R / « Tourner 90° » : hors historique et départ à 0° | Confirmé (lecture du code) |
-| KI-07 | « Tester le scénario » sans bâtiments gameplay | Dette |
+| KI-07 | « Tester le scénario » sans Mine ni Caserne | Dette |
 | KI-08 | Commentaire de Maître de la forge : « jamais sous 1 rune » | Confirmé |
 | KI-09 | Descriptions de talents aux valeurs codées en dur | Dette |
 | KI-10 | Commentaire inexact du bouton d'achat ×5 | Dette |
@@ -168,19 +168,23 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 - **Piste** : réutiliser `currentObstacleRotation` et
   `pushObstacleRotationCommand` (déjà présents dans `main.ts`).
 
-### KI-07 — « Tester le scénario » sans bâtiments gameplay
+### KI-07 — « Tester le scénario » sans Mine ni Caserne
 
-- **Statut** : Dette (limitation).
-- **Symptôme** : pendant un test depuis l'éditeur, aucune Mine, Caserne ni
-  Baliste destructible n'est créée. La tour ne peut pas être détruite, et les
-  bâtiments ne peuvent pas être testés depuis l'éditeur.
+- **Statut** : Dette (limitation), partiellement résolue.
+- **Résolu** : la **Baliste** est désormais un vrai bâtiment en test (PV,
+  collision, destruction), à la position de la carte (`MapDef.ballista`, ou
+  le repli historique) — voir `EDITOR.md` §14-§15.
+- **Symptôme restant** : aucune Mine ni Caserne n'est créée pendant un test
+  depuis l'éditeur ; ces bâtiments ne peuvent pas y être testés.
 - **Code concerné** :
   - `setupTestBattle` (`main.ts`) ne fait apparaître que les unités de la
-    carte ;
-  - `MapDef` n'a aucune notion de bâtiment gameplay.
-- **Impact actuel** : limite les tests d'équilibrage faits dans l'éditeur.
-- **Vérification** : lancer un test et constater l'absence de barre de PV sur
-  la tour.
+    carte et la Baliste ;
+  - `MapDef` ne connaît que la position de la Baliste, aucun autre bâtiment
+    gameplay.
+- **Impact actuel** : limite les tests d'équilibrage des bâtiments achetables
+  faits dans l'éditeur.
+- **Vérification** : lancer un test et constater qu'aucune Mine ni Caserne
+  n'apparaît.
 - **Piste** : une métadonnée optionnelle sur les obstacles
   `kind: 'building'`, ou une option du test.
 

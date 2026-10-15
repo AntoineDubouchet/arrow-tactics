@@ -379,7 +379,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Raison connue** : **insuffisamment documentée** au-delà de la demande
   d'Antoine.
 - **Aujourd'hui** : appliqué dans le jeu réel. L'éditeur et « Tester le
-  scénario » utilisent une position de repli.
+  scénario » utilisent la position de la carte (`MapDef.ballista`, réglable
+  dans l'éditeur), sinon une position de repli ; elle n'affecte jamais une
+  run.
 - **Sources** : archive (« Placement obligatoire de la tour ») ; `main.ts`
   (`beginTowerPlacement`), `CURRENT_STATE.md`.
 
@@ -436,8 +438,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - sa rotation est purement visuelle ;
   - le principe « emprise rectangulaire » demeure.
 - **Sources** : archive (« Obstacles », « Props traversables ») ;
-  `config/constants.ts` (`isCollidableObstacle`, `obstacleCenter`),
-  `sim/geometry.ts`.
+  `config/constants.ts` (`isCollidableObstacle`, `obstacleCenter`,
+  `obstacleBounds`), `sim/geometry.ts`.
 
 ### E3 — Rotation des décors dans l'éditeur
 

@@ -146,7 +146,9 @@ Sources : `config/constants.ts` (`PLAYER_ARROW_*`, `TALENT_*`,
 - **Bâtiment** : 25 PV de base. La Baliste compte pour la survie du camp
   joueur. Une fois détruite, elle ne tire plus.
 - **Position** : choisie par le joueur en début de run, puis conservée pour
-  toute la run.
+  toute la run. Dans l'éditeur et « Tester le scénario », c'est la position
+  enregistrée dans la carte (`MapDef.ballista`), sinon le repli historique du
+  coin (§16, `EDITOR.md` §15) ; elle n'a aucun effet sur une run.
 - **Tir** : un appui sur **Q** tire un carreau en arc vers le point du sol
   sous le curseur, recalculé au moment de l'appui (la caméra a pu bouger
   depuis le dernier mouvement de souris).
@@ -439,10 +441,25 @@ principal.
   la moitié du plateau où elles sont posées.
 - **Terrain** : ajout et suppression de cellules, taille du plateau
   modifiable.
+- **Baliste** : sélectionnable et déplaçable, calée sur une grille de 3×3
+  cases. Le déplacement est refusé si la tour sortirait du plateau ou
+  recouvrirait un trou, un obstacle bloquant ou une unité. Aucune unité ne
+  peut ensuite être posée ou déplacée dans son empreinte, ni aucune case
+  supprimée sous elle ; Suppr et R sont sans effet sur elle.
+  - Son centre est enregistré dans `MapDef.ballista?: { x, z }`, écrit
+    seulement si la position a été définie explicitement. Une carte sans ce
+    champ garde le repli historique du coin, et reste sans champ si on la
+    réenregistre sans déplacer la Baliste.
+  - Annuler / rétablir restaure la position et ce statut ; enregistrer puis
+    charger conserve la position.
 - **Outils** : annuler / rétablir ; enregistrer et charger une carte en
   JSON.
 - **« Tester le scénario »** : lance une vraie bataille sur la carte éditée,
-  sans bâtiment gameplay, puis revient à l'éditeur.
+  puis revient à l'éditeur.
+  - La Baliste y est un **vrai bâtiment** (PV, collision, destruction, état
+    `DÉTRUITE` du HUD), à la position de la carte : modèle, origine des tirs,
+    bâtiment et collision coïncident exactement.
+  - Ni Mine ni Caserne ne sont créées (`KNOWN_ISSUES.md`, KI-07).
 
 ## 17. Audio
 

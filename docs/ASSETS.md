@@ -281,7 +281,7 @@ Détail du préchargement et de l'ordre de démarrage : voir `ARCHITECTURE.md`.
 | Décor (rocher, arbre, prop, bâtiment décoratif) | `ObstacleDef` (`config/constants.ts`) | `render/obstacleFactory.ts`, partagé par le plateau du jeu **et** l'éditeur | Posable |
 | Unités | `data/units.ts` | `buildUnit` (`render/unitMesh.ts`), partagé par le combat, l'aperçu de placement et l'éditeur | Posable |
 | Bâtiments gameplay (Mine, Caserne) | `data/buildings.ts` | Modèles KayKit `blue_mine` / `blue_barracks` + `BuildingView` | Non posables |
-| Baliste et tour | Instance unique | `render/ballista.ts` | Non posable |
+| Baliste et tour | Instance unique | `render/ballista.ts` | Non posable, mais déplaçable (`EDITOR.md`, §15) |
 
 Un bâtiment KayKit posé dans l'éditeur est un **simple obstacle**, même s'il
 utilise le même modèle que la Mine ou la Caserne (voir `EDITOR.md`, §15).

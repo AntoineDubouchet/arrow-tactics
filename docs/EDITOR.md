@@ -23,7 +23,7 @@ et limitations, `KNOWN_ISSUES.md`.
 12. Caméra
 13. Enregistrer et charger
 14. Tester le scénario
-15. Bâtiments décoratifs et bâtiments gameplay
+15. Bâtiments décoratifs, bâtiments gameplay et Baliste
 16. Cartes à trous
 17. Limitations connues
 18. Pour les développeurs
@@ -72,7 +72,8 @@ et limitations, `KNOWN_ISSUES.md`.
 - Un aperçu vert ou rouge indique sous le curseur si l'action est possible.
 - **Ajout** : refusé si une case existe déjà à cet endroit.
 - **Suppression** : refusée si une unité ou un obstacle bloquant occupe la
-  case. Un prop décoratif n'empêche pas la suppression.
+  case, ou si la case est sous l'empreinte de la Baliste (§15). Un prop
+  décoratif n'empêche pas la suppression.
 
 ## 4. Objets disponibles
 
@@ -100,7 +101,9 @@ Catalogue (groupes dépliables) :
 - **Pose refusée** :
   - sans case de terrain ;
   - sur un obstacle bloquant ;
-  - sur une autre unité.
+  - sur une autre unité ;
+  - dans l'empreinte de la Baliste (§15). Un déplacement d'unité ou de
+    groupe vers cette empreinte est refusé de la même façon.
 - **Camp** : déduit automatiquement de la moitié du plateau. `z ≥ 0` donne le
   camp joueur, sinon le camp ennemi. Le camp est recalculé à chaque
   déplacement, et rien ne restreint la pose aux zones de spawn.
@@ -109,11 +112,12 @@ Catalogue (groupes dépliables) :
 
 ## 6. Sélection
 
-- **Clic gauche** sur un décor ou une unité : le sélectionne.
+- **Clic gauche** sur un décor, une unité ou la tour de la Baliste : le
+  sélectionne. La Baliste sélectionnée est entourée d'un anneau.
 - **Double-clic** sur une unité : sélectionne les unités du même type, au plus
   20, en partant des plus proches.
-- **Une seule sélection à la fois** : un décor, une unité ou un groupe
-  d'unités.
+- **Une seule sélection à la fois** : un décor, une unité, un groupe
+  d'unités ou la Baliste.
 - **Pas de sélection rectangulaire** dans l'éditeur.
 - **Désélectionner** : clic droit, Échap, ou clic gauche dans le vide.
 - Avec un **décor** sélectionné, un clic gauche sur le sol le désélectionne.
@@ -131,7 +135,11 @@ Catalogue (groupes dépliables) :
   - le groupe garde sa formation relative ;
   - le déplacement est refusé en bloc si une case cible n'existe pas.
 - **Règle de validité** : le déplacement d'une unité vérifie seulement que la
-  case cible existe. Il est donc moins strict que la pose (§5).
+  case cible existe et qu'elle n'est pas dans l'empreinte de la Baliste. Il
+  ne contrôle pas l'occupation et reste donc moins strict que la pose (§5).
+- **Baliste** : la sélectionner, puis cliquer au sol. Sa position est calée
+  sur une grille de 3×3 cases ; un emplacement invalide est refusé sans rien
+  changer, et la Baliste reste sélectionnée. Détail dans §15.
 
 ## 8. Rotation des décors
 
@@ -161,6 +169,8 @@ Quatre façons de tourner un décor sélectionné :
 
 - **Suppr**, **Retour arrière** ou le bouton **« Supprimer (Suppr) »**
   suppriment la sélection : un décor, une unité ou un groupe.
+- **La Baliste ne se supprime pas** : Suppr est sans effet sur elle, tout
+  comme R.
 - La suppression ne peut pas être annulée avec Ctrl+Z.
 
 ## 10. Annuler / rétablir
@@ -174,7 +184,7 @@ Quatre façons de tourner un décor sélectionné :
 | Rotation à l'anneau | Suppression |
 | Rotation par Ctrl+molette (par cran) | Déplacement d'une unité ou d'un groupe |
 | Ajout ou suppression d'une case | Redimensionnement du plateau |
-| | R / « Tourner 90° » (KI-06) |
+| Déplacement de la Baliste (position **et** statut « position définie », §15) | R / « Tourner 90° » (KI-06) |
 
 - **Remise à zéro** : l'historique est vidé à l'ouverture de l'éditeur, au
   chargement d'un fichier et à la sortie.
@@ -192,7 +202,7 @@ Quatre façons de tourner un décor sélectionné :
   - boutons « Tourner 90° (R) » et « Supprimer (Suppr) ».
 - **Unité sélectionnée** : type, camp, position, bouton « Supprimer ». Pas de
   bouton « Tourner ».
-- **Groupe d'unités** : pas de panneau.
+- **Groupe d'unités** et **Baliste** : pas de panneau.
 
 ## 12. Caméra
 
@@ -254,33 +264,88 @@ voir aussi `ARCHITECTURE.md`.
 | `cells` | Liste des cases présentes, avec leur type de terrain. Optionnel : absent = rectangle plein d'herbe |
 | `obstacles` | Décors : `kind` (rocher, arbre, prop, bâtiment), modèle, emprise `tilesX` × `tilesZ`, position `x` / `z` (ou ancien coin `cornerX` / `cornerZ`), `rotationY` optionnel |
 | `playerUnits`, `enemyUnits` | Unités : `unitId`, `x`, `z` |
+| `ballista` | Centre de la Baliste en coordonnées monde : `{ x, z }`. Optionnel : absent = repli historique (coin +X +Z, `computePlayerArrowOrigin`) |
 
 - **Camp des unités** : ce n'est pas un champ. Il est porté par la liste
   (`playerUnits` ou `enemyUnits`) dans laquelle l'unité est enregistrée.
+- **`ballista`** : écrit **seulement** si la position de la Baliste a été
+  définie explicitement (déplacée dans l'éditeur, ou déjà présente dans la
+  carte chargée). Au chargement, il n'est conservé que si `x` et `z` sont des
+  nombres finis. Enregistrer puis recharger conserve la position.
 - **Non enregistrés** : les identifiants internes de l'éditeur.
-- **Compatibilité** : les anciennes cartes, sans `cells` ou avec des coins de
-  grille, se chargent toujours.
+- **Compatibilité** : les anciennes cartes, sans `cells`, avec des coins de
+  grille ou sans `ballista`, se chargent toujours. Une carte sans `ballista`
+  rouverte puis réenregistrée sans déplacer la Baliste reste **sans** ce
+  champ.
 
 ## 14. Tester le scénario
 
 - **Ce que fait le test** : il lance une **vraie bataille** sur la carte en
   cours d'édition, avec les mêmes règles qu'en partie.
+- **Baliste** : une **vraie** Baliste est créée, comme en partie. C'est un
+  bâtiment de simulation avec ses PV (améliorations permanentes comprises),
+  sa collision (les unités ne la traversent pas) et sa destruction : HUD
+  `[Q] BALISTE — DÉTRUITE`, tir Q bloqué, collision libérée.
+  - **Position** : celle de la carte (`ballista`), sinon le repli historique.
+    Le modèle affiché, l'origine des tirs, le bâtiment et sa collision sont
+    tous exactement à cette position.
+  - Elle compte pour la survie du camp joueur : le test ne s'arrête pas à la
+    mort de la dernière unité alliée tant que la tour tient.
 - **Retour à l'éditeur** : automatique dès qu'un camp n'a plus de combattant,
-  ou avec **Échap**. Le brouillon est retrouvé intact.
+  ou avec **Échap**. Le brouillon est retrouvé intact, et la tour réapparaît
+  à sa position d'édition, même si elle a été détruite. Un deuxième test
+  repart avec une Baliste neuve.
 - **Ce que le test ne fait pas** :
   - il n'utilise ni l'or, ni l'armée, ni les bâtiments d'une run ;
   - il n'accorde aucune récompense de méta-progression ;
-  - il ne crée aucun bâtiment gameplay. La tour est placée à une position de
-    repli, voir **KI-07**.
+  - il ne crée **ni Mine ni Caserne**, voir **KI-07**.
 
-## 15. Bâtiments décoratifs et bâtiments gameplay
+## 15. Bâtiments décoratifs, bâtiments gameplay et Baliste
 
 - **Bâtiments du catalogue** (KayKit bleu, rouge, neutres) : ce sont de
   **simples obstacles**. Ils bloquent le passage et la ligne de tir, mais ne
   peuvent être ni ciblés, ni détruits, ni produire quoi que ce soit.
-- **Bâtiments gameplay** (Mine, Caserne, Baliste) : ils n'existent qu'en
-  partie, achetés ou posés par le joueur. On ne peut pas les placer depuis
+- **Mine et Caserne** (bâtiments gameplay) : elles n'existent qu'en partie,
+  achetées et posées par le joueur. On ne peut pas les placer depuis
   l'éditeur.
+
+**La Baliste**
+
+La tour de la Baliste est toujours présente dans l'éditeur, et sa position
+fait partie de la carte (`ballista`, §13).
+
+- **Position par défaut** : une carte sans `ballista` affiche la Baliste au
+  repli historique (coin +X +Z). Tant qu'elle n'a pas été déplacée, elle suit
+  ce coin si la taille du plateau change.
+- **Sélection** : clic gauche sur la tour (anneau autour d'elle).
+- **Déplacement** : Baliste sélectionnée, puis clic au sol. Le centre est
+  calé sur la même **grille de 3×3 cases** que le placement obligatoire de la
+  tour en partie. Le modèle suit immédiatement : la position enregistrée et
+  la tour affichée sont toujours au même endroit.
+- **Déplacement refusé** (rien ne change, la Baliste reste sélectionnée) si,
+  dans l'empreinte réelle de la tour (carré de 2,4 cases, la même collision
+  qu'en bataille) :
+  - une case manque : la tour sortirait du plateau ou recouvrirait un trou ;
+  - un obstacle bloquant chevauche l'empreinte (un simple contact de bord est
+    accepté) ;
+  - le centre d'une unité est dans l'empreinte.
+- **Aucune restriction de moitié** : la Baliste peut être posée des deux côtés
+  du plateau ; cette règle dépendra du futur chantier de zone constructible.
+- **Gardes** : une fois la Baliste en place, aucune unité ne peut être posée
+  ni déplacée dans son empreinte, et aucune case sous elle ne peut être
+  supprimée. Les décors en placement libre peuvent encore la chevaucher.
+- **Suppr et R** : sans effet sur elle.
+- **Annuler / rétablir** : chaque déplacement est annulable ; Ctrl+Z et
+  Ctrl+Y restaurent la position **et** le statut « position définie ». Une
+  carte ramenée au repli ne réécrit donc pas le champ.
+- **Position invalide dans un fichier** (modifié à la main, par exemple) :
+  elle est remplacée par la position valide la plus proche sur la grille,
+  avec un avertissement en console. La recherche est déterministe. Si aucune
+  position valide n'existe, la position est conservée et un avertissement est
+  affiché. Le repli d'une carte sans champ n'est jamais déplacé
+  automatiquement.
+- **Partie réelle** : sans effet. Une run garde son **placement obligatoire**
+  de la tour en début de partie, indépendant de cette position.
 
 ## 16. Cartes à trous
 
@@ -288,7 +353,7 @@ voir aussi `ARCHITECTURE.md`.
 - **En bataille** (y compris « Tester le scénario »), un trou bloque comme un
   obstacle.
 - **Dans l'éditeur**, une unité ne peut pas être posée ni déplacée hors d'une
-  case existante.
+  case existante, et la Baliste ne peut pas être déplacée au-dessus d'un trou.
 - Le placement du jeu réel ne tient pas compte des trous (**KI-02**). C'est
   sans effet aujourd'hui : le jeu réel n'utilise pas de carte issue de
   l'éditeur.
@@ -299,7 +364,7 @@ Détaillées dans `KNOWN_ISSUES.md` :
 
 - **KI-05** : l'annulation d'un déplacement peut réorienter un décor.
 - **KI-06** : R / « Tourner 90° » est hors historique et part de 0°.
-- **KI-07** : « Tester le scénario » ne crée pas de bâtiments gameplay.
+- **KI-07** : « Tester le scénario » ne crée ni Mine ni Caserne.
 - **KI-02** : le placement en jeu est insensible aux trous de cellules.
 
 Deux autres limitations ont été repérées et seront ajoutées à
@@ -315,12 +380,13 @@ Deux autres limitations ont été repérées et seront ajoutées à
 
 | Fichier | Rôle |
 |---|---|
-| `editor/editorState.ts` | État de l'éditeur et règles de validité (`canPlaceUnitAt`, `canAddCell`, `canRemoveCell`) |
+| `editor/editorState.ts` | État de l'éditeur et règles de validité (`canPlaceUnitAt`, `canAddCell`, `canRemoveCell`, `canPlaceBallistaAt`) ; position de la Baliste (`ballista`, `ballistaExplicit`, `moveBallista`) |
+| `config/mapDef.ts` | Format `MapDef` ; `resolveBallistaOrigin` (position de la Baliste ou repli), `snapBallistaOrigin` (grille de 3×3) |
 | `editor/editorScene.ts` | Meshes, fantômes, aperçus de cases, anneau de sélection et sa zone de saisie |
 | `editor/editorUI.ts` | Barre d'outils, catalogue (`ASSET_GROUPS`), panneau de propriétés, aide |
 | `editor/history.ts` | Pile de commandes annuler / rétablir |
 | `editor/mapSerializer.ts` | Export et import JSON |
-| `main.ts` | Orchestration et entrées : `enterEditor`, `handleEditorClick`, rotation (`tryStartRingRotate`, `rotateSelectedObstacleBy`), `TransformControls`, `testScenario` |
+| `main.ts` | Orchestration et entrées : `enterEditor`, `handleEditorClick`, `moveEditorBallista`, rotation (`tryStartRingRotate`, `rotateSelectedObstacleBy`), `TransformControls`, `testScenario`, `setupTestBattle` / `spawnBallistaBuilding` |
 
 Conventions actuelles :
 
@@ -345,9 +411,10 @@ Conventions actuelles :
 
 | Geste | Effet |
 |---|---|
-| Clic gauche sur un décor / une unité | Sélectionner |
+| Clic gauche sur un décor / une unité / la Baliste | Sélectionner |
 | Double-clic sur une unité | Sélectionner les unités du même type (20 max) |
 | Clic gauche sur une case (unité ou groupe sélectionné) | Déplacer |
+| Clic gauche au sol (Baliste sélectionnée) | Déplacer la Baliste (grille de 3×3) |
 | Clic gauche (outil de pose actif) | Poser l'objet ou l'unité |
 | Clic gauche (outil de case actif) | Ajouter ou supprimer une case |
 | Glisser une flèche du gizmo | Déplacer le décor |
@@ -363,8 +430,8 @@ Conventions actuelles :
 
 | Touche | Effet |
 |---|---|
-| R | +90° au décor sélectionné |
-| Suppr / Retour arrière | Supprimer la sélection |
+| R | +90° au décor sélectionné (sans effet sur la Baliste) |
+| Suppr / Retour arrière | Supprimer la sélection (sans effet sur la Baliste) |
 | Échap | Annuler l'outil actif, sinon désélectionner ; pendant un test, revenir à l'éditeur |
 | Ctrl+Z | Annuler |
 | Ctrl+Y / Ctrl+Maj+Z | Rétablir |
