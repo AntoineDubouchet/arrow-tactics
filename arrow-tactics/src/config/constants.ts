@@ -347,7 +347,7 @@ export const COLORS = {
    *  fonctionnent bien en additif malgre le meme type de sol). */
   healGold: 0xffcf6b,
   /** Surbrillance jaune du talent "Recyclage" (2026-08-14) — anneau distinct
-   *  de l'anneau de selection (COLORS.playerHead), affiche sous une unite
+   *  de l'anneau de selection (couleur du camp), affiche sous une unite
    *  eligible a la revente bonifiee (< 50% PV) pendant le placement. Jaune
    *  franc, jamais confondu avec les autres palettes du jeu (soin, glace,
    *  feu, equipe). */

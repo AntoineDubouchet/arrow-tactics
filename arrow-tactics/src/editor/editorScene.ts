@@ -48,10 +48,10 @@ export function buildUnitView(u: EditorUnit): THREE.Group {
 }
 
 /**
- * Anneau plat sous l'objet selectionne, meme technique que la surbrillance
- * de la phase de placement (main.ts, createSelectionRing) — dupliquee ici
- * plutot que partagee, pour ne pas faire dependre le module editeur de
- * main.ts (mauvais sens de dependance).
+ * Anneau plat dore sous le decor ou la Baliste selectionnes (et modele de
+ * l'anneau de cible d'ordre d'attaque en bataille). Les unites selectionnees
+ * ont leur propre anneau, a la couleur de leur camp
+ * (render/unitSelectionRing.ts).
  */
 export function createSelectionRing(radius: number): THREE.Mesh {
   const ring = new THREE.Mesh(

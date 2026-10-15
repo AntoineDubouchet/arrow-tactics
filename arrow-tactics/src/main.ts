@@ -62,6 +62,7 @@ import { EditorUI } from './editor/editorUI';
 import { downloadMapDef, exportMapDef, loadMapDefFromFile } from './editor/mapSerializer';
 import { buildBallistaTowerPlatform, playBallistaShot, tickBallista } from './render/ballista';
 import { BattleSelection, pickEntityAtScreen, selectableUnitsInScreenRect, type ScreenRect } from './render/battleSelection';
+import { attachUnitSelectionRing } from './render/unitSelectionRing';
 import { loadEnvironmentAssets, type EnvironmentAssets } from './render/assetLibrary';
 import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
@@ -176,16 +177,13 @@ const towerPlacementBanner = new TowerPlacementBanner();
 // fireBallistaFromKey) ; un seul HUD affiche son etat, sa recharge et la
 // selection.
 const ballistaIndicator = new BallistaIndicator();
-// Modeles d'anneaux, jamais ajoutes a la scene : BattleSelection les clone
-// (geometrie et materiau partages) pour chaque unite selectionnee.
-const battleSelectionMarker = createEditorSelectionRing(1);
-// Couleur du camp joueur plutot que l'or par defaut de l'anneau : l'or est deja
-// celui du reticule de visee de la Baliste, les deux se confondraient.
-(battleSelectionMarker.material as THREE.MeshBasicMaterial).color.set(COLORS.playerZone);
-// Anneau rouge sous la cible d'un ordre d'attaque d'une unite selectionnee.
+// Les unites selectionnees ont l'anneau commun (render/unitSelectionRing.ts).
+// Modele de l'anneau rouge sous la cible d'un ordre d'attaque d'une unite
+// selectionnee, jamais ajoute a la scene : BattleSelection le clone
+// (geometrie et materiau partages).
 const battleOrderTargetMarker = createEditorSelectionRing(1);
 (battleOrderTargetMarker.material as THREE.MeshBasicMaterial).color.set(COLORS.enemyZone);
-const battleSelection = new BattleSelection(battleSelectionMarker, battleOrderTargetMarker);
+const battleSelection = new BattleSelection(battleOrderTargetMarker);
 renderer.scene.add(battleSelection.group);
 const goldHud = new GoldHud();
 const telegraphView = new TelegraphView();
@@ -1259,8 +1257,9 @@ function createAimReticle(): THREE.Mesh {
   return ring;
 }
 
-/** Anneau plat aux couleurs du camp, pose sous l'unite selectionnee. */
-function createSelectionRing(): THREE.Mesh {
+/** Anneau plat de la cible de soin (voir healTargetRing). Distinct de
+ *  l'anneau de selection des unites (render/unitSelectionRing.ts). */
+function createHealTargetRing(): THREE.Mesh {
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.34, 0.44, 24),
     new THREE.MeshBasicMaterial({ color: COLORS.playerHead, transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
@@ -1282,12 +1281,10 @@ function isRecyclageEligible(slot: PlacementSlot): boolean {
 
 /** Anneau de PREVISUALISATION de la cible de soin (2026-08-11, demande
  *  d'Antoine : "le curseur n'est pas tres clair quant a l'unite soignee") —
- *  reutilise createSelectionRing telle quelle (meme rendu que la selection
- *  de placement), mais un objet INDEPENDANT ajoute une seule fois a la
- *  scene et simplement repositionne/masque a chaque survol, plutot qu'un
- *  enfant reconstruit avec le reste de playerPreview. Voir
- *  updateHealTargetPreview. */
-const healTargetRing = createSelectionRing();
+ *  un objet INDEPENDANT ajoute une seule fois a la scene et simplement
+ *  repositionne/masque a chaque survol, plutot qu'un enfant reconstruit avec
+ *  le reste de playerPreview. Voir updateHealTargetPreview. */
+const healTargetRing = createHealTargetRing();
 healTargetRing.visible = false;
 renderer.scene.add(healTargetRing);
 
@@ -1411,7 +1408,7 @@ function refreshPlayerPreview(): void {
     const mesh = buildUnit(slot.unitId, 'player');
     mesh.position.set(slot.x, 0, slot.z);
     mesh.userData['slotIndex'] = index;
-    if (isSelected(index)) mesh.add(createSelectionRing());
+    if (isSelected(index)) attachUnitSelectionRing(mesh, 'player', getUnit(slot.unitId).stats.radius);
     // Talent "Recyclage" : la surbrillance n'est PLUS un enfant statique du
     // mesh ici (voir recyclageAuraView, une aura de particules animee en
     // continu, synchronisee separement chaque frame dans la boucle de rendu
@@ -1829,13 +1826,13 @@ const editorMeshes = new Map<number, THREE.Group>();
 // chaque frame.
 const editorUnitMeshes = new Map<number, THREE.Group>();
 const editorUnitMeshTeams = new Map<number, Team>();
-/** Anneau de selection par unite du GROUPE selectionne (2026-08-11, voir
- *  EditorState.selectSameTypeUnits) — distinct de editorSelectionRing (un
- *  seul anneau partage pour une selection SIMPLE d'obstacle/unite) : un
- *  groupe a besoin d'un anneau par membre, ajoute comme enfant du mesh de
- *  cette unite (meme principe que refreshPlayerPreview en phase de
- *  placement) plutot qu'un objet unique repositionne. */
-const editorGroupRings = new Map<number, THREE.Mesh>();
+/** Anneau de selection de chaque unite selectionnee, seule ou en groupe
+ *  (voir EditorState.selectSameTypeUnits) : l'anneau commun aux unites
+ *  (render/unitSelectionRing.ts), a la couleur de son camp, ajoute comme
+ *  enfant du mesh de cette unite (meme principe que refreshPlayerPreview en
+ *  phase de placement). Distinct de editorSelectionRing, reserve aux decors
+ *  et a la Baliste. */
+const editorUnitRings = new Map<number, THREE.Mesh>();
 
 const editorObjectsGroup = new THREE.Group();
 const editorUnitsGroup = new THREE.Group();
@@ -2215,31 +2212,32 @@ function refreshEditorObjects(): void {
       editorUnitMeshes.set(u.id, mesh);
       editorUnitMeshTeams.set(u.id, u.team);
       editorUnitsGroup.add(mesh);
-      // L'ancien anneau de groupe (le cas echeant) etait un enfant du mesh
-      // qu'on vient de retirer — invalide l'entree pour que la synchro
-      // ci-dessous en recree un sur le NOUVEAU mesh dans cette meme passe.
-      editorGroupRings.delete(u.id);
+      // L'ancien anneau (le cas echeant) etait un enfant du mesh qu'on vient
+      // de retirer — invalide l'entree pour que la synchro ci-dessous en
+      // recree un, a la couleur du nouveau camp, sur le NOUVEAU mesh dans
+      // cette meme passe.
+      editorUnitRings.delete(u.id);
     }
     editorUnitMeshes.get(u.id)!.position.set(u.x, 0, u.z);
   }
 
-  // Anneaux de la selection de GROUPE (voir EditorState.selectSameTypeUnits)
-  // — un par unite membre, enfant de son mesh (meme principe que
-  // refreshPlayerPreview en phase de placement). Distinct de
-  // editorSelectionRing, qui gere les selections SIMPLES juste en dessous.
-  const groupIds = editorState.selection?.kind === 'unit-group' ? new Set(editorState.selection.ids) : new Set<number>();
-  for (const [id, ring] of editorGroupRings) {
-    if (groupIds.has(id)) continue;
+  // Anneaux des unites selectionnees, seules ou en groupe — un par unite,
+  // enfant de son mesh.
+  const selection = editorState.selection;
+  const selectedUnitIds = new Set<number>(
+    selection?.kind === 'unit' ? [selection.id] : selection?.kind === 'unit-group' ? selection.ids : [],
+  );
+  for (const [id, ring] of editorUnitRings) {
+    if (selectedUnitIds.has(id)) continue;
     ring.removeFromParent();
-    editorGroupRings.delete(id);
+    editorUnitRings.delete(id);
   }
-  for (const id of groupIds) {
-    if (editorGroupRings.has(id)) continue;
+  for (const id of selectedUnitIds) {
+    if (editorUnitRings.has(id)) continue;
     const unitMesh = editorUnitMeshes.get(id);
-    if (!unitMesh) continue;
-    const ring = createSelectionRing();
-    unitMesh.add(ring);
-    editorGroupRings.set(id, ring);
+    const unit = editorState.units.find((u) => u.id === id);
+    if (!unitMesh || !unit) continue;
+    editorUnitRings.set(id, attachUnitSelectionRing(unitMesh, unit.team, getUnit(unit.unitId).stats.radius));
   }
 
   // Baliste du brouillon : le modele (partage avec le jeu, voir
@@ -2249,15 +2247,13 @@ function refreshEditorObjects(): void {
   const selectedObstacle = editorState.selectedObstacle;
   const selectedUnit = editorState.selectedUnit;
   const ballistaSelected = editorState.selection?.kind === 'ballista';
-  editorSelectionRing.visible = selectedObstacle !== null || selectedUnit !== null || ballistaSelected;
+  editorSelectionRing.visible = selectedObstacle !== null || ballistaSelected;
   if (selectedObstacle) {
     const center = obstacleCenter(selectedObstacle);
     editorSelectionRing.position.set(center.x, 0.02, center.z);
     editorSelectionRing.scale.setScalar(Math.max(selectedObstacle.tilesX, selectedObstacle.tilesZ) * 0.7);
     editorUI.showObstacleProperties(selectedObstacle);
   } else if (selectedUnit) {
-    editorSelectionRing.position.set(selectedUnit.x, 0.02, selectedUnit.z);
-    editorSelectionRing.scale.setScalar(0.5);
     editorUI.showUnitProperties(selectedUnit);
   } else if (ballistaSelected) {
     // Meme convention d'echelle que les decors, sur l'empreinte reelle.
@@ -2311,7 +2307,7 @@ function exitEditor(): void {
   editorUnitsGroup.clear();
   editorUnitMeshes.clear();
   editorUnitMeshTeams.clear();
-  editorGroupRings.clear();
+  editorUnitRings.clear();
   editorBoardGroup.clear();
   editorBoardGroup.visible = false;
   clearEditorGhost();

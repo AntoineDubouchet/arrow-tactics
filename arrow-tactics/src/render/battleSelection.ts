@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Entity } from '../sim/entity';
 import { isCommandable } from '../sim/orders';
+import { createUnitSelectionRing, placeUnitSelectionRing } from './unitSelectionRing';
 
 /** Tolerance minimale du clic de selection, en pixels, quand l'unite parait
  *  tres petite a l'ecran (zoom arriere). */
@@ -8,7 +9,7 @@ const PICK_MIN_RADIUS_PX = 18;
 /** Facteur applique au rayon projete de l'unite : la silhouette deborde
  *  largement de son rayon de collision au sol. */
 const PICK_RADIUS_FACTOR = 1.8;
-/** Taille de l'anneau par rapport au rayon de l'unite. */
+/** Taille de l'anneau de cible par rapport au rayon de l'entite visee. */
 const MARKER_RADIUS_FACTOR = 1.4;
 
 type ScreenProjector = (x: number, z: number) => { x: number; y: number };
@@ -86,24 +87,22 @@ export function selectableUnitsInScreenRect(
  * jamais dans la simulation : elle ne retient que des ids d'entites et des
  * anneaux, sans rien ecrire dans le World.
  *
- * Anneaux : une reserve d'objets crees a la demande par `clone()` des
- * modeles fournis (geometrie et materiau partages, aucun materiau d'unite
- * modifie), jamais detruits, simplement masques quand ils ne servent plus.
+ * Anneaux : une reserve d'objets crees a la demande, jamais detruits,
+ * simplement masques quand ils ne servent plus. Sous chaque unite
+ * selectionnee, l'anneau commun aux unites (render/unitSelectionRing.ts, a
+ * la couleur de son camp) ; sous une cible d'ordre d'attaque, un clone du
+ * modele fourni (geometrie et materiau partages).
  */
 export class BattleSelection {
   /** A ajouter a la scene par l'appelant : contient tous les anneaux. */
   readonly group = new THREE.Group();
   private readonly selected = new Set<number>();
-  private readonly rings: THREE.Object3D[] = [];
+  private readonly rings: THREE.Mesh[] = [];
   private readonly targetRings: THREE.Object3D[] = [];
 
-  /** `ringTemplate` : anneau de rayon 1 pour chaque unite selectionnee.
-   *  `targetRingTemplate` : anneau du meme type, place sous la cible d'un
-   *  ordre d'attaque d'une unite selectionnee (une seule fois par cible). */
-  constructor(
-    private readonly ringTemplate: THREE.Object3D,
-    private readonly targetRingTemplate: THREE.Object3D,
-  ) {}
+  /** `targetRingTemplate` : anneau de rayon 1 place sous la cible d'un ordre
+   *  d'attaque d'une unite selectionnee (une seule fois par cible). */
+  constructor(private readonly targetRingTemplate: THREE.Object3D) {}
 
   /** Ids selectionnes, dans l'ordre d'ajout. */
   get ids(): number[] {
@@ -146,7 +145,8 @@ export class BattleSelection {
         this.selected.delete(id);
         continue;
       }
-      placeRing(this.ringAt(this.rings, this.ringTemplate, used++), entity, renderedPosition);
+      const pos = renderedPosition(entity.id) ?? { x: entity.x, z: entity.z };
+      placeUnitSelectionRing(this.selectionRingAt(used++), entity.team, pos.x, pos.z, entity.stats.radius);
       // Cible de l'ordre d'attaque en cours (lecture seule de l'etat de la
       // simulation) : visible tant que l'ordre existe, y compris pendant une
       // Provocation qui le suspend.
@@ -157,18 +157,29 @@ export class BattleSelection {
     let usedTargets = 0;
     for (const id of targetIds) {
       const target = lookup(id);
-      if (target && target.alive) placeRing(this.ringAt(this.targetRings, this.targetRingTemplate, usedTargets++), target, renderedPosition);
+      if (target && target.alive) placeRing(this.targetRingAt(usedTargets++), target, renderedPosition);
     }
     for (let i = usedTargets; i < this.targetRings.length; i++) this.targetRings[i]!.visible = false;
   }
 
-  private ringAt(pool: THREE.Object3D[], template: THREE.Object3D, index: number): THREE.Object3D {
-    while (pool.length <= index) {
-      const ring = template.clone();
+  private selectionRingAt(index: number): THREE.Mesh {
+    while (this.rings.length <= index) {
+      // Le camp n'est qu'une valeur initiale : placeUnitSelectionRing
+      // reassigne le materiau du camp de l'unite a chaque frame.
+      const ring = createUnitSelectionRing('player');
       this.group.add(ring);
-      pool.push(ring);
+      this.rings.push(ring);
     }
-    return pool[index]!;
+    return this.rings[index]!;
+  }
+
+  private targetRingAt(index: number): THREE.Object3D {
+    while (this.targetRings.length <= index) {
+      const ring = this.targetRingTemplate.clone();
+      this.group.add(ring);
+      this.targetRings.push(ring);
+    }
+    return this.targetRings[index]!;
   }
 
   private hideRings(): void {
