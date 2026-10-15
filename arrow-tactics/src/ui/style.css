@@ -105,13 +105,43 @@ img {
   backdrop-filter: blur(6px);
 }
 
+/* Outil developpeur repliable, en haut a droite (voir ui/debug.ts) : replie,
+   seulement "FPS n" ; deplie vers le bas au clic. Discret, jamais un bouton
+   de gameplay. */
 .debug-panel {
   top: 12px;
-  left: 12px;
+  right: 12px;
+  padding: 4px 8px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.debug-panel-toggle {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.debug-panel-body {
+  display: none;
+}
+
+.debug-panel--expanded {
+  padding: 6px 10px 8px;
+}
+
+.debug-panel--expanded .debug-panel-body {
   display: grid;
   grid-template-columns: auto auto;
   gap: 0 16px;
-  min-width: 150px;
+  min-width: 140px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--edge);
+  color: var(--ink);
 }
 
 .debug-panel .k {
@@ -762,6 +792,123 @@ img {
 
 .ballista-indicator--destroyed {
   opacity: 0.6;
+}
+
+/* Fiche de l'entite selectionnee (voir ui/entityInfoPanel.ts) : en haut a
+   gauche, en preparation comme en bataille (le debug est en haut a droite).
+   Meme famille visuelle que le HUD de la Baliste ; le liseré gauche prend la
+   couleur du camp. Sous .screen-overlay (boutique, pause), qui la recouvre. */
+.entity-info {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  width: 236px;
+  padding: 8px 10px 9px;
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--entity-team-color, var(--edge));
+  border-radius: 6px;
+  pointer-events: none;
+  user-select: none;
+  backdrop-filter: blur(6px);
+  z-index: 5;
+}
+
+.entity-info-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.entity-info-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.entity-info-team {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--entity-team-color, var(--ink-dim));
+}
+
+.entity-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.entity-info-label {
+  color: var(--ink-dim);
+}
+
+.entity-info-value {
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.entity-info-hp {
+  margin-bottom: 4px;
+}
+
+.entity-info-hp .health-bar-track {
+  margin-top: 2px;
+}
+
+.entity-info-hp .shield-bar {
+  margin-top: 1px;
+}
+
+.entity-info-composition {
+  margin-bottom: 4px;
+}
+
+.entity-info-section {
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid var(--edge);
+}
+
+.entity-info-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.entity-info-status {
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid var(--edge);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.entity-info-status--ready {
+  color: var(--accent-gold);
+}
+
+.entity-info-status--busy {
+  color: var(--ink);
+}
+
+.entity-info-status--muted {
+  font-weight: 600;
+  color: var(--ink-dim);
+}
+
+.entity-info-status--danger {
+  color: #e07a5f;
 }
 
 .wave-indicator {

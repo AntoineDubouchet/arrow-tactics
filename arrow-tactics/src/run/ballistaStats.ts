@@ -76,3 +76,28 @@ export function effectivePlayerArrowDamage(progress: MetaProgress): number {
 export function playerArrowBoltsPerVolley(progress: MetaProgress): number {
   return isTalentUnlocked(progress, 'mitraillette') ? MACHINE_GUN_BOLTS_PER_VOLLEY : 1;
 }
+
+/** Etat de tir de la Baliste pendant la bataille, calcule par main.ts
+ *  (currentBallistaStatus) et lu par le HUD de la Baliste et la fiche
+ *  d'entite. `reloading` : temps de recharge restant et duree totale de la
+ *  recharge en cours (secondes de simulation), pour le texte et la barre.
+ *  `inFlight` : recharge terminee mais volee precedente encore en vol, ce qui
+ *  bloque aussi le tir (voir sim/playerArrow.ts). */
+export type BallistaStatus =
+  | { kind: 'ready' }
+  | { kind: 'reloading'; cooldownSeconds: number; totalSeconds: number }
+  | { kind: 'inFlight' }
+  | { kind: 'destroyed' };
+
+/** Libelles des etats sans duree, partages par le HUD et la fiche. */
+export const BALLISTA_STATUS_LABELS: Record<Exclude<BallistaStatus['kind'], 'reloading'>, string> = {
+  ready: 'PRÊTE',
+  inFlight: 'EN VOL',
+  destroyed: 'DÉTRUITE',
+};
+
+/** Recharge restante affichee : arrondie au dixieme superieur, jamais
+ *  "0.0 s" tant que la recharge n'est pas terminee. */
+export function formatBallistaCooldownSeconds(cooldownSeconds: number): string {
+  return `${Math.max(0.1, Math.ceil(cooldownSeconds * 10) / 10).toFixed(1)} s`;
+}

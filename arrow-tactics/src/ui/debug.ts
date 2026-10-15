@@ -10,7 +10,13 @@ import type { World } from '../sim/world';
  */
 export class DebugPanel {
   private readonly el: HTMLElement;
+  private readonly toggle: HTMLElement;
+  private readonly body: HTMLElement;
   private accum = 0;
+  /** Replie par defaut : seul "FPS n" reste visible, en haut a droite. Un
+   *  clic deplie le detail vers le bas, un autre le replie. */
+  private expanded = false;
+  private lastRows: [string, string][] = [];
 
   constructor(
     private readonly loop: Loop,
@@ -19,7 +25,17 @@ export class DebugPanel {
   ) {
     this.el = document.createElement('div');
     this.el.className = 'debug-panel';
+    this.toggle = document.createElement('div');
+    this.toggle.className = 'debug-panel-toggle';
+    this.body = document.createElement('div');
+    this.body.className = 'debug-panel-body';
+    this.el.append(this.toggle, this.body);
+    this.el.addEventListener('click', () => {
+      this.expanded = !this.expanded;
+      this.render();
+    });
     document.body.appendChild(this.el);
+    this.render();
 
     // Reduit au strict minimum (demande d'Antoine, 2026-08-10) : la liste
     // complete des raccourcis camera/simulation encombrait l'ecran pour un
@@ -51,8 +67,18 @@ export class DebugPanel {
       ['zoom', this.renderer.viewHeight.toFixed(0)],
     ];
 
-    this.el.innerHTML = rows
-      .map(([k, v]) => `<span class="k">${k}</span><span class="v">${v}</span>`)
-      .join('');
+    this.lastRows = rows;
+    this.render();
+  }
+
+  /** Les valeurs sont toujours calculees (update) ; le detail n'est ecrit
+   *  dans le DOM que deplie. */
+  private render(): void {
+    const fps = this.lastRows[0]?.[1] ?? '–';
+    this.toggle.textContent = `FPS ${fps} ${this.expanded ? '▴' : '▾'}`;
+    this.el.classList.toggle('debug-panel--expanded', this.expanded);
+    this.body.innerHTML = this.expanded
+      ? this.lastRows.map(([k, v]) => `<span class="k">${k}</span><span class="v">${v}</span>`).join('')
+      : '';
   }
 }

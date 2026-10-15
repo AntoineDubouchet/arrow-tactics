@@ -1,21 +1,7 @@
 import { clamp } from '../core/math';
+import { BALLISTA_STATUS_LABELS, formatBallistaCooldownSeconds, type BallistaStatus } from '../run/ballistaStats';
 
-/** Etat de la Baliste affiche pendant la bataille. `reloading` : temps de
- *  recharge restant et duree totale de la recharge en cours (secondes de
- *  simulation), pour le texte et la barre. `inFlight` : recharge terminee
- *  mais volee precedente encore en vol, ce qui bloque aussi le tir (voir
- *  sim/playerArrow.ts). */
-export type BallistaStatus =
-  | { kind: 'ready' }
-  | { kind: 'reloading'; cooldownSeconds: number; totalSeconds: number }
-  | { kind: 'inFlight' }
-  | { kind: 'destroyed' };
-
-const STATE_LABELS: Record<Exclude<BallistaStatus['kind'], 'reloading'>, string> = {
-  ready: 'PRÊTE',
-  inFlight: 'EN VOL',
-  destroyed: 'DÉTRUITE',
-};
+export type { BallistaStatus };
 
 /**
  * HUD unique de la Baliste pendant la bataille (tir sur Q), en bas au
@@ -70,8 +56,8 @@ export class BallistaIndicator {
 
     const state =
       status.kind === 'reloading'
-        ? `${Math.max(0.1, Math.ceil(status.cooldownSeconds * 10) / 10).toFixed(1)} s`
-        : STATE_LABELS[status.kind];
+        ? formatBallistaCooldownSeconds(status.cooldownSeconds)
+        : BALLISTA_STATUS_LABELS[status.kind];
     if (state !== this.shownState) {
       this.shownState = state;
       this.state.textContent = state;
