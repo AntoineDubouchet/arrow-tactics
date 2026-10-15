@@ -60,6 +60,13 @@ export interface ScreenRect {
   bottom: number;
 }
 
+/** Point ecran dans le rectangle (bords inclus). Test commun des
+ *  rectangles de selection et des double-clics "unites visibles" (le
+ *  rectangle du canvas) en bataille, en preparation et dans l'editeur. */
+export function isInScreenRect(p: { x: number; y: number }, rect: ScreenRect): boolean {
+  return p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom;
+}
+
 /**
  * Unites selectionnables (unites vivantes du joueur, jamais un ennemi ni un
  * batiment) dont la position RENDUE, projetee a l'ecran, tombe dans `rect`.
@@ -76,8 +83,7 @@ export function selectableUnitsInScreenRect(
   for (const e of entities) {
     if (!isCommandable(e)) continue;
     const pos = renderedPosition(e.id) ?? { x: e.x, z: e.z };
-    const p = project(pos.x, pos.z);
-    if (p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom) inside.push(e);
+    if (isInScreenRect(project(pos.x, pos.z), rect)) inside.push(e);
   }
   return inside;
 }

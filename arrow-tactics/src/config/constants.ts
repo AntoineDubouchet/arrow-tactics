@@ -16,10 +16,6 @@ export const BOARD_W = 18;
 export const BOARD_H = 26;
 /** Nombre de rangees de placement de chaque cote. */
 export const PLACEMENT_ROWS = 7;
-/** Double-clic sur une unite en placement (2026-08-10, demande d'Antoine) :
- *  selectionne toutes les unites du MEME TYPE, plafonne aux N plus proches du
- *  clic (voir main.ts, listener 'dblclick'). */
-export const DOUBLE_CLICK_SAME_TYPE_MAX = 20;
 /** Rayon (en cases) de repli quand un clic/glisser de deplacement en
  *  placement tombe sur une case invalide (2026-08-10, bug remonte par
  *  Antoine : la camera inclinee fait parfois tomber le rayon sur la case

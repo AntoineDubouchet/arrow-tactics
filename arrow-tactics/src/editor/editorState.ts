@@ -56,10 +56,11 @@ export interface EditorUnit {
   z: number;
 }
 
-/** `unit-group` (2026-08-11, demande d'Antoine : "double clic = selectionner
- *  tout le meme type" dans l'editeur, meme geste que la phase de placement
- *  du vrai jeu) — `ids[0]` sert toujours d'ANCRE pour un deplacement de
- *  groupe (voir moveSelectedGroup), jamais juste un ensemble non ordonne. */
+/** Une selection d'UNITES est un ensemble ordonne d'unites, toujours
+ *  normalise par selectUnits : une seule unite = `unit`, deux ou plus =
+ *  `unit-group` (jamais un groupe a un membre). `ids[0]` sert d'ANCRE pour
+ *  un deplacement de groupe (voir moveSelectedGroup). Decors et Baliste
+ *  restent des selections a part, jamais melangees a des unites. */
 export type EditorSelection =
   | { kind: 'obstacle'; id: number }
   | { kind: 'unit'; id: number }
@@ -330,8 +331,8 @@ export class EditorState {
     return this.units.find((u) => u.id === sel.id) ?? null;
   }
 
-  /** Unites de la selection de groupe courante (voir selectSameTypeUnits),
-   *  ou null si la selection n'est pas un groupe. */
+  /** Unites de la selection de groupe courante, ou null si la selection
+   *  n'est pas un groupe. */
   get selectedUnitGroup(): EditorUnit[] | null {
     if (this.selection?.kind !== 'unit-group') return null;
     const ids = new Set(this.selection.ids);
@@ -342,27 +343,32 @@ export class EditorState {
     this.selection = selection;
   }
 
-  /** Selectionne toutes les unites du MEME TYPE que `anchorId`, plafonnees
-   *  aux `max` plus proches de son point de reference (pas juste les
-   *  premieres trouvees dans le tableau) — meme convention que la phase de
-   *  placement du jeu reel (voir main.ts, selectSameTypeGroup). Une seule
-   *  unite de ce type retombe sur une selection SIMPLE, pas un groupe a un
-   *  seul membre. */
-  selectSameTypeUnits(anchorId: number, max: number): void {
-    const anchor = this.units.find((u) => u.id === anchorId);
-    if (!anchor) return;
+  /** Ids des unites selectionnees, dans l'ordre de selection ; vide si la
+   *  selection n'est pas une selection d'unites. */
+  get selectedUnitIds(): number[] {
+    const sel = this.selection;
+    if (sel?.kind === 'unit') return [sel.id];
+    if (sel?.kind === 'unit-group') return [...sel.ids];
+    return [];
+  }
 
-    const sameType = this.units
-      .filter((u) => u.unitId === anchor.unitId)
-      .sort((a, b) => {
-        const da = (a.x - anchor.x) ** 2 + (a.z - anchor.z) ** 2;
-        const db = (b.x - anchor.x) ** 2 + (b.z - anchor.z) ** 2;
-        return da - db;
-      })
-      .slice(0, max)
-      .map((u) => u.id);
+  /** Remplace la selection par ces unites (ids inconnus ignores, doublons
+   *  retires, ordre conserve) : aucune -> rien, une -> `unit`, plusieurs ->
+   *  `unit-group`. Remplace aussi une selection de decor ou de Baliste. */
+  selectUnits(ids: Iterable<number>): void {
+    const existing = new Set(this.units.map((u) => u.id));
+    const unique = [...new Set(ids)].filter((id) => existing.has(id));
+    if (unique.length === 0) this.selection = null;
+    else if (unique.length === 1) this.selection = { kind: 'unit', id: unique[0]! };
+    else this.selection = { kind: 'unit-group', ids: unique };
+  }
 
-    this.selection = sameType.length <= 1 ? { kind: 'unit', id: anchorId } : { kind: 'unit-group', ids: sameType };
+  /** Ajoute l'unite a la selection d'unites si elle n'y est pas, l'en retire
+   *  sinon. Depuis une selection de decor ou de Baliste, demarre une
+   *  nouvelle selection d'unites. */
+  toggleUnitSelection(id: number): void {
+    const ids = this.selectedUnitIds;
+    this.selectUnits(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
   }
 
   setTool(tool: EditorTool): void {

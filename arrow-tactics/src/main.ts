@@ -9,7 +9,6 @@ import {
   BLIZZARD_TICK_INTERVAL,
   CAMERA,
   COLORS,
-  DOUBLE_CLICK_SAME_TYPE_MAX,
   HEAL_TARGET_RADIUS,
   HP_PER_PIP,
   isCollidableObstacle,
@@ -61,7 +60,7 @@ import {
 import { EditorUI } from './editor/editorUI';
 import { downloadMapDef, exportMapDef, loadMapDefFromFile } from './editor/mapSerializer';
 import { buildBallistaTowerPlatform, playBallistaShot, tickBallista } from './render/ballista';
-import { BattleSelection, pickEntityAtScreen, selectableUnitsInScreenRect, type ScreenRect } from './render/battleSelection';
+import { BattleSelection, isInScreenRect, pickEntityAtScreen, selectableUnitsInScreenRect, type ScreenRect } from './render/battleSelection';
 import { attachUnitSelectionRing } from './render/unitSelectionRing';
 import { loadEnvironmentAssets, type EnvironmentAssets } from './render/assetLibrary';
 import { createBoard, createZonesGroup, type Board } from './render/board';
@@ -1154,6 +1153,9 @@ interface UnitDragState {
   startClientX: number;
   startClientY: number;
   dragging: boolean;
+  /** Maj enfoncee a l'appui : un clic sans glisser ajoute ou retire l'unite
+   *  de la selection (toggleSlotSelection) au lieu de la selection simple. */
+  shift: boolean;
 }
 let unitDrag: UnitDragState | null = null;
 const UNIT_DRAG_THRESHOLD_PX = 6;
@@ -1169,7 +1171,7 @@ const DOUBLE_CLICK_WINDOW_MS = 400;
 
 /** Meme detection manuelle, pour l'editeur de maps (2026-08-11, demande
  *  d'Antoine : "double clic pour selectionner une unite" — comprendre
- *  "toutes celles du meme type", voir EditorState.selectSameTypeUnits).
+ *  "toutes celles du meme type", voir selectVisibleSameTypeEditorUnits).
  *  Etat separe de lastUnitClickSlot/lastUnitClickTime : placement et
  *  editeur ne sont jamais actifs en meme temps, mais partagent le meme id
  *  d'objet (nextId commun, voir EditorState) — reutiliser le meme etat
@@ -1177,27 +1179,21 @@ const DOUBLE_CLICK_WINDOW_MS = 400;
 let lastEditorUnitClickId: number | null = null;
 let lastEditorUnitClickTime = 0;
 
-/** Selectionne TOUTES les unites du MEME TYPE que `hoveredSlot` presentes
- *  dans la phase de placement — devient une selection de groupe normale,
- *  sauf s'il n'y a qu'UNE seule unite de ce type (simple selection dans ce
- *  cas, meme convention que selectUnitsInRect avec un seul resultat).
- *  **Plus de plafond** (2026-08-14, demande explicite d'Antoine, point 18 :
- *  "je préfère désormais une vraie sélection cohérente de toutes les unités
- *  du même type... sauf problème réel de performance") — l'ancien plafond
- *  DOUBLE_CLICK_SAME_TYPE_MAX n'avait aucune justification technique reelle
- *  ici : ce n'est qu'un index/quelques anneaux de selection HTML, sans
- *  rapport avec les couts O(n²) de la simulation (separation/ciblage, voir
- *  CLAUDE.md) qui ne tournent que PENDANT la bataille, jamais pendant le
- *  placement. Toujours utilise par l'editeur de maps (EditorState.
- *  selectSameTypeUnits), contexte distinct non concerne par cette demande —
- *  laisse intact. Trie par distance au point de reference par pure
- *  coherence visuelle (le groupe le plus proche d'abord), sans consequence
- *  fonctionnelle puisque tous les elements sont desormais retenus. */
+/** Double-clic : selectionne toutes les unites du MEME TYPE que
+ *  `hoveredSlot` VISIBLES a l'ecran (projetees dans le canvas), comme en
+ *  bataille et dans l'editeur — jamais celles hors champ. Sans plafond.
+ *  Devient une selection de groupe normale, sauf s'il n'y a qu'UNE seule
+ *  unite de ce type (simple selection dans ce cas, meme convention que
+ *  selectUnitsInRect avec un seul resultat). Trie par distance au point de
+ *  reference par pure coherence visuelle (le groupe le plus proche
+ *  d'abord). */
 function selectSameTypeGroup(hoveredSlot: number): void {
   const origin = placementSlots[hoveredSlot]!;
+  const viewport = canvas.getBoundingClientRect();
   const sameType = placementSlots
     .map((slot, i) => ({ i, slot }))
     .filter(({ slot }) => slot.unitId === origin.unitId && slot.x !== null && slot.z !== null)
+    .filter(({ slot }) => isInScreenRect(worldToScreen(slot.x!, slot.z!), viewport))
     .sort((a, b) => {
       const da = (a.slot.x! - origin.x!) ** 2 + (a.slot.z! - origin.z!) ** 2;
       const db = (b.slot.x! - origin.x!) ** 2 + (b.slot.z! - origin.z!) ** 2;
@@ -1224,6 +1220,9 @@ interface GroundDragState {
   startClientX: number;
   startClientY: number;
   dragging: boolean;
+  /** Maj enfoncee a l'appui : un clic sans glisser ne fait rien (ni
+   *  deplacement ni deselection), comme Maj + clic dans le vide en bataille. */
+  shift: boolean;
 }
 let groundDrag: GroundDragState | null = null;
 
@@ -1458,6 +1457,13 @@ function findSlotIndex(object: THREE.Object3D | null): number | null {
  *  desselectionne (toggle, comportement d'origine preserve). */
 function selectSlot(index: number): void {
   setSelection(selectedIndices.length === 1 && selectedIndices[0] === index ? [] : [index]);
+  refreshPlayerPreview();
+}
+
+/** Maj + clic sur une unite : l'ajoute a la selection si elle n'y est pas,
+ *  l'en retire sinon (meme geste qu'en bataille et dans l'editeur). */
+function toggleSlotSelection(index: number): void {
+  setSelection(isSelected(index) ? selectedIndices.filter((i) => i !== index) : [...selectedIndices, index]);
   refreshPlayerPreview();
 }
 
@@ -1827,7 +1833,7 @@ const editorMeshes = new Map<number, THREE.Group>();
 const editorUnitMeshes = new Map<number, THREE.Group>();
 const editorUnitMeshTeams = new Map<number, Team>();
 /** Anneau de selection de chaque unite selectionnee, seule ou en groupe
- *  (voir EditorState.selectSameTypeUnits) : l'anneau commun aux unites
+ *  (voir EditorState.selectUnits) : l'anneau commun aux unites
  *  (render/unitSelectionRing.ts), a la couleur de son camp, ajoute comme
  *  enfant du mesh de cette unite (meme principe que refreshPlayerPreview en
  *  phase de placement). Distinct de editorSelectionRing, reserve aux decors
@@ -2596,31 +2602,125 @@ function handleEditorClick(event: MouseEvent): void {
     editorState.select({ kind: 'ballista' });
   } else if (clickedObstacleId !== null) {
     editorState.select({ kind: 'obstacle', id: clickedObstacleId });
-  } else if (clickedUnitId !== null) {
-    // Double-clic MANUEL (2026-08-11, meme technique que la phase de
-    // placement, voir lastUnitClickSlot plus haut) : deux clics sur la MEME
-    // unite en moins de DOUBLE_CLICK_WINDOW_MS selectionnent toutes les
-    // unites du meme type au lieu de cette seule unite.
-    const now = performance.now();
-    if (clickedUnitId === lastEditorUnitClickId && now - lastEditorUnitClickTime < DOUBLE_CLICK_WINDOW_MS) {
-      lastEditorUnitClickId = null;
-      editorState.selectSameTypeUnits(clickedUnitId, DOUBLE_CLICK_SAME_TYPE_MAX);
-    } else {
-      lastEditorUnitClickId = clickedUnitId;
-      lastEditorUnitClickTime = now;
-      editorState.select({ kind: 'unit', id: clickedUnitId });
-    }
-  } else if (editorState.selectedUnit) {
-    editorState.moveSelectedUnit(snapToTileCenter(groundHit.x), snapToTileCenter(groundHit.z));
-  } else if (editorState.selection?.kind === 'unit-group') {
-    editorState.moveSelectedGroup(snapToTileCenter(groundHit.x), snapToTileCenter(groundHit.z));
-  } else if (editorState.selection?.kind === 'ballista') {
-    moveEditorBallista(groundHit.x, groundHit.z);
   } else {
-    editorState.select(null);
+    // Unite ou sol : resolu au relachement, clic simple ou rectangle de
+    // selection selon le deplacement (voir resolveEditorPointerClick).
+    editorPointer = {
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      dragging: false,
+      shift: event.shiftKey,
+      unitId: clickedUnitId,
+      groundX: groundHit.x,
+      groundZ: groundHit.z,
+    };
+    return;
   }
   refreshEditorObjects();
 }
+
+/** Appui gauche de l'outil selection sur une unite ou sur le sol de
+ *  l'editeur, en attente de son relachement : sous UNIT_DRAG_THRESHOLD_PX
+ *  c'est un clic (resolveEditorPointerClick), au-dela un rectangle de
+ *  selection d'unites (meme SelectionBox qu'en bataille et en preparation),
+ *  jamais les deux. Decors et Baliste restent selectionnes des l'appui. */
+interface EditorPointerState {
+  startClientX: number;
+  startClientY: number;
+  dragging: boolean;
+  shift: boolean;
+  /** Unite sous le curseur a l'appui, null pour le sol. */
+  unitId: number | null;
+  /** Point du sol vise a l'appui : destination d'un deplacement au clic. */
+  groundX: number;
+  groundZ: number;
+}
+let editorPointer: EditorPointerState | null = null;
+
+function cancelEditorPointer(): void {
+  if (editorPointer?.dragging) selectionBox.hide();
+  editorPointer = null;
+}
+
+/** Clic (sans glisser) de l'outil selection de l'editeur. Sur une unite :
+ *  sans Maj elle devient l'unique selection, un double-clic selectionne les
+ *  unites visibles du meme type et du meme camp, Maj l'ajoute ou la retire.
+ *  Sur le sol : Maj ne fait rien ; sans Maj, comportement inchange (la
+ *  selection d'unites ou la Baliste s'y deplace, sinon deselection). */
+function resolveEditorPointerClick(pointer: EditorPointerState): void {
+  if (!editorState) return;
+  if (pointer.unitId !== null) {
+    if (pointer.shift) {
+      editorState.toggleUnitSelection(pointer.unitId);
+      lastEditorUnitClickId = null;
+      return;
+    }
+    const now = performance.now();
+    if (pointer.unitId === lastEditorUnitClickId && now - lastEditorUnitClickTime < DOUBLE_CLICK_WINDOW_MS) {
+      lastEditorUnitClickId = null;
+      selectVisibleSameTypeEditorUnits(pointer.unitId);
+    } else {
+      lastEditorUnitClickId = pointer.unitId;
+      lastEditorUnitClickTime = now;
+      editorState.selectUnits([pointer.unitId]);
+    }
+    return;
+  }
+
+  if (pointer.shift) return;
+  if (editorState.selectedUnit) {
+    editorState.moveSelectedUnit(snapToTileCenter(pointer.groundX), snapToTileCenter(pointer.groundZ));
+  } else if (editorState.selection?.kind === 'unit-group') {
+    editorState.moveSelectedGroup(snapToTileCenter(pointer.groundX), snapToTileCenter(pointer.groundZ));
+  } else if (editorState.selection?.kind === 'ballista') {
+    moveEditorBallista(pointer.groundX, pointer.groundZ);
+  } else {
+    editorState.select(null);
+  }
+}
+
+/** Double-clic sur une unite de l'editeur : toutes les unites du meme type
+ *  ET du meme camp visibles a l'ecran (projetees dans le canvas), comme en
+ *  bataille et en preparation. */
+function selectVisibleSameTypeEditorUnits(anchorId: number): void {
+  if (!editorState) return;
+  const anchor = editorState.units.find((u) => u.id === anchorId);
+  if (!anchor) return;
+  const viewport = canvas.getBoundingClientRect();
+  const visible = editorState.units.filter(
+    (u) => u.unitId === anchor.unitId && u.team === anchor.team && isInScreenRect(worldToScreen(u.x, u.z), viewport),
+  );
+  editorState.selectUnits([anchorId, ...visible.map((u) => u.id)]);
+}
+
+/** Rectangle de selection relache dans l'editeur : remplace la selection
+ *  par les unites (des deux camps) encadrees a l'ecran ; jamais un decor ni
+ *  la Baliste. */
+function selectEditorUnitsInRect(rect: ScreenRect): void {
+  if (!editorState) return;
+  editorState.selectUnits(editorState.units.filter((u) => isInScreenRect(worldToScreen(u.x, u.z), rect)).map((u) => u.id));
+}
+
+window.addEventListener('mousemove', (event) => {
+  if (!editorPointer) return;
+  if (!editorPointer.dragging) {
+    const moved = Math.hypot(event.clientX - editorPointer.startClientX, event.clientY - editorPointer.startClientY);
+    if (moved < UNIT_DRAG_THRESHOLD_PX) return;
+    editorPointer.dragging = true;
+    selectionBox.show();
+  }
+  selectionBox.update(editorPointer.startClientX, editorPointer.startClientY, event.clientX, event.clientY);
+});
+
+window.addEventListener('mouseup', (event) => {
+  if (event.button !== 0 || !editorPointer) return;
+  const pointer = editorPointer;
+  cancelEditorPointer();
+  if (!inEditorMode || !editorState) return;
+  if (pointer.dragging) selectEditorUnitsInRect(selectionBox.toRect(pointer.startClientX, pointer.startClientY, event.clientX, event.clientY));
+  else resolveEditorPointerClick(pointer);
+  refreshEditorObjects();
+});
 
 /** Baliste selectionnee + clic au sol : deplacement cale sur sa grille 3×3
  *  s'il est valide (voir EditorState.moveBallista, canPlaceBallistaAt) ;
@@ -3884,8 +3984,7 @@ function selectUnitsInRect(rect: { left: number; top: number; right: number; bot
   const indices: number[] = [];
   placementSlots.forEach((slot, i) => {
     if (slot.x === null || slot.z === null) return;
-    const p = worldToScreen(slot.x, slot.z);
-    if (p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom) indices.push(i);
+    if (isInScreenRect(worldToScreen(slot.x, slot.z), rect)) indices.push(i);
   });
 
   setSelection(indices);
@@ -5249,6 +5348,7 @@ function cancelLeftPointerGestures(): void {
     groundDrag = null;
   }
   cancelCommandDrag();
+  cancelEditorPointer();
   if (unitDrag) {
     sellZone.hideGhost();
     placementHighlight.hide();
@@ -5385,14 +5485,19 @@ canvas.addEventListener('mousedown', (event) => {
     // mousedown court-circuite l'armement du glisser (pas de unitDrag pose),
     // donc le mouseup qui suit ne fait rien et n'annule plus la selection de
     // groupe qu'on vient de poser.
+    // Maj + clic : ajout/retrait, jamais un double-clic (meme regle qu'en
+    // bataille).
     const now = performance.now();
-    if (hoveredSlot === lastUnitClickSlot && now - lastUnitClickTime < DOUBLE_CLICK_WINDOW_MS) {
+    if (event.shiftKey) {
+      lastUnitClickSlot = null;
+    } else if (hoveredSlot === lastUnitClickSlot && now - lastUnitClickTime < DOUBLE_CLICK_WINDOW_MS) {
       lastUnitClickSlot = null;
       selectSameTypeGroup(hoveredSlot);
       return;
+    } else {
+      lastUnitClickSlot = hoveredSlot;
+      lastUnitClickTime = now;
     }
-    lastUnitClickSlot = hoveredSlot;
-    lastUnitClickTime = now;
 
     // Ne selectionne pas tout de suite : un glisser (voir le mousemove plus
     // bas) doit pouvoir prendre le dessus pour vendre l'unite ou la deplacer.
@@ -5402,7 +5507,7 @@ canvas.addEventListener('mousedown', (event) => {
     // vendra tout le groupe (voir groupIndices, points 24-27/33-34 de la
     // demande) plutot que ce seul slot.
     const groupIndices = selectedIndices.length > 1 && selectedIndices.includes(hoveredSlot) ? selectedIndices : null;
-    unitDrag = { slotIndex: hoveredSlot, groupIndices, startClientX: event.clientX, startClientY: event.clientY, dragging: false };
+    unitDrag = { slotIndex: hoveredSlot, groupIndices, startClientX: event.clientX, startClientY: event.clientY, dragging: false, shift: event.shiftKey };
     return;
   }
 
@@ -5410,7 +5515,7 @@ canvas.addEventListener('mousedown', (event) => {
   // rectangle de selection multiple (voir GroundDragState) — un simple clic
   // (sans glisser) reste resolu comme avant (handleEmptyTileClick) au
   // relachement.
-  groundDrag = { startClientX: event.clientX, startClientY: event.clientY, dragging: false };
+  groundDrag = { startClientX: event.clientX, startClientY: event.clientY, dragging: false, shift: event.shiftKey };
 });
 
 canvas.addEventListener('mousedown', (event) => {
@@ -5440,6 +5545,7 @@ window.addEventListener('blur', () => {
   cameraDrag = null;
   towerPlacementClickPending = false;
   cancelCommandDrag();
+  cancelEditorPointer();
   buildingClickCandidate = null;
   if (buildingPlacementMode) cancelBuildingPlacement();
 });
@@ -5473,8 +5579,10 @@ window.addEventListener('mouseup', (event) => {
 
   if (!drag.dragging) {
     // Pas assez bouge pour compter comme un glisser : clic simple, selection
-    // normale (meme comportement qu'avant l'ajout du glisser-vendre).
-    selectSlot(drag.slotIndex);
+    // normale (meme comportement qu'avant l'ajout du glisser-vendre), ou
+    // ajout/retrait avec Maj.
+    if (drag.shift) toggleSlotSelection(drag.slotIndex);
+    else selectSlot(drag.slotIndex);
     return;
   }
 
@@ -5534,8 +5642,8 @@ window.addEventListener('mouseup', (event) => {
   if (!drag.dragging) {
     // Pas assez bouge pour compter comme un rectangle de selection : clic
     // simple, comportement inchange (deplacement de l'unite/du groupe en
-    // main, voir handleEmptyTileClick).
-    handleEmptyTileClick(event);
+    // main, voir handleEmptyTileClick). Maj + clic dans le vide : rien.
+    if (!drag.shift) handleEmptyTileClick(event);
     return;
   }
 
