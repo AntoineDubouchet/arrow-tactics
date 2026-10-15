@@ -42,6 +42,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-20 | Validation partielle des positions dans l'éditeur | Dette |
 | KI-21 | Justificatifs de provenance et de droits des assets non archivés | Dette |
 | KI-22 | Assets suivis directement par Git, sans Git LFS | Dette |
+| KI-23 | Raycast sur un modèle animé avant son premier rendu | Dette |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-14, KI-17 et KI-18).
@@ -215,27 +216,22 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 
 ### KI-20 — Validation partielle des positions dans l'éditeur
 
-- **Statut** : Dette. Le premier point est confirmé par lecture du code.
-- **Point 1 — emprises de plusieurs cases réduites à leur case centrale** :
+- **Statut** : Dette. Confirmé par lecture du code.
+- **Emprises de plusieurs cases réduites à leur case centrale** :
   - `canRemoveCell` et `canPlaceUnitAt` (`editor/editorState.ts`) comparent
     uniquement la case qui contient le **centre** d'un obstacle bloquant
     (`floor(obstacleCenter(o))`) à la case testée ;
   - conséquence : on peut retirer une case de terrain sous le bord d'un
-    rocher ou d'un bâtiment de plusieurs cases, ou y poser une unité.
-- **Point 2 — déplacer une unité est moins strict que la poser** :
-  - `canPlaceUnitAt` refuse une case occupée par un obstacle bloquant ou par
-    une autre unité ;
-  - `moveSelectedUnit` et `moveSelectedGroup` vérifient seulement que la case
-    de terrain existe ;
-  - un commentaire du code présente cette absence de contrôle d'occupation
-    comme un choix historique de l'éditeur (laisser l'utilisateur ajuster à la
-    main). C'est donc une **asymétrie**, pas un bug de gameplay établi.
-- **Impact actuel** : une carte peut contenir des unités superposées ou posées
-  sur un obstacle, sans avertissement.
-- **Vérification** : poser une unité, la déplacer sur un rocher ou sur une
-  autre unité ; retirer une case au bord d'un bâtiment 2×2.
-- **Piste** : tester toute l'emprise d'un obstacle, et décider si le
-  déplacement doit appliquer la même règle que la pose.
+    rocher ou d'un bâtiment de plusieurs cases, ou y poser ou y déplacer une
+    unité.
+- **Résolu** : l'ancienne asymétrie entre pose et déplacement d'unités a
+  disparu. Les déplacements utilisent désormais `canPlaceUnitAt` (voir
+  `EDITOR.md` §7), et deux unités ne peuvent plus finir sur la même case.
+- **Impact actuel** : une carte peut contenir des unités posées sur le bord
+  d'un gros obstacle, sans avertissement.
+- **Vérification** : poser ou déplacer une unité sur une case de bord d'un
+  rocher 2×2 ; retirer une case au bord d'un bâtiment 2×2.
+- **Piste** : tester toute l'emprise d'un obstacle (`obstacleBounds`).
 - Voir aussi `EDITOR.md` §7 et §17.
 
 ## C. Incohérences entre documentation et code
@@ -394,3 +390,32 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
   asset lourd, et l'historique conserve les anciennes versions.
 - **Piste** : décider d'un mode de stockage des assets lourds (Git LFS ou
   autre) avant d'en ajouter beaucoup d'autres. Indépendant de KI-16.
+
+## E. Rendu
+
+### KI-23 — Raycast sur un modèle animé avant son premier rendu
+
+- **Statut** : Dette (précaution technique). Le piège a été reproduit
+  pendant le développement de l'aperçu de déplacement, puis évité. Aucun
+  effet n'est visible aujourd'hui en jeu.
+- **Mécanisme** :
+  - un modèle riggé (`SkinnedMesh`) calcule sa sphère englobante au premier
+    raycast, avec les matrices de ses os, puis la garde en cache ;
+  - avant le premier rendu, ces matrices ne sont pas encore à jour ;
+  - un raycast lancé à ce moment calcule une sphère dégénérée, et le
+    modèle peut ensuite rester **impossible à sélectionner** (les rayons le
+    manquent).
+- **Cas rencontré** : les modèles de la préparation sont reconstruits à
+  chaque changement de sélection (`refreshPlayerPreview`). Un calcul d'aperçu
+  lancé juste après cette reconstruction rendait l'unité impossible à
+  cliquer : Maj + clic ne la retirait plus de la sélection.
+- **Protection actuelle** : l'aperçu de déplacement est recalculé une fois
+  par image, **après** `renderer.render()` (indicateur `movePreviewDirty`,
+  `main.ts`). Les clics, eux, ne visent que des modèles déjà affichés.
+- **Risque futur** : tout nouveau code qui lancerait un rayon sur un modèle
+  riggé tout juste créé (pendant un rafraîchissement, dans le même
+  gestionnaire d'événement) reproduirait le problème.
+- **Piste** : différer le raycast après le rendu, ou forcer la mise à jour
+  des matrices et du squelette (`updateMatrixWorld`, `skeleton.update`)
+  avant le premier raycast.
+- Voir aussi `ARCHITECTURE.md` §16.

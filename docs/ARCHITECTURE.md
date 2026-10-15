@@ -54,7 +54,7 @@ Le dépôt a deux niveaux :
 
 | Dossier | Rôle |
 |---|---|
-| `core/` | Boucle à pas fixe, petites maths, RNG à graine |
+| `core/` | Boucle à pas fixe, petites maths, RNG à graine, calcul pur du déplacement d'unités sur la grille (`gridGroupMove.ts`) |
 | `config/` | Constantes de réglage, types `ObstacleDef`, format de map `MapDef` |
 | `data/` | Définitions déclaratives : unités, bâtiments, objets, talents, capacités, upgrades (avec quelques lookups et calculs purs) |
 | `sim/` | Simulation de bataille |
@@ -69,14 +69,15 @@ Dépendances observées dans le code :
 
 | Dossier | Importe |
 |---|---|
+| `core/` | `config` (constantes de la boucle) |
 | `sim/` | `config`, `core`, `data` |
 | `data/` | `config` |
 | `run/` | `config`, `data`, types de `sim` |
-| `render/` | `config`, `data`, types de `sim` (et `forwardDir`) |
-| `ui/` | `run` (calculs d'affichage), `render`, types de `sim` |
-| `editor/` | `config`, `render` (fabriques de meshes), types de `sim` |
+| `render/` | `config`, `core` (petites maths), `data`, types de `sim` (plus `forwardDir` et `isCommandable`) |
+| `ui/` | `config`, `core`, `data`, `run` (calculs d'affichage), `render`, types de `sim` |
+| `editor/` | `config`, `data` (catalogue des unités), `render` (fabriques de meshes), types de `sim` |
 | `audio/` | `run/userSettings` |
-| `main.ts` | tout |
+| `main.ts` | tout, dont `core/gridGroupMove.ts` pour le déplacement d'unités de l'éditeur et de la préparation |
 
 Règle forte, vérifiée : **`sim/` n'importe jamais `three`, `render/`, `ui/`,
 `editor/` ni `audio/`**. Elle n'accède ni au DOM, ni à `localStorage`, ni à
@@ -347,6 +348,37 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 - **Préchargement** : les modèles riggés sont préchargés au démarrage
   (`main.ts`), pour que la construction d'une silhouette reste synchrone
   ensuite.
+- **Sélection et déplacement des unités** :
+  - `render/unitSelectionRing.ts` : l'anneau de sélection commun aux unités,
+    utilisé par l'éditeur, la préparation et `BattleSelection`.
+    - Sa couleur est celle du camp ; la table camp → couleur est le seul
+      point à étendre pour d'autres joueurs.
+    - La géométrie est partagée, avec un matériau par couleur jamais modifié.
+    - L'anneau ignore les rayons, et l'échelle à la racine des modèles est
+      compensée.
+    - Décors, Baliste, cible d'ordre d'attaque et parchemins gardent leurs
+      propres indicateurs. L'anneau de la Baliste dans l'éditeur garde sa
+      forme, mais prend la couleur de son camp via `teamColor` (même règle
+      que les unités) ; celui des décors reste doré.
+  - `render/unitMovePreview.ts` : l'aperçu de déplacement (éditeur et
+    préparation).
+    - Il affiche des empreintes vertes ou rouges (deux matériaux partagés) et
+      des silhouettes translucides, gardées en réserve par classe et par
+      camp, réutilisées et masquées, jamais reconstruites au survol.
+    - Les matériaux des silhouettes sont des **clones** : une vraie unité
+      n'est jamais rendue translucide.
+  - `core/gridGroupMove.ts` : le calcul pur et déterministe du plan
+    (centre de la formation au point visé, repli dans
+    `GRID_MOVE_SEARCH_RADIUS`, tout ou rien). `main.ts` l'appelle avec les
+    règles de chaque contexte (`isValidPlacementForUnit` en préparation,
+    `canPlaceUnitAt` dans l'éditeur). L'aperçu et le clic utilisent le même
+    plan.
+  - L'aperçu est recalculé une fois par image, **après** le rendu (voir
+    §16 et KI-23).
+  - Coût : avec environ 40 unités animées sélectionnées en préparation,
+    l'aperçu fait passer d'environ 130-180 à 75-90 images par seconde. Ce
+    coût vient du rendu des silhouettes, pas du calcul du plan (moins de
+    0,1 ms).
 
 ## 12. UI HTML
 
@@ -369,8 +401,8 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
 | Fichier | Rôle |
 |---|---|
-| `editor/editorState.ts` | État pur : obstacles, unités, cellules, position de la Baliste (`ballista`, `ballistaExplicit`), sélection, outil actif |
-| `editor/editorScene.ts` | Construction des meshes (réutilise les fabriques du jeu), fantômes, aperçus de cellule, anneau de sélection |
+| `editor/editorState.ts` | État pur : obstacles, unités, cellules, position de la Baliste (`ballista`, `ballistaExplicit`), sélection (un décor, la Baliste ou un ensemble d'unités), outil actif ; application d'un déplacement d'unités et restauration pour l'historique (`moveUnits`, `setUnitStates`) |
+| `editor/editorScene.ts` | Construction des meshes (réutilise les fabriques du jeu), fantômes des outils de pose, aperçus de cellule, anneau de sélection des décors (doré) et de la Baliste (couleur de son camp, fixée par `main.ts`) |
 | `editor/editorUI.ts` | Interface DOM : catalogue d'assets, barre d'outils, panneau de propriétés |
 | `editor/history.ts` | Pile de commandes undo/redo (`{undo, redo}`) ; la coalescence d'un geste en une commande est faite par l'appelant |
 | `editor/mapSerializer.ts` | `MapDef` ↔ JSON (export par téléchargement, import par fichier) |
@@ -381,6 +413,11 @@ L'orchestration reste dans `main.ts` :
   fabriques tirent leur composition au hasard ;
 - `TransformControls` en translation seule ;
 - rotation par l'anneau de sélection et par Ctrl+molette ;
+- sélection et déplacement des unités :
+  - clic, Maj + clic, rectangle et double-clic ;
+  - plan calculé par `core/gridGroupMove.ts` avec `canPlaceUnitAt` ;
+  - une commande d'historique par déplacement de groupe ;
+  - `editor/` lui-même n'importe pas `core/` ;
 - « Tester le scénario » bascule temporairement `currentMap` et lance une
   vraie bataille. La Baliste y est créée par la même fonction qu'en partie
   (`spawnBallistaBuilding`), à `resolveBallistaOrigin(map)` (`config/mapDef.ts`) ;
@@ -422,7 +459,8 @@ Le détail d'usage relève de `EDITOR.md`.
 
 - **Matériaux partagés** : `Object3D.clone()` ne clone pas les matériaux.
   Toute vue qui modifie un matériau (flash, fondu, transparence) clone d'abord
-  les siens (`buildingView.ts`, rigs, fantômes de l'éditeur).
+  les siens (`buildingView.ts`, rigs, fantômes de l'éditeur, silhouettes de
+  `unitMovePreview.ts`).
 - **Rigs** :
   - `SkeletonUtils.clone` est obligatoire pour un modèle riggé (un clone
     simple partagerait le squelette) ;
@@ -437,7 +475,14 @@ Le détail d'usage relève de `EDITOR.md`.
   `roundRunes` pour éviter la dérive de virgule flottante.
 - **Raycast** : `THREE.Raycaster` ignore `visible`. Un mesh invisible reste
   donc touchable (c'est le principe de la zone de saisie de l'anneau de
-  l'éditeur).
+  l'éditeur). Les indicateurs qui ne doivent pas l'être (anneaux de
+  sélection d'unité, silhouettes et empreintes de l'aperçu) neutralisent
+  leur méthode `raycast`.
+- **Raycast avant le premier rendu d'un modèle animé** : ne jamais lancer de
+  rayon sur un modèle riggé tout juste créé, avant qu'il ait été rendu. Sa
+  sphère englobante peut être calculée avec des os pas encore mis à jour,
+  puis gardée en cache, et le modèle devient impossible à toucher. Voir
+  **KI-23**.
 - **État de placement hors `RunState`** (emplacements, sélection, glisser en
   cours) : il est remis à zéro à chaque nouvelle run
   (`resetRunPlacementState`, `main.ts`).

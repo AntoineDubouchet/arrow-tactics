@@ -69,6 +69,34 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
    - acheter, poser et déplacer des bâtiments ;
    - utiliser un parchemin de soin.
 
+   **Sélection des unités**, avec les mêmes gestes qu'en bataille et dans
+   l'éditeur :
+   - clic gauche pour une sélection simple ;
+   - Maj + clic pour ajouter ou retirer (Maj + clic dans le vide ne change
+     rien) ;
+   - glisser depuis le sol pour un rectangle de sélection (depuis une
+     unité, le glisser la déplace ou la vend) ;
+   - double-clic pour les unités du même type **visibles à l'écran**.
+
+   **Déplacement des unités** :
+   - au survol du terrain, un aperçu montre la destination de chaque unité
+     sélectionnée : une empreinte verte (valide) ou rouge (invalide) et une
+     silhouette translucide ;
+   - un clic au sol, ou le glisser d'une unité, applique exactement le plan
+     affiché :
+     - au clic, le centre du groupe vient au point visé ;
+     - au glisser, l'unité saisie arrive sous le curseur et le groupe suit ;
+   - les unités bloquées prennent la case libre la plus proche (2 cases au
+     plus), sans jamais se superposer ;
+   - le déplacement est tout ou rien ;
+   - après un déplacement réussi (unité seule ou groupe, au clic comme au
+     glisser), la sélection est vidée et l'aperçu disparaît aussitôt ;
+   - après un refus, rien ne bouge : la sélection et l'aperçu restent
+     disponibles pour une nouvelle tentative ;
+   - glisser une unité ou un groupe sur « Vendre » le vend, comme avant.
+
+   Ce mécanisme est détaillé dans `EDITOR.md` §7.
+
    « Prêt pour la bataille » lance le combat. Une confirmation est demandée
    s'il reste plus de 30 % de l'or du début du placement
    (`PLACEMENT_GOLD_WARNING_RATIO`).
@@ -79,6 +107,11 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
      ajouter ou retirer, glisser pour un rectangle de sélection, double-clic
      pour les unités visibles du même type ; si un parchemin est armé, le
      clic gauche sert à l'utiliser ;
+   - chaque unité sélectionnée porte l'**anneau de sélection commun**,
+     identique en préparation et dans l'éditeur. Sa couleur est celle du
+     camp de l'unité (bleu pour le joueur, rouge pour l'ennemi), pas une
+     couleur de validation. La cible d'un ordre d'attaque a son propre
+     anneau rouge ;
    - **clic droit** : ordre aux unités sélectionnées (attaque si un ennemi
      est sous le curseur, sinon déplacement de groupe) ;
    - **S** : Stop, les unités sélectionnées passent en Garde ;
@@ -439,6 +472,18 @@ principal.
   libre (position et rotation).
 - **Unités** : du bestiaire, alignées sur la grille. Leur camp est déduit de
   la moitié du plateau où elles sont posées.
+  - **Sélection** : mêmes gestes qu'en préparation et en bataille (clic,
+    Maj + clic, rectangle), pour les deux camps. Le double-clic prend les
+    unités visibles du même type et du même camp. Décors et Baliste restent
+    des sélections distinctes, jamais mélangées aux unités.
+  - **Déplacement** : même aperçu et même calcul qu'en préparation.
+    - Un déplacement réussi vide la sélection et masque l'aperçu ; un
+      refus conserve la sélection et l'aperçu.
+    - Deux unités ne peuvent plus finir sur la même case.
+    - Un déplacement de groupe est **une seule entrée** d'annuler /
+      rétablir, qui restaure positions et camps.
+    - Le camp est recalculé à l'arrivée : franchir la ligne médiane fait
+      changer une unité de camp.
 - **Terrain** : ajout et suppression de cellules, taille du plateau
   modifiable.
 - **Baliste** : sélectionnable et déplaçable, calée sur une grille de 3×3
@@ -446,6 +491,11 @@ principal.
   recouvrirait un trou, un obstacle bloquant ou une unité. Aucune unité ne
   peut ensuite être posée ou déplacée dans son empreinte, ni aucune case
   supprimée sous elle ; Suppr et R sont sans effet sur elle.
+  - Sélectionnée, elle est entourée d'un anneau à la couleur de son camp
+    (bleu, le joueur) ; les décors gardent leur anneau doré. Elle reste un
+    objet distinct des unités.
+  - Avec la Baliste sélectionnée, un appui au sol tente aussitôt de la
+    déplacer : un glisser ne trace pas de rectangle de sélection d'unités.
   - Son centre est enregistré dans `MapDef.ballista?: { x, z }`, écrit
     seulement si la position a été définie explicitement. Une carte sans ce
     champ garde le repli historique du coin, et reste sans champ si on la

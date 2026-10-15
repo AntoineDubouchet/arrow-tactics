@@ -102,24 +102,49 @@ Catalogue (groupes dépliables) :
   - sans case de terrain ;
   - sur un obstacle bloquant ;
   - sur une autre unité ;
-  - dans l'empreinte de la Baliste (§15). Un déplacement d'unité ou de
-    groupe vers cette empreinte est refusé de la même façon.
+  - dans l'empreinte de la Baliste (§15).
+
+  Les déplacements d'unités appliquent les mêmes règles (§7).
 - **Camp** : déduit automatiquement de la moitié du plateau. `z ≥ 0` donne le
   camp joueur, sinon le camp ennemi. Le camp est recalculé à chaque
   déplacement, et rien ne restreint la pose aux zones de spawn.
 - **Rotation** : les unités ne se tournent pas. Le bouton « Tourner » est
-  masqué pour elles, et l'anneau ne sert qu'aux décors.
+  masqué pour elles, et l'anneau de rotation ne sert qu'aux décors.
 
 ## 6. Sélection
 
-- **Clic gauche** sur un décor, une unité ou la tour de la Baliste : le
-  sélectionne. La Baliste sélectionnée est entourée d'un anneau.
-- **Double-clic** sur une unité : sélectionne les unités du même type, au plus
-  20, en partant des plus proches.
-- **Une seule sélection à la fois** : un décor, une unité, un groupe
-  d'unités ou la Baliste.
-- **Pas de sélection rectangulaire** dans l'éditeur.
-- **Désélectionner** : clic droit, Échap, ou clic gauche dans le vide.
+- **Décor ou Baliste** : un clic gauche le sélectionne, dès l'appui. Un décor
+  (neutre) est entouré d'un anneau doré. La Baliste, qui reste un objet
+  distinct des unités, est entourée d'un anneau à la couleur de son camp
+  propriétaire, aujourd'hui le bleu du joueur (même règle de couleur que
+  l'anneau des unités).
+- **Unités** : mêmes gestes qu'en préparation et en bataille. Les unités des
+  deux camps sont sélectionnables.
+
+| Geste | Effet |
+|---|---|
+| Clic gauche sur une unité | Sélection simple : elle devient la seule sélectionnée |
+| Maj + clic sur une unité | L'ajoute à la sélection ou l'en retire |
+| Maj + clic dans le vide | Rien : la sélection reste |
+| Glisser (rectangle), depuis le sol ou une unité | Remplace la sélection par les unités encadrées, des deux camps. Avec Maj, remplace aussi. Jamais quand la Baliste est sélectionnée (§7) |
+| Double-clic sur une unité | Unités du même type **et du même camp** visibles à l'écran (projetées dans le canvas), jamais celles hors champ |
+
+- **Rectangle** : il ne sélectionne jamais un décor ni la Baliste. Un vrai
+  glisser n'est jamais pris pour un clic au relâchement, et un clic droit
+  ajouté pendant le rectangle l'annule (déplacement de la caméra, §12).
+- **Anneau des unités** : chaque unité sélectionnée a l'anneau commun aux
+  unités, comme en préparation et en bataille. Sa couleur est celle de son
+  camp (bleu pour le joueur, rouge pour l'ennemi), jamais une couleur de
+  validation (le vert et le rouge de l'aperçu de déplacement, §7).
+- **Une seule sélection à la fois** : un décor, la Baliste, ou un ensemble
+  d'unités. Ils ne se mélangent jamais. Maj + clic sur une unité alors qu'un
+  décor ou la Baliste est sélectionné démarre une nouvelle sélection
+  d'unités.
+- **Désélectionner** :
+  - clic droit ou Échap ;
+  - clic gauche dans le vide, sans Maj, quand ni unité ni Baliste n'est
+    sélectionnée. Avec des unités ou la Baliste sélectionnées, ce clic est
+    un déplacement (§7).
 - Avec un **décor** sélectionné, un clic gauche sur le sol le désélectionne.
 
 ## 7. Déplacement
@@ -128,18 +153,55 @@ Catalogue (groupes dépliables) :
   - uniquement avec les **flèches du gizmo** ;
   - déplacement libre sur le plan horizontal ;
   - un glisser complet compte comme **une seule opération** d'historique.
-- **Unités** : sélectionner l'unité, puis cliquer sur une case. La position
-  est alignée sur la grille.
-- **Groupes d'unités** :
-  - même geste que pour une unité ;
-  - le groupe garde sa formation relative ;
-  - le déplacement est refusé en bloc si une case cible n'existe pas.
-- **Règle de validité** : le déplacement d'une unité vérifie seulement que la
-  case cible existe et qu'elle n'est pas dans l'empreinte de la Baliste. Il
-  ne contrôle pas l'occupation et reste donc moins strict que la pose (§5).
-- **Baliste** : la sélectionner, puis cliquer au sol. Sa position est calée
-  sur une grille de 3×3 cases ; un emplacement invalide est refusé sans rien
-  changer, et la Baliste reste sélectionnée. Détail dans §15.
+- **Unités et groupes** : même geste et même calcul qu'en préparation.
+  - **Aperçu au survol** : avec une ou plusieurs unités sélectionnées, le
+    survol du terrain montre leur destination avant le clic. Chaque unité a
+    une **empreinte** au sol, **verte** si sa destination est valide,
+    **rouge** sinon, et une **silhouette translucide** de son modèle,
+    dans le camp qu'elle aura à l'arrivée. Les vraies unités restent
+    visibles avec leur anneau.
+  - **Clic gauche au sol** : applique **exactement** la disposition
+    affichée. Le clic refait le même calcul, au point de relâchement.
+  - **Calcul** (`core/gridGroupMove.ts`, partagé avec la préparation) :
+    - le centre de la formation vient au point visé, avec un décalage d'un
+      nombre entier de cases. L'ordre de sélection n'a aucune influence ;
+    - chaque unité garde sa place dans la formation si sa case est valide et
+      libre ;
+    - une unité bloquée prend la case valide et libre la plus proche, dans
+      un rayon de **2 cases** (`GRID_MOVE_SEARCH_RADIUS`), selon un ordre
+      fixe ;
+    - deux unités ne finissent jamais sur la même case.
+  - **Tout ou rien** : si une seule unité n'a pas de destination, l'aperçu
+    la montre en rouge et le clic ne déplace personne.
+  - **Après un déplacement réussi**, d'une unité ou d'un groupe : la
+    sélection est vidée et l'aperçu disparaît aussitôt. Il ne reste ni
+    silhouette, ni empreinte, ni anneau.
+  - **Après un refus** : rien ne bouge, la sélection et l'aperçu restent
+    disponibles pour une nouvelle tentative.
+  - **Aperçu masqué** :
+    - quand le curseur est sur un objet qu'un clic sélectionnerait ;
+    - pendant un rectangle de sélection, un geste caméra, le gizmo ou la
+      rotation à l'anneau ;
+    - avec un outil de pose ;
+    - quand le plan ne déplacerait aucune unité.
+
+    Un décor ou la Baliste sélectionnés n'affichent jamais de silhouette
+    d'unité.
+- **Règle de validité** : celle de la pose (§5, `canPlaceUnitAt`). La case
+  doit exister, ne pas être dans l'empreinte de la Baliste, ni sur un
+  obstacle bloquant (seule la case du centre de l'obstacle compte, voir
+  **KI-20**), ni sur une autre unité. Les cases actuelles des unités
+  déplacées ne comptent pas.
+- **Camp** : recalculé pour chaque unité déplacée selon la moitié du plateau
+  (`teamForZ`, règle inchangée). Franchir la ligne médiane fait donc changer
+  une unité de camp ; l'aperçu le montre déjà.
+- **Baliste** : la sélectionner, puis cliquer au sol. Le déplacement est
+  tenté **dès l'appui** au sol (sans Maj). Un glisser au sol ne démarre donc
+  pas de rectangle de sélection d'unités tant que la Baliste est
+  sélectionnée ; le rectangle reste disponible dans les autres cas. La
+  position est calée sur une grille de 3×3 cases. Un emplacement invalide
+  est refusé sans rien changer, et la Baliste reste sélectionnée. Détail
+  dans §15.
 
 ## 8. Rotation des décors
 
@@ -182,9 +244,10 @@ Quatre façons de tourner un décor sélectionné :
 |---|---|
 | Déplacement d'un décor au gizmo | Pose d'un objet ou d'une unité |
 | Rotation à l'anneau | Suppression |
-| Rotation par Ctrl+molette (par cran) | Déplacement d'une unité ou d'un groupe |
-| Ajout ou suppression d'une case | Redimensionnement du plateau |
-| Déplacement de la Baliste (position **et** statut « position définie », §15) | R / « Tourner 90° » (KI-06) |
+| Rotation par Ctrl+molette (par cran) | Redimensionnement du plateau |
+| Ajout ou suppression d'une case | R / « Tourner 90° » (KI-06) |
+| Déplacement de la Baliste (position **et** statut « position définie », §15) | |
+| Déplacement d'unités : **une seule entrée** pour tout le groupe, qui restaure la position **et le camp** de chaque unité | |
 
 - **Remise à zéro** : l'historique est vidé à l'ouverture de l'éditeur, au
   chargement d'un fichier et à la sortie.
@@ -317,8 +380,10 @@ fait partie de la carte (`ballista`, §13).
 - **Position par défaut** : une carte sans `ballista` affiche la Baliste au
   repli historique (coin +X +Z). Tant qu'elle n'a pas été déplacée, elle suit
   ce coin si la taille du plateau change.
-- **Sélection** : clic gauche sur la tour (anneau autour d'elle).
-- **Déplacement** : Baliste sélectionnée, puis clic au sol. Le centre est
+- **Sélection** : clic gauche sur la tour. Elle est entourée d'un anneau à
+  la couleur de son camp (bleu, le joueur).
+- **Déplacement** : Baliste sélectionnée, puis clic au sol, pris en compte
+  dès l'appui (un glisser ne trace pas de rectangle d'unités). Le centre est
   calé sur la même **grille de 3×3 cases** que le placement obligatoire de la
   tour en partie. Le modèle suit immédiatement : la position enregistrée et
   la tour affichée sont toujours au même endroit.
@@ -366,27 +431,33 @@ Détaillées dans `KNOWN_ISSUES.md` :
 - **KI-06** : R / « Tourner 90° » est hors historique et part de 0°.
 - **KI-07** : « Tester le scénario » ne crée ni Mine ni Caserne.
 - **KI-02** : le placement en jeu est insensible aux trous de cellules.
+- **KI-19** : des raccourcis clavier restent actifs pendant la saisie dans
+  un champ (par exemple Retour arrière dans le champ « Taille » avec un objet
+  sélectionné).
+- **KI-20** : certaines règles ne testent que la **case centrale** d'un
+  obstacle (suppression d'une case, pose et déplacement d'unités). Un gros
+  rocher ne bloque donc que sa case centrale.
 
-Deux autres limitations ont été repérées et seront ajoutées à
-`KNOWN_ISSUES.md` lors d'une passe séparée :
+Limites de l'aperçu de déplacement, sans conséquence sur le résultat :
 
-- **Saisie dans les champs** : des raccourcis clavier pourraient rester
-  actifs pendant la saisie (à vérifier). Par exemple, Retour arrière dans le
-  champ « Taille » avec un objet sélectionné.
-- **Emprises multi-cases** : certaines règles de l'éditeur ne testent que la
-  **case centrale** d'un obstacle (suppression d'une case, pose d'une unité).
+- une silhouette rouge peut s'afficher hors du plateau, à la case visée ;
+- l'outil « poser une unité » garde son propre fantôme (case verte ou rouge
+  et modèle translucide), distinct de l'aperçu de déplacement.
 
 ## 18. Pour les développeurs
 
 | Fichier | Rôle |
 |---|---|
-| `editor/editorState.ts` | État de l'éditeur et règles de validité (`canPlaceUnitAt`, `canAddCell`, `canRemoveCell`, `canPlaceBallistaAt`) ; position de la Baliste (`ballista`, `ballistaExplicit`, `moveBallista`) |
+| `editor/editorState.ts` | État de l'éditeur et règles de validité (`canPlaceUnitAt`, avec les unités déplacées à ignorer, `canAddCell`, `canRemoveCell`, `canPlaceBallistaAt`) ; sélection d'unités (`selectUnits`, `toggleUnitSelection`, `selectedUnitIds`) ; déplacement et historique des unités (`moveUnits`, `setUnitStates`, `teamForZ`) ; position de la Baliste (`ballista`, `ballistaExplicit`, `moveBallista`) |
 | `config/mapDef.ts` | Format `MapDef` ; `resolveBallistaOrigin` (position de la Baliste ou repli), `snapBallistaOrigin` (grille de 3×3) |
-| `editor/editorScene.ts` | Meshes, fantômes, aperçus de cases, anneau de sélection et sa zone de saisie |
+| `editor/editorScene.ts` | Meshes, fantômes des outils de pose, aperçus de cases, anneau de sélection des décors et de la Baliste et sa zone de saisie (couleur fixée par `main.ts` : dorée pour un décor, `teamColor` du camp pour la Baliste) |
+| `core/gridGroupMove.ts` | Calcul pur et déterministe du déplacement d'unités sur la grille, partagé avec la préparation |
+| `render/unitMovePreview.ts` | Aperçu de déplacement : empreintes vertes/rouges et silhouettes translucides réutilisées |
+| `render/unitSelectionRing.ts` | Anneau de sélection commun aux unités, à la couleur du camp |
 | `editor/editorUI.ts` | Barre d'outils, catalogue (`ASSET_GROUPS`), panneau de propriétés, aide |
 | `editor/history.ts` | Pile de commandes annuler / rétablir |
 | `editor/mapSerializer.ts` | Export et import JSON |
-| `main.ts` | Orchestration et entrées : `enterEditor`, `handleEditorClick`, `moveEditorBallista`, rotation (`tryStartRingRotate`, `rotateSelectedObstacleBy`), `TransformControls`, `testScenario`, `setupTestBattle` / `spawnBallistaBuilding` |
+| `main.ts` | Orchestration et entrées : `enterEditor`, `handleEditorClick` et `pickEditorObjectAt`, sélection des unités (`resolveEditorPointerClick`, `selectEditorUnitsInRect`, `selectVisibleSameTypeEditorUnits`), déplacement (`editorUnitMoveProposal`, `applyEditorUnitMove`, `updateMovePreview`), `moveEditorBallista`, rotation (`tryStartRingRotate`, `rotateSelectedObstacleBy`), `TransformControls`, `testScenario`, `setupTestBattle` / `spawnBallistaBuilding` |
 
 Conventions actuelles :
 
@@ -396,7 +467,9 @@ Conventions actuelles :
   ferait changer l'objet à l'écran. Le mesh d'une unité est reconstruit
   seulement quand son camp change.
 - **Règle de validité unique** : l'aperçu vert/rouge et le clic utilisent la
-  même fonction de validité, jamais deux calculs séparés.
+  même fonction de validité, jamais deux calculs séparés. Pour un
+  déplacement d'unités, l'aperçu et le clic passent aussi par le même plan
+  (`core/gridGroupMove.ts`).
 - **Historique** : une commande par **geste** (au relâchement, ou par cran de
   molette), jamais une par frame.
 - **Source de vérité de la rotation** : `rotationY`, dans l'état de l'éditeur
@@ -412,9 +485,12 @@ Conventions actuelles :
 | Geste | Effet |
 |---|---|
 | Clic gauche sur un décor / une unité / la Baliste | Sélectionner |
-| Double-clic sur une unité | Sélectionner les unités du même type (20 max) |
-| Clic gauche sur une case (unité ou groupe sélectionné) | Déplacer |
-| Clic gauche au sol (Baliste sélectionnée) | Déplacer la Baliste (grille de 3×3) |
+| Maj + clic sur une unité | Ajouter ou retirer de la sélection |
+| Glisser depuis le sol ou une unité | Rectangle de sélection d'unités (des deux camps), sauf Baliste sélectionnée |
+| Double-clic sur une unité | Sélectionner les unités visibles du même type et du même camp |
+| Survol du terrain (unités sélectionnées) | Aperçu du déplacement (empreintes vertes/rouges, silhouettes) |
+| Clic gauche au sol (unités sélectionnées) | Déplacer selon l'aperçu ; réussite : sélection vidée, refus : sélection conservée |
+| Clic gauche au sol (Baliste sélectionnée) | Déplacer la Baliste (grille de 3×3), dès l'appui |
 | Clic gauche (outil de pose actif) | Poser l'objet ou l'unité |
 | Clic gauche (outil de case actif) | Ajouter ou supprimer une case |
 | Glisser une flèche du gizmo | Déplacer le décor |
