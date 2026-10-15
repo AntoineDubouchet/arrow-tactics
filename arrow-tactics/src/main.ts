@@ -19,15 +19,7 @@ import {
   GRID_MOVE_SEARCH_RADIUS,
   type ObstacleDef,
   PLACEMENT_GOLD_WARNING_RATIO,
-  PLAYER_ARROW_COOLDOWN,
-  PLAYER_ARROW_DAMAGE,
-  PLAYER_ARROW_SPEED,
   SHADOW_PROJECTILE_SPEED,
-  TALENT_FANTASSIN_DODGE_CHANCE,
-  TALENT_FIRE_RATE_BONUS,
-  TALENT_MACHINE_GUN_ATTACK_SPEED_MULTIPLIER,
-  TALENT_PROJECTILE_DAMAGE_BONUS,
-  TALENT_PROJECTILE_SPEED_BONUS,
   TILE,
   obstacleBounds,
 } from './config/constants';
@@ -105,7 +97,6 @@ import {
 import { computeStartingGoldBonus, computeTalentEconomyHooks } from './run/talentEffects';
 import {
   computeEnemyUnitUpgradeEffects,
-  computePlayerUnitUpgradeEffects,
   effectivePlayerUnitCost,
   effectivePlayerUnitMaxHp,
 } from './run/unitUpgradeEffects';
@@ -113,13 +104,14 @@ import { BALLISTA_UPGRADE } from './data/ballistaUpgrade';
 import { HEAL_SCROLL_UPGRADE } from './data/healScrollUpgrade';
 import { ICE_NOVA_UPGRADE } from './data/iceNovaUpgrade';
 import { getUnitUpgradeDef } from './data/unitUpgrades';
-import { computePlayerBallistaUpgradeEffects, effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
+import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
 import { computePlayerIceNovaUpgradeEffects, effectiveIceNovaCost } from './run/iceNovaUpgradeEffects';
 import { effectiveMineGoldPerSecond } from './run/mineUpgradeEffects';
 import { getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
 import { MINE_UPGRADE } from './data/mineUpgrade';
 import { SENTINEL_UPGRADE } from './data/sentinelUpgrade';
-import { computePlayerSentinelUpgradeEffects } from './run/sentinelUpgradeEffects';
+import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './run/playerUnitStats';
+import { effectivePlayerArrowCooldown, effectivePlayerArrowDamage, effectivePlayerArrowSpeed, playerArrowBoltsPerVolley } from './run/ballistaStats';
 import { SHADOW_UPGRADE } from './data/shadowUpgrade';
 import { computePlayerShadowEffects } from './run/shadowUpgradeEffects';
 import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from './run/barracksUpgradeEffects';
@@ -797,55 +789,6 @@ function isTalentActive(id: string): boolean {
   return isTalentUnlocked(metaProgress, id);
 }
 
-/** Patch de stats a appliquer a une unite JOUEUR fraichement spawnee (voir
- *  World.spawn, statOverrides) — fusionne DEUX sources independantes :
- *  1. les talents (pour l'instant, seul "Réflexes de vétéran", esquive des
- *     fantassins) ;
- *  2. la boutique d'amelioration PERMANENTE (2026-08-13, voir
- *     run/unitUpgradeEffects.ts) : PV/degats bonus derives du niveau
- *     d'amelioration de l'unite. `undefined` de la aussi si l'unite n'a
- *     aucune amelioration definie (statOverrides vide, voir
- *     computePlayerUnitUpgradeEffects).
- *  JAMAIS appelee pour une unite ENNEMIE — c'est cet appel conditionnel
- *  (uniquement aux 2 sites qui spawnent des unites JOUEUR, voir plus bas)
- *  qui garantit que les ennemis gardent leurs stats de base (point 20/21 de
- *  la demande d'Antoine sur la boutique d'amelioration). */
-function playerStatOverrides(unitId: string): Partial<UnitStats> | undefined {
-  const overrides: Partial<UnitStats> = {};
-  if (unitId === 'fantassin' && isTalentActive('reflexes_fantassin')) {
-    overrides.dodgeChance = TALENT_FANTASSIN_DODGE_CHANCE;
-  }
-  Object.assign(overrides, computePlayerUnitUpgradeEffects(unitId, metaProgress).statOverrides);
-  // Sentinelle (2026-08-14) : amelioration permanente DEDIEE (voir
-  // data/sentinelUpgrade.ts), pas enregistree dans UNIT_UPGRADES — sans ce
-  // cas special, computePlayerUnitUpgradeEffects ci-dessus renvoie toujours
-  // un statOverrides vide pour 'sentinel'.
-  if (unitId === 'sentinel') {
-    Object.assign(overrides, computePlayerSentinelUpgradeEffects(metaProgress).statOverrides);
-  }
-  return Object.keys(overrides).length > 0 ? overrides : undefined;
-}
-
-/** Bonus de bouclier PAR ENNEMI PROVOQUE (voir Entity.tauntShieldBonus,
- *  data/abilities.ts TauntAbility.baseShieldPerTarget) a appliquer a une
- *  Sentinelle JOUEUR fraichement spawnee — boutique d'amelioration
- *  permanente (voir run/sentinelUpgradeEffects.ts). 0 pour toute autre
- *  unite, jamais appelee pour un ennemi (meme garantie que
- *  playerStatOverrides/playerAbilityDamageBonus ci-dessous). */
-function playerTauntShieldBonus(unitId: string): number {
-  return unitId === 'sentinel' ? computePlayerSentinelUpgradeEffects(metaProgress).tauntShieldBonusInternal : 0;
-}
-
-/** Bonus de degats de CAPACITE (voir Entity.abilityDamageBonus,
- *  sim/systems/abilities.ts) a appliquer a une unite JOUEUR fraichement
- *  spawnee — boutique d'amelioration permanente, Mage/Boule de feu pour
- *  l'instant (voir data/unitUpgrades.ts, primaryDamageTarget: 'ability').
- *  0 par defaut, jamais appelee pour une unite ennemie (meme garantie que
- *  playerStatOverrides ci-dessus). */
-function playerAbilityDamageBonus(unitId: string): number {
-  return computePlayerUnitUpgradeEffects(unitId, metaProgress).abilityDamageBonus;
-}
-
 /** Patch de stats a appliquer a une unite ENNEMIE fraichement spawnee —
  *  buff de difficulte PAR VAGUE (2026-08-13, demande d'Antoine : "les
  *  unités ennemies doivent être améliorées, même buff que boutique
@@ -865,56 +808,6 @@ function enemyStatOverrides(unitId: string, waveNumber: number): Partial<UnitSta
 
 function enemyAbilityDamageBonus(unitId: string, waveNumber: number): number {
   return computeEnemyUnitUpgradeEffects(unitId, waveNumber).abilityDamageBonus;
-}
-
-/** Somme de TOUS les bonus de VITESSE D'ATTAQUE (cadence) de la Baliste,
- *  TOUS ADDITIFS entre eux — talent "Tir rapide" (bonus FIXE) + amelioration
- *  permanente "Baliste" (voir run/ballistaUpgradeEffects.ts, bonus CROISSANT
- *  avec le niveau achete en runes) + tout futur bonus qui s'ajouterait ici.
- *  SOURCE UNIQUE reutilisee par effectivePlayerArrowCooldown ET par le
- *  talent "Mitraillette" (2026-08-14, voir data/talents.ts) : Mitraillette
- *  multiplie ce TOTAL par TALENT_MACHINE_GUN_ATTACK_SPEED_MULTIPLIER,
- *  JAMAIS la cadence de base ni un bonus pris isolement — demande explicite
- *  d'Antoine ("je ne veux pas cadence de base x3, je veux BONUS DE VITESSE
- *  D'ATTAQUE x3"). Jamais composes multiplicativement l'un avec l'autre ni
- *  d'un niveau de Baliste a l'autre (deja garanti avant Mitraillette : "pas
- *  baseRate × 1.2 × 1.2 × 1.2..."). */
-function totalBallistaAttackSpeedBonus(): number {
-  const talentBonus = isTalentActive('tir_rapide') ? TALENT_FIRE_RATE_BONUS : 0;
-  const ballistaBonus = computePlayerBallistaUpgradeEffects(metaProgress).attackSpeedBonus;
-  return talentBonus + ballistaBonus;
-}
-
-/** Cooldown EFFECTIF de la fleche du joueur — une seule etape claire :
- *  collecter tous les bonus (totalBallistaAttackSpeedBonus) puis, SI
- *  Mitraillette est debloque, multiplier ce TOTAL par 3 avant de calculer
- *  la cadence finale (jamais une double application : le bonus boutique et
- *  le bonus Tir rapide ne sont JAMAIS multiplies individuellement, seule
- *  leur SOMME l'est, une seule fois). A 0 bonus actif (aucun talent/aucune
- *  amelioration), 0 x 3 = 0 : la cadence de base reste strictement
- *  inchangee, aucune regression. Calcule une fois par tir plutot que
- *  stocke, puisque talents/ameliorations peuvent theoriquement changer
- *  entre deux tirs (boutiques/arbre accessibles en cours de run ou entre
- *  les runs). */
-function effectivePlayerArrowCooldown(): number {
-  const totalBonus = totalBallistaAttackSpeedBonus();
-  const effectiveBonus = isTalentActive('mitraillette') ? totalBonus * TALENT_MACHINE_GUN_ATTACK_SPEED_MULTIPLIER : totalBonus;
-  return PLAYER_ARROW_COOLDOWN / (1 + effectiveBonus);
-}
-function effectivePlayerArrowSpeed(): number {
-  // PROJECTILE SPEED : uniquement le talent "Tir rapide" — l'amelioration
-  // permanente "Baliste" ne touche JAMAIS cette valeur (demande explicite
-  // d'Antoine, point 8 : ne pas confondre cadence/vitesse de projectile/degats).
-  return isTalentActive('tir_rapide') ? PLAYER_ARROW_SPEED * (1 + TALENT_PROJECTILE_SPEED_BONUS) : PLAYER_ARROW_SPEED;
-}
-/** "Tir rapide" ajoute +2 degats affiches (+20 internes, TALENT_PROJECTILE_DAMAGE_BONUS)
- *  et l'amelioration "Baliste" ajoute +1 tous les 3 niveaux (voir
- *  run/ballistaUpgradeEffects.ts) — deux bonus INTERNES qui s'additionnent
- *  simplement sur la base. */
-function effectivePlayerArrowDamage(): number {
-  const talentBonus = isTalentActive('tir_rapide') ? TALENT_PROJECTILE_DAMAGE_BONUS : 0;
-  const ballistaBonus = computePlayerBallistaUpgradeEffects(metaProgress).damageBonusInternal;
-  return PLAYER_ARROW_DAMAGE + talentBonus + ballistaBonus;
 }
 
 // --- Economie / progression de run (chantier en cours — voir CLAUDE.md) -
@@ -979,9 +872,9 @@ function setupTestBattle(): void {
       pos.x,
       pos.z,
       undefined,
-      playerStatOverrides(pos.unitId),
-      playerAbilityDamageBonus(pos.unitId),
-      playerTauntShieldBonus(pos.unitId),
+      playerUnitStatOverrides(pos.unitId, metaProgress),
+      playerUnitAbilityDamageBonus(pos.unitId, metaProgress),
+      playerUnitTauntShieldBonus(pos.unitId, metaProgress),
     );
   }
   for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z);
@@ -1590,9 +1483,9 @@ function onValidatePlacement(): void {
       slot.x,
       slot.z,
       slot.hp,
-      playerStatOverrides(slot.unitId),
-      playerAbilityDamageBonus(slot.unitId),
-      playerTauntShieldBonus(slot.unitId),
+      playerUnitStatOverrides(slot.unitId, metaProgress),
+      playerUnitAbilityDamageBonus(slot.unitId, metaProgress),
+      playerUnitTauntShieldBonus(slot.unitId, metaProgress),
     );
   }
   for (const pos of computeEnemyWavePlacements(currentRun.waveNumber, currentMap)) {
@@ -2992,7 +2885,7 @@ function findMachineGunSecondaryTargets(cursorX: number, cursorZ: number): Entit
  *  partant de la meme arme sans etre parfaitement superposes au depart. */
 function buildBallistaVolleyShots(originX: number, originZ: number, cursorX: number, cursorZ: number): { originX: number; originZ: number; targetX: number; targetZ: number }[] {
   const primary = { originX, originZ, targetX: cursorX, targetZ: cursorZ };
-  if (!isTalentActive('mitraillette')) return [primary];
+  if (playerArrowBoltsPerVolley(metaProgress) === 1) return [primary];
 
   const dx = cursorX - originX;
   const dz = cursorZ - originZ;
@@ -3045,12 +2938,12 @@ function fireArrowIfReady(): void {
   // Meme valeur de degats EFFECTIVE pour les 3 carreaux (talent Tir rapide +
   // amelioration Baliste deja inclus) — jamais reduite/partagee entre eux
   // (demande explicite : "chaque carreau = degats normaux de la Baliste").
-  const damage = effectivePlayerArrowDamage();
+  const damage = effectivePlayerArrowDamage(metaProgress);
   const shots: ArrowShotSpec[] = buildBallistaVolleyShots(playerArrowOrigin.x, playerArrowOrigin.z, playerAimX, playerAimZ).map((s) => ({
     ...s,
     damage,
   }));
-  const fired = world.fireArrowVolley(shots, effectivePlayerArrowCooldown(), effectivePlayerArrowSpeed());
+  const fired = world.fireArrowVolley(shots, effectivePlayerArrowCooldown(metaProgress), effectivePlayerArrowSpeed(metaProgress));
   // Anime le modele de la baliste (2026-08-13, nouveau modele FBX riggé —
   // voir render/ballista.ts) UNIQUEMENT sur un tir REELLEMENT parti (jamais
   // sur une tentative bloquee par le cooldown), meme garde-fou que le reste
@@ -3111,7 +3004,7 @@ function attemptAutoFire(): void {
 function currentBallistaStatus(): BallistaStatus {
   if (isBallistaDestroyed()) return { kind: 'destroyed' };
   const arrow = world.playerArrow;
-  if (arrow.cooldown > 0) return { kind: 'reloading', cooldownSeconds: arrow.cooldown, totalSeconds: effectivePlayerArrowCooldown() };
+  if (arrow.cooldown > 0) return { kind: 'reloading', cooldownSeconds: arrow.cooldown, totalSeconds: effectivePlayerArrowCooldown(metaProgress) };
   if (arrow.flights.length > 0) return { kind: 'inFlight' };
   return { kind: 'ready' };
 }
@@ -4445,8 +4338,8 @@ const loop = new Loop(
         event.x,
         event.z,
         undefined,
-        event.team === 'player' ? playerStatOverrides(event.unitId) : enemyStatOverrides(event.unitId, currentRun.waveNumber),
-        event.team === 'player' ? playerAbilityDamageBonus(event.unitId) : enemyAbilityDamageBonus(event.unitId, currentRun.waveNumber),
+        event.team === 'player' ? playerUnitStatOverrides(event.unitId, metaProgress) : enemyStatOverrides(event.unitId, currentRun.waveNumber),
+        event.team === 'player' ? playerUnitAbilityDamageBonus(event.unitId, metaProgress) : enemyAbilityDamageBonus(event.unitId, currentRun.waveNumber),
       );
     }
 
