@@ -48,6 +48,19 @@ export interface CommandResult {
   /** Raison du refus de la commande entiere, null si au moins une entite
    *  l'a recue. */
   rejection: CommandRejectionReason | null;
+  /** Commande `move` acceptee : destination reellement attribuee a chaque
+   *  entite acceptee (point du groupe, voir assignGroupDestinations, ou point
+   *  vise pour une unite seule), dans l'ordre de `acceptedEntityIds`. Simple
+   *  copie du resultat deja calcule, pour le retour visuel : l'ordre lui-meme
+   *  peut deja etre termine a la fin du meme pas. Absent sinon. */
+  destinations?: MoveDestination[];
+}
+
+/** Destination d'une entite pour un ordre `move`. */
+export interface MoveDestination {
+  entityId: number;
+  x: number;
+  z: number;
 }
 
 /** Raison de la fin d'un ordre manuel. `completed` : arrivee, cible tuee ou
@@ -274,6 +287,7 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
     }
 
     const groupDestinations = command.kind === 'move' && accepted.length > 1 ? assignGroupDestinations(accepted, command.x, command.z, board) : null;
+    const moveDestinations: MoveDestination[] | null = command.kind === 'move' ? [] : null;
 
     for (const entity of accepted) {
       // Objet neuf par entite : aucun ordre n'est partage entre deux unites.
@@ -281,7 +295,9 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
       entity.order = destination ? { type: 'move', x: destination.x, z: destination.z } : { ...order };
       resetNavigation(entity);
       result.acceptedEntityIds.push(entity.id);
+      if (moveDestinations && entity.order.type === 'move') moveDestinations.push({ entityId: entity.id, x: entity.order.x, z: entity.order.z });
     }
+    if (moveDestinations) result.destinations = moveDestinations;
   }
 
   return results;

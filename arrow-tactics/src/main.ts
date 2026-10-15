@@ -82,6 +82,7 @@ import { TelegraphView } from './render/telegraph';
 import { FireballView } from './render/fireballView';
 import { IceNovaView } from './render/iceNova';
 import { HealVfxView } from './render/healVfx';
+import { MoveOrderFeedback } from './render/moveOrderFeedback';
 import { RecyclageAuraView } from './render/recyclageAura';
 import { TauntVfxView } from './render/tauntVfx';
 import { ShadowProjectileView } from './render/shadowProjectileView';
@@ -190,6 +191,9 @@ const telegraphView = new TelegraphView();
 const fireballView = new FireballView();
 const iceNovaView = new IceNovaView();
 const healVfxView = new HealVfxView();
+// Retour visuel des ordres de deplacement acceptes (voir le consommateur de
+// world.commandResults dans onStep).
+const moveOrderFeedback = new MoveOrderFeedback();
 const recyclageAuraView = new RecyclageAuraView();
 const tauntVfxView = new TauntVfxView();
 const shadowProjectileView = new ShadowProjectileView();
@@ -236,6 +240,7 @@ renderer.scene.add(telegraphView.group);
 renderer.scene.add(fireballView.group);
 renderer.scene.add(iceNovaView.group);
 renderer.scene.add(healVfxView.group);
+renderer.scene.add(moveOrderFeedback.group);
 renderer.scene.add(recyclageAuraView.group);
 renderer.scene.add(tauntVfxView.group);
 renderer.scene.add(shadowProjectileView.group);
@@ -948,6 +953,7 @@ function setupTestBattle(): void {
   fireballView.clear();
   iceNovaView.clear();
   healVfxView.clear();
+  moveOrderFeedback.clear();
   tauntVfxView.clear();
   shadowProjectileView.clear();
   battleOver = false;
@@ -1548,6 +1554,7 @@ function onValidatePlacement(): void {
   fireballView.clear();
   iceNovaView.clear();
   healVfxView.clear();
+  moveOrderFeedback.clear();
   tauntVfxView.clear();
   shadowProjectileView.clear();
   battleOver = false;
@@ -2443,6 +2450,7 @@ function returnToEditorAfterTest(): void {
   fireballView.clear();
   iceNovaView.clear();
   healVfxView.clear();
+  moveOrderFeedback.clear();
   tauntVfxView.clear();
   shadowProjectileView.clear();
 
@@ -4186,6 +4194,16 @@ let lastRealTime = performance.now();
 const loop = new Loop(
   (dt) => {
     world.step(dt);
+    // Ordres de deplacement acceptes pendant CE pas : commandResults est
+    // remplace a chaque pas (plusieurs pas peuvent s'enchainer par image),
+    // il est donc lu ici et jamais depuis le rendu. Un ordre refuse n'affiche
+    // rien ; l'attaque garde son anneau rouge (BattleSelection).
+    for (const result of world.commandResults) {
+      if (result.command.kind !== 'move' || result.rejection !== null || !result.destinations) continue;
+      const owner = result.acceptedEntityIds.map((id) => world.getById(id)).find((e) => e !== undefined);
+      if (!owner) continue;
+      moveOrderFeedback.spawn(result.command.x, result.command.z, result.destinations, owner.team);
+    }
     // Tir automatique en maintien de clic (2026-08-13, "Tir rapide") — DANS
     // le pas de simulation FIXE, jamais dans le rendu (variable) : le rythme
     // reel des tirs reste cadence a SIM_STEP pres, jamais au framerate.
@@ -4548,6 +4566,7 @@ const loop = new Loop(
             fireballView.clear();
             iceNovaView.clear();
             healVfxView.clear();
+            moveOrderFeedback.clear();
             tauntVfxView.clear();
             shadowProjectileView.clear();
             disarmItem();
@@ -4734,6 +4753,7 @@ const loop = new Loop(
     iceNovaView.syncFrostIndicators(world.entities, (e) => unitViews.getPosition(e.id) ?? { x: e.x, z: e.z });
     // VFX du parchemin de soin (2026-08-14) — voir render/healVfx.ts.
     healVfxView.sync(realDt);
+    moveOrderFeedback.sync(realDt);
     // VFX de Provocation (Sentinelle, 2026-08-14) — voir render/tauntVfx.ts.
     // Meme resolution de position que les cristaux de givre ci-dessus, pour
     // que l'indicateur au-dessus d'une unite provoquee la suive meme si
@@ -4960,6 +4980,7 @@ function quitToMenu(): void {
   fireballView.clear();
   iceNovaView.clear();
   healVfxView.clear();
+  moveOrderFeedback.clear();
   tauntVfxView.clear();
   shadowProjectileView.clear();
   battleOver = false;
