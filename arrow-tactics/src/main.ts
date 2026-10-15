@@ -1224,6 +1224,10 @@ interface GroundDragState {
   /** Maj enfoncee a l'appui : un clic sans glisser ne fait rien (ni
    *  deplacement ni deselection), comme Maj + clic dans le vide en bataille. */
   shift: boolean;
+  /** Unite occupant la case sous le curseur a l'appui, quand le rayon a
+   *  manque son modele (voir findFallbackSlot) : un clic sans glisser la
+   *  selectionne ; un glisser reste un rectangle. */
+  fallbackSlot: number | null;
 }
 let groundDrag: GroundDragState | null = null;
 
@@ -1451,6 +1455,24 @@ function findSlotIndex(object: THREE.Object3D | null): number | null {
     current = current.parent;
   }
   return null;
+}
+
+/** Enregistre un clic sur l'unite `index` pour la detection manuelle du
+ *  double-clic, commune au clic sur le modele (a l'appui) et au clic par sa
+ *  case (au relachement, voir findFallbackSlot). Renvoie vrai si ce clic
+ *  complete un double-clic. Maj + clic n'est jamais un double-clic. */
+function registerSlotClick(index: number, shift: boolean, now: number): boolean {
+  if (shift) {
+    lastUnitClickSlot = null;
+    return false;
+  }
+  if (index === lastUnitClickSlot && now - lastUnitClickTime < DOUBLE_CLICK_WINDOW_MS) {
+    lastUnitClickSlot = null;
+    return true;
+  }
+  lastUnitClickSlot = index;
+  lastUnitClickTime = now;
+  return false;
 }
 
 /** Clic simple sur une unite : selection UNIQUE (remplace toujours une
@@ -3573,6 +3595,32 @@ function isValidPlacementForUnit(unitId: string, anchorX: number, anchorZ: numbe
  *  justement en train de deplacer ne comptent pas contre eux-memes) — pas
  *  sur un obstacle, et a l'interieur de la zone de placement du joueur.
  *  Partagee par le deplacement simple et le deplacement de groupe. */
+/** Slot pose dont l'empreinte (getFootprintTiles, meme regle d'occupation
+ *  que isValidPlacementTile) contient la case (tileX, tileZ), hors
+ *  `exclude`. Au plus un en pratique (la validation interdit deux unites
+ *  sur une case) ; dans un etat anormal, le plus petit index, toujours le
+ *  meme. */
+function findSlotAtTile(tileX: number, tileZ: number, exclude: readonly number[]): number | null {
+  const index = placementSlots.findIndex((s, i) => {
+    if (exclude.includes(i) || s.x === null || s.z === null) return false;
+    return getFootprintTiles(s.unitId, s.x, s.z).some((t) => t.x === tileX && t.z === tileZ);
+  });
+  return index >= 0 ? index : null;
+}
+
+/** Repli de la selection au clic quand le rayon manque le modele d'une
+ *  unite : l'unite qui occupe la case sous le curseur. Les unites deja
+ *  selectionnees sont exclues (un clic sur leur case deplace le groupe, ce
+ *  qui permet de decaler une formation compacte d'une case), sauf l'unite
+ *  qui vient d'etre cliquee, pendant la fenetre du double-clic et sans Maj :
+ *  un second clic sur sa case complete alors le double-clic. */
+function findFallbackSlot(event: MouseEvent, shift: boolean): number | null {
+  const tile = computeHoveredTile(event);
+  if (!tile) return null;
+  const recentClick = !shift && lastUnitClickSlot !== null && performance.now() - lastUnitClickTime < DOUBLE_CLICK_WINDOW_MS ? lastUnitClickSlot : null;
+  return findSlotAtTile(tile.x, tile.z, selectedIndices.filter((i) => i !== recentClick));
+}
+
 function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: number[], excludeBuildingIndex?: number): boolean {
   const occupied = placementSlots.some((s, i) => {
     if (excludeIndices.includes(i) || s.x === null || s.z === null) return false;
@@ -3980,6 +4028,7 @@ function placementHoverMoveProposal(event: MouseEvent): UnitMoveProposal | null 
   if (unitDrag) return unitDrag.dragging && !sellZone.isPointOver(event.clientX, event.clientY) ? placementDragProposal(unitDrag, event) : null;
   if (selectedIndices.length === 0) return null;
   if (findHoveredSlot(event) !== null || findHoveredOwnedBuilding(event) !== null) return null;
+  if (findFallbackSlot(event, event.shiftKey) !== null) return null;
   const point = computeGroundPoint(event);
   return point ? placementMoveProposal(selectedIndices, point) : null;
 }
@@ -5590,16 +5639,9 @@ canvas.addEventListener('mousedown', (event) => {
     // groupe qu'on vient de poser.
     // Maj + clic : ajout/retrait, jamais un double-clic (meme regle qu'en
     // bataille).
-    const now = performance.now();
-    if (event.shiftKey) {
-      lastUnitClickSlot = null;
-    } else if (hoveredSlot === lastUnitClickSlot && now - lastUnitClickTime < DOUBLE_CLICK_WINDOW_MS) {
-      lastUnitClickSlot = null;
+    if (registerSlotClick(hoveredSlot, event.shiftKey, performance.now())) {
       selectSameTypeGroup(hoveredSlot);
       return;
-    } else {
-      lastUnitClickSlot = hoveredSlot;
-      lastUnitClickTime = now;
     }
 
     // Ne selectionne pas tout de suite : un glisser (voir le mousemove plus
@@ -5618,7 +5660,13 @@ canvas.addEventListener('mousedown', (event) => {
   // rectangle de selection multiple (voir GroundDragState) — un simple clic
   // (sans glisser) reste resolu comme avant (handleEmptyTileClick) au
   // relachement.
-  groundDrag = { startClientX: event.clientX, startClientY: event.clientY, dragging: false, shift: event.shiftKey };
+  groundDrag = {
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    dragging: false,
+    shift: event.shiftKey,
+    fallbackSlot: findFallbackSlot(event, event.shiftKey),
+  };
 });
 
 canvas.addEventListener('mousedown', (event) => {
@@ -5722,8 +5770,17 @@ window.addEventListener('mouseup', (event) => {
 
   if (!drag.dragging) {
     // Pas assez bouge pour compter comme un rectangle de selection : clic
-    // simple, comportement inchange (deplacement de l'unite/du groupe en
-    // main, voir handleEmptyTileClick). Maj + clic dans le vide : rien.
+    // simple. Sur la case d'une unite (rayon qui a manque son modele, voir
+    // findFallbackSlot) : meme resolution qu'un clic sur le modele. Sinon,
+    // comportement inchange du sol (deplacement de l'unite/du groupe en
+    // main, voir handleEmptyTileClick) ; Maj + clic dans le vide : rien.
+    if (drag.fallbackSlot !== null) {
+      const index = drag.fallbackSlot;
+      if (registerSlotClick(index, drag.shift, performance.now())) selectSameTypeGroup(index);
+      else if (drag.shift) toggleSlotSelection(index);
+      else selectSlot(index);
+      return;
+    }
     if (!drag.shift) handleEmptyTileClick(event);
     return;
   }
