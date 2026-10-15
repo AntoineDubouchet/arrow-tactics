@@ -16,16 +16,15 @@ export const BOARD_W = 18;
 export const BOARD_H = 26;
 /** Nombre de rangees de placement de chaque cote. */
 export const PLACEMENT_ROWS = 7;
-/** Rayon (en cases) de repli quand un clic/glisser de deplacement en
- *  placement tombe sur une case invalide (2026-08-10, bug remonte par
- *  Antoine : la camera inclinee fait parfois tomber le rayon sur la case
- *  voisine d'une case visuellement ciblee, pres du bord) — on cherche alors
- *  la case valide la plus proche dans ce rayon plutot que d'abandonner le
- *  deplacement en silence. Volontairement PETIT (pas un `findFreePlacementTile`
- *  a la portee illimitee, pense pour un tout autre cas d'usage) : un echec
- *  au-dela de ce rayon reste un vrai refus (case occupee, hors zone...), pas
- *  une imprecision de clic. */
-export const MOVE_CLICK_NEAREST_TILE_RADIUS = 1;
+/** Rayon (en cases) de recherche d'une case de repli quand la case visee
+ *  par une unite deplacee sur la grille est invalide ou deja prise (editeur
+ *  et preparation, voir core/gridGroupMove.ts) : la case valide et libre la
+ *  plus proche dans ce rayon est retenue, sinon le deplacement est refuse.
+ *  Couvre l'imprecision d'un clic pres d'un bord de case (camera inclinee)
+ *  et les unites d'un groupe bloquees par un obstacle ou un bord. Passe de 1
+ *  a 2 avec le deplacement de groupe centre : a 1, une formation compacte
+ *  contre un arbre n'avait souvent aucune case de repli. */
+export const GRID_MOVE_SEARCH_RADIUS = 2;
 /** Seuil de la barriere de securite "il vous reste de l'or non depense"
  *  (voir main.ts, requestValidatePlacement) — proportion de l'or possede au
  *  DEBUT de la phase de placement (goldAtPlacementStart) au-dela de laquelle

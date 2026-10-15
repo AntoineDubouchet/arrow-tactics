@@ -16,7 +16,7 @@ import {
   MACHINE_GUN_FALLBACK_TARGET_OFFSET,
   MACHINE_GUN_ORIGIN_OFFSET,
   MACHINE_GUN_SECONDARY_TARGET_RADIUS,
-  MOVE_CLICK_NEAREST_TILE_RADIUS,
+  GRID_MOVE_SEARCH_RADIUS,
   type ObstacleDef,
   PLACEMENT_GOLD_WARNING_RATIO,
   PLAYER_ARROW_COOLDOWN,
@@ -42,10 +42,11 @@ import {
 import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapExpansion';
 import { Loop } from './core/loop';
 import { dist } from './core/math';
+import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMoveMember } from './core/gridGroupMove';
 import { getBuilding } from './data/buildings';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
 import { getUnit, type UnitStats } from './data/units';
-import { EditorState } from './editor/editorState';
+import { EditorState, teamForZ } from './editor/editorState';
 import { EditorHistory } from './editor/history';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
@@ -67,7 +68,7 @@ import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
 import { buildObstacleMesh } from './render/obstacleFactory';
 import { buildCellGridLines, buildTerrainCellsView } from './render/terrainCells';
-import { PlacementHighlight } from './render/placementHighlight';
+import { UnitMovePreview, type UnitMovePreviewItem } from './render/unitMovePreview';
 import { DEFAULT_LAUNCH_HEIGHT, PlayerArrowView, preloadPlayerArrowModel } from './render/playerArrowView';
 import { Projectiles } from './render/projectiles';
 import { Renderer } from './render/renderer';
@@ -1147,8 +1148,8 @@ interface UnitDragState {
   slotIndex: number;
   /** Non-null si le slot glisse fait partie du groupe actuellement
    *  selectionne (voir selectedIndices) : on deplace ou on vend alors tout
-   *  le groupe d'un bloc plutot que ce seul slot — meme delta que
-   *  handleGroupMoveClick, slotIndex sert d'ancre. */
+   *  le groupe d'un bloc plutot que ce seul slot — le slot saisi arrive
+   *  sous le curseur, le groupe suit (voir placementDragProposal). */
   groupIndices: number[] | null;
   startClientX: number;
   startClientY: number;
@@ -1209,7 +1210,7 @@ function cancelUnitDrag(): void {
   unitDrag = null;
   sellZone.hideGhost();
   sellZone.setArmed(false);
-  placementHighlight.hide();
+  unitMovePreview.hide();
 }
 
 /** Glisser sur le SOL (pas sur une unite) pendant le placement : au-dela du
@@ -1236,11 +1237,11 @@ const enemyPreview = new THREE.Group();
 renderer.scene.add(playerPreview);
 renderer.scene.add(enemyPreview);
 
-/** Aperçu de destination pendant un glisser en placement (voir
- *  render/placementHighlight.ts) — un ou plusieurs cadres bleus selon qu'on
- *  glisse une unite seule ou un groupe. */
-const placementHighlight = new PlacementHighlight();
-renderer.scene.add(placementHighlight.group);
+/** Apercu de deplacement d'unites sur la grille (empreintes vertes/rouges et
+ *  silhouettes translucides), partage par la preparation et l'editeur : voir
+ *  updateMovePreview. */
+const unitMovePreview = new UnitMovePreview();
+renderer.scene.add(unitMovePreview.group);
 
 /** Reticule de vise au sol pour la fleche du joueur : suit la souris pendant
  *  la bataille, s'assombrit pendant le cooldown pour signaler qu'un tir n'est
@@ -1421,6 +1422,7 @@ function refreshPlayerPreview(): void {
   // apres toute vente/achat, donc un seul point d'appel suffit, jamais besoin
   // de le repeter a chaque site qui modifie selectedIndices.
   sellZone.setSelection(selectedIndices.length, computeSellValue(selectedIndices));
+  refreshMovePreview();
 }
 
 /** Valeur de revente EFFECTIVE d'un lot d'unites (somme des valeurs
@@ -2281,6 +2283,7 @@ function refreshEditorObjects(): void {
   } else if (transformControls.object) {
     transformControls.detach();
   }
+  refreshMovePreview();
 }
 
 async function enterEditor(): Promise<void> {
@@ -2583,25 +2586,12 @@ function handleEditorClick(event: MouseEvent): void {
   // Outil selection : un clic sur un objet/unite pose le selectionne ; un
   // clic sur le sol avec quelque chose deja selectionne le deplace ; un clic
   // dans le vide deselectionne.
-  const obstacleHit = raycaster.intersectObjects(editorObjectsGroup.children, true)[0];
-  const unitHit = raycaster.intersectObjects(editorUnitsGroup.children, true)[0];
-  // La Baliste (modele partage avec le jeu, voir ballistaPlatform) est aussi
-  // cliquable directement.
-  const ballistaHit = raycaster.intersectObject(ballistaPlatform, true)[0];
-  // En cas de double hit (rare, objets tres proches), on garde le plus proche
-  // de la camera plutot qu'une priorite arbitraire obstacle/unite/Baliste.
-  const hit = [obstacleHit, unitHit, ballistaHit].reduce<THREE.Intersection | undefined>(
-    (best, h) => (h && (!best || h.distance < best.distance) ? h : best),
-    undefined,
-  );
-  const clickedBallista = hit !== undefined && hit === ballistaHit;
-  const clickedObstacleId = hit && !clickedBallista ? findEditorObstacleId(hit.object) : null;
-  const clickedUnitId = clickedObstacleId === null && hit && !clickedBallista ? findEditorUnitId(hit.object) : null;
+  const picked = pickEditorObjectAt(event);
 
-  if (clickedBallista) {
+  if (picked?.kind === 'ballista') {
     editorState.select({ kind: 'ballista' });
-  } else if (clickedObstacleId !== null) {
-    editorState.select({ kind: 'obstacle', id: clickedObstacleId });
+  } else if (picked?.kind === 'obstacle') {
+    editorState.select({ kind: 'obstacle', id: picked.id });
   } else {
     // Unite ou sol : resolu au relachement, clic simple ou rectangle de
     // selection selon le deplacement (voir resolveEditorPointerClick).
@@ -2610,13 +2600,89 @@ function handleEditorClick(event: MouseEvent): void {
       startClientY: event.clientY,
       dragging: false,
       shift: event.shiftKey,
-      unitId: clickedUnitId,
+      unitId: picked?.kind === 'unit' ? picked.id : null,
       groundX: groundHit.x,
       groundZ: groundHit.z,
     };
     return;
   }
   refreshEditorObjects();
+}
+
+/** Objet de l'editeur sous le curseur (decor, unite ou Baliste), ou null
+ *  pour le sol : ce qu'un clic de l'outil selection viserait. En cas de
+ *  double hit (rare, objets tres proches), le plus proche de la camera
+ *  plutot qu'une priorite arbitraire. */
+function pickEditorObjectAt(event: MouseEvent): { kind: 'ballista' } | { kind: 'obstacle'; id: number } | { kind: 'unit'; id: number } | null {
+  setRaycasterFromEvent(event);
+  const obstacleHit = raycaster.intersectObjects(editorObjectsGroup.children, true)[0];
+  const unitHit = raycaster.intersectObjects(editorUnitsGroup.children, true)[0];
+  // La Baliste (modele partage avec le jeu, voir ballistaPlatform) est aussi
+  // cliquable directement.
+  const ballistaHit = raycaster.intersectObject(ballistaPlatform, true)[0];
+  const hit = [obstacleHit, unitHit, ballistaHit].reduce<THREE.Intersection | undefined>(
+    (best, h) => (h && (!best || h.distance < best.distance) ? h : best),
+    undefined,
+  );
+  if (!hit) return null;
+  if (hit === ballistaHit) return { kind: 'ballista' };
+  const obstacleId = findEditorObstacleId(hit.object);
+  if (obstacleId !== null) return { kind: 'obstacle', id: obstacleId };
+  const unitId = findEditorUnitId(hit.object);
+  return unitId !== null ? { kind: 'unit', id: unitId } : null;
+}
+
+/** Plan de deplacement des unites selectionnees de l'editeur, le centre de
+ *  la formation venant au point `target`. Regles de l'editeur
+ *  (canPlaceUnitAt : case existante, hors Baliste, sans obstacle bloquant ni
+ *  autre unite), sans compter les cases actuelles des unites deplacees. Le
+ *  camp montre est celui que le deplacement donnera (teamForZ, moitie du
+ *  plateau). */
+function editorUnitMoveProposal(target: { x: number; z: number }): UnitMoveProposal | null {
+  if (!editorState) return null;
+  const state = editorState;
+  const ids = new Set(state.selectedUnitIds);
+  const units = state.units.filter((u) => ids.has(u.id));
+  if (units.length === 0) return null;
+  const members = units.map((u) => ({ key: u.id, x: u.x, z: u.z }));
+  const plan = planGridGroupMove(members, target, {
+    isFree: (_id, x, z) => state.canPlaceUnitAt(x, z, ids),
+    searchRadius: GRID_MOVE_SEARCH_RADIUS,
+    tile: TILE,
+  });
+  const items = plan.destinations.map((d, i) => ({ unitId: units[i]!.unitId, team: teamForZ(d.z), x: d.x, z: d.z, valid: d.placed }));
+  return { members, plan, items };
+}
+
+/** Deplacement propose par le curseur dans l'editeur, ou null si un clic a
+ *  cet endroit ne deplacerait pas d'unites (outil de pose, aucune unite
+ *  selectionnee, curseur sur un objet qu'un clic selectionnerait, rectangle,
+ *  gizmo ou rotation en cours). */
+function editorHoverMoveProposal(event: MouseEvent): UnitMoveProposal | null {
+  if (!inEditorMode || !editorState || editorState.tool.type !== 'select') return null;
+  if (editorPointer?.dragging || transformDragging || ringRotateDrag) return null;
+  if (editorState.selectedUnitIds.length === 0) return null;
+  if (pickEditorObjectAt(event) !== null) return null;
+  const point = computeGroundPoint(event);
+  return point ? editorUnitMoveProposal(point) : null;
+}
+
+/** Applique un plan de l'editeur valide : une seule entree d'historique pour
+ *  tout le groupe, avec la position et le camp de chaque unite avant et
+ *  apres. */
+function applyEditorUnitMove(proposal: UnitMoveProposal): void {
+  if (!editorState || !proposal.plan.valid) return;
+  const { before, after } = editorState.moveUnits(proposal.plan.destinations.map((d) => ({ id: d.key, x: d.x, z: d.z })));
+  editorHistory.push({
+    undo: () => {
+      editorState?.setUnitStates(before);
+      refreshEditorObjects();
+    },
+    redo: () => {
+      editorState?.setUnitStates(after);
+      refreshEditorObjects();
+    },
+  });
 }
 
 /** Appui gauche de l'outil selection sur une unite ou sur le sol de
@@ -2647,7 +2713,7 @@ function cancelEditorPointer(): void {
  *  unites visibles du meme type et du meme camp, Maj l'ajoute ou la retire.
  *  Sur le sol : Maj ne fait rien ; sans Maj, comportement inchange (la
  *  selection d'unites ou la Baliste s'y deplace, sinon deselection). */
-function resolveEditorPointerClick(pointer: EditorPointerState): void {
+function resolveEditorPointerClick(pointer: EditorPointerState, event: MouseEvent): void {
   if (!editorState) return;
   if (pointer.unitId !== null) {
     if (pointer.shift) {
@@ -2668,10 +2734,11 @@ function resolveEditorPointerClick(pointer: EditorPointerState): void {
   }
 
   if (pointer.shift) return;
-  if (editorState.selectedUnit) {
-    editorState.moveSelectedUnit(snapToTileCenter(pointer.groundX), snapToTileCenter(pointer.groundZ));
-  } else if (editorState.selection?.kind === 'unit-group') {
-    editorState.moveSelectedGroup(snapToTileCenter(pointer.groundX), snapToTileCenter(pointer.groundZ));
+  if (editorState.selectedUnitIds.length > 0) {
+    // Deplacement selon le plan montre par l'apercu, au point de
+    // relachement (meme calcul). Echec : rien ne bouge, la selection reste.
+    const proposal = editorHoverMoveProposal(event);
+    if (proposal && proposal.plan.valid && !isNoopGridMove(proposal.members, proposal.plan)) applyEditorUnitMove(proposal);
   } else if (editorState.selection?.kind === 'ballista') {
     moveEditorBallista(pointer.groundX, pointer.groundZ);
   } else {
@@ -2718,7 +2785,7 @@ window.addEventListener('mouseup', (event) => {
   cancelEditorPointer();
   if (!inEditorMode || !editorState) return;
   if (pointer.dragging) selectEditorUnitsInRect(selectionBox.toRect(pointer.startClientX, pointer.startClientY, event.clientX, event.clientY));
-  else resolveEditorPointerClick(pointer);
+  else resolveEditorPointerClick(pointer, event);
   refreshEditorObjects();
 });
 
@@ -3839,119 +3906,126 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   return true;
 }
 
-/** Case valide la PLUS PROCHE de (targetX, targetZ), dans un petit rayon
- *  fixe (voir MOVE_CLICK_NEAREST_TILE_RADIUS) — distincte de
- *  findFreePlacementTile (rayon illimite, pensee pour un achat qui doit
- *  trouver N'IMPORTE QUELLE case libre meme loin) : ici, un clic/glisser de
- *  deplacement legerement a cote de la case visee (parallaxe de la camera
- *  inclinee pres d'un bord de case) doit quand meme deplacer l'unite,
- *  jamais echouer en silence — mais rester un vrai refus (case occupee,
- *  hors zone) au-dela de ce petit rayon. Renvoie la case visee telle quelle
- *  si elle est deja valide (cas normal, aucune recherche necessaire). */
-function findNearestValidTile(
-  unitId: string,
-  targetX: number,
-  targetZ: number,
-  excludeIndices: number[],
-): { x: number; z: number } | null {
-  if (isValidPlacementForUnit(unitId, targetX, targetZ, excludeIndices)) return { x: targetX, z: targetZ };
-
-  let best: { x: number; z: number } | null = null;
-  let bestDistSq = Infinity;
-  const r = MOVE_CLICK_NEAREST_TILE_RADIUS;
-  for (let dx = -r; dx <= r; dx++) {
-    for (let dz = -r; dz <= r; dz++) {
-      if (dx === 0 && dz === 0) continue;
-      const x = targetX + dx * TILE;
-      const z = targetZ + dz * TILE;
-      if (!isValidPlacementForUnit(unitId, x, z, excludeIndices)) continue;
-      const distSq = dx * dx + dz * dz;
-      if (distSq < bestDistSq) {
-        bestDistSq = distSq;
-        best = { x, z };
-      }
-    }
-  }
-  return best;
+/** Deplacement d'unites sur la grille, pret a etre affiche (apercu) ou
+ *  applique (clic, relachement d'un glisser) : les deux passent toujours par
+ *  le meme calcul (core/gridGroupMove.ts), l'apercu montre donc exactement
+ *  ce que le clic fera. */
+interface UnitMoveProposal {
+  members: GridMoveMember[];
+  plan: GridGroupMovePlan;
+  items: UnitMovePreviewItem[];
 }
 
-/** Clic sur une case vide de la zone : deplace l'unite en main (selectedIndices,
- *  1 element) jusque-la, si la case (ou a defaut la case valide la plus
- *  proche, voir findNearestValidTile) est libre, hors obstacle et dans la
- *  zone — ou, si un GROUPE est selectionne (2+ elements), deplace tout le
- *  groupe (voir handleGroupMoveClick). Ne gere plus la selection elle-meme
- *  (voir findHoveredSlot/le listener mousedown) — separee pour laisser la
- *  place au geste de glisser-vendre. */
-function handleEmptyTileClick(event: MouseEvent): void {
-  if (selectedIndices.length > 1) {
-    handleGroupMoveClick(event);
-    return;
-  }
-  const index = selectedIndices[0];
-  if (index === undefined) return;
+/** Plan de deplacement des slots `indices` en preparation, le centre de la
+ *  formation venant au point `target`. Regles de la preparation
+ *  (isValidPlacementForUnit : zone, obstacles, batiments dont la Baliste,
+ *  autres unites), sans compter les cases actuelles du groupe deplace. */
+function placementMoveProposal(indices: readonly number[], target: { x: number; z: number }): UnitMoveProposal | null {
+  const moving = indices.filter((i) => placementSlots[i]?.x !== null && placementSlots[i]?.z !== null);
+  if (moving.length === 0) return null;
+  const members = moving.map((i) => ({ key: i, x: placementSlots[i]!.x!, z: placementSlots[i]!.z! }));
+  const plan = planGridGroupMove(members, target, {
+    isFree: (i, x, z) => isValidPlacementForUnit(placementSlots[i]!.unitId, x, z, moving),
+    footprint: (i, x, z) => getFootprintTiles(placementSlots[i]!.unitId, x, z),
+    searchRadius: GRID_MOVE_SEARCH_RADIUS,
+    tile: TILE,
+  });
+  const items = plan.destinations.map((d) => {
+    const unitId = placementSlots[d.key]!.unitId;
+    return { unitId, team: 'player' as const, x: d.x, z: d.z, valid: d.placed, footprint: getFootprintTiles(unitId, d.x, d.z) };
+  });
+  return { members, plan, items };
+}
+
+/** Glisser d'une unite (ou de son groupe) en preparation : l'unite saisie
+ *  arrive sur la case survolee, le reste de la formation suit avec le meme
+ *  decalage ; meme calcul que le clic, seul le point vise change. */
+function placementDragProposal(drag: UnitDragState, event: MouseEvent): UnitMoveProposal | null {
   const tile = computeHoveredTile(event);
-  if (!tile) return;
-  const target = findNearestValidTile(placementSlots[index]!.unitId, tile.x, tile.z, [index]);
-  if (!target) return;
-
-  placementSlots[index]!.x = target.x;
-  placementSlots[index]!.z = target.z;
-  clearSelection();
-  refreshPlayerPreview();
+  const grabbed = placementSlots[drag.slotIndex];
+  if (!tile || !grabbed || grabbed.x === null || grabbed.z === null) return null;
+  const group = drag.groupIndices ?? [drag.slotIndex];
+  const placed = group.filter((i) => placementSlots[i]?.x !== null && placementSlots[i]?.z !== null);
+  const cx = placed.reduce((sum, i) => sum + placementSlots[i]!.x!, 0) / placed.length;
+  const cz = placed.reduce((sum, i) => sum + placementSlots[i]!.z!, 0) / placed.length;
+  return placementMoveProposal(group, { x: tile.x + cx - grabbed.x, z: tile.z + cz - grabbed.z });
 }
 
-/** Calcule les nouvelles positions du groupe si `anchorIndex` (un de ses
- *  membres) atterrissait sur `targetTile` — le meme delta (en cases entieres)
- *  s'applique a tous les autres membres, pour preserver la formation
- *  relative. Partage entre le clic (handleGroupMoveClick) et le glisser
- *  (voir listeners mousemove/mouseup plus bas), pour ne calculer cette
- *  logique qu'a un seul endroit. */
-function computeGroupPreview(
-  anchorIndex: number,
-  group: number[],
-  targetTile: { x: number; z: number },
-): { positions: { i: number; x: number; z: number }[]; allValid: boolean } {
-  const anchor = placementSlots[anchorIndex]!;
-  const deltaX = targetTile.x - anchor.x!;
-  const deltaZ = targetTile.z - anchor.z!;
-
-  const positions = group.map((i) => ({ i, x: placementSlots[i]!.x! + deltaX, z: placementSlots[i]!.z! + deltaZ }));
-  const allValid = positions.every((p) => isValidPlacementForUnit(placementSlots[p.i]!.unitId, p.x, p.z, group));
-  return { positions, allValid };
+/** Deplacement propose par le curseur en preparation, ou null si un clic a
+ *  cet endroit ne deplacerait rien (aucune selection, curseur sur une unite
+ *  ou un batiment qu'un clic selectionnerait, autre geste prioritaire). */
+function placementHoverMoveProposal(event: MouseEvent): UnitMoveProposal | null {
+  if (!inPlacementPhase || buildingPlacementMode || armedItemIndex !== null || towerPlacementActive || groundDrag?.dragging) return null;
+  // Au-dessus de "Vendre", le relachement vendrait : aucun apercu de
+  // deplacement (la zone laisse passer les evenements jusqu'au canvas).
+  if (unitDrag) return unitDrag.dragging && !sellZone.isPointOver(event.clientX, event.clientY) ? placementDragProposal(unitDrag, event) : null;
+  if (selectedIndices.length === 0) return null;
+  if (findHoveredSlot(event) !== null || findHoveredOwnedBuilding(event) !== null) return null;
+  const point = computeGroundPoint(event);
+  return point ? placementMoveProposal(selectedIndices, point) : null;
 }
 
-/** Deplace tout le groupe selectionne d'un seul bloc : le premier membre du
- *  groupe sert d'ancre (son deplacement exact, en cases entieres, est
- *  applique tel quel a tous les autres — preserve la formation relative).
- *  Si la nouvelle position d'UN SEUL membre est invalide, tout le
- *  deplacement est annule (pas de deplacement partiel). Un clic qui ne mene
- *  a aucun deplacement valide DESELECTIONNE le groupe (demande d'Antoine,
- *  2026-08-08 : "clic gauche dans le vide" pour desselectionner) —
- *  contrairement au deplacement simple, qui laisse l'unite selectionnee pour
- *  reessayer. */
-function handleGroupMoveClick(event: MouseEvent): void {
-  const group = selectedIndices;
-  if (group.length === 0) return;
+/** Applique un plan de preparation valide ; renvoie faux (rien ne bouge)
+ *  si une seule unite n'a pas de destination. */
+function applyPlacementMove(proposal: UnitMoveProposal): boolean {
+  if (!proposal.plan.valid) return false;
+  for (const d of proposal.plan.destinations) {
+    placementSlots[d.key]!.x = d.x;
+    placementSlots[d.key]!.z = d.z;
+  }
+  return true;
+}
 
-  const targetTile = computeHoveredTile(event);
-  if (!targetTile) {
-    clearSelection();
-    refreshPlayerPreview();
+/** Clic sur le sol de la zone avec une selection : la deplace selon le plan
+ *  affiche par l'apercu (meme calcul, meme point). Une unite seule est un
+ *  groupe d'un membre. Reussite comme echec (une unite sans destination,
+ *  rien ne bouge), la selection est conservee : le meme groupe peut etre
+ *  repositionne plusieurs fois sans etre reselectionne. */
+function handleEmptyTileClick(event: MouseEvent): void {
+  if (selectedIndices.length === 0) return;
+  const proposal = placementHoverMoveProposal(event);
+  if (!proposal || isNoopGridMove(proposal.members, proposal.plan)) return;
+  if (!applyPlacementMove(proposal)) {
+    unitMovePreview.show(proposal.items);
     return;
   }
-
-  const { positions, allValid } = computeGroupPreview(group[0]!, group, targetTile);
-
-  if (allValid) {
-    for (const p of positions) {
-      placementSlots[p.i]!.x = p.x;
-      placementSlots[p.i]!.z = p.z;
-    }
-  }
-
-  clearSelection();
   refreshPlayerPreview();
 }
+
+/** Dernier evenement souris, pour recalculer l'apercu quand l'etat change
+ *  sans que la souris bouge (selection, deplacement, annuler, zoom). */
+let movePreviewPointer: MouseEvent | null = null;
+/** L'apercu est recalcule une fois par image, juste APRES le rendu (voir la
+ *  boucle) : les modeles reconstruits (refreshPlayerPreview,
+ *  refreshEditorObjects) doivent avoir ete rendus avant tout lancer de
+ *  rayon. Avant le premier rendu, les os d'un modele anime ont des matrices
+ *  nulles ; un rayon lance a ce moment calcule et garde en cache une sphere
+ *  englobante de rayon nul, et l'unite ne serait plus jamais cliquable. */
+let movePreviewDirty = false;
+
+/** Apercu de deplacement sous le curseur (preparation ou editeur) : le meme
+ *  calcul que le clic qui suivrait. Masque si un clic n'y deplacerait rien,
+ *  si le plan ne change aucune position, pendant un geste camera ou au-dessus
+ *  de l'interface. */
+function updateMovePreview(event: MouseEvent): void {
+  let proposal: UnitMoveProposal | null = null;
+  if (event.target === canvas && cameraDrag === null) {
+    if (inEditorMode) proposal = editorHoverMoveProposal(event);
+    else if (inPlacementPhase) proposal = placementHoverMoveProposal(event);
+  }
+  if (!proposal || isNoopGridMove(proposal.members, proposal.plan)) unitMovePreview.hide();
+  else unitMovePreview.show(proposal.items);
+}
+
+/** Demande un recalcul de l'apercu apres le prochain rendu. */
+function refreshMovePreview(): void {
+  movePreviewDirty = true;
+}
+
+window.addEventListener('mousemove', (event) => {
+  movePreviewPointer = event;
+  movePreviewDirty = true;
+});
 
 /** Projette une position monde (sol) vers des coordonnees ecran (pixels),
  *  pour tester quelles unites tombent dans le rectangle de selection glisse
@@ -4531,6 +4605,8 @@ const loop = new Loop(
     // (fin de vague, placement, menu, editeur). Une entite morte ou disparue
     // apres world.clear() est abandonnee par sync() lui-meme.
     if (inBattlePhase()) battleSelection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id));
+    // L'apercu de deplacement n'existe qu'en preparation et dans l'editeur.
+    if (!inPlacementPhase && !inEditorMode) unitMovePreview.hide();
     else battleSelection.clear();
     ballistaIndicator.update(inBattlePhase() && !pauseMenuOpen, currentBallistaStatus(), battleSelection.size);
 
@@ -4599,6 +4675,11 @@ const loop = new Loop(
     // pendant qu'on bouge la camera, la barre se projette avec la matrice du
     // frame precedent et se decale visiblement de l'unite.
     renderer.render();
+    if (movePreviewDirty) {
+      movePreviewDirty = false;
+      if (movePreviewPointer) updateMovePreview(movePreviewPointer);
+      else unitMovePreview.hide();
+    }
     // Batiments gameplay (Mine, Baliste) EXCLUS de sync() : cette methode
     // suppose une vraie unite (getUnit(entity.unitId) pour hpBarHeight) —
     // voir syncBuildings juste en dessous, qui prend radius/hpBarHeight
@@ -5324,6 +5405,7 @@ let lastMouseY = 0;
 
 function startCameraDrag(mode: 'rotate' | 'pan', event: MouseEvent): void {
   cameraDrag = mode;
+  unitMovePreview.hide();
   lastMouseX = event.clientX;
   lastMouseY = event.clientY;
   pendingRightClickOrder = false;
@@ -5351,9 +5433,9 @@ function cancelLeftPointerGestures(): void {
   cancelEditorPointer();
   if (unitDrag) {
     sellZone.hideGhost();
-    placementHighlight.hide();
     unitDrag = null;
   }
+  unitMovePreview.hide();
 }
 
 // Clic droit deja enfonce, puis clic gauche : pan. Le clic droit en attente
@@ -5586,7 +5668,7 @@ window.addEventListener('mouseup', (event) => {
     return;
   }
 
-  placementHighlight.hide();
+  unitMovePreview.hide();
   sellZone.hideGhost();
   sellZone.setArmed(false);
 
@@ -5599,38 +5681,13 @@ window.addEventListener('mouseup', (event) => {
     return;
   }
 
-  if (drag.groupIndices) {
-    // Glisser de GROUPE qui ne tombe pas sur "Vendre" : deplacement, voir
-    // computeGroupPreview, meme logique que handleGroupMoveClick. Un essai
-    // qui n'aboutit a aucun deplacement valide deselectionne quand meme le
-    // groupe (meme convention que la version au clic).
-    const tile = computeHoveredTile(event);
-    if (tile) {
-      const { positions, allValid } = computeGroupPreview(drag.slotIndex, drag.groupIndices, tile);
-      if (allValid) {
-        for (const p of positions) {
-          placementSlots[p.i]!.x = p.x;
-          placementSlots[p.i]!.z = p.z;
-        }
-      }
-    }
-    clearSelection();
-    refreshPlayerPreview();
-    return;
-  }
-
-  // Glisser-deplacer une unite SEULE (demande d'Antoine, 2026-08-10) : si le
-  // point de relachement tombe sur une case valide (ou a defaut la plus
-  // proche, voir findNearestValidTile), l'unite s'y deplace, sinon elle
-  // reste ou elle etait.
-  const tile = computeHoveredTile(event);
-  const target = tile && findNearestValidTile(placementSlots[drag.slotIndex]!.unitId, tile.x, tile.z, [drag.slotIndex]);
-  if (target) {
-    placementSlots[drag.slotIndex]!.x = target.x;
-    placementSlots[drag.slotIndex]!.z = target.z;
-    if (selectedIndices.length === 1 && selectedIndices[0] === drag.slotIndex) clearSelection();
-    refreshPlayerPreview();
-  }
+  // Sinon, deplacement selon le plan montre par l'apercu pendant le glisser
+  // (placementDragProposal, meme calcul) ; relache sur l'interface : rien.
+  // Reussite comme echec (rien ne bouge), la selection est conservee.
+  if (event.target !== canvas) return;
+  const proposal = placementDragProposal(drag, event);
+  if (!proposal || !applyPlacementMove(proposal)) return;
+  refreshPlayerPreview();
 });
 
 window.addEventListener('mouseup', (event) => {
@@ -5723,50 +5780,8 @@ window.addEventListener('mousemove', (event) => {
   const overSellZone = sellZone.isPointOver(event.clientX, event.clientY);
   sellZone.setArmed(overSellZone);
 
-  // Apercu de destination (demande d'Antoine, 2026-08-10 : "le tour de la
-  // case ... s'illuminerait en bleu pour prevenir le joueur d'ou il place son
-  // unite") — masque au-dessus de la zone de vente, ou les deux retours
-  // visuels se contrediraient (vendre vs deplacer). Vaut aussi pour un
-  // glisser de GROUPE depuis 2026-08-14 (auparavant seul le glisser simple
-  // regardait `overSellZone`).
-  if (overSellZone) {
-    placementHighlight.hide();
-    return;
-  }
-
-  if (unitDrag.groupIndices) {
-    // Apercu de GROUPE (demande d'Antoine, 2026-08-10) : un cadre bleu par
-    // membre a sa destination prevue, seulement si le deplacement ENTIER est
-    // valide (meme tout-ou-rien que le deplacement au clic) — sinon aucun
-    // cadre, pour signaler clairement "pas la".
-    const tile = computeHoveredTile(event);
-    if (tile) {
-      const { positions, allValid } = computeGroupPreview(unitDrag.slotIndex, unitDrag.groupIndices, tile);
-      // Un cadre par case occupee (voir getFootprintTiles) : un membre a
-      // empreinte previsualise ses DEUX cases, pas seulement son ancre.
-      if (allValid) placementHighlight.show(positions.flatMap((p) => getFootprintTiles(placementSlots[p.i]!.unitId, p.x, p.z)));
-      else placementHighlight.hide();
-    } else {
-      placementHighlight.hide();
-    }
-    return;
-  }
-
-  const tile = computeHoveredTile(event);
-  const draggedUnitId = placementSlots[unitDrag.slotIndex]!.unitId;
-  // findNearestValidTile (pas juste isValidPlacementForUnit) : l'aperçu doit
-  // refléter EXACTEMENT ce qui se passera au relâchement (voir plus bas),
-  // sinon un clic pres d'un bord de case se solderait par un aperçu masqué
-  // suivi d'un deplacement qui reussit quand meme — incohérent.
-  const target = tile && findNearestValidTile(draggedUnitId, tile.x, tile.z, [unitDrag.slotIndex]);
-  if (target) {
-    // Un cadre par case occupee (voir getFootprintTiles) : une unite a
-    // empreinte (Cavalier leger) previsualise ses DEUX cases, pas seulement
-    // celle sous le curseur.
-    placementHighlight.show(getFootprintTiles(draggedUnitId, target.x, target.z));
-  } else {
-    placementHighlight.hide();
-  }
+  // Apercu de destination (empreintes et silhouettes) : voir
+  // updateMovePreview, masque au-dessus de la zone de vente.
 });
 
 window.addEventListener('mousemove', (event) => {
@@ -5881,6 +5896,7 @@ canvas.addEventListener(
       return;
     }
     renderer.adjustZoom(Math.sign(event.deltaY) * CAMERA.wheelZoomStep);
+    refreshMovePreview();
   },
   { passive: false },
 );

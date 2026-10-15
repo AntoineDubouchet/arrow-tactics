@@ -59,7 +59,7 @@ export interface EditorUnit {
 /** Une selection d'UNITES est un ensemble ordonne d'unites, toujours
  *  normalise par selectUnits : une seule unite = `unit`, deux ou plus =
  *  `unit-group` (jamais un groupe a un membre). `ids[0]` sert d'ANCRE pour
- *  un deplacement de groupe (voir moveSelectedGroup). Decors et Baliste
+ *  un deplacement de groupe. Decors et Baliste
  *  restent des selections a part, jamais melangees a des unites. */
 export type EditorSelection =
   | { kind: 'obstacle'; id: number }
@@ -80,7 +80,7 @@ export type EditorTool =
 /** Camp determine par la moitie du plateau : z >= 0 cote bleu (joueur), z < 0
  *  cote rouge (ennemi) — meme convention que les zones de placement du
  *  plateau (voir render/board.ts, createZonesGroup). */
-function teamForZ(z: number): Team {
+export function teamForZ(z: number): Team {
   return z >= 0 ? 'player' : 'enemy';
 }
 
@@ -88,6 +88,14 @@ function teamForZ(z: number): Team {
  *  pas). */
 function boundsOverlap(a: ObstacleBounds, b: ObstacleBounds): boolean {
   return a.minX < b.maxX && a.maxX > b.minX && a.minZ < b.maxZ && a.maxZ > b.minZ;
+}
+
+/** Position et camp d'une unite, pour annuler / retablir un deplacement. */
+export interface EditorUnitState {
+  id: number;
+  x: number;
+  z: number;
+  team: Team;
 }
 
 export class EditorState {
@@ -399,8 +407,9 @@ export class EditorState {
    *  cellule"). SOURCE UNIQUE partagée par la preview visuelle (case verte/
    *  rouge, voir editor/editorScene.ts buildCellPreview) et placeUnitAt
    *  ci-dessous — la preview ne doit JAMAIS promettre un résultat que le
-   *  clic ne tiendrait pas. */
-  canPlaceUnitAt(x: number, z: number): boolean {
+   *  clic ne tiendrait pas. `ignoreUnitIds` : unités en cours de
+   *  déplacement, dont la case actuelle ne bloque pas. */
+  canPlaceUnitAt(x: number, z: number, ignoreUnitIds?: ReadonlySet<number>): boolean {
     const cellX = Math.floor(x);
     const cellZ = Math.floor(z);
     if (!this.hasCellAt(cellX, cellZ)) return false;
@@ -413,7 +422,7 @@ export class EditorState {
     });
     if (onObstacle) return false;
 
-    return !this.units.some((u) => Math.floor(u.x) === cellX && Math.floor(u.z) === cellZ);
+    return !this.units.some((u) => !ignoreUnitIds?.has(u.id) && Math.floor(u.x) === cellX && Math.floor(u.z) === cellZ);
   }
 
   /** Place une nouvelle unite au point donne — le camp est deduit de la
@@ -466,47 +475,34 @@ export class EditorState {
     o.rotationY = ((rotationY % fullTurn) + fullTurn) % fullTurn;
   }
 
-  /** Deplace l'unite selectionnee et recalcule son camp — une unite trainee
-   *  de l'autre cote du plateau doit changer de couleur, pas garder son
-   *  camp d'origine. Refuse silencieusement (Part AL) si la case cible n'a
-   *  aucune cellule de terrain — l'unite reste ou elle etait. */
-  moveSelectedUnit(x: number, z: number): void {
-    const u = this.selectedUnit;
-    if (!u) return;
-    if (!this.hasCellAt(Math.floor(x), Math.floor(z))) return;
-    if (this.isInsideBallista(x, z)) return;
-    u.x = x;
-    u.z = z;
-    u.team = teamForZ(z);
+  /** Applique un deplacement d'unites deja valide (voir main.ts,
+   *  planEditorUnitMove, meme calcul que l'apercu) et recalcule le camp de
+   *  chaque unite deplacee selon la moitie du plateau (teamForZ) : une unite
+   *  amenee de l'autre cote change de camp. Renvoie l'etat de chaque unite
+   *  avant et apres, pour l'historique. */
+  moveUnits(moves: readonly { id: number; x: number; z: number }[]): { before: EditorUnitState[]; after: EditorUnitState[] } {
+    const before: EditorUnitState[] = [];
+    const after: EditorUnitState[] = [];
+    for (const move of moves) {
+      const u = this.units.find((unit) => unit.id === move.id);
+      if (!u) continue;
+      before.push({ id: u.id, x: u.x, z: u.z, team: u.team });
+      u.x = move.x;
+      u.z = move.z;
+      u.team = teamForZ(move.z);
+      after.push({ id: u.id, x: u.x, z: u.z, team: u.team });
+    }
+    return { before, after };
   }
 
-  /** Deplace tout le groupe d'un seul bloc : `ids[0]` sert d'ANCRE, son
-   *  deplacement exact (en cases entieres) est applique tel quel a tous les
-   *  autres membres — preserve la formation relative, meme principe que
-   *  main.ts/computeGroupPreview pour la phase de placement. Contrairement a
-   *  la placement, AUCUNE validation d'OCCUPATION (l'editeur n'en a jamais
-   *  eu, voir CLAUDE.md — a Antoine d'ajuster les chevauchements a la main) —
-   *  mais REFUSE tout le mouvement (tout-ou-rien) si UN SEUL membre finirait
-   *  hors d'une cellule existante (Part AL). Chaque unite deplacee recalcule
-   *  son propre camp individuellement, pas un camp de groupe unique. */
-  moveSelectedGroup(x: number, z: number): void {
-    if (this.selection?.kind !== 'unit-group') return;
-    const ids = this.selection.ids;
-    const anchor = this.units.find((u) => u.id === ids[0]);
-    if (!anchor) return;
-
-    const deltaX = x - anchor.x;
-    const deltaZ = z - anchor.z;
-    const members = ids.map((id) => this.units.find((unit) => unit.id === id)).filter((u): u is EditorUnit => u !== undefined);
-    const allOnValidCells = members.every(
-      (u) => this.hasCellAt(Math.floor(u.x + deltaX), Math.floor(u.z + deltaZ)) && !this.isInsideBallista(u.x + deltaX, u.z + deltaZ),
-    );
-    if (!allOnValidCells) return;
-
-    for (const u of members) {
-      u.x += deltaX;
-      u.z += deltaZ;
-      u.team = teamForZ(u.z);
+  /** Remet ces unites exactement dans cet etat (annuler / retablir). */
+  setUnitStates(states: readonly EditorUnitState[]): void {
+    for (const state of states) {
+      const u = this.units.find((unit) => unit.id === state.id);
+      if (!u) continue;
+      u.x = state.x;
+      u.z = state.z;
+      u.team = state.team;
     }
   }
 
