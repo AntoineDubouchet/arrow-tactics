@@ -62,7 +62,7 @@ import { EditorUI } from './editor/editorUI';
 import { downloadMapDef, exportMapDef, loadMapDefFromFile } from './editor/mapSerializer';
 import { buildBallistaTowerPlatform, playBallistaShot, tickBallista } from './render/ballista';
 import { BattleSelection, isInScreenRect, pickEntityAtScreen, selectableUnitsInScreenRect, type ScreenRect } from './render/battleSelection';
-import { attachUnitSelectionRing } from './render/unitSelectionRing';
+import { attachUnitSelectionRing, teamColor } from './render/unitSelectionRing';
 import { loadEnvironmentAssets, type EnvironmentAssets } from './render/assetLibrary';
 import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
@@ -1881,6 +1881,15 @@ function rebuildEditorBoard(): void {
 const editorSelectionRing = createEditorSelectionRing(1);
 editorSelectionRing.visible = false;
 renderer.scene.add(editorSelectionRing);
+// Materiau propre a cet anneau (createEditorSelectionRing en cree un par
+// anneau) : sa couleur peut changer sans toucher aux autres. Dore pour un
+// decor (neutre) ; couleur du camp proprietaire pour la Baliste, meme source
+// que l'anneau des unites (render/unitSelectionRing.ts, teamColor).
+const editorSelectionRingMaterial = editorSelectionRing.material as THREE.MeshBasicMaterial;
+const EDITOR_DECOR_RING_COLOR = editorSelectionRingMaterial.color.getHex();
+/** Proprietaire de la Baliste de la carte : toujours le joueur aujourd'hui
+ *  (meme camp que spawnBallistaBuilding). */
+const EDITOR_BALLISTA_OWNER: Team = 'player';
 // Zone de saisie (invisible, plus large que le trait) qui fait de l'anneau la
 // poignee de rotation d'un decor selectionne — voir tryStartRingRotate.
 const editorRingHitArea = createSelectionRingHitArea();
@@ -2260,6 +2269,7 @@ function refreshEditorObjects(): void {
     const center = obstacleCenter(selectedObstacle);
     editorSelectionRing.position.set(center.x, 0.02, center.z);
     editorSelectionRing.scale.setScalar(Math.max(selectedObstacle.tilesX, selectedObstacle.tilesZ) * 0.7);
+    editorSelectionRingMaterial.color.setHex(EDITOR_DECOR_RING_COLOR);
     editorUI.showObstacleProperties(selectedObstacle);
   } else if (selectedUnit) {
     editorUI.showUnitProperties(selectedUnit);
@@ -2267,6 +2277,7 @@ function refreshEditorObjects(): void {
     // Meme convention d'echelle que les decors, sur l'empreinte reelle.
     editorSelectionRing.position.set(editorState.ballista.x, 0.02, editorState.ballista.z);
     editorSelectionRing.scale.setScalar(BALLISTA_TOWER_FOOTPRINT * 0.7);
+    editorSelectionRingMaterial.color.setHex(teamColor(EDITOR_BALLISTA_OWNER));
     editorUI.hideProperties();
   } else {
     editorUI.hideProperties();
@@ -2592,6 +2603,12 @@ function handleEditorClick(event: MouseEvent): void {
     editorState.select({ kind: 'ballista' });
   } else if (picked?.kind === 'obstacle') {
     editorState.select({ kind: 'obstacle', id: picked.id });
+  } else if (picked === null && !event.shiftKey && editorState.selection?.kind === 'ballista') {
+    // Baliste selectionnee + appui au sol : tentative de deplacement des
+    // l'appui, jamais un rectangle de selection. Resolu au relachement, un
+    // leger mouvement de la souris pendant le clic (au-dela du seuil du
+    // rectangle) vidait la selection sans deplacer la Baliste.
+    moveEditorBallista(groundHit.x, groundHit.z);
   } else {
     // Unite ou sol : resolu au relachement, clic simple ou rectangle de
     // selection selon le deplacement (voir resolveEditorPointerClick).
@@ -2669,7 +2686,8 @@ function editorHoverMoveProposal(event: MouseEvent): UnitMoveProposal | null {
 
 /** Applique un plan de l'editeur valide : une seule entree d'historique pour
  *  tout le groupe, avec la position et le camp de chaque unite avant et
- *  apres. */
+ *  apres. La selection est ensuite videe et l'apercu masque : l'etat redevient
+ *  neutre (annuler / retablir ne restaure pas la selection). */
 function applyEditorUnitMove(proposal: UnitMoveProposal): void {
   if (!editorState || !proposal.plan.valid) return;
   const { before, after } = editorState.moveUnits(proposal.plan.destinations.map((d) => ({ id: d.key, x: d.x, z: d.z })));
@@ -2683,6 +2701,8 @@ function applyEditorUnitMove(proposal: UnitMoveProposal): void {
       refreshEditorObjects();
     },
   });
+  editorState.select(null);
+  unitMovePreview.hide();
 }
 
 /** Appui gauche de l'outil selection sur une unite ou sur le sol de
@@ -2736,11 +2756,10 @@ function resolveEditorPointerClick(pointer: EditorPointerState, event: MouseEven
   if (pointer.shift) return;
   if (editorState.selectedUnitIds.length > 0) {
     // Deplacement selon le plan montre par l'apercu, au point de
-    // relachement (meme calcul). Echec : rien ne bouge, la selection reste.
+    // relachement (meme calcul). Reussite : selection videe (voir
+    // applyEditorUnitMove). Echec : rien ne bouge, la selection reste.
     const proposal = editorHoverMoveProposal(event);
     if (proposal && proposal.plan.valid && !isNoopGridMove(proposal.members, proposal.plan)) applyEditorUnitMove(proposal);
-  } else if (editorState.selection?.kind === 'ballista') {
-    moveEditorBallista(pointer.groundX, pointer.groundZ);
   } else {
     editorState.select(null);
   }
@@ -3978,9 +3997,9 @@ function applyPlacementMove(proposal: UnitMoveProposal): boolean {
 
 /** Clic sur le sol de la zone avec une selection : la deplace selon le plan
  *  affiche par l'apercu (meme calcul, meme point). Une unite seule est un
- *  groupe d'un membre. Reussite comme echec (une unite sans destination,
- *  rien ne bouge), la selection est conservee : le meme groupe peut etre
- *  repositionne plusieurs fois sans etre reselectionne. */
+ *  groupe d'un membre. Reussite : la selection est videe et l'apercu
+ *  masque. Echec (une unite sans destination) : rien ne bouge et la
+ *  selection est conservee, pour corriger la destination aussitot. */
 function handleEmptyTileClick(event: MouseEvent): void {
   if (selectedIndices.length === 0) return;
   const proposal = placementHoverMoveProposal(event);
@@ -3989,6 +4008,8 @@ function handleEmptyTileClick(event: MouseEvent): void {
     unitMovePreview.show(proposal.items);
     return;
   }
+  clearSelection();
+  unitMovePreview.hide();
   refreshPlayerPreview();
 }
 
@@ -5683,10 +5704,13 @@ window.addEventListener('mouseup', (event) => {
 
   // Sinon, deplacement selon le plan montre par l'apercu pendant le glisser
   // (placementDragProposal, meme calcul) ; relache sur l'interface : rien.
-  // Reussite comme echec (rien ne bouge), la selection est conservee.
+  // Reussite : selection videe, apercu masque. Echec : rien ne bouge, la
+  // selection est conservee.
   if (event.target !== canvas) return;
   const proposal = placementDragProposal(drag, event);
   if (!proposal || !applyPlacementMove(proposal)) return;
+  clearSelection();
+  unitMovePreview.hide();
   refreshPlayerPreview();
 });
 
