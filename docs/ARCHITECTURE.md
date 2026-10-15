@@ -58,7 +58,7 @@ Le dépôt a deux niveaux :
 | `config/` | Constantes de réglage, types `ObstacleDef`, format de map `MapDef` |
 | `data/` | Définitions déclaratives : unités, bâtiments, objets, talents, capacités, upgrades (avec quelques lookups et calculs purs) |
 | `sim/` | Simulation de bataille |
-| `run/` | État d'une run, méta-progression, réglages, calcul des effets de talents/upgrades, expansion de map |
+| `run/` | État d'une run, méta-progression, réglages, calcul des effets de talents/upgrades, statistiques effectives du joueur (`playerUnitStats.ts`, `ballistaStats.ts`), adaptateur de la fiche d'entité (`entityInfo.ts`), expansion de map |
 | `render/` | Tout ce qui touche à Three.js : caméra, plateau, silhouettes, VFX |
 | `ui/` | Overlays HTML/CSS par-dessus le canvas |
 | `editor/` | Éditeur de maps (état, scène, UI, historique, sérialisation) |
@@ -168,11 +168,18 @@ bâtiments. Elle regroupe :
 - les drapeaux de bâtiment (`isBuilding`, `countsForDefeat`,
   `footprintObstacle`, champs de production).
 
-**`World.spawn(unitId, team, x, z, hp?, statOverrides?, abilityDamageBonus?)`**
-crée une unité depuis `data/units.ts`. Les bonus (talents, upgrades
-permanents, renforcement des ennemis par vague) sont calculés hors de la
-simulation (`run/`, `main.ts`). Ils arrivent sous forme de nombres finaux :
-la simulation ne sait jamais *pourquoi* une stat diffère de la base.
+**`World.spawn(unitId, team, x, z, hp?, statOverrides?, abilityDamageBonus?, tauntShieldBonus?)`**
+crée une unité depuis `data/units.ts`, avec `stats = { ...def.stats,
+...statOverrides }`. Les bonus (talents, upgrades permanents, renforcement
+des ennemis par vague) sont calculés hors de la simulation. Ils arrivent sous
+forme de nombres finaux : la simulation ne sait jamais *pourquoi* une stat
+diffère de la base.
+
+- Pour une unité du joueur, ces trois paramètres viennent de
+  `run/playerUnitStats.ts` (§10), à chaque site d'apparition : bataille,
+  « Tester le scénario », production de la Caserne.
+- Pour un ennemi, `main.ts` les calcule à partir de
+  `computeEnemyUnitUpgradeEffects` (`run/unitUpgradeEffects.ts`).
 
 Les capacités d'une unité sont lues à chaque tick via
 `getUnit(e.unitId).abilities` (`sim/systems/abilities.ts`). Les bâtiments
@@ -265,7 +272,8 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   d'ids déjà récompensés), quelle que soit la source de la mort ; aucun
   événement de mort n'est émis.
 - **Production des casernes** : la simulation décide *quand* et *où* ;
-  `main.ts` appelle `world.spawn` avec les stats effectives.
+  `main.ts` appelle `world.spawn` avec les stats effectives
+  (`run/playerUnitStats.ts`).
 - **Fin de bataille** : `world.countCombatants(team)` détecte qu'un camp
   n'a plus de combattant, puis `applyBattleOutcome`
   (`run/runState.ts`), puis une séquence de transition (`ui/waveTransition.ts`)
@@ -322,6 +330,43 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   seuls `run/` et `main.ts` connaissent talents et upgrades. Ils transmettent
   des nombres à la simulation et des prix à l'UI ; l'achat et l'affichage
   utilisent les mêmes fonctions.
+- **Statistiques effectives du joueur** : fonctions pures de la progression,
+  source commune du gameplay et de l'interface. Aucune de ces formules n'est
+  dupliquée dans `ui/` ni dans `main.ts`.
+  - `run/playerUnitStats.ts` :
+    - `playerUnitStatOverrides(unitId, progress)` : surcharges de stats
+      passées à `World.spawn` (esquive du talent, PV et dégâts des
+      améliorations, PV de la Sentinelle) ;
+    - `playerUnitAbilityDamageBonus` : bonus de dégâts de capacité (Boule de
+      feu du Mage) ;
+    - `playerUnitTauntShieldBonus` : bonus de bouclier par ennemi provoqué
+      (Sentinelle).
+  - `run/ballistaStats.ts` :
+    - `effectivePlayerArrowDamage`, `effectivePlayerArrowCooldown`,
+      `effectivePlayerArrowSpeed`, `totalBallistaAttackSpeedBonus` et
+      `playerArrowBoltsPerVolley` : dégâts, recharge, vitesse, somme des
+      bonus de cadence et carreaux par volée (talents Tir rapide et
+      Mitraillette, amélioration de la Baliste) ;
+    - le type `BallistaStatus`, ses libellés (`BALLISTA_STATUS_LABELS`) et
+      le format de la recharge restante (`formatBallistaCooldownSeconds`),
+      partagés par le HUD de la Baliste et la fiche d'entité.
+  - Restent dans `main.ts` : l'état courant de la Baliste
+    (`currentBallistaStatus`, qui lit le `World`), la géométrie d'une volée
+    (`buildBallistaVolleyShots`) et les bonus des ennemis.
+- **Fiche d'entité** (`run/entityInfo.ts`) : adaptateur **pur**, sans DOM ni
+  Three.js (voir §12).
+  - Il reçoit explicitement ses données : emplacement de préparation
+    (`unitId`, PV), bâtiment possédé, entité de simulation, progression,
+    état de la Baliste.
+  - Il rend un `EntityInfoViewModel` (`UnitInfo | GroupInfo | BuildingInfo
+    | BallistaInfo`) : `kind`, titre, camp, PV (texte et fraction), lignes,
+    sections (capacités), statut ; composition pour un groupe.
+  - En préparation, il recalcule les valeurs avec les fonctions ci-dessus
+    (même fusion que `World.spawn`). En bataille, il lit l'entité (`stats`,
+    `hp`, `abilityDamageBonus`, `tauntShieldBonus`, `abilityCooldowns`,
+    `shield`, champs de production).
+  - Il convertit les PV et dégâts internes en points affichés
+    (`HP_PER_PIP`) et formate les durées.
 - **Expansion de map** (`run/mapExpansion.ts`) : fonctions pures sur `MapDef`
   et un état d'expansion. `main.ts` les applique derrière l'écran de
   transition, après une victoire.
@@ -360,6 +405,11 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
       propres indicateurs. L'anneau de la Baliste dans l'éditeur garde sa
       forme, mais prend la couleur de son camp via `teamColor` (même règle
       que les unités) ; celui des décors reste doré.
+    - Un bâtiment ou la Baliste sélectionnés en préparation
+      (`updateBuildingSelectionRing`) ou inspectés en bataille
+      (`syncBattleInspection`) portent le même anneau que l'éditeur
+      (`createSelectionRing` de `editor/editorScene.ts`, appelé par
+      `main.ts`), à la couleur du camp.
   - `render/unitMovePreview.ts` : l'aperçu de déplacement (éditeur et
     préparation).
     - Il affiche des empreintes vertes ou rouges (deux matériaux partagés) et
@@ -390,7 +440,39 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 - **HUD et composants** : `goldHud`, `waveIndicator`, `inventoryBar`,
   `sellZone`, `placementPanel`, `selectionBox`, toasts, `combatOverlay`
   (barres de PV et textes flottants positionnés par projection monde →
-  écran).
+  écran), `ballistaIndicator` (HUD de la Baliste), `entityInfoPanel`
+  (fiche d'entité), `debug` (panneau de debug).
+- **Fiche d'entité** : un flux à sens unique.
+
+  ```
+  état du jeu (sélection, emplacements, RunState, MetaProgress, World)
+    → run/entityInfo.ts (adaptateur pur, §10)
+    → EntityInfoViewModel
+    → ui/entityInfoPanel.ts (rendu DOM)
+  ```
+
+  - `ui/entityInfoPanel.ts` ne calcule aucune statistique : il reçoit
+    `EntityInfoViewModel | null`, crée, met à jour ou masque le panneau. Il
+    ne reconstruit le DOM que si la forme du modèle change (type, libellés,
+    sections) ; sinon il ne réécrit que les textes et largeurs modifiés. La
+    barre de PV réutilise les classes de `combatOverlay`
+    (`health-bar-track`, `shield-bar`).
+  - `main.ts` choisit la sélection courante (`currentEntityInfo`) et décide
+    de la visibilité (`isEntityInfoContextActive`). `updateEntityInfoPanel`,
+    appelé dans `onRender`, recalcule la fiche immédiatement quand la
+    sélection change, sinon au plus toutes les 100 ms.
+  - L'inspection d'un bâtiment en bataille (`battleInspectedEntityId`) est
+    distincte de `BattleSelection` : un bâtiment n'entre jamais dans la
+    sélection RTS, donc dans aucun ordre. `pickBattleInspectableBuilding`
+    retient une Mine ou une Caserne pointée, ou le bâtiment dont l'empreinte
+    au sol contient le point visé (seul critère pour la Baliste) ; une unité
+    sous le curseur passe avant. L'id est abandonné hors bataille, puisque
+    les ids repartent de 1 après `world.clear()`.
+  - L'éditeur n'utilise pas la fiche.
+- **Disposition** : fiche en haut à gauche, indicateur de vague en haut au
+  centre, debug replié (FPS) en haut à droite, HUD de la Baliste ou panneau
+  de placement en bas au centre, or, boutique, vente et inventaire en bas à
+  droite, aide de vitesse en bas à gauche.
 - **Règles transversales** :
   - pas de dialogue natif (`alert`/`confirm`), sauf dans l'éditeur pour une
     carte invalide ;
@@ -442,6 +524,8 @@ Le détail d'usage relève de `EDITOR.md`.
     `metaProgress`) ;
   - tous les écouteurs d'entrée ;
   - la phase de placement et la tour ;
+  - les sélections (préparation et bataille) et le branchement de la fiche
+    d'entité ;
   - la consommation des événements de simulation ;
   - achats, ventes et inventaire ;
   - bâtiments et expansion de map ;

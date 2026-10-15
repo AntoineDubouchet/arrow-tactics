@@ -97,6 +97,16 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
 
    Ce mécanisme est détaillé dans `EDITOR.md` §7.
 
+   **Sélection des bâtiments et de la Baliste** :
+   - un clic sur une Mine ou une Caserne possédée la sélectionne ; un second
+     clic la désélectionne. Un glisser la déplace (§6) ;
+   - la Baliste se sélectionne par un clic sur sa **base** (son empreinte au
+     sol), jamais par le haut de la tour. Elle ne se déplace pas en
+     préparation ;
+   - l'élément sélectionné est entouré d'un anneau à la couleur du camp ;
+   - les sélections sont **exclusives** : unités, un bâtiment ou la Baliste,
+     jamais deux familles à la fois. Sélectionner l'une vide les autres.
+
    « Prêt pour la bataille » lance le combat. Une confirmation est demandée
    s'il reste plus de 30 % de l'or du début du placement
    (`PLACEMENT_GOLD_WARNING_RATIO`).
@@ -107,6 +117,14 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
      ajouter ou retirer, glisser pour un rectangle de sélection, double-clic
      pour les unités visibles du même type ; si un parchemin est armé, le
      clic gauche sert à l'utiliser ;
+   - **clic gauche sur une Mine, une Caserne ou la Baliste alliée** :
+     inspection seule (fiche d'entité, ci-dessous), avec un anneau à la
+     couleur du camp. Un bâtiment inspecté n'est **jamais commandable** : il
+     ne reçoit ni ordre au clic droit ni Stop. L'inspection vide la sélection
+     d'unités, et un clic sur une unité ou un rectangle la retire. Un second
+     clic sur le même bâtiment la retire aussi. La Baliste n'est retenue que
+     par son empreinte au sol, et une unité sous le curseur reste
+     prioritaire. Les ennemis ne sont pas inspectables ;
    - chaque unité sélectionnée porte l'**anneau de sélection commun**,
      identique en préparation et dans l'éditeur. Sa couleur est celle du
      camp de l'unité (bleu pour le joueur, rouge pour l'ennemi), pas une
@@ -127,6 +145,63 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
    méta-progression déjà obtenus pendant la run restent acquis (ils sont
    sauvegardés au fil des batailles), mais **aucune récompense supplémentaire
    n'est accordée à l'abandon**.
+
+### Fiche d'entité
+
+Sources : `run/entityInfo.ts`, `ui/entityInfoPanel.ts`, `main.ts`
+(`currentEntityInfo`, `updateEntityInfoPanel`).
+
+Une fiche compacte décrit ce que le joueur a sélectionné, en préparation et
+en bataille. Elle n'existe pas dans l'éditeur.
+
+- **Sélections prises en charge** :
+  - préparation : unité seule, groupe, Mine, Caserne, Baliste ;
+  - bataille : unité alliée seule, groupe allié, Mine, Caserne, Baliste
+    (bâtiments inspectés, voir ci-dessus).
+- **Valeurs** : ce sont celles réellement utilisées par le jeu, à l'**échelle
+  du joueur** (PV et dégâts divisés par 10, comme les barres de vie), jamais
+  les valeurs internes ×10. En préparation, elles sont recalculées avec les
+  mêmes fonctions que l'apparition en bataille. En bataille, elles sont lues
+  sur l'entité.
+- **Contenu** (titre, camp, PV actuels / max avec une barre de PV) :
+  - **Fantassin, Archer, Sentinelle** : dégâts, portée (« Mêlée » ou en
+    cases), cadence, vitesse, et l'esquive quand elle est non nulle. Ni rayon,
+    ni aggro, ni chance de rater ;
+  - **Mage** : PV et vitesse, puis la section **Attaque — Boule de feu**,
+    son attaque affichée : dégâts (amélioration comprise), portée 2–6 cases,
+    recharge. Son coup de repli au contact n'est pas affiché ;
+  - **Sentinelle** : section **Provocation** : recharge, rayon, bouclier
+    par ennemi provoqué (amélioration comprise) ;
+  - en bataille, chaque capacité indique son état (Prête, Recharge x.x s,
+    Incantation, « Dans x.x s » pendant le verrou initial de la
+    Provocation), et un bouclier actif s'affiche sous la barre de PV ;
+  - **Mine** : PV et revenu par seconde (amélioration comprise) ;
+  - **Caserne** : PV, unité produite, intervalle, unités par production. En
+    bataille, aussi la prochaine production, ou « En attente » quand le lot
+    attend des cases libres ;
+  - **Baliste** : PV, dégâts par carreau, recharge, carreaux par volée.
+    Aucune portée, le tir n'en a pas. En préparation : PV max / max et
+    « Prête pour la bataille ». En bataille : PV de l'entité et état
+    dynamique `PRÊTE`, `RECHARGE x.x s`, `EN VOL` ou `DÉTRUITE`, issu de la
+    même source que le HUD de la Baliste ;
+  - **Groupe** : nombre d'unités, composition par classe (« 3 Fantassins »),
+    PV cumulés actuels / max et nombre de blessées. Aucune moyenne de
+    dégâts, de portée ou de vitesse. En bataille, seules les unités vivantes
+    encore sélectionnées comptent.
+- **Durées** : au dixième, sans « .0 » superflu (`0.4 s`, `5.5 s`, `12 s`).
+  Les durées restantes suivent le format du HUD de la Baliste (`1.7 s`).
+- **Emplacement** : en haut à gauche (`left: 12px; top: 12px`), environ
+  236 px de large, même style sombre que le HUD de la Baliste, liseré à la
+  couleur du camp.
+- **Visibilité** : masquée sans sélection, en pause, sous la boutique,
+  pendant le placement de la tour ou d'un bâtiment, pendant la transition de
+  fin de vague, dans les menus et dans l'éditeur.
+- **Mise à jour** : immédiate à chaque changement de sélection, sinon environ
+  10 fois par seconde. Le DOM n'est reconstruit que si la forme de la fiche
+  change.
+- **Morts et destructions** : une unité morte quitte la sélection et la fiche
+  disparaît. Une Mine ou une Caserne détruite n'est plus inspectée. La
+  Baliste détruite reste inspectable, avec l'état `DÉTRUITE`.
 
 ## 3. Unités
 
@@ -174,7 +249,8 @@ Sources : `data/units.ts` (`playerUnlockMode`), `run/metaProgress.ts`
 ## 5. La Baliste (tour du joueur)
 
 Sources : `config/constants.ts` (`PLAYER_ARROW_*`, `TALENT_*`,
-`MACHINE_GUN_*`), `data/buildings.ts`, `sim/playerArrow.ts`, `main.ts`.
+`MACHINE_GUN_*`), `data/buildings.ts`, `run/ballistaStats.ts` (valeurs
+effectives du tir), `sim/playerArrow.ts`, `main.ts`.
 
 - **Bâtiment** : 25 PV de base. La Baliste compte pour la survie du camp
   joueur. Une fois détruite, elle ne tire plus.
@@ -520,8 +596,13 @@ principal.
 
 ## 18. Outils de debug présents
 
-- **Panneau de debug** permanent en haut à gauche : FPS, tick, graine,
-  caméra… (`ui/debug.ts`).
+- **Panneau de debug** permanent en haut à droite (`ui/debug.ts`) :
+  - replié par défaut, il n'affiche que le FPS (`FPS 240 ▾`) ;
+  - un clic le déplie vers le bas avec le détail : fps, tick, temps sim,
+    vitesse, joueur, ennemis, graine, pivot, inclinaison, zoom. Un nouveau
+    clic le replie ;
+  - les valeurs restent calculées comme avant, replié ou non ;
+  - la boutique, les menus et la barre d'outils de l'éditeur le recouvrent.
 - **Touche X** : bascule la vitesse de jeu entre ×1 et ×2.
 - **Bouton « +1 point de talent (debug) »** dans l'écran des talents.
 - **Bouton « +100 or (debug) »** dans la boutique de run.
