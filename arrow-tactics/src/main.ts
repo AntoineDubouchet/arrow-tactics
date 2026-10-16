@@ -92,7 +92,6 @@ import {
   resetTalentPoints,
   saveMetaProgress,
   unlockTalent,
-  type MetaProgress,
 } from './run/metaProgress';
 import { computeStartingGoldBonus, computeTalentEconomyHooks } from './run/talentEffects';
 import {
@@ -143,7 +142,9 @@ import {
   KILL_REWARD,
   roundGold,
   type OwnedBuilding,
+  type RunState,
 } from './run/runState';
+import { copyMetaUpgradeLevelsForRun, type PlayerProgression, type RunUpgradeLevels } from './run/runUpgrades';
 import { forwardDir, type Entity, type Team } from './sim/entity';
 import type { ArrowShotSpec } from './sim/playerArrow';
 import { World } from './sim/world';
@@ -831,7 +832,26 @@ function enemyAbilityDamageBonus(unitId: string, waveNumber: number): number {
 // pour de bon). Une nouvelle run (reset complet) ne demarre qu'au clic sur
 // "Jouer" depuis le menu principal (voir startNewRun) — continuer apres la
 // boutique reutilise la MEME run, juste la vague suivante.
-let currentRun = createNewRun(computeStartingGoldBonus(metaProgress), effectivePlayerUnitMaxHp('fantassin', metaProgress));
+let currentRun = createRunWithMetaUpgrades();
+
+/** Nouvelle run. TRANSITION (etape F0) : ses niveaux d'amelioration
+ *  demarrent avec une COPIE des niveaux permanents achetes dans la boutique
+ *  du menu (copyMetaUpgradeLevelsForRun) ; ensuite, seuls ceux de la run
+ *  comptent. Le Fantassin de depart recoit les PV max de ces niveaux. */
+function createRunWithMetaUpgrades(): RunState {
+  const upgrades = copyMetaUpgradeLevelsForRun(metaProgress);
+  return createNewRun(computeStartingGoldBonus(metaProgress), effectivePlayerUnitMaxHp('fantassin', upgrades), upgrades);
+}
+
+/** SOURCE UNIQUE de la progression du joueur pour les statistiques
+ *  effectives : talents permanents (metaProgress) et niveaux d'amelioration
+ *  de la run (currentRun.upgrades). Pendant "Tester le scenario", qui n'est
+ *  pas une run, les niveaux sont l'instantane pris au lancement du test
+ *  (testScenarioUpgrades). Toujours relue : currentRun change a chaque
+ *  nouvelle run. */
+function playerProgression(): PlayerProgression {
+  return { talents: metaProgress, upgrades: inTestMode ? testScenarioUpgrades : currentRun.upgrades };
+}
 /** Or gagne a la derniere bataille (kills + bonus de vague) — retenu entre
  *  applyBattleOutcome et l'ouverture de la boutique pour y jouer l'animation
  *  de gain (voir onContinueAfterWave), l'ecran boutique n'existant pas
@@ -885,9 +905,9 @@ function setupTestBattle(): void {
       pos.x,
       pos.z,
       undefined,
-      playerUnitStatOverrides(pos.unitId, metaProgress),
-      playerUnitAbilityDamageBonus(pos.unitId, metaProgress),
-      playerUnitTauntShieldBonus(pos.unitId, metaProgress),
+      playerUnitStatOverrides(pos.unitId, playerProgression()),
+      playerUnitAbilityDamageBonus(pos.unitId, playerProgression().upgrades),
+      playerUnitTauntShieldBonus(pos.unitId, playerProgression().upgrades),
     );
   }
   for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z);
@@ -1206,7 +1226,7 @@ function createHealTargetRing(): THREE.Mesh {
  *  deverrouille. */
 function isRecyclageEligible(slot: PlacementSlot): boolean {
   if (!isTalentActive('recyclage')) return false;
-  return slot.hp < 0.5 * effectivePlayerUnitMaxHp(slot.unitId, metaProgress);
+  return slot.hp < 0.5 * effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades);
 }
 
 /** Anneau de PREVISUALISATION de la cible de soin (2026-08-11, demande
@@ -1287,7 +1307,7 @@ function castIceNova(x: number, z: number, effect: IceNovaEffect): void {
   // (BLIZZARD_DURATION/BLIZZARD_DAMAGE_PER_TICK) directement — 2026-08-14,
   // demande d'Antoine : "la durée doit augmenter de 0.5 par amélioration...
   // tous les 3 achats augmente les dégâts du tick de 1".
-  const upgrade = computePlayerIceNovaUpgradeEffects(metaProgress);
+  const upgrade = computePlayerIceNovaUpgradeEffects(playerProgression().upgrades);
   world.applyIceNovaRoot('player', x, z, effect.radiusTiles, upgrade.rootDuration);
   iceNovaView.spawnImpact(x, z, effect.radiusTiles);
 
@@ -1326,7 +1346,7 @@ function triggerShadowProjectiles(x: number, z: number, totalOverhealInternal: n
   const baseProjectileCount = Math.floor(totalOverhealInternal / HP_PER_PIP);
   if (baseProjectileCount <= 0) return;
 
-  const { damagePerProjectileInternal, bonusProjectileCount } = computePlayerShadowEffects(metaProgress);
+  const { damagePerProjectileInternal, bonusProjectileCount } = computePlayerShadowEffects(playerProgression().upgrades);
   const count = baseProjectileCount + bonusProjectileCount;
   world.spawnShadowProjectiles(x, z, 'player', count, damagePerProjectileInternal, SHADOW_PROJECTILE_SPEED);
 }
@@ -1366,7 +1386,7 @@ function computeSellValue(indices: number[]): number {
   for (const index of indices) {
     const slot = placementSlots[index];
     if (!slot) continue;
-    total += isRecyclageEligible(slot) ? Math.round(3 * effectivePlayerUnitCost(slot.unitId, metaProgress)) : (KILL_REWARD[slot.unitId] ?? 0);
+    total += isRecyclageEligible(slot) ? Math.round(3 * effectivePlayerUnitCost(slot.unitId, playerProgression().upgrades)) : (KILL_REWARD[slot.unitId] ?? 0);
   }
   return total;
 }
@@ -1496,9 +1516,9 @@ function onValidatePlacement(): void {
       slot.x,
       slot.z,
       slot.hp,
-      playerUnitStatOverrides(slot.unitId, metaProgress),
-      playerUnitAbilityDamageBonus(slot.unitId, metaProgress),
-      playerUnitTauntShieldBonus(slot.unitId, metaProgress),
+      playerUnitStatOverrides(slot.unitId, playerProgression()),
+      playerUnitAbilityDamageBonus(slot.unitId, playerProgression().upgrades),
+      playerUnitTauntShieldBonus(slot.unitId, playerProgression().upgrades),
     );
   }
   for (const pos of computeEnemyWavePlacements(currentRun.waveNumber, currentMap)) {
@@ -1530,8 +1550,8 @@ function onValidatePlacement(): void {
     // Intervalle/nombre de production EFFECTIFS (2026-08-17, amelioration
     // permanente de la Caserne) — undefined pour tout bâtiment sans spawner
     // (Mine), World.spawnBuilding retombe alors sur la base (sans effet).
-    const spawnIntervalOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnInterval(metaProgress) : undefined;
-    const spawnCountOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnCount(metaProgress) : undefined;
+    const spawnIntervalOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnInterval(playerProgression().upgrades) : undefined;
+    const spawnCountOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnCount(playerProgression().upgrades) : undefined;
     const entity = world.spawnBuilding(
       getBuilding(owned.buildingId),
       'player',
@@ -1575,7 +1595,7 @@ function spawnBallistaBuilding(): void {
     playerArrowOrigin.z,
     ballistaObstacleDef,
     undefined,
-    effectiveBallistaMaxHp(metaProgress),
+    effectiveBallistaMaxHp(playerProgression().upgrades),
   ).id;
   buildingViewsByEntityId.set(ballistaEntityId, ballistaBuildingView);
 }
@@ -1681,7 +1701,7 @@ function resetRunPlacementState(): void {
  *  contrairement a "Continuer" depuis la boutique, qui reutilise la run en
  *  cours pour passer a la vague suivante (voir startPlacement seul). */
 function startNewRun(): void {
-  currentRun = createNewRun(computeStartingGoldBonus(metaProgress), effectivePlayerUnitMaxHp('fantassin', metaProgress));
+  currentRun = createRunWithMetaUpgrades();
   resetRunPlacementState();
   // Une run PRECEDENTE peut avoir agrandi le plateau (2026-08-18, voir
   // applyMapExpansionForCompletedWave) — currentMap est un module partage
@@ -1753,6 +1773,9 @@ let inEditorMode = false;
  *  jamais vrais en meme temps (le clic editeur est desactive pendant le test,
  *  exactement comme pendant une bataille normale). */
 let inTestMode = false;
+/** Niveaux d'amelioration de "Tester le scenario" (voir playerProgression) :
+ *  copie des niveaux permanents, prise au lancement de chaque test. */
+let testScenarioUpgrades: RunUpgradeLevels = {};
 let editorState: EditorState | null = null;
 let editorAssets: EnvironmentAssets | null = null;
 let editorGhost: THREE.Object3D | null = null;
@@ -2322,6 +2345,7 @@ async function testScenario(): Promise<void> {
   editorUI.hideProperties();
   inEditorMode = false;
   inTestMode = true;
+  testScenarioUpgrades = copyMetaUpgradeLevelsForRun(metaProgress);
   // Bâtiments possédés (Mine/Caserne) jamais injectés pendant "Tester le
   // scénario" — une carte d'éditeur n'a aucun lien avec la progression d'une
   // run réelle. Seule la Baliste, toujours présente, est créée (voir
@@ -2951,12 +2975,12 @@ function fireArrowIfReady(): void {
   // Meme valeur de degats EFFECTIVE pour les 3 carreaux (talent Tir rapide +
   // amelioration Baliste deja inclus) — jamais reduite/partagee entre eux
   // (demande explicite : "chaque carreau = degats normaux de la Baliste").
-  const damage = effectivePlayerArrowDamage(metaProgress);
+  const damage = effectivePlayerArrowDamage(playerProgression());
   const shots: ArrowShotSpec[] = buildBallistaVolleyShots(playerArrowOrigin.x, playerArrowOrigin.z, playerAimX, playerAimZ).map((s) => ({
     ...s,
     damage,
   }));
-  const fired = world.fireArrowVolley(shots, effectivePlayerArrowCooldown(metaProgress), effectivePlayerArrowSpeed(metaProgress));
+  const fired = world.fireArrowVolley(shots, effectivePlayerArrowCooldown(playerProgression()), effectivePlayerArrowSpeed(metaProgress));
   // Anime le modele de la baliste (2026-08-13, nouveau modele FBX riggé —
   // voir render/ballista.ts) UNIQUEMENT sur un tir REELLEMENT parti (jamais
   // sur une tentative bloquee par le cooldown), meme garde-fou que le reste
@@ -3017,7 +3041,7 @@ function attemptAutoFire(): void {
 function currentBallistaStatus(): BallistaStatus {
   if (isBallistaDestroyed()) return { kind: 'destroyed' };
   const arrow = world.playerArrow;
-  if (arrow.cooldown > 0) return { kind: 'reloading', cooldownSeconds: arrow.cooldown, totalSeconds: effectivePlayerArrowCooldown(metaProgress) };
+  if (arrow.cooldown > 0) return { kind: 'reloading', cooldownSeconds: arrow.cooldown, totalSeconds: effectivePlayerArrowCooldown(playerProgression()) };
   if (arrow.flights.length > 0) return { kind: 'inFlight' };
   return { kind: 'ready' };
 }
@@ -3040,8 +3064,8 @@ function currentEntityInfo(): EntityInfoViewModel | null {
     if (battleInspectedEntityId !== null) {
       const building = world.getById(battleInspectedEntityId);
       if (!building) return null;
-      if (building.id === ballistaEntityId) return battleBallistaInfo(building, currentBallistaStatus(), metaProgress);
-      return battleBuildingInfo(building, metaProgress);
+      if (building.id === ballistaEntityId) return battleBallistaInfo(building, currentBallistaStatus(), playerProgression());
+      return battleBuildingInfo(building, playerProgression());
     }
     const units: Entity[] = [];
     for (const id of battleSelection.ids) {
@@ -3051,14 +3075,14 @@ function currentEntityInfo(): EntityInfoViewModel | null {
     if (units.length === 0) return null;
     return units.length === 1 ? battleUnitInfo(units[0]!, world.time) : battleGroupInfo(units);
   }
-  if (placementBallistaSelected) return placementBallistaInfo(metaProgress);
+  if (placementBallistaSelected) return placementBallistaInfo(playerProgression());
   if (selectedBuildingIndex !== null) {
     const owned = currentRun.buildings[selectedBuildingIndex];
-    return owned ? placementBuildingInfo(owned, metaProgress) : null;
+    return owned ? placementBuildingInfo(owned, playerProgression()) : null;
   }
   const slots = selectedIndices.map((i) => placementSlots[i]).filter((slot): slot is PlacementSlot => slot !== undefined);
   if (slots.length === 0) return null;
-  return slots.length === 1 ? placementUnitInfo(slots[0]!, metaProgress) : placementGroupInfo(slots, metaProgress);
+  return slots.length === 1 ? placementUnitInfo(slots[0]!, playerProgression()) : placementGroupInfo(slots, playerProgression());
 }
 
 /** Cadence de la fiche : PV, recharges et minuteries n'ont pas besoin d'etre
@@ -3363,7 +3387,7 @@ function findHealTargetSlotIndex(x: number, z: number): number | null {
   let bestRatio = Infinity;
   placementSlots.forEach((slot, i) => {
     if (slot.x === null || slot.z === null) return;
-    const maxHp = effectivePlayerUnitMaxHp(slot.unitId, metaProgress);
+    const maxHp = effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades);
     if (slot.hp >= maxHp) return;
     if (dist(x, z, slot.x, slot.z) > HEAL_TARGET_RADIUS) return;
     const ratio = slot.hp / maxHp;
@@ -3418,7 +3442,7 @@ function findSecondaryHealSlotIndices(primaryIndex: number, count: number, radiu
   const candidates: { index: number; d: number }[] = [];
   placementSlots.forEach((slot, i) => {
     if (i === primaryIndex || slot.x === null || slot.z === null) return;
-    const maxHp = effectivePlayerUnitMaxHp(slot.unitId, metaProgress);
+    const maxHp = effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades);
     if (slot.hp >= maxHp) return;
     const d = dist(px, pz, slot.x, slot.z);
     if (d > radius) return;
@@ -3488,7 +3512,7 @@ function useArmedItemOnClick(event: MouseEvent): boolean {
     const point = computeGroundPoint(event);
     const target = point ? findHealTargetEntity(point.x, point.z) : null;
     if (!target) return true;
-    const healAmount = effectivePlayerHealAmount(metaProgress);
+    const healAmount = effectivePlayerHealAmount(playerProgression().upgrades);
     const { overheal } = applyPlayerHeal(target, target.stats.maxHp, healAmount, target.id);
     // Texte en PV AFFICHES (amount est en interne, x10, comme partout ailleurs
     // — voir data/items.ts, HealEffect.amount) : sans cette division, "+30"
@@ -3503,9 +3527,9 @@ function useArmedItemOnClick(event: MouseEvent): boolean {
     }
 
     let totalOverheal = overheal;
-    const secondaryCount = healSecondaryTargetCount(healScrollUpgradeLevel(metaProgress));
+    const secondaryCount = healSecondaryTargetCount(healScrollUpgradeLevel(playerProgression().upgrades));
     if (secondaryCount > 0) {
-      const secondaryAmount = effectivePlayerSecondaryHealAmount(metaProgress);
+      const secondaryAmount = effectivePlayerSecondaryHealAmount(playerProgression().upgrades);
       const secondaries = findSecondaryHealTargets(target, secondaryCount, HEAL_SCROLL_UPGRADE.secondaryTargetRadius, world.entities);
       for (const ally of secondaries) {
         const secondaryResult = applyPlayerHeal(ally, ally.stats.maxHp, secondaryAmount, ally.id);
@@ -3561,8 +3585,8 @@ function useArmedItemOnPlacementClick(event: MouseEvent): boolean {
     const slotIndex = point ? findHealTargetSlotIndex(point.x, point.z) : null;
     if (slotIndex === null) return true;
     const slot = placementSlots[slotIndex]!;
-    const maxHp = effectivePlayerUnitMaxHp(slot.unitId, metaProgress);
-    const healAmount = effectivePlayerHealAmount(metaProgress);
+    const maxHp = effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades);
+    const healAmount = effectivePlayerHealAmount(playerProgression().upgrades);
     // entityId=null : aucune Entity/bataille en cours pendant le placement,
     // la notion de "seuil Aux petits oignons deja consomme" ne s'applique
     // pas ici (voir applyPlayerHeal) — de meme, aucun ennemi n'existe encore
@@ -3578,13 +3602,13 @@ function useArmedItemOnPlacementClick(event: MouseEvent): boolean {
     combatOverlay.spawnHealText(slot.x ?? 0, slot.z ?? 0, healAmount / HP_PER_PIP);
     healVfxView.spawnHeal(slot.x ?? 0, slot.z ?? 0);
 
-    const secondaryCount = healSecondaryTargetCount(healScrollUpgradeLevel(metaProgress));
+    const secondaryCount = healSecondaryTargetCount(healScrollUpgradeLevel(playerProgression().upgrades));
     if (secondaryCount > 0) {
-      const secondaryAmount = effectivePlayerSecondaryHealAmount(metaProgress);
+      const secondaryAmount = effectivePlayerSecondaryHealAmount(playerProgression().upgrades);
       const secondaryIndices = findSecondaryHealSlotIndices(slotIndex, secondaryCount, HEAL_SCROLL_UPGRADE.secondaryTargetRadius);
       for (const i of secondaryIndices) {
         const s = placementSlots[i]!;
-        const sMaxHp = effectivePlayerUnitMaxHp(s.unitId, metaProgress);
+        const sMaxHp = effectivePlayerUnitMaxHp(s.unitId, playerProgression().upgrades);
         applyPlayerHeal(s, sMaxHp, secondaryAmount, null);
         currentRun.army[i]!.hp = s.hp;
         combatOverlay.spawnHealText(s.x ?? 0, s.z ?? 0, secondaryAmount / HP_PER_PIP, true);
@@ -3883,7 +3907,7 @@ function requestPlaceBuilding(buildingId: string): void {
   // Cout EFFECTIF (2026-08-18, Mine/Caserne desormais plus cheres a chaque
   // amelioration permanente — voir getEffectiveBuildingCost, SOURCE UNIQUE
   // partagee avec l'affichage boutique ET confirmBuildingPlacement plus bas).
-  if (currentRun.gold < getEffectiveBuildingCost(buildingId, metaProgress)) return;
+  if (currentRun.gold < getEffectiveBuildingCost(buildingId, playerProgression().upgrades)) return;
   disarmItem();
   buildingPlacementMode = { buildingId, rotationY: 0, movingIndex: null };
   buildingRotationHint.setVisible(true);
@@ -4032,7 +4056,7 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   // Cout EFFECTIF (2026-08-18) — voir requestPlaceBuilding, meme source
   // unique (getEffectiveBuildingCost) : le prix retire ICI doit toujours
   // correspondre exactement a celui affiche/verifie en boutique.
-  const cost = getEffectiveBuildingCost(buildingPlacementMode.buildingId, metaProgress);
+  const cost = getEffectiveBuildingCost(buildingPlacementMode.buildingId, playerProgression().upgrades);
   if (currentRun.gold < cost) {
     cancelBuildingPlacement();
     return false;
@@ -4364,7 +4388,7 @@ const loop = new Loop(
               // le bonus permanent s'applique partout ou il est consomme. Pas
               // de cibles secondaires ici (declenchement automatique reactif,
               // volontairement mono-cible — voir useArmedItemOnClick).
-              const healAmount = effectivePlayerHealAmount(metaProgress);
+              const healAmount = effectivePlayerHealAmount(playerProgression().upgrades);
               const { overheal } = applyPlayerHeal(target, target.stats.maxHp, healAmount, target.id);
               currentRun.inventory.splice(scrollIndex, 1);
               inventoryBar.refresh(currentRun.inventory);
@@ -4457,7 +4481,7 @@ const loop = new Loop(
         if (e.team === 'player' && e.alive && e.isBuilding && e.unitId === 'mine') livingMineCount++;
       }
       if (livingMineCount > 0) {
-        mineIncomeAccumulator += effectiveMineGoldPerSecond(metaProgress) * livingMineCount * dt;
+        mineIncomeAccumulator += effectiveMineGoldPerSecond(playerProgression().upgrades) * livingMineCount * dt;
         const wholeTenths = Math.floor(mineIncomeAccumulator * 10 + 1e-9);
         if (wholeTenths > 0) {
           currentRun.gold = roundGold(currentRun.gold + wholeTenths / 10);
@@ -4479,8 +4503,8 @@ const loop = new Loop(
         event.x,
         event.z,
         undefined,
-        event.team === 'player' ? playerUnitStatOverrides(event.unitId, metaProgress) : enemyStatOverrides(event.unitId, currentRun.waveNumber),
-        event.team === 'player' ? playerUnitAbilityDamageBonus(event.unitId, metaProgress) : enemyAbilityDamageBonus(event.unitId, currentRun.waveNumber),
+        event.team === 'player' ? playerUnitStatOverrides(event.unitId, playerProgression()) : enemyStatOverrides(event.unitId, currentRun.waveNumber),
+        event.team === 'player' ? playerUnitAbilityDamageBonus(event.unitId, playerProgression().upgrades) : enemyAbilityDamageBonus(event.unitId, currentRun.waveNumber),
       );
     }
 
@@ -4880,7 +4904,7 @@ const loop = new Loop(
       const placedSlots = placementSlots.filter(
         (s): s is PlacementSlot & { x: number; z: number } => s.x !== null && s.z !== null,
       );
-      combatOverlay.syncPlacement(placedSlots, (unitId) => effectivePlayerUnitMaxHp(unitId, metaProgress));
+      combatOverlay.syncPlacement(placedSlots, (unitId) => effectivePlayerUnitMaxHp(unitId, playerProgression().upgrades));
       // Aura de particules du talent "Recyclage" (2026-08-14) — voir
       // render/recyclageAura.ts. `key` = index REEL dans placementSlots (pas
       // dans placedSlots, filtre a part) pour rester stable avec le reste du
@@ -5122,7 +5146,7 @@ function addUnitToPlacement(unitId: string, hp: number): void {
  *  dernier achat" (voir undoLastUnitPurchase). */
 function buyUnit(unitId: string): void {
   if (!canPlayerRecruitUnit(metaProgress, unitId)) return;
-  const cost = effectivePlayerUnitCost(unitId, metaProgress);
+  const cost = effectivePlayerUnitCost(unitId, playerProgression().upgrades);
   if (currentRun.gold < cost) return;
   // Math.max(0, ...) : filet de securite defensif contre tout bruit de
   // virgule flottante residuel (2026-08-14, bug remonte par Antoine : "il
@@ -5131,7 +5155,7 @@ function buyUnit(unitId: string): void {
   // meme si le garde-fou `gold < cost` ci-dessus est deja cense l'empecher
   // dans le cas normal.
   currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
-  const hp = effectivePlayerUnitMaxHp(unitId, metaProgress);
+  const hp = effectivePlayerUnitMaxHp(unitId, playerProgression().upgrades);
   currentRun.army.push({ unitId, hp });
   if (inPlacementPhase) addUnitToPlacement(unitId, hp);
   lastUnitPurchase = { unitId, cost };
@@ -5175,8 +5199,8 @@ function buyUnitFive(unitId: string): void {
  *  et simplement si l'un des deux manque, sans rien acheter du tout.
  *  `effectiveCost` est la MEME fonction que celle utilisee pour l'affichage
  *  du prix (ui/screens.ts, refreshShop) — source de verite unique. */
-function buyConsumable(itemId: string, quantity: number, effectiveCost: (progress: MetaProgress) => number): void {
-  const unitPrice = effectiveCost(metaProgress);
+function buyConsumable(itemId: string, quantity: number, effectiveCost: (levels: RunUpgradeLevels) => number): void {
+  const unitPrice = effectiveCost(playerProgression().upgrades);
   const totalCost = roundGold(unitPrice * quantity);
   if (currentRun.gold < totalCost) return;
   if (!canAddItemsToInventory(currentRun.inventory, itemId, quantity)) return;

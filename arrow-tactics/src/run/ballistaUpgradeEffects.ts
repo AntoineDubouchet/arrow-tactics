@@ -1,7 +1,7 @@
 import { HP_PER_PIP } from '../config/constants';
 import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
 import { getBuilding } from '../data/buildings';
-import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
+import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Amelioration permanente de la BALISTE (2026-08-13, voir data/ballistaUpgrade.ts) —
@@ -21,8 +21,8 @@ import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
  *  - DAMAGE : modifiee tous les damageEveryLevels achats seulement.
  */
 
-export function ballistaUpgradeLevel(progress: MetaProgress): number {
-  return getUnitUpgradeLevel(progress, BALLISTA_UPGRADE.id);
+export function ballistaUpgradeLevel(levels: RunUpgradeLevels): number {
+  return runUpgradeLevel(levels, BALLISTA_UPGRADE.id);
 }
 
 /** Bonus de cadence, en FRACTION (0.20 = +20 points de %) — ADDITIF depuis
@@ -68,8 +68,8 @@ export function ballistaHpBonusDisplay(level: number): number {
  *  batiment ENNEMI (aucune Baliste ennemie n'existe actuellement — meme
  *  principe deja etabli pour toutes les autres ameliorations permanentes du
  *  joueur, voir CLAUDE.md point 13 de la demande). */
-export function effectiveBallistaMaxHp(progress: MetaProgress): number {
-  const level = ballistaUpgradeLevel(progress);
+export function effectiveBallistaMaxHp(levels: RunUpgradeLevels): number {
+  const level = ballistaUpgradeLevel(levels);
   return getBuilding('ballista').maxHp + ballistaHpBonusDisplay(level) * HP_PER_PIP;
 }
 
@@ -92,8 +92,8 @@ export interface BallistaUpgradeEffects {
  *  applique a un ennemi (aucun ennemi n'a de baliste actuellement, mais le
  *  principe "BASE + PERMANENT UPGRADE = VERSION JOUEUR" reste identique aux
  *  autres systemes du jeu, voir CLAUDE.md point 35 de la demande). */
-export function computePlayerBallistaUpgradeEffects(progress: MetaProgress): BallistaUpgradeEffects {
-  const level = ballistaUpgradeLevel(progress);
+export function computePlayerBallistaUpgradeEffects(levels: RunUpgradeLevels): BallistaUpgradeEffects {
+  const level = ballistaUpgradeLevel(levels);
   const damageBonusDisplay = ballistaDamageBonusDisplay(level);
   const hpBonusDisplay = ballistaHpBonusDisplay(level);
   return {
@@ -102,6 +102,6 @@ export function computePlayerBallistaUpgradeEffects(progress: MetaProgress): Bal
     damageBonusDisplay,
     damageBonusInternal: damageBonusDisplay * HP_PER_PIP,
     hpBonusDisplay,
-    effectiveMaxHpInternal: effectiveBallistaMaxHp(progress),
+    effectiveMaxHpInternal: effectiveBallistaMaxHp(levels),
   };
 }

@@ -1,7 +1,7 @@
 import { MINE_BASE_GOLD_PER_SECOND } from '../config/constants';
 import { getBuilding } from '../data/buildings';
 import { MINE_UPGRADE } from '../data/mineUpgrade';
-import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
+import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Amelioration permanente de la MINE (2026-08-14, voir data/mineUpgrade.ts)
@@ -12,8 +12,8 @@ import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
  * sans palier (revu le 2026-08-14, voir data/mineUpgrade.ts).
  */
 
-export function mineUpgradeLevel(progress: MetaProgress): number {
-  return getUnitUpgradeLevel(progress, MINE_UPGRADE.id);
+export function mineUpgradeLevel(levels: RunUpgradeLevels): number {
+  return runUpgradeLevel(levels, MINE_UPGRADE.id);
 }
 
 /** Bonus d'or/seconde — ADDITIF depuis la base (level * goldPerSecondPerLevel),
@@ -26,8 +26,8 @@ export function mineGoldPerSecondBonus(level: number): number {
  *  (MINE_BASE_GOLD_PER_SECOND) + bonus permanent. Utilisee UNIQUEMENT si le
  *  talent "Le temps, c'est de l'argent" est deverrouille (voir main.ts) —
  *  ce module ne sait pas ce qu'est un talent, il calcule juste le montant. */
-export function effectiveMineGoldPerSecond(progress: MetaProgress): number {
-  return MINE_BASE_GOLD_PER_SECOND + mineGoldPerSecondBonus(mineUpgradeLevel(progress));
+export function effectiveMineGoldPerSecond(levels: RunUpgradeLevels): number {
+  return MINE_BASE_GOLD_PER_SECOND + mineGoldPerSecondBonus(mineUpgradeLevel(levels));
 }
 
 /** Cout Gold EFFECTIF d'achat EN PARTIE (boutique de run) — base
@@ -36,7 +36,7 @@ export function effectiveMineGoldPerSecond(progress: MetaProgress): number {
  *  motif exact que run/sentinelUpgradeEffects.ts, effectiveSentinelGoldCost.
  *  SOURCE UNIQUE : appelee a la fois par l'affichage boutique (ui/screens.ts)
  *  et la transaction reelle (main.ts, requestPlaceBuilding). */
-export function effectiveMineGoldCost(progress: MetaProgress): number {
+export function effectiveMineGoldCost(levels: RunUpgradeLevels): number {
   const base = getBuilding('mine').cost ?? 0;
-  return base + mineUpgradeLevel(progress) * MINE_UPGRADE.goldCostPerLevel;
+  return base + mineUpgradeLevel(levels) * MINE_UPGRADE.goldCostPerLevel;
 }

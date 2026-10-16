@@ -1,6 +1,6 @@
 import { BARRACKS_UPGRADE } from '../data/barracksUpgrade';
 import { getBuilding } from '../data/buildings';
-import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
+import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Amelioration permanente de la CASERNE (2026-08-17, voir
@@ -11,16 +11,16 @@ import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
  * BARRACKS_UPGRADE.id = 'barracks').
  */
 
-export function barracksUpgradeLevel(progress: MetaProgress): number {
-  return getUnitUpgradeLevel(progress, BARRACKS_UPGRADE.id);
+export function barracksUpgradeLevel(levels: RunUpgradeLevels): number {
+  return runUpgradeLevel(levels, BARRACKS_UPGRADE.id);
 }
 
 /** Nombre de Fantassins produits PAR PRODUCTION — base 1 + `level *
  *  countPerLevel` (voir data/barracksUpgrade.ts). Jamais plafonne : chaque
  *  achat reste utile, meme une fois le plancher d'intervalle atteint
  *  (voir effectiveBarracksSpawnInterval ci-dessous). */
-export function effectiveBarracksSpawnCount(progress: MetaProgress): number {
-  const level = barracksUpgradeLevel(progress);
+export function effectiveBarracksSpawnCount(levels: RunUpgradeLevels): number {
+  const level = barracksUpgradeLevel(levels);
   return 1 + level * BARRACKS_UPGRADE.countPerLevel;
 }
 
@@ -37,10 +37,10 @@ export function effectiveBarracksSpawnCount(progress: MetaProgress): number {
  * devrait jamais arriver (garde-fou plutot qu'un repli silencieux sur une
  * valeur arbitraire).
  */
-export function effectiveBarracksSpawnInterval(progress: MetaProgress): number {
+export function effectiveBarracksSpawnInterval(levels: RunUpgradeLevels): number {
   const spawner = getBuilding('barracks').spawner;
   if (!spawner) throw new Error('La Caserne doit avoir une configuration spawner.');
-  const level = barracksUpgradeLevel(progress);
+  const level = barracksUpgradeLevel(levels);
   const milestones = Math.floor(level / BARRACKS_UPGRADE.intervalEveryLevels);
   const reduced = spawner.baseIntervalSeconds - milestones * BARRACKS_UPGRADE.intervalReductionPerMilestone;
   return Math.max(spawner.minIntervalSeconds, reduced);
@@ -67,7 +67,7 @@ export function barracksNextPurchaseGrantsIntervalMilestone(level: number): bool
  *  run/mineUpgradeEffects.ts, effectiveMineGoldCost. SOURCE UNIQUE : appelee
  *  a la fois par l'affichage boutique (ui/screens.ts) et la transaction
  *  reelle (main.ts, requestPlaceBuilding). */
-export function effectiveBarracksGoldCost(progress: MetaProgress): number {
+export function effectiveBarracksGoldCost(levels: RunUpgradeLevels): number {
   const base = getBuilding('barracks').cost ?? 0;
-  return base + barracksUpgradeLevel(progress) * BARRACKS_UPGRADE.goldCostPerLevel;
+  return base + barracksUpgradeLevel(levels) * BARRACKS_UPGRADE.goldCostPerLevel;
 }

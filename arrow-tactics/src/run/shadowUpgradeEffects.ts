@@ -1,6 +1,6 @@
 import { HP_PER_PIP, SHADOW_PROJECTILE_BASE_DAMAGE } from '../config/constants';
 import { SHADOW_UPGRADE } from '../data/shadowUpgrade';
-import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
+import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Amelioration permanente du talent "Soins excédentaires" (2026-08-15, voir
@@ -16,8 +16,8 @@ import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
  * repasse a `true`.
  */
 
-export function shadowUpgradeLevel(progress: MetaProgress): number {
-  return getUnitUpgradeLevel(progress, SHADOW_UPGRADE.id);
+export function shadowUpgradeLevel(levels: RunUpgradeLevels): number {
+  return runUpgradeLevel(levels, SHADOW_UPGRADE.id);
 }
 
 /** Degats AFFICHES par projectile a ce niveau — base (1) + niveau * 0.5. */
@@ -50,11 +50,11 @@ export function shadowNextPurchaseGrantsBonusProjectile(level: number): boolean 
  * projectiles a ce niveau d'amelioration — calculs bruts, sans savoir si le
  * talent est actif (voir commentaire d'en-tete).
  */
-export function computePlayerShadowEffects(progress: MetaProgress): {
+export function computePlayerShadowEffects(levels: RunUpgradeLevels): {
   damagePerProjectileInternal: number;
   bonusProjectileCount: number;
 } {
-  const level = shadowUpgradeLevel(progress);
+  const level = shadowUpgradeLevel(levels);
   return {
     damagePerProjectileInternal: shadowDamagePerProjectileDisplay(level) * HP_PER_PIP,
     bonusProjectileCount: shadowBonusProjectileCount(level),

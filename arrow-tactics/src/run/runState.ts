@@ -9,6 +9,7 @@ import { getItem } from '../data/items';
 import { getUnit } from '../data/units';
 import type { Entity } from '../sim/entity';
 import { createInitialMapExpansionState, type MapExpansionState } from './mapExpansion';
+import type { RunUpgradeLevels } from './runUpgrades';
 import { DEFAULT_MAP } from '../config/mapDef';
 
 /**
@@ -135,6 +136,11 @@ export interface RunState {
    *  stockee ici, ses PV/son cycle de vie de bataille restent geres
    *  exactement comme avant (jamais un OwnedBuilding, voir main.ts). */
   ballistaPosition: { x: number; z: number } | null;
+  /** Niveaux d'amelioration de CETTE run (voir run/runUpgrades.ts) : seule
+   *  source des niveaux lue par les formules d'effet pendant la run.
+   *  Instantane propre a la run, jamais partage avec MetaProgress : le
+   *  modifier ne touche pas la progression permanente, et inversement. */
+  upgrades: RunUpgradeLevels;
 }
 
 /** Nombre d'emplacements de l'inventaire (demande d'Antoine, 2026-08-09).
@@ -238,8 +244,10 @@ export const STARTING_GOLD = 5;
  *  par Antoine ("je commence a 5/9") : sans ce parametre, le fantassin de
  *  depart avait toujours le maxHp de BASE en PV ACTUELS mais un maxHp
  *  EFFECTIF (deja boost) une fois spawne en combat (voir main.ts,
- *  playerStatOverrides) — l'unite apparaissait donc blessee des le debut. */
-export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = getUnit('fantassin').stats.maxHp): RunState {
+ *  playerStatOverrides) — l'unite apparaissait donc blessee des le debut.
+ *  `upgrades` optionnel (par defaut aucun niveau) : niveaux d'amelioration
+ *  de depart de la run, COPIES (jamais la meme reference que l'objet recu). */
+export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = getUnit('fantassin').stats.maxHp, upgrades: RunUpgradeLevels = {}): RunState {
   return {
     gold: roundGold(STARTING_GOLD + startingGoldBonus),
     army: [{ unitId: 'fantassin', hp: startingFantassinMaxHp }],
@@ -248,6 +256,7 @@ export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = get
     waveNumber: 1,
     mapExpansion: createInitialMapExpansionState(DEFAULT_MAP),
     ballistaPosition: null,
+    upgrades: { ...upgrades },
   };
 }
 

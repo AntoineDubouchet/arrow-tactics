@@ -1,7 +1,7 @@
 import { BLIZZARD_DAMAGE_PER_TICK, BLIZZARD_DURATION, HP_PER_PIP, ICE_NOVA_ROOT_DURATION } from '../config/constants';
 import { getItem } from '../data/items';
 import { ICE_NOVA_UPGRADE } from '../data/iceNovaUpgrade';
-import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
+import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Amelioration permanente de la NOVA DE GLACE (2026-08-14, voir
@@ -13,8 +13,8 @@ import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
  * l'objet lui-meme dans data/items.ts) — aucun nouveau champ de sauvegarde.
  */
 
-export function iceNovaUpgradeLevel(progress: MetaProgress): number {
-  return getUnitUpgradeLevel(progress, ICE_NOVA_UPGRADE.id);
+export function iceNovaUpgradeLevel(levels: RunUpgradeLevels): number {
+  return runUpgradeLevel(levels, ICE_NOVA_UPGRADE.id);
 }
 
 /** Bonus de DUREE (secondes) — le MEME bonus s'applique au Root et au
@@ -54,8 +54,8 @@ export interface IceNovaUpgradeEffects {
 
 /** Calcule TOUT ce dont main.ts a besoin pour la Nova de glace du JOUEUR —
  *  jamais applique a un ennemi (aucun ennemi ne lance de Nova de glace). */
-export function computePlayerIceNovaUpgradeEffects(progress: MetaProgress): IceNovaUpgradeEffects {
-  const level = iceNovaUpgradeLevel(progress);
+export function computePlayerIceNovaUpgradeEffects(levels: RunUpgradeLevels): IceNovaUpgradeEffects {
+  const level = iceNovaUpgradeLevel(levels);
   const durationBonus = iceNovaDurationBonus(level);
   const damageBonusDisplay = iceNovaDamageBonusDisplay(level);
   return {
@@ -73,8 +73,8 @@ export function computePlayerIceNovaUpgradeEffects(progress: MetaProgress): IceN
  *  ui/screens.ts (x1/x5) ET main.ts (transaction reelle). Le cout en RUNES
  *  de l'amelioration elle-meme (voir run/metaProgress.ts,
  *  effectiveUpgradeCost) n'est jamais touche par cette fonction. */
-export function effectiveIceNovaCost(progress: MetaProgress): number {
+export function effectiveIceNovaCost(levels: RunUpgradeLevels): number {
   const base = getItem('ice_nova').cost;
-  const level = iceNovaUpgradeLevel(progress);
+  const level = iceNovaUpgradeLevel(levels);
   return base + level * ICE_NOVA_UPGRADE.goldCostPerLevel;
 }

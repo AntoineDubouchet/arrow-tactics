@@ -13,13 +13,14 @@ import {
 } from './ballistaStats';
 import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
 import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from './barracksUpgradeEffects';
-import type { MetaProgress } from './metaProgress';
 import { effectiveMineGoldPerSecond } from './mineUpgradeEffects';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
+import type { PlayerProgression } from './runUpgrades';
 
 /**
  * Fiche d'entite : adaptateur PUR entre l'etat du jeu (emplacements de
- * preparation, bâtiments possedes, entites de simulation, progression) et
+ * preparation, bâtiments possedes, entites de simulation, progression du
+ * joueur : talents et niveaux d'amelioration de la run) et
  * le panneau d'interface (ui/entityInfoPanel.ts). Ne lit ni le DOM ni
  * Three.js et ne calcule aucune statistique de gameplay : il lit les
  * valeurs EFFECTIVES deja utilisees par le jeu (run/playerUnitStats.ts,
@@ -233,20 +234,20 @@ function buildUnitInfo(source: UnitInfoSource): UnitInfo {
 /** Stats EFFECTIVES d'une unite joueur avant son apparition : meme fusion
  *  que World.spawn ({ ...def.stats, ...statOverrides }) avec les memes
  *  surcharges (run/playerUnitStats.ts). */
-function effectivePlayerUnitStats(unitId: string, progress: MetaProgress): UnitStats {
+function effectivePlayerUnitStats(unitId: string, progress: PlayerProgression): UnitStats {
   return { ...getUnit(unitId).stats, ...playerUnitStatOverrides(unitId, progress) };
 }
 
 /** Unite seule en preparation : PV actuels de l'emplacement (persistants
  *  d'une vague a l'autre), stats effectives recalculees. */
-export function placementUnitInfo(slot: { unitId: string; hp: number }, progress: MetaProgress): UnitInfo {
+export function placementUnitInfo(slot: { unitId: string; hp: number }, progress: PlayerProgression): UnitInfo {
   return buildUnitInfo({
     unitId: slot.unitId,
     team: 'player',
     hp: slot.hp,
     stats: effectivePlayerUnitStats(slot.unitId, progress),
-    abilityDamageBonus: playerUnitAbilityDamageBonus(slot.unitId, progress),
-    tauntShieldBonus: playerUnitTauntShieldBonus(slot.unitId, progress),
+    abilityDamageBonus: playerUnitAbilityDamageBonus(slot.unitId, progress.upgrades),
+    tauntShieldBonus: playerUnitTauntShieldBonus(slot.unitId, progress.upgrades),
     battle: null,
   });
 }
@@ -305,7 +306,7 @@ function buildGroupInfo(members: GroupMember[], team: Team): GroupInfo {
   };
 }
 
-export function placementGroupInfo(slots: readonly { unitId: string; hp: number }[], progress: MetaProgress): GroupInfo {
+export function placementGroupInfo(slots: readonly { unitId: string; hp: number }[], progress: PlayerProgression): GroupInfo {
   return buildGroupInfo(
     slots.map((s) => ({ unitId: s.unitId, hp: s.hp, maxHp: effectivePlayerUnitStats(s.unitId, progress).maxHp })),
     'player',
@@ -323,8 +324,8 @@ export function battleGroupInfo(entities: readonly Entity[]): GroupInfo {
 
 // --- Mine et Caserne -------------------------------------------------------
 
-function mineRows(progress: MetaProgress): EntityInfoRow[] {
-  return [{ label: 'Revenu', value: `${effectiveMineGoldPerSecond(progress).toFixed(1)} or/s` }];
+function mineRows(progress: PlayerProgression): EntityInfoRow[] {
+  return [{ label: 'Revenu', value: `${effectiveMineGoldPerSecond(progress.upgrades).toFixed(1)} or/s` }];
 }
 
 function barracksRows(unitId: string, intervalSeconds: number, count: number): EntityInfoRow[] {
@@ -337,18 +338,18 @@ function barracksRows(unitId: string, intervalSeconds: number, count: number): E
 
 /** Bâtiment possede en preparation : PV persistants de la run, production
  *  effective (amelioration de la Caserne), revenu effectif (Mine). */
-export function placementBuildingInfo(owned: { buildingId: string; hp: number }, progress: MetaProgress): BuildingInfo {
+export function placementBuildingInfo(owned: { buildingId: string; hp: number }, progress: PlayerProgression): BuildingInfo {
   const def = getBuilding(owned.buildingId);
   let rows: EntityInfoRow[] = [];
   if (def.id === 'mine') rows = mineRows(progress);
-  else if (def.spawner) rows = barracksRows(def.spawner.unitId, effectiveBarracksSpawnInterval(progress), effectiveBarracksSpawnCount(progress));
+  else if (def.spawner) rows = barracksRows(def.spawner.unitId, effectiveBarracksSpawnInterval(progress.upgrades), effectiveBarracksSpawnCount(progress.upgrades));
   return { kind: 'building', buildingId: def.id, title: def.displayName, team: 'player', hp: hpOf(owned.hp, def.maxHp), rows, sections: [], status: null };
 }
 
 /** Bâtiment en bataille : PV et production lus sur l'entite. Le revenu de
  *  la Mine n'est pas une donnee de simulation (verse par main.ts tant que la
  *  Mine est vivante) : il reste lu sur la progression. */
-export function battleBuildingInfo(entity: Entity, progress: MetaProgress): BuildingInfo {
+export function battleBuildingInfo(entity: Entity, progress: PlayerProgression): BuildingInfo {
   const def = getBuilding(entity.unitId);
   let rows: EntityInfoRow[] = [];
   if (def.id === 'mine') rows = mineRows(progress);
@@ -365,18 +366,18 @@ export function battleBuildingInfo(entity: Entity, progress: MetaProgress): Buil
 
 // --- Baliste ---------------------------------------------------------------
 
-function ballistaRows(progress: MetaProgress): EntityInfoRow[] {
+function ballistaRows(progress: PlayerProgression): EntityInfoRow[] {
   return [
     { label: 'Dégâts / carreau', value: formatPoints(effectivePlayerArrowDamage(progress)) },
     { label: 'Recharge', value: formatSeconds(effectivePlayerArrowCooldown(progress)) },
-    { label: 'Carreaux / volée', value: String(playerArrowBoltsPerVolley(progress)) },
+    { label: 'Carreaux / volée', value: String(playerArrowBoltsPerVolley(progress.talents)) },
   ];
 }
 
 /** Baliste en preparation : elle reapparait toujours a pleins PV au debut
  *  de la bataille. Aucune portee : le tir n'en a pas. */
-export function placementBallistaInfo(progress: MetaProgress): BallistaInfo {
-  const maxHp = effectiveBallistaMaxHp(progress);
+export function placementBallistaInfo(progress: PlayerProgression): BallistaInfo {
+  const maxHp = effectiveBallistaMaxHp(progress.upgrades);
   return {
     kind: 'ballista',
     title: getBuilding('ballista').displayName,
@@ -390,7 +391,7 @@ export function placementBallistaInfo(progress: MetaProgress): BallistaInfo {
 
 /** Baliste en bataille : PV de son entite, etat de tir calcule par main.ts
  *  (currentBallistaStatus, meme source que le HUD de la Baliste). */
-export function battleBallistaInfo(entity: Entity, status: BallistaStatus, progress: MetaProgress): BallistaInfo {
+export function battleBallistaInfo(entity: Entity, status: BallistaStatus, progress: PlayerProgression): BallistaInfo {
   return {
     kind: 'ballista',
     title: getBuilding('ballista').displayName,

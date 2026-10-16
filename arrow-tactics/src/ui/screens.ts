@@ -77,6 +77,7 @@ import {
   shadowUpgradeLevel,
 } from '../run/shadowUpgradeEffects';
 import { getEffectiveBuildingCost } from '../run/buildingUpgradeEffects';
+import { copyMetaUpgradeLevelsForRun, type RunUpgradeLevels } from '../run/runUpgrades';
 import type { AudioSettings } from '../run/userSettings';
 import { createCoinIcon, createRuneIcon } from './pixelIcon';
 import { createItemIcon } from './itemIcons';
@@ -1064,15 +1065,15 @@ export class Screens {
     // ui/goldHud.ts), qui reste inchange pour sa propre raison documentee.
     this.shopGoldAmount.textContent = formatGold(run.gold);
 
-    const costFantassin = effectivePlayerUnitCost('fantassin', progress);
-    const costArcher = effectivePlayerUnitCost('archer', progress);
-    const costMage = effectivePlayerUnitCost('mage', progress);
+    const costFantassin = effectivePlayerUnitCost('fantassin', run.upgrades);
+    const costArcher = effectivePlayerUnitCost('archer', run.upgrades);
+    const costMage = effectivePlayerUnitCost('mage', run.upgrades);
     // Sentinelle (2026-08-15, chantier polish/equilibrage — REVIREMENT
     // explicite sur la decision "toujours 40" documentee auparavant, voir
     // data/sentinelUpgrade.ts) : cout desormais CROISSANT avec le niveau
     // d'amelioration permanente (effectivePlayerUnitCost route en interne
     // vers effectiveSentinelGoldCost pour cette unite precise).
-    const costSentinel = effectivePlayerUnitCost('sentinel', progress);
+    const costSentinel = effectivePlayerUnitCost('sentinel', run.upgrades);
     this.shopBuyFantassin.disabled = run.gold < costFantassin;
     this.shopBuyArcher.disabled = run.gold < costArcher;
     this.shopBuyMage.disabled = run.gold < costMage;
@@ -1116,7 +1117,7 @@ export class Screens {
     // place suffit deja si une pile existante n'est pas pleine) et x5
     // (canAddItemsToInventory, verifie les 5 EN MEME TEMPS — jamais un achat
     // partiel silencieux).
-    const costHeal = effectiveHealScrollCost(progress);
+    const costHeal = effectiveHealScrollCost(run.upgrades);
     this.shopBuyHealScroll.disabled = run.gold < costHeal || !canAddItemToInventory(run.inventory, 'heal_scroll_minor');
     const healPriceEl = this.shopUnitPriceEls.get('heal_scroll_minor');
     if (healPriceEl) healPriceEl.textContent = formatGold(costHeal);
@@ -1134,7 +1135,7 @@ export class Screens {
     // data/items.ts — sinon la description resterait perimee ("4 secondes")
     // des le premier niveau achete a la boutique d'amelioration. Cout
     // EFFECTIF (2026-08-15) — meme motif que le Parchemin de soin ci-dessus.
-    const costIceNova = effectiveIceNovaCost(progress);
+    const costIceNova = effectiveIceNovaCost(run.upgrades);
     this.shopBuyIceNova.disabled = run.gold < costIceNova || !canAddItemToInventory(run.inventory, 'ice_nova');
     const iceNovaPriceEl = this.shopUnitPriceEls.get('ice_nova');
     if (iceNovaPriceEl) iceNovaPriceEl.textContent = formatGold(costIceNova);
@@ -1142,7 +1143,7 @@ export class Screens {
     if (iceNovaFiveEl) {
       iceNovaFiveEl.disabled = run.gold < costIceNova * 5 || !canAddItemsToInventory(run.inventory, 'ice_nova', 5);
     }
-    const iceNovaEffects = computePlayerIceNovaUpgradeEffects(progress);
+    const iceNovaEffects = computePlayerIceNovaUpgradeEffects(run.upgrades);
     this.shopIceNovaDescription.textContent = isTalentUnlocked(progress, 'blizzard')
       ? `Mode de ciblage au sol : immobilise pendant ${iceNovaEffects.rootDuration.toFixed(1)} secondes tous les ennemis présents dans la zone au moment de l’impact. Crée en plus un Blizzard infligeant ${iceNovaEffects.damagePerTickInternal / HP_PER_PIP} dégâts chaque seconde pendant ${iceNovaEffects.blizzardDuration.toFixed(1)} secondes.`
       : `Mode de ciblage au sol : immobilise pendant ${iceNovaEffects.rootDuration.toFixed(1)} secondes tous les ennemis présents dans la zone au moment de l’impact.`;
@@ -1157,13 +1158,13 @@ export class Screens {
     // getEffectiveBuildingCost, SOURCE UNIQUE partagee avec la transaction
     // reelle dans main.ts).
     for (const buildingId of listBuyableBuildingIds()) {
-      const cost = getEffectiveBuildingCost(buildingId, progress);
+      const cost = getEffectiveBuildingCost(buildingId, run.upgrades);
       const button = this.shopBuildingButtons.get(buildingId);
       if (button) button.disabled = run.gold < cost;
       const priceEl = this.shopUnitPriceEls.get(buildingId);
       if (priceEl) priceEl.textContent = formatGold(cost);
       const description = this.shopBuildingDescriptions.get(buildingId);
-      if (description) description.textContent = this.describeBuildingShopItem(buildingId, progress, cost);
+      if (description) description.textContent = this.describeBuildingShopItem(buildingId, run.upgrades, cost);
     }
 
     this.shopUndoLastPurchase.disabled = !canUndoLastPurchase;
@@ -1180,15 +1181,15 @@ export class Screens {
    *  ici. Generique par id pour le reste (pas un if/else code en dur a
    *  etendre a la main pour un futur bâtiment sans production/revenu —
    *  retombe sur juste la ligne de cout dans ce cas). */
-  private describeBuildingShopItem(buildingId: string, progress: MetaProgress, cost: number): string {
+  private describeBuildingShopItem(buildingId: string, levels: RunUpgradeLevels, cost: number): string {
     const costLine = `Coût : ${formatGold(cost)} Gold.`;
     if (buildingId === 'mine') {
-      return `${costLine} Génère ${effectiveMineGoldPerSecond(progress).toFixed(1)} Gold par seconde tant que la bataille est en cours.`;
+      return `${costLine} Génère ${effectiveMineGoldPerSecond(levels).toFixed(1)} Gold par seconde tant que la bataille est en cours.`;
     }
     if (buildingId === 'barracks') {
-      const count = effectiveBarracksSpawnCount(progress);
+      const count = effectiveBarracksSpawnCount(levels);
       const noun = count > 1 ? 'Fantassins' : 'Fantassin';
-      return `${costLine} Produit automatiquement ${count} ${noun} toutes les ${effectiveBarracksSpawnInterval(progress).toFixed(0)} secondes pendant la bataille.`;
+      return `${costLine} Produit automatiquement ${count} ${noun} toutes les ${effectiveBarracksSpawnInterval(levels).toFixed(0)} secondes pendant la bataille.`;
     }
     return costLine;
   }
@@ -1205,6 +1206,10 @@ export class Screens {
    *  l'ouverture ET apres chaque achat (voir main.ts, onPurchaseUnitUpgrade),
    *  meme motif que refreshShop/refreshTalents. */
   refreshUnitUpgradeShop(progress: MetaProgress): void {
+    // Boutique du MENU : aucune run n'existe, elle affiche et achete les
+    // niveaux PERMANENTS (MetaProgress.unitUpgrades), lus ici sous la forme
+    // attendue par les formules d'effet. Transition jusqu'aux achats en run.
+    const levels = copyMetaUpgradeLevelsForRun(progress);
     this.unitUpgradeRunesAmount.textContent = String(progress.upgradeRunes);
     for (const [unitId, refs] of this.unitUpgradeCards) {
       const def = getUnitUpgradeDef(unitId);
@@ -1219,7 +1224,7 @@ export class Screens {
       refs.levelEl.textContent = `Niveau d’amélioration : ${level}`;
       refs.hpBonusEl.textContent = `PV : +${hpBonus}`;
       refs.attackBonusEl.textContent = `Attaque : +${attackBonus}`;
-      refs.goldCostEl.textContent = `Coût en partie : ${effectivePlayerUnitCost(unitId, progress)}`;
+      refs.goldCostEl.textContent = `Coût en partie : ${effectivePlayerUnitCost(unitId, levels)}`;
       // Palier d'attaque mis en avant si le PROCHAIN achat le declenche
       // (point 27 de la demande : "rends-le tres clair").
       refs.nextUpgradeEl.textContent = grantsAttack
@@ -1234,7 +1239,7 @@ export class Screens {
     // Baliste (2026-08-13, etendue le 2026-08-16 avec le bonus de PV de la
     // tour) — voir run/ballistaUpgradeEffects.ts.
     {
-      const level = ballistaUpgradeLevel(progress);
+      const level = ballistaUpgradeLevel(levels);
       const attackSpeedPct = Math.round(ballistaAttackSpeedBonus(level) * 100);
       const damageBonus = ballistaDamageBonusDisplay(level);
       const hpBonus = ballistaHpBonusDisplay(level);
@@ -1264,7 +1269,7 @@ export class Screens {
 
     // Parchemin de soin (2026-08-13) — voir run/healScrollUpgradeEffects.ts.
     {
-      const level = healScrollUpgradeLevel(progress);
+      const level = healScrollUpgradeLevel(levels);
       const healBonus = healBonusDisplay(level);
       const secondaryCount = healSecondaryTargetCount(level);
       const nextCost = effectiveUpgradeCost(progress, HEAL_SCROLL_UPGRADE, level);
@@ -1295,7 +1300,7 @@ export class Screens {
     // (degats, agit seulement si le talent Blizzard est debloque) affichees
     // separement — meme bonus partage, mais deux effets gameplay distincts.
     {
-      const effects = computePlayerIceNovaUpgradeEffects(progress);
+      const effects = computePlayerIceNovaUpgradeEffects(levels);
       const nextCost = effectiveUpgradeCost(progress, ICE_NOVA_UPGRADE, effects.level);
       const remaining = iceNovaRemainingUntilDamageBonus(effects.level);
       const grantsDamage = iceNovaNextPurchaseGrantsDamageBonus(effects.level);
@@ -1325,7 +1330,7 @@ export class Screens {
     // de la demande, "pas besoin d'avoir une Caserne posée").
     {
       const refs = this.mineUpgradeCard;
-      const level = mineUpgradeLevel(progress);
+      const level = mineUpgradeLevel(levels);
       const goldPerSecond = MINE_BASE_GOLD_PER_SECOND + mineGoldPerSecondBonus(level);
       const nextCost = effectiveUpgradeCost(progress, MINE_UPGRADE, level);
 
@@ -1342,9 +1347,9 @@ export class Screens {
     // "MAX" (le bonus de nombre de Fantassins reste utile a tout niveau).
     {
       const refs = this.barracksUpgradeCard;
-      const level = barracksUpgradeLevel(progress);
-      const count = effectiveBarracksSpawnCount(progress);
-      const interval = effectiveBarracksSpawnInterval(progress);
+      const level = barracksUpgradeLevel(levels);
+      const count = effectiveBarracksSpawnCount(levels);
+      const interval = effectiveBarracksSpawnInterval(levels);
       const minInterval = getBuilding('barracks').spawner?.minIntervalSeconds ?? interval;
       const remaining = barracksRemainingUntilIntervalMilestone(level);
       const grantsInterval = barracksNextPurchaseGrantsIntervalMilestone(level);
@@ -1377,7 +1382,7 @@ export class Screens {
     // amelioration ne donne jamais d'attaque, seulement PV + Bouclier par
     // ennemi provoque.
     {
-      const effects = computePlayerSentinelUpgradeEffects(progress);
+      const effects = computePlayerSentinelUpgradeEffects(levels);
       const nextCost = effectiveUpgradeCost(progress, SENTINEL_UPGRADE, effects.level);
       const remaining = sentinelRemainingUntilShieldBonus(effects.level);
       const grantsShield = sentinelNextPurchaseGrantsShieldBonus(effects.level);
@@ -1408,7 +1413,7 @@ export class Screens {
       const unlocked = isTalentUnlocked(progress, 'soins_excedentaires');
       refs.card.style.display = unlocked ? '' : 'none';
       if (unlocked) {
-        const level = shadowUpgradeLevel(progress);
+        const level = shadowUpgradeLevel(levels);
         const damage = shadowDamagePerProjectileDisplay(level);
         const bonusCount = shadowBonusProjectileCount(level);
         const nextCost = effectiveUpgradeCost(progress, SHADOW_UPGRADE, level);

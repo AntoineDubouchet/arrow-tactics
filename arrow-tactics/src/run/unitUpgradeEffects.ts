@@ -1,7 +1,7 @@
 import { HP_PER_PIP } from '../config/constants';
 import { getUnitUpgradeDef, type UnitUpgradeDef } from '../data/unitUpgrades';
 import { getUnit, type UnitStats } from '../data/units';
-import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
+import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 import { computePlayerSentinelUpgradeEffects, effectiveSentinelGoldCost } from './sentinelUpgradeEffects';
 
 /**
@@ -48,7 +48,7 @@ export function upgradeNextPurchaseGrantsAttackBonus(def: UnitUpgradeDef, level:
  *  seule cette fonction derive le cout reellement facture au joueur. Unite
  *  sans amelioration definie (future Cavalier/Baliste...) : retombe
  *  simplement sur le cout de base. */
-export function effectivePlayerUnitCost(unitId: string, progress: MetaProgress): number {
+export function effectivePlayerUnitCost(unitId: string, levels: RunUpgradeLevels): number {
   // Sentinelle (2026-08-15, chantier polish/equilibrage) : amelioration
   // DEDIEE (voir data/sentinelUpgrade.ts), pas enregistree dans UNIT_UPGRADES
   // (forme incompatible, pas de palier d'attaque) — sans ce cas special,
@@ -56,12 +56,12 @@ export function effectivePlayerUnitCost(unitId: string, progress: MetaProgress):
   // REVIREMENT explicite d'Antoine ("augmente FORTEMENT le prix de
   // recrutement... en fonction de son niveau d'amelioration permanente"),
   // meme motif que le cas special deja existant dans effectivePlayerUnitMaxHp.
-  if (unitId === 'sentinel') return effectiveSentinelGoldCost(progress);
+  if (unitId === 'sentinel') return effectiveSentinelGoldCost(levels);
 
   const base = getUnit(unitId).cost;
   const def = getUnitUpgradeDef(unitId);
   if (!def) return base;
-  const level = getUnitUpgradeLevel(progress, unitId);
+  const level = runUpgradeLevel(levels, unitId);
   return base + upgradeAttackBonusDisplay(def, level) * def.goldCostPerAttackUpgrade;
 }
 
@@ -72,19 +72,19 @@ export function effectivePlayerUnitCost(unitId: string, progress: MetaProgress):
  *  CLAUDE.md, correctif "je commence a 5/9" 2026-08-13). Toujours egal a
  *  `computePlayerUnitUpgradeEffects(...).statOverrides.maxHp`, expose ici a
  *  part pour les sites qui n'ont besoin QUE de ce nombre. */
-export function effectivePlayerUnitMaxHp(unitId: string, progress: MetaProgress): number {
+export function effectivePlayerUnitMaxHp(unitId: string, levels: RunUpgradeLevels): number {
   // Sentinelle (2026-08-14) : amelioration DEDIEE (voir
   // data/sentinelUpgrade.ts), pas enregistree dans UNIT_UPGRADES (elle ne
   // donne jamais d'attaque, forme incompatible avec UnitUpgradeDef) — sans
   // ce cas special, la Sentinelle retomberait sur le maxHp de BASE ici
   // malgre des PV permanents achetes, meme classe de bug que "je commence a
   // 5/9" deja corrigee pour Fantassin/Archer/Mage.
-  if (unitId === 'sentinel') return computePlayerSentinelUpgradeEffects(progress).statOverrides.maxHp!;
+  if (unitId === 'sentinel') return computePlayerSentinelUpgradeEffects(levels).statOverrides.maxHp!;
 
   const def = getUnitUpgradeDef(unitId);
   const base = getUnit(unitId).stats.maxHp;
   if (!def) return base;
-  const level = getUnitUpgradeLevel(progress, unitId);
+  const level = runUpgradeLevel(levels, unitId);
   return base + upgradeHpBonusDisplay(def, level) * HP_PER_PIP;
 }
 
@@ -139,12 +139,12 @@ function buildUpgradeStatEffects(
  *  PAR VAGUE, un systeme DELIBEREMENT distinct, 2026-08-13). Unite sans
  *  amelioration definie : tous les bonus a 0, statOverrides vide — spawn
  *  identique a avant ce systeme. */
-export function computePlayerUnitUpgradeEffects(unitId: string, progress: MetaProgress): PlayerUnitUpgradeEffects {
+export function computePlayerUnitUpgradeEffects(unitId: string, levels: RunUpgradeLevels): PlayerUnitUpgradeEffects {
   const def = getUnitUpgradeDef(unitId);
   if (!def) {
     return { level: 0, hpBonusDisplay: 0, attackBonusDisplay: 0, statOverrides: {}, abilityDamageBonus: 0 };
   }
-  const level = getUnitUpgradeLevel(progress, unitId);
+  const level = runUpgradeLevel(levels, unitId);
   return { level, ...buildUpgradeStatEffects(unitId, def, level) };
 }
 

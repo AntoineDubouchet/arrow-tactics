@@ -1,5 +1,5 @@
 import { getBuilding } from '../data/buildings';
-import type { MetaProgress } from './metaProgress';
+import type { RunUpgradeLevels } from './runUpgrades';
 import { effectiveBarracksGoldCost } from './barracksUpgradeEffects';
 import { effectiveMineGoldCost } from './mineUpgradeEffects';
 
@@ -19,8 +19,8 @@ import { effectiveMineGoldCost } from './mineUpgradeEffects';
  * achetable via ce systeme, voir data/buildings.ts, `cost` absent) retombe
  * simplement sur `def.cost ?? 0`.
  */
-export function getEffectiveBuildingCost(buildingId: string, progress: MetaProgress): number {
-  if (buildingId === 'mine') return effectiveMineGoldCost(progress);
-  if (buildingId === 'barracks') return effectiveBarracksGoldCost(progress);
+export function getEffectiveBuildingCost(buildingId: string, levels: RunUpgradeLevels): number {
+  if (buildingId === 'mine') return effectiveMineGoldCost(levels);
+  if (buildingId === 'barracks') return effectiveBarracksGoldCost(levels);
   return getBuilding(buildingId).cost ?? 0;
 }

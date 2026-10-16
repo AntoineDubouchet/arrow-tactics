@@ -1,7 +1,7 @@
 import { HP_PER_PIP } from '../config/constants';
 import { getHealEffectAmount, getItem } from '../data/items';
 import { HEAL_SCROLL_UPGRADE } from '../data/healScrollUpgrade';
-import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
+import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Amelioration permanente du PARCHEMIN DE SOIN (2026-08-13, voir
@@ -12,8 +12,8 @@ import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
  * sauvegarde).
  */
 
-export function healScrollUpgradeLevel(progress: MetaProgress): number {
-  return getUnitUpgradeLevel(progress, HEAL_SCROLL_UPGRADE.id);
+export function healScrollUpgradeLevel(levels: RunUpgradeLevels): number {
+  return runUpgradeLevel(levels, HEAL_SCROLL_UPGRADE.id);
 }
 
 /** Bonus de soin AFFICHE (pas l'echelle interne x10) — "+1 PV par niveau". */
@@ -41,9 +41,9 @@ export function healNextPurchaseGrantsExtraTarget(level: number): boolean {
  *  consomme (clic bataille, clic placement, ET le talent "Aux petits
  *  oignons" qui le consomme automatiquement — meme parchemin, meme bonus,
  *  jamais un cas particulier separe). */
-export function effectivePlayerHealAmount(progress: MetaProgress): number {
+export function effectivePlayerHealAmount(levels: RunUpgradeLevels): number {
   const base = getHealEffectAmount('heal_scroll_minor');
-  const level = healScrollUpgradeLevel(progress);
+  const level = healScrollUpgradeLevel(levels);
   return base + healBonusDisplay(level) * HP_PER_PIP;
 }
 
@@ -53,8 +53,8 @@ export function effectivePlayerHealAmount(progress: MetaProgress): number {
  *  soin principal est toujours un multiple de 10 (base 50 + level*10), donc
  *  ce produit reste TOUJOURS un entier exact malgre le ratio 0.5 — jamais de
  *  demi-point interne a arrondir. */
-export function effectivePlayerSecondaryHealAmount(progress: MetaProgress): number {
-  return effectivePlayerHealAmount(progress) * HEAL_SCROLL_UPGRADE.secondaryHealRatio;
+export function effectivePlayerSecondaryHealAmount(levels: RunUpgradeLevels): number {
+  return effectivePlayerHealAmount(levels) * HEAL_SCROLL_UPGRADE.secondaryHealRatio;
 }
 
 /** Cout Gold EFFECTIF d'achat en boutique de RUN (2026-08-15, chantier
@@ -65,8 +65,8 @@ export function effectivePlayerSecondaryHealAmount(progress: MetaProgress): numb
  *  endroits. Le cout en RUNES de l'amelioration elle-meme (voir
  *  run/metaProgress.ts, effectiveUpgradeCost) n'est jamais touche par cette
  *  fonction. */
-export function effectiveHealScrollCost(progress: MetaProgress): number {
+export function effectiveHealScrollCost(levels: RunUpgradeLevels): number {
   const base = getItem('heal_scroll_minor').cost;
-  const level = healScrollUpgradeLevel(progress);
+  const level = healScrollUpgradeLevel(levels);
   return base + level * HEAL_SCROLL_UPGRADE.goldCostPerLevel;
 }

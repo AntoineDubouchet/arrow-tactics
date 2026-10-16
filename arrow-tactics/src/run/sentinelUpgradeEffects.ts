@@ -1,7 +1,7 @@
 import { HP_PER_PIP, SHIELD_PER_TAUNTED_ENEMY } from '../config/constants';
 import { SENTINEL_UPGRADE } from '../data/sentinelUpgrade';
 import { getUnit, type UnitStats } from '../data/units';
-import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
+import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Amelioration permanente de la SENTINELLE (2026-08-14, voir
@@ -17,8 +17,8 @@ import { getUnitUpgradeLevel, type MetaProgress } from './metaProgress';
  * data/unitUpgrades.ts, ou 'sentinel' n'est pas enregistre).
  */
 
-export function sentinelUpgradeLevel(progress: MetaProgress): number {
-  return getUnitUpgradeLevel(progress, SENTINEL_UPGRADE.id);
+export function sentinelUpgradeLevel(levels: RunUpgradeLevels): number {
+  return runUpgradeLevel(levels, SENTINEL_UPGRADE.id);
 }
 
 /** Bonus de PV AFFICHE (pas l'echelle interne x10). */
@@ -57,8 +57,8 @@ export interface SentinelUpgradeEffects {
   effectiveShieldPerEnemyDisplay: number;
 }
 
-export function computePlayerSentinelUpgradeEffects(progress: MetaProgress): SentinelUpgradeEffects {
-  const level = sentinelUpgradeLevel(progress);
+export function computePlayerSentinelUpgradeEffects(levels: RunUpgradeLevels): SentinelUpgradeEffects {
+  const level = sentinelUpgradeLevel(levels);
   const hpBonusDisplay = sentinelHpBonusDisplay(level);
   const shieldBonusPerEnemyDisplay = sentinelShieldBonusPerEnemyDisplay(level);
   const base = getUnit('sentinel').stats.maxHp;
@@ -80,8 +80,8 @@ export function computePlayerSentinelUpgradeEffects(progress: MetaProgress): Sen
  *  'sentinel', meme motif que le cas special deja existant dans
  *  effectivePlayerUnitMaxHp) — jamais depuis un calcul ENNEMI, une Sentinelle
  *  adverse n'a pas de cout Gold et ne recoit jamais ce bonus. */
-export function effectiveSentinelGoldCost(progress: MetaProgress): number {
+export function effectiveSentinelGoldCost(levels: RunUpgradeLevels): number {
   const base = getUnit('sentinel').cost;
-  const level = sentinelUpgradeLevel(progress);
+  const level = sentinelUpgradeLevel(levels);
   return base + level * SENTINEL_UPGRADE.goldCostPerLevel;
 }
