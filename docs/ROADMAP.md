@@ -187,8 +187,11 @@ rejouabilité.
 - **Décisions ouvertes** : profondeur de l'arbre ; exclusivités ; nouvelles
   branches (l'idée « Héros » est notée, non engagée).
 
-### L3 — Boutique de run et améliorations de Forge — *Direction forte*
+### L3 — Boutique de run et améliorations de Forge — *Implémenté (équilibrage à poursuivre)*
 
+- **État** : le système est en place (Forge construite en Or, améliorations
+  propres à la run achetées en Or ; voir `CURRENT_STATE.md` §6 et §14). Son
+  barème reste provisoire et son équilibrage est à poursuivre avec M2.
 - **Objectif** : enrichir la variété de la boutique de run et des
   améliorations achetables en Or à la Forge.
 - **Pourquoi** : multiplier les arbitrages économiques pendant la run
