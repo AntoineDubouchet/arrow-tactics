@@ -1,5 +1,6 @@
 import { obstacleCenter } from '../config/constants';
 import type { TerrainType } from '../config/mapDef';
+import type { TerritoryTeam } from '../config/territory';
 import { UNITS } from '../data/units';
 import type { EditorObstacle, EditorUnit, PlacementTemplate } from './editorState';
 
@@ -14,6 +15,9 @@ export interface EditorUIHandlers {
    *  d'obstacle/unité (voir EditorState.addCell). */
   onSelectAddCellTool: (terrain: TerrainType) => void;
   onSelectRemoveCellTool: () => void;
+  /** Pinceau de territoire : `team` peint pour ce camp, `null` efface
+   *  (case neutre). Reste actif apres chaque trait, comme "Ajouter case". */
+  onSelectTerritoryTool: (team: TerritoryTeam | null) => void;
   onRotate: () => void;
   onDelete: () => void;
   onExit: () => void;
@@ -556,6 +560,14 @@ export class EditorUI {
 
     const browser = document.createElement('div');
     browser.className = 'editor-asset-browser';
+    browser.appendChild(this.groupHeader('Territoire'));
+    for (const [label, team] of [
+      ['Bleu (joueur)', 'player'],
+      ['Rouge (ennemi)', 'enemy'],
+      ['Effacer (neutre)', null],
+    ] as const) {
+      browser.appendChild(this.toolCard(label, () => handlers.onSelectTerritoryTool(team)));
+    }
     browser.appendChild(this.groupHeader('Unités'));
     browser.appendChild(this.categoryHeader('Bestiaire'));
     for (const unit of UNIT_ASSETS) browser.appendChild(this.unitAssetCard(unit, handlers.onSelectUnit));
@@ -705,6 +717,15 @@ export class EditorUI {
     button.className = 'editor-asset-card';
     button.textContent = asset.label;
     button.addEventListener('click', () => onSelect(asset.template));
+    return button;
+  }
+
+  private toolCard(label: string, onSelect: () => void): HTMLElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'editor-asset-card';
+    button.textContent = label;
+    button.addEventListener('click', onSelect);
     return button;
   }
 

@@ -19,7 +19,6 @@ import {
   GRID_MOVE_SEARCH_RADIUS,
   type ObstacleDef,
   PLACEMENT_GOLD_WARNING_RATIO,
-  PLACEMENT_ROWS,
   SHADOW_PROJECTILE_SPEED,
   TILE,
   obstacleBounds,
@@ -32,7 +31,7 @@ import {
   type MapDef,
   type MapUnitPlacement,
 } from './config/mapDef';
-import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type TerritoryIndex } from './config/territory';
+import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type TerritoryCell, type TerritoryIndex } from './config/territory';
 import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapExpansion';
 import { Loop } from './core/loop';
 import { dist } from './core/math';
@@ -51,6 +50,7 @@ import {
   buildUnitView,
   createSelectionRing as createEditorSelectionRing,
   createSelectionRingHitArea,
+  TERRITORY_ERASE_PREVIEW_COLOR,
 } from './editor/editorScene';
 import { EditorUI } from './editor/editorUI';
 import { downloadMapDef, exportMapDef, loadMapDefFromFile } from './editor/mapSerializer';
@@ -1933,12 +1933,22 @@ function rebuildEditorBoard(): void {
   const cells = editorState.cells;
   editorBoardGroup.add(buildTerrainCellsView(cells).group);
   editorBoardGroup.add(buildCellGridLines(cells, COLORS.gridLine));
-  // Zones : territoire explicite du brouillon s'il en a un, sinon bandes
-  // historiques de profondeur PLACEMENT_ROWS (l'editeur n'a pas de run),
-  // limitees aux cellules existantes. Affichage seulement : le camp des
-  // unites posees suit toujours teamForZ.
-  const territory = resolveMapTerritory({ width: editorState.width, height: editorState.height, cells, territory: editorState.territory }, PLACEMENT_ROWS);
-  editorBoardGroup.add(createZonesGroup(territory));
+  editorZonesGroup = null;
+  refreshEditorZones();
+}
+
+/** Zones de l'editeur actuellement affichees (enfant de editorBoardGroup). */
+let editorZonesGroup: THREE.Group | null = null;
+
+/** Remplace seulement les zones de l'editeur — apres un coup de pinceau de
+ *  territoire, sans reconstruire sol ni grille. Territoire explicite du
+ *  brouillon, sinon repli historique (EditorState.resolvedTerritory).
+ *  Affichage seulement : le camp des unites posees suit toujours teamForZ. */
+function refreshEditorZones(): void {
+  if (!editorState) return;
+  if (editorZonesGroup) editorBoardGroup.remove(editorZonesGroup);
+  editorZonesGroup = createZonesGroup(editorState.resolvedTerritory());
+  editorBoardGroup.add(editorZonesGroup);
 }
 
 // Anneau reutilise pour toute selection : construit une fois a rayon unite,
@@ -2189,6 +2199,12 @@ const editorUI = new EditorUI({
   onSelectRemoveCellTool: () => {
     if (!editorState) return;
     editorState.setTool({ type: 'remove-cell' });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
+  onSelectTerritoryTool: (team) => {
+    if (!editorState) return;
+    editorState.setTool({ type: 'paint-territory', team });
     clearEditorGhost();
     refreshEditorObjects();
   },
@@ -2597,8 +2613,70 @@ function updateEditorGhost(x: number, z: number): void {
     const cellZ = Math.floor(z);
     editorGhost = buildCellPreview(cellX, cellZ, editorState.canRemoveCell(cellX, cellZ));
     editorGhostGroup.add(editorGhost);
+  } else if (editorState.tool.type === 'paint-territory') {
+    // Case qui sera peinte, teintee de la couleur du pinceau (gris pour
+    // Effacer) ; aucun apercu sur une case absente, impossible a peindre.
+    const cellX = Math.floor(x);
+    const cellZ = Math.floor(z);
+    if (!editorState.canPaintTerritoryAt(cellX, cellZ)) return;
+    const team = editorState.tool.team;
+    editorGhost = buildCellPreview(cellX, cellZ, true, team ? teamColor(team) : TERRITORY_ERASE_PREVIEW_COLOR);
+    editorGhostGroup.add(editorGhost);
   }
 }
+
+/** Trait de pinceau de territoire en cours (bouton gauche maintenu) : tout
+ *  le trait forme UNE entree d'historique, creee au relachement s'il a
+ *  change quelque chose. `before` : etat du territoire a l'appui. */
+let territoryStroke: { before: TerritoryCell[] | undefined; changed: boolean; lastKey: string | null } | null = null;
+
+/** Peint la case sous (x, z) avec le pinceau actif — une seule fois par
+ *  case pendant un meme trait. */
+function paintTerritoryAt(x: number, z: number): void {
+  if (!editorState || !territoryStroke || editorState.tool.type !== 'paint-territory') return;
+  const cellX = Math.floor(x);
+  const cellZ = Math.floor(z);
+  const key = `${cellX},${cellZ}`;
+  if (key === territoryStroke.lastKey) return;
+  territoryStroke.lastKey = key;
+  if (editorState.paintTerritoryCell(cellX, cellZ, editorState.tool.team)) {
+    territoryStroke.changed = true;
+    refreshEditorZones();
+  }
+}
+
+/** Termine le trait en cours : une entree d'historique s'il a change le
+ *  territoire (annuler revient a l'etat d'avant le trait, y compris
+ *  "aucun territoire explicite" pour une ancienne map). */
+function endTerritoryStroke(): void {
+  const stroke = territoryStroke;
+  territoryStroke = null;
+  if (!editorState || !stroke?.changed) return;
+  const before = stroke.before;
+  const after = editorState.territorySnapshot();
+  editorHistory.push({
+    undo: () => {
+      editorState?.restoreTerritory(before);
+      refreshEditorZones();
+    },
+    redo: () => {
+      editorState?.restoreTerritory(after);
+      refreshEditorZones();
+    },
+  });
+}
+
+window.addEventListener('mousemove', (event) => {
+  if (!territoryStroke || !inEditorMode) return;
+  setRaycasterFromEvent(event);
+  if (raycaster.ray.intersectPlane(groundPlane, groundHit)) paintTerritoryAt(groundHit.x, groundHit.z);
+});
+window.addEventListener('mouseup', (event) => {
+  if (event.button === 0 && territoryStroke) endTerritoryStroke();
+});
+window.addEventListener('blur', () => {
+  if (territoryStroke) endTerritoryStroke();
+});
 
 function handleEditorClick(event: MouseEvent): void {
   if (!editorState || !editorAssets) return;
@@ -2647,14 +2725,26 @@ function handleEditorClick(event: MouseEvent): void {
     return;
   }
 
+  if (editorState.tool.type === 'paint-territory') {
+    // Outil REPETABLE comme "Ajouter case" : l'appui commence un trait, le
+    // glisser peint les cases survolees, le relachement le termine.
+    territoryStroke = { before: editorState.territorySnapshot(), changed: false, lastKey: null };
+    paintTerritoryAt(groundHit.x, groundHit.z);
+    return;
+  }
+
   if (editorState.tool.type === 'remove-cell') {
     const cellX = Math.floor(groundHit.x);
     const cellZ = Math.floor(groundHit.z);
     const removed = editorState.cells.find((c) => c.x === cellX && c.z === cellZ);
+    // La case emporte son territoire explicite (voir EditorState.removeCell) :
+    // annuler le restaure aussi.
+    const territoryBefore = editorState.territorySnapshot();
     if (removed && editorState.removeCell(cellX, cellZ)) {
       editorHistory.push({
         undo: () => {
           editorState?.addCell(removed.x, removed.z, removed.terrain);
+          editorState?.restoreTerritory(territoryBefore);
           rebuildEditorBoard();
         },
         redo: () => {
@@ -5457,6 +5547,9 @@ window.addEventListener('keydown', (event) => {
   // notion d'annulation. Verifie AVANT le switch principal (combinaison de
   // touches, pas une simple touche seule).
   if (inEditorMode && (event.ctrlKey || event.metaKey) && !event.altKey) {
+    // Un trait de territoire en cours est d'abord enregistre : annuler /
+    // retablir agit toujours sur un historique complet.
+    if (territoryStroke) endTerritoryStroke();
     if (event.key === 'z' || event.key === 'Z') {
       event.preventDefault();
       if (event.shiftKey) editorHistory.redo();

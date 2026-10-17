@@ -1,4 +1,4 @@
-import { isCollidableObstacle, obstacleBounds, obstacleCenter, type ObstacleBounds, type ObstacleDef } from '../config/constants';
+import { isCollidableObstacle, obstacleBounds, obstacleCenter, PLACEMENT_ROWS, type ObstacleBounds, type ObstacleDef } from '../config/constants';
 import {
   buildCellIndex,
   cellKey,
@@ -12,7 +12,7 @@ import {
   type TerrainCellDef,
   type TerrainType,
 } from '../config/mapDef';
-import type { TerritoryCell } from '../config/territory';
+import { resolveMapTerritory, type TerritoryCell, type TerritoryTeam } from '../config/territory';
 import type { Team } from '../sim/entity';
 
 /**
@@ -76,7 +76,10 @@ export type EditorTool =
   | { type: 'place-obstacle'; template: PlacementTemplate }
   | { type: 'place-unit'; unitId: string }
   | { type: 'add-cell'; terrain: TerrainType }
-  | { type: 'remove-cell' };
+  | { type: 'remove-cell' }
+  /** Pinceau de territoire : `team` peint la case pour ce camp, `null`
+   *  l'efface (case neutre). */
+  | { type: 'paint-territory'; team: TerritoryTeam | null };
 
 /** Camp determine par la moitie du plateau : z >= 0 cote bleu (joueur), z < 0
  *  cote rouge (ennemi) — meme convention que les zones de placement du
@@ -133,9 +136,9 @@ export class EditorState {
 
   /** Territoire EXPLICITE du brouillon (voir MapDef.territory), copie de la
    *  map chargee — `undefined` si elle n'en avait pas (repli historique, et
-   *  aucun champ a l'export), `[]` s'il est explicitement vide. Conserve
-   *  tel quel : aucun outil ne le modifie encore, et ni la pose ni le camp
-   *  des unites ne le lisent. */
+   *  aucun champ a l'export), `[]` s'il est explicitement vide. Modifie
+   *  uniquement par paintTerritoryCell / restoreTerritory / removeCell ; ni
+   *  la pose ni le camp des unites ne le lisent encore. */
   territory: TerritoryCell[] | undefined;
 
   /** Par defaut, repart de la map actuelle : l'editeur sert d'abord a
@@ -295,11 +298,59 @@ export class EditorState {
     return !occupiedByObstacle;
   }
 
-  /** Supprime une cellule — voir canRemoveCell pour les conditions de refus. */
+  /** Supprime une cellule — voir canRemoveCell pour les conditions de refus.
+   *  Retire aussi sa case de territoire explicite : aucun territoire ne
+   *  reste sur une case qui n'existe plus. */
   removeCell(x: number, z: number): boolean {
     if (!this.canRemoveCell(x, z)) return false;
     this.cellMap.delete(cellKey(x, z));
+    if (this.territory) this.territory = this.territory.filter((c) => c.x !== x || c.z !== z);
     return true;
+  }
+
+  /** Territoire affiche et peint par l'editeur : l'explicite s'il existe,
+   *  sinon les bandes historiques de profondeur PLACEMENT_ROWS (l'editeur
+   *  n'a pas de run), limitees aux cellules existantes. */
+  resolvedTerritory(): TerritoryCell[] {
+    return resolveMapTerritory({ width: this.width, height: this.height, cells: this.cells, territory: this.territory }, PLACEMENT_ROWS);
+  }
+
+  /** Vrai si la case (x, z) — coordonnees entieres de case — existe et peut
+   *  donc recevoir du territoire. */
+  canPaintTerritoryAt(x: number, z: number): boolean {
+    return Number.isInteger(x) && Number.isInteger(z) && this.hasCellAt(x, z);
+  }
+
+  /** Donne la case (x, z) a `team`, ou la rend neutre (`null`). Renvoie
+   *  false si rien ne change (case absente, ou deja dans cet etat).
+   *  Territoire encore implicite (`undefined`) : le premier vrai changement
+   *  part d'une copie du territoire affiche (repli historique), jamais d'un
+   *  territoire vide. Une seule entree par case apres ecriture ; une case
+   *  repeinte garde sa place dans la liste, une nouvelle case va a la fin. */
+  paintTerritoryCell(x: number, z: number, team: TerritoryTeam | null): boolean {
+    if (!this.canPaintTerritoryAt(x, z)) return false;
+    const current = this.territory ?? this.resolvedTerritory();
+    const isCell = (c: TerritoryCell) => c.x === x && c.z === z;
+    const entries = current.filter(isCell);
+    const owner = entries.length > 0 ? entries[entries.length - 1]!.team : null;
+    if (owner === team && entries.length <= 1) return false;
+    const index = current.findIndex(isCell);
+    const next = current.filter((c) => !isCell(c));
+    if (team) next.splice(index >= 0 ? index : next.length, 0, { x, z, team });
+    this.territory = next;
+    return true;
+  }
+
+  /** Copie de l'etat du territoire explicite (`undefined` compris), pour
+   *  annuler / retablir. */
+  territorySnapshot(): TerritoryCell[] | undefined {
+    return this.territory?.map((c) => ({ x: c.x, z: c.z, team: c.team }));
+  }
+
+  /** Remet le territoire exactement dans un etat capture par
+   *  territorySnapshot (annuler / retablir), sans validation. */
+  restoreTerritory(snapshot: TerritoryCell[] | undefined): void {
+    this.territory = snapshot?.map((c) => ({ x: c.x, z: c.z, team: c.team }));
   }
 
   private toEditorUnit(u: MapUnitPlacement, team: Team): EditorUnit {

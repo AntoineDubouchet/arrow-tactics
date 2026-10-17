@@ -130,12 +130,17 @@ export function buildUnitGhost(unitId: string, team: Team, x: number, z: number)
  *  arrondie autrement qu'au coin de grille le plus proche. */
 const CELL_PREVIEW_VALID_COLOR = 0x4ade80;
 const CELL_PREVIEW_INVALID_COLOR = 0xef4444;
+/** Aperçu du pinceau "Effacer" du territoire : gris clair, distinct des
+ *  couleurs de camp et du vert/rouge valide/invalide. */
+export const TERRITORY_ERASE_PREVIEW_COLOR = 0xd4d4d4;
 
-export function buildCellPreview(x: number, z: number, valid: boolean): THREE.Mesh {
+/** `color` (optionnel) remplace le vert/rouge : aperçu du pinceau de
+ *  territoire, teinté de la couleur qui sera peinte. */
+export function buildCellPreview(x: number, z: number, valid: boolean, color?: number): THREE.Mesh {
   const mesh = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),
     new THREE.MeshBasicMaterial({
-      color: valid ? CELL_PREVIEW_VALID_COLOR : CELL_PREVIEW_INVALID_COLOR,
+      color: color ?? (valid ? CELL_PREVIEW_VALID_COLOR : CELL_PREVIEW_INVALID_COLOR),
       transparent: true,
       opacity: 0.45,
       side: THREE.DoubleSide,
