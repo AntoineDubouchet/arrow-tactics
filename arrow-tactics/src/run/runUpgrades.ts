@@ -58,15 +58,28 @@ export function isRunUpgradeId(id: string): boolean {
   return Object.prototype.hasOwnProperty.call(RUN_UPGRADE_DEFS, id);
 }
 
-/** Bareme PROVISOIRE : 2 Or pour passer du niveau 0 au niveau 1, puis x2 a
- *  chaque niveau (2, 4, 8, 16...). Seul endroit a modifier pour le
- *  reequilibrer. */
+/** Bareme PROVISOIRE, seul endroit a modifier pour le reequilibrer : cout
+ *  du niveau 0 -> 1 (RUN_UPGRADE_GOLD_COST_BASE, ou sa valeur propre dans
+ *  RUN_UPGRADE_GOLD_COST_BASE_BY_ID), puis x RUN_UPGRADE_GOLD_COST_GROWTH a
+ *  chaque niveau : 2, 4, 8, 16... pour la plupart des ameliorations. */
 export const RUN_UPGRADE_GOLD_COST_BASE = 2;
 export const RUN_UPGRADE_GOLD_COST_GROWTH = 2;
 
-/** Cout en Or du niveau suivant, depuis le niveau `level` deja atteint. */
-export function runUpgradeGoldCost(level: number): number {
-  return roundGold(RUN_UPGRADE_GOLD_COST_BASE * RUN_UPGRADE_GOLD_COST_GROWTH ** level);
+/** Cout de depart propre a certaines ameliorations. Mine et Caserne : 25,
+ *  50, 100... — elles accelerent directement l'economie ou la croissance de
+ *  l'armee, leur investissement est donc nettement plus lourd. */
+const RUN_UPGRADE_GOLD_COST_BASE_BY_ID: Readonly<Record<string, number>> = {
+  [MINE_UPGRADE.id]: 25,
+  [BARRACKS_UPGRADE.id]: 25,
+};
+
+/** Cout en Or du niveau suivant de l'amelioration `id`, depuis le niveau
+ *  `level` deja atteint. */
+export function runUpgradeGoldCost(id: string, level: number): number {
+  const base = Object.prototype.hasOwnProperty.call(RUN_UPGRADE_GOLD_COST_BASE_BY_ID, id)
+    ? RUN_UPGRADE_GOLD_COST_BASE_BY_ID[id]!
+    : RUN_UPGRADE_GOLD_COST_BASE;
+  return roundGold(base * RUN_UPGRADE_GOLD_COST_GROWTH ** level);
 }
 
 /** Vrai si l'amelioration `id` peut etre achetee maintenant : id connu,
@@ -76,7 +89,7 @@ export function canPurchaseRunUpgrade(run: RunState, id: string): boolean {
   const level = runUpgradeLevel(run.upgrades, id);
   const maxLevel = RUN_UPGRADE_DEFS[id]!.maxLevel;
   if (maxLevel !== undefined && level >= maxLevel) return false;
-  return run.gold >= runUpgradeGoldCost(level);
+  return run.gold >= runUpgradeGoldCost(id, level);
 }
 
 /** Achete un niveau de l'amelioration `id` avec l'Or de la run : debite le
@@ -85,7 +98,7 @@ export function canPurchaseRunUpgrade(run: RunState, id: string): boolean {
 export function purchaseRunUpgrade(run: RunState, id: string): boolean {
   if (!canPurchaseRunUpgrade(run, id)) return false;
   const level = runUpgradeLevel(run.upgrades, id);
-  if (!spendGold(run, runUpgradeGoldCost(level))) return false;
+  if (!spendGold(run, runUpgradeGoldCost(id, level))) return false;
   run.upgrades[id] = level + 1;
   return true;
 }

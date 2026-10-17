@@ -1197,7 +1197,7 @@ export class Screens {
       const level = runUpgradeLevel(levels, unitId);
       const hpBonus = upgradeHpBonusDisplay(def, level);
       const attackBonus = upgradeAttackBonusDisplay(def, level);
-      const nextCost = runUpgradeGoldCost(level);
+      const nextCost = runUpgradeGoldCost(unitId, level);
       const remaining = upgradeRemainingUntilAttackBonus(def, level);
       const grantsAttack = upgradeNextPurchaseGrantsAttackBonus(def, level);
 
@@ -1223,7 +1223,7 @@ export class Screens {
       const attackSpeedPct = Math.round(ballistaAttackSpeedBonus(level) * 100);
       const damageBonus = ballistaDamageBonusDisplay(level);
       const hpBonus = ballistaHpBonusDisplay(level);
-      const nextCost = runUpgradeGoldCost(level);
+      const nextCost = runUpgradeGoldCost(BALLISTA_UPGRADE.id, level);
       const remaining = ballistaRemainingUntilDamageBonus(level);
       const grantsDamage = ballistaNextPurchaseGrantsDamageBonus(level);
       const refs = this.ballistaUpgradeCard;
@@ -1252,7 +1252,7 @@ export class Screens {
       const level = healScrollUpgradeLevel(levels);
       const healBonus = healBonusDisplay(level);
       const secondaryCount = healSecondaryTargetCount(level);
-      const nextCost = runUpgradeGoldCost(level);
+      const nextCost = runUpgradeGoldCost(HEAL_SCROLL_UPGRADE.id, level);
       const remaining = healRemainingUntilNextTarget(level);
       const grantsTarget = healNextPurchaseGrantsExtraTarget(level);
       const refs = this.healScrollUpgradeCard;
@@ -1281,7 +1281,7 @@ export class Screens {
     // separement — meme bonus partage, mais deux effets gameplay distincts.
     {
       const effects = computePlayerIceNovaUpgradeEffects(levels);
-      const nextCost = runUpgradeGoldCost(effects.level);
+      const nextCost = runUpgradeGoldCost(ICE_NOVA_UPGRADE.id, effects.level);
       const remaining = iceNovaRemainingUntilDamageBonus(effects.level);
       const grantsDamage = iceNovaNextPurchaseGrantsDamageBonus(effects.level);
       const refs = this.iceNovaUpgradeCard;
@@ -1312,7 +1312,7 @@ export class Screens {
       const refs = this.mineUpgradeCard;
       const level = mineUpgradeLevel(levels);
       const goldPerSecond = MINE_BASE_GOLD_PER_SECOND + mineGoldPerSecondBonus(level);
-      const nextCost = runUpgradeGoldCost(level);
+      const nextCost = runUpgradeGoldCost(MINE_UPGRADE.id, level);
 
       refs.levelEl.textContent = `Niveau : ${level}`;
       refs.goldPerSecondEl.textContent = `Or/seconde : ${goldPerSecond.toFixed(1)}`;
@@ -1353,7 +1353,7 @@ export class Screens {
           : remaining === 1
             ? 'Prochaine réduction d’intervalle : dans 1 amélioration'
             : `Prochaine réduction d’intervalle : dans ${remaining} améliorations`;
-      refs.costEl.textContent = formatGold(runUpgradeGoldCost(level));
+      refs.costEl.textContent = formatGold(runUpgradeGoldCost(BARRACKS_UPGRADE.id, level));
       refs.button.disabled = !canPurchaseRunUpgrade(run, BARRACKS_UPGRADE.id);
     }
 
@@ -1363,7 +1363,7 @@ export class Screens {
     // ennemi provoque.
     {
       const effects = computePlayerSentinelUpgradeEffects(levels);
-      const nextCost = runUpgradeGoldCost(effects.level);
+      const nextCost = runUpgradeGoldCost(SENTINEL_UPGRADE.id, effects.level);
       const remaining = sentinelRemainingUntilShieldBonus(effects.level);
       const grantsShield = sentinelNextPurchaseGrantsShieldBonus(effects.level);
       const refs = this.sentinelUpgradeCard;
@@ -1396,7 +1396,7 @@ export class Screens {
         const level = shadowUpgradeLevel(levels);
         const damage = shadowDamagePerProjectileDisplay(level);
         const bonusCount = shadowBonusProjectileCount(level);
-        const nextCost = runUpgradeGoldCost(level);
+        const nextCost = runUpgradeGoldCost(SHADOW_UPGRADE.id, level);
         const remaining = shadowRemainingUntilBonusProjectile(level);
         const grantsBonus = shadowNextPurchaseGrantsBonusProjectile(level);
 

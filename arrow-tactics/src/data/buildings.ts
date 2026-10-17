@@ -145,9 +145,10 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 1.8,
-    // Prix de base en Or (10 ; 50 avant la refonte economique autour de
-    // la Forge).
-    cost: 10,
+    // Prix de base en Or (25 : plus cher que la Forge et la Mine, puisqu'elle
+    // produit ensuite des unites sans autre depense ; 50 avant la refonte
+    // economique autour de la Forge).
+    cost: 25,
     buildingModel: 'blue_barracks',
     footprintTilesX: 2,
     footprintTilesZ: 2,
