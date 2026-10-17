@@ -12,6 +12,7 @@ import {
   type TerrainCellDef,
   type TerrainType,
 } from '../config/mapDef';
+import type { TerritoryCell } from '../config/territory';
 import type { Team } from '../sim/entity';
 
 /**
@@ -130,6 +131,13 @@ export class EditorState {
    *  map en definit une. */
   ballistaExplicit: boolean;
 
+  /** Territoire EXPLICITE du brouillon (voir MapDef.territory), copie de la
+   *  map chargee — `undefined` si elle n'en avait pas (repli historique, et
+   *  aucun champ a l'export), `[]` s'il est explicitement vide. Conserve
+   *  tel quel : aucun outil ne le modifie encore, et ni la pose ni le camp
+   *  des unites ne le lisent. */
+  territory: TerritoryCell[] | undefined;
+
   /** Par defaut, repart de la map actuelle : l'editeur sert d'abord a
    *  AJUSTER ce qui existe deja, pas a repartir d'une carte vide. Un appelant
    *  peut fournir une autre MapDef (voir main.ts, chargement d'un fichier
@@ -143,6 +151,7 @@ export class EditorState {
     this.width = source.width;
     this.height = source.height;
     this.cellMap = buildCellIndex(resolveMapCells(source));
+    this.territory = source.territory?.map((c) => ({ x: c.x, z: c.z, team: c.team }));
 
     this.ballistaExplicit = source.ballista !== undefined;
     this.ballista = source.ballista ? { x: source.ballista.x, z: source.ballista.z } : computePlayerArrowOrigin(source);

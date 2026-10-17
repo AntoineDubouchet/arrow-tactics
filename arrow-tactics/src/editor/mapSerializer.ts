@@ -1,4 +1,5 @@
 import type { MapDef } from '../config/mapDef';
+import type { TerritoryCell } from '../config/territory';
 import type { EditorState } from './editorState';
 
 /**
@@ -38,6 +39,10 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
     // (voir EditorState.ballistaExplicit) : une map qui n'en avait pas reste
     // sans champ, et garde le repli historique au chargement.
     ...(state.ballistaExplicit ? { ballista: { x: state.ballista.x, z: state.ballista.z } } : {}),
+    // Territoire ecrit SEULEMENT s'il est explicite dans l'etat (meme vide) :
+    // une map qui n'en avait pas reste sans champ — le repli des bandes
+    // historiques n'est jamais materialise par un simple enregistrement.
+    ...(state.territory !== undefined ? { territory: state.territory.map((c) => ({ x: c.x, z: c.z, team: c.team })) } : {}),
   };
 }
 
@@ -95,7 +100,25 @@ export async function loadMapDefFromFile(file: File): Promise<MapDef> {
     // serait perdu au chargement) et conserve seulement si x et z sont des
     // nombres finis.
     ...(isFinitePoint(data.ballista) ? { ballista: { x: data.ballista.x, z: data.ballista.z } } : {}),
+    // `territory` OPTIONNEL (voir MapDef.territory) : conserve s'il est un
+    // tableau (meme vide), entrees invalides ecartees ; absent ou d'un autre
+    // type -> pas de champ, donc repli sur les bandes historiques.
+    ...(Array.isArray(data.territory) ? { territory: readTerritory(data.territory) } : {}),
   };
+}
+
+/** Garde les seules entrees bien formees (x/z entiers, camp connu), copiees
+ *  champ par champ ; avertit en console si certaines sont ecartees. */
+function readTerritory(entries: unknown[]): TerritoryCell[] {
+  const territory: TerritoryCell[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { x, z, team } = entry as Record<string, unknown>;
+    if (!Number.isInteger(x) || !Number.isInteger(z) || (team !== 'player' && team !== 'enemy')) continue;
+    territory.push({ x: x as number, z: z as number, team });
+  }
+  if (territory.length < entries.length) console.warn(`Territoire : ${entries.length - territory.length} case(s) invalide(s) ignoree(s).`);
+  return territory;
 }
 
 function isFinitePoint(value: unknown): value is { x: number; z: number } {

@@ -31,7 +31,7 @@ import {
   type MapDef,
   type MapUnitPlacement,
 } from './config/mapDef';
-import { buildTerritoryIndex, deriveLegacyTerritory, territoryOwnerAtPoint, type TerritoryIndex } from './config/territory';
+import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type TerritoryIndex } from './config/territory';
 import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapExpansion';
 import { Loop } from './core/loop';
 import { dist } from './core/math';
@@ -830,10 +830,11 @@ function enemyAbilityDamageBonus(unitId: string, waveNumber: number): number {
 let currentRun = createFreshRun();
 
 /** Territoire courant du jeu (config/territory.ts) : SOURCE UNIQUE de la zone
- *  de placement du joueur, lue par isValidPlacementTile. Encore entierement
- *  derive du systeme historique (currentMap + spawnDepth de la run) : meme
- *  forme de zone qu'avant. Reconstruit par rebuildCurrentTerritoryIndex a
- *  chaque changement de l'une de ces deux sources, jamais par validation ni
+ *  de placement du joueur, lue par isValidPlacementTile. Territoire
+ *  explicite de currentMap s'il existe, sinon bandes historiques derivees de
+ *  currentMap + spawnDepth de la run (resolveMapTerritory). Un territoire
+ *  explicite ne suit pas encore l'expansion de la carte. Reconstruit par
+ *  rebuildCurrentTerritoryIndex a chaque changement de l'une de ces deux sources, jamais par validation ni
  *  par image. `map`/`spawnDepth` memorisent les sources de l'index, pour
  *  detecter un index perime (voir currentTerritoryIndex). */
 interface CurrentTerritory {
@@ -845,7 +846,7 @@ let currentTerritory = deriveCurrentTerritory();
 
 function deriveCurrentTerritory(): CurrentTerritory {
   const spawnDepth = currentRun.mapExpansion.spawnDepth;
-  return { index: buildTerritoryIndex(deriveLegacyTerritory(currentMap, spawnDepth)), map: currentMap, spawnDepth };
+  return { index: buildTerritoryIndex(resolveMapTerritory(currentMap, spawnDepth)), map: currentMap, spawnDepth };
 }
 
 /** A appeler juste apres tout changement de currentMap ou de

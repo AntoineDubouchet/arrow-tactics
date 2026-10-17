@@ -1,4 +1,5 @@
 import { BALLISTA_TOWER_FOOTPRINT, BOARD_H, BOARD_W, PLACEMENT_ROWS, PLAYER_ARROW_CORNER_INSET, TILE, type ObstacleDef } from './constants';
+import type { TerritoryCell } from './territory';
 
 /**
  * Representation data-driven d'une map : ce qu'un futur editeur produira, ce
@@ -72,6 +73,12 @@ export interface MapDef {
    *  l'editeur et a "Tester le scenario" ; une vraie run garde son placement
    *  obligatoire de la tour (RunState.ballistaPosition). */
   ballista?: { x: number; z: number };
+  /** Territoire EXPLICITE de la map (voir config/territory.ts) : cases
+   *  appartenant a un camp, meme convention que `cells` ; une case absente
+   *  est neutre. OPTIONNEL : absent sur toute map anterieure — repli sur les
+   *  bandes historiques, voir resolveMapTerritory. Present mais vide (`[]`) =
+   *  territoire explicitement vide, jamais remplace par le repli. */
+  territory?: TerritoryCell[];
 }
 
 /** Cle stable d'une cellule — sert de cle de Map/Set (lookup O(1) "cette

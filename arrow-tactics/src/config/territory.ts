@@ -9,7 +9,8 @@ import { cellKey, computeMapCellBounds, resolveMapCells, type MapDef } from './m
  * entiers signés désignant le COIN bas-gauche d'une case d'1×1, qui couvre
  * `[x, x+1) × [z, z+1)`. Une case absente du territoire est NEUTRE.
  *
- * Aucun site de jeu, d'éditeur ou de rendu n'utilise encore ce module.
+ * Utilisé par la validation du placement en jeu (main.ts) ; ni l'éditeur
+ * ni le rendu ne l'utilisent encore.
  */
 
 /** Camp propriétaire d'une case. Littéral volontairement local plutôt
@@ -66,6 +67,17 @@ export function isFootprintOwnedBy(
     }
   }
   return true;
+}
+
+/**
+ * Territoire d'une map — SOURCE UNIQUE du repli : `map.territory` s'il est
+ * présent (même vide : `[]` reste un territoire vide, jamais remplacé),
+ * sinon les bandes historiques (deriveLegacyTerritory). Renvoie toujours un
+ * NOUVEAU tableau de nouvelles cases : le modifier ne touche jamais la map.
+ */
+export function resolveMapTerritory(map: Pick<MapDef, 'width' | 'height' | 'cells' | 'territory'>, spawnDepth: number): TerritoryCell[] {
+  if (map.territory) return map.territory.map((c) => ({ x: c.x, z: c.z, team: c.team }));
+  return deriveLegacyTerritory(map, spawnDepth);
 }
 
 /**
