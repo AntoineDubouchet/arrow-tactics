@@ -61,8 +61,8 @@ export function isRunUpgradeId(id: string): boolean {
 /** Bareme PROVISOIRE, seul endroit a modifier pour le reequilibrer : cout
  *  du niveau 0 -> 1 (RUN_UPGRADE_GOLD_COST_BASE, ou sa valeur propre dans
  *  RUN_UPGRADE_GOLD_COST_BASE_BY_ID), puis x RUN_UPGRADE_GOLD_COST_GROWTH a
- *  chaque niveau : 2, 4, 8, 16... pour la plupart des ameliorations. */
-export const RUN_UPGRADE_GOLD_COST_BASE = 2;
+ *  chaque niveau : 1, 2, 4, 8, 16... pour la plupart des ameliorations. */
+export const RUN_UPGRADE_GOLD_COST_BASE = 1;
 export const RUN_UPGRADE_GOLD_COST_GROWTH = 2;
 
 /** Cout de depart propre a certaines ameliorations. Mine et Caserne : 25,
