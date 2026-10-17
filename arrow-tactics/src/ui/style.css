@@ -911,6 +911,37 @@ img {
   color: #e07a5f;
 }
 
+/* Actions de la fiche (ex. « Ouvrir la Forge ») : seuls elements cliquables
+   du panneau, qui reste sinon en pointer-events: none. */
+.entity-info-actions {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--edge);
+}
+
+.entity-info-action {
+  width: 100%;
+  padding: 6px 10px;
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: rgba(231, 227, 216, 0.08);
+  border: 1px solid var(--entity-team-color, var(--edge));
+  border-radius: 4px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.entity-info-action:hover:not(:disabled) {
+  background: rgba(231, 227, 216, 0.16);
+}
+
+.entity-info-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .wave-indicator {
   position: fixed;
   top: 16px;

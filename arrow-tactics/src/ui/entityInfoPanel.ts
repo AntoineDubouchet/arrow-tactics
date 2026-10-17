@@ -1,5 +1,5 @@
 import { teamColor } from '../render/unitSelectionRing';
-import type { EntityInfoRow, EntityInfoViewModel } from '../run/entityInfo';
+import type { EntityInfoAction, EntityInfoRow, EntityInfoViewModel } from '../run/entityInfo';
 
 const TEAM_LABELS = { player: 'Allié', enemy: 'Ennemi' } as const;
 
@@ -17,14 +17,16 @@ interface PanelRefs {
   rows: RowRefs[];
   sectionRows: RowRefs[][];
   status: HTMLElement | null;
+  actions: HTMLButtonElement[];
 }
 
 /**
  * Fiche de l'entite selectionnee (unite, groupe, Mine, Caserne, Baliste), en
  * haut a gauche. Ne calcule rien : affiche le
  * modele prepare par run/entityInfo.ts. La structure DOM n'est reconstruite
- * que si la FORME du modele change (type, libelles, sections) ; sinon seuls
- * les textes et largeurs qui ont change sont reecrits.
+ * que si la FORME du modele change (type, libelles, sections, actions) ;
+ * sinon seuls les textes et largeurs qui ont change sont reecrits. Un clic
+ * sur une action transmet seulement son `id` a `onAction` (main.ts).
  */
 export class EntityInfoPanel {
   private readonly root: HTMLElement;
@@ -33,7 +35,7 @@ export class EntityInfoPanel {
   private shownVisible = false;
   private readonly shownText = new WeakMap<HTMLElement, string>();
 
-  constructor() {
+  constructor(private readonly onAction: (id: EntityInfoAction['id']) => void) {
     this.root = document.createElement('div');
     this.root.className = 'entity-info';
     this.root.style.display = 'none';
@@ -70,6 +72,12 @@ export class EntityInfoPanel {
       const tone = `entity-info-status entity-info-status--${vm.status.tone}`;
       if (refs.status.className !== tone) refs.status.className = tone;
     }
+    (vm.actions ?? []).forEach((action, i) => {
+      const button = refs.actions[i]!;
+      if (button.disabled !== !action.enabled) button.disabled = !action.enabled;
+      const hint = action.hint ?? '';
+      if (button.title !== hint) button.title = hint;
+    });
   }
 
   private build(vm: EntityInfoViewModel): PanelRefs {
@@ -126,7 +134,25 @@ export class EntityInfoPanel {
       status = el('div', 'entity-info-status');
       this.root.appendChild(status);
     }
-    return { title, hpValue, hpFill, shieldBar, shieldFill, composition, rows, sectionRows, status };
+    const actions = (vm.actions ?? []).map((action) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'entity-info-action';
+      button.textContent = action.label;
+      button.addEventListener('click', () => {
+        // Le focus ne doit pas rester sur le bouton : Espace/Entree le
+        // redeclencheraient.
+        button.blur();
+        this.onAction(action.id);
+      });
+      return button;
+    });
+    if (actions.length > 0) {
+      const box = el('div', 'entity-info-actions');
+      box.append(...actions);
+      this.root.appendChild(box);
+    }
+    return { title, hpValue, hpFill, shieldBar, shieldFill, composition, rows, sectionRows, status, actions };
   }
 
   private buildRows(parent: HTMLElement, rows: EntityInfoRow[]): RowRefs[] {
@@ -165,6 +191,7 @@ function structureKey(vm: EntityInfoViewModel): string {
     vm.rows.map((r) => r.label),
     vm.sections.map((s) => [s.title, s.rows.map((r) => r.label)]),
     vm.status !== null,
+    (vm.actions ?? []).map((a) => [a.id, a.label]),
   ]);
 }
 

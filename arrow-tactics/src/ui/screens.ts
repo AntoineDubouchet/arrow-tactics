@@ -13,11 +13,7 @@ import { computeTalentTreeLayout, type TalentNodeLayout, type TalentTreeLayoutNo
 import { getUnit } from '../data/units';
 import { getUnitUpgradeDef, listUpgradableUnitIds } from '../data/unitUpgrades';
 import {
-  canPurchaseUnitUpgrade,
-  canPurchaseUpgrade,
   canUnlockTalent,
-  effectiveUpgradeCost,
-  getUnitUpgradeLevel,
   isTalentUnlocked,
   canPlayerRecruitUnit,
   type MetaProgress,
@@ -77,9 +73,9 @@ import {
   shadowUpgradeLevel,
 } from '../run/shadowUpgradeEffects';
 import { getEffectiveBuildingCost } from '../run/buildingUpgradeEffects';
-import { copyMetaUpgradeLevelsForRun, type RunUpgradeLevels } from '../run/runUpgrades';
+import { canPurchaseRunUpgrade, runUpgradeGoldCost, runUpgradeLevel, type RunUpgradeLevels } from '../run/runUpgrades';
 import type { AudioSettings } from '../run/userSettings';
-import { createCoinIcon, createRuneIcon } from './pixelIcon';
+import { createCoinIcon } from './pixelIcon';
 import { createItemIcon } from './itemIcons';
 
 export type ScreenName =
@@ -320,15 +316,12 @@ export interface ScreenHandlers {
    *  Les 3 fondateurs sont achetables librement et independamment, pas
    *  d'exclusivite entre eux (voir CLAUDE.md, refonte 2026-08-10). */
   onUnlockTalent: (id: string) => void;
-  /** Boutique d'AMELIORATION PERMANENTE des unites (2026-08-13, demande
-   *  d'Antoine) — accessible depuis le menu titre uniquement, DISTINCTE de
-   *  la boutique de run (onBuyFantassin etc. ci-dessus) et de l'arbre de
-   *  talents. `onPurchaseUnitUpgrade` verifie lui-meme les runes
-   *  disponibles (voir canPurchaseUnitUpgrade) ; Screens ne fait que
-   *  relayer le clic et rafraichir (meme motif que onUnlockTalent). */
-  onOpenUnitUpgradeShop: () => void;
-  onCloseUnitUpgradeShop: () => void;
-  onPurchaseUnitUpgrade: (unitId: string) => void;
+  /** Boutique de la FORGE : ameliorations de la run, payees en Or, ouverte
+   *  depuis la fiche d'une Forge en preparation (voir main.ts). `onPurchaseRunUpgrade`
+   *  verifie et realise l'achat (run/runUpgrades.ts, purchaseRunUpgrade) ;
+   *  Screens ne fait que relayer le clic et rafraichir. */
+  onCloseForge: () => void;
+  onPurchaseRunUpgrade: (upgradeId: string) => void;
   /** Bouton "Effacer la sauvegarde" du menu principal (demande d'Antoine,
    *  2026-08-10) : ouvre l'ecran de confirmation, ne supprime rien lui-meme —
    *  voir onConfirmResetSave/onCancelResetSave pour l'action reelle. */
@@ -500,7 +493,7 @@ export class Screens {
   /** Boutique d'AMELIORATION PERMANENTE des unites (2026-08-13) — voir
    *  data/unitUpgrades.ts. */
   private readonly unitUpgradeShop: HTMLElement;
-  private readonly unitUpgradeRunesAmount: HTMLElement;
+  private readonly forgeGoldAmount: HTMLElement;
   private readonly unitUpgradeCards = new Map<string, UnitUpgradeCardRefs>();
   /** Cartes "Baliste"/"Parchemin de soin"/"Nova de glace" (2026-08-13,
    *  2026-08-14) — shape different des unites (voir BallistaUpgradeCardRefs/
@@ -594,7 +587,6 @@ export class Screens {
       this.title('Arrow Tactics'),
       this.button('Jouer', handlers.onPlay),
       this.button('Arbre de talents', handlers.onOpenTalents),
-      this.button('Boutique d’amélioration', handlers.onOpenUnitUpgradeShop),
       this.button('Éditeur de maps', handlers.onOpenEditor),
       this.button('Paramètres', handlers.onOpenSettingsFromMenu),
       this.button('Effacer la sauvegarde', handlers.onRequestResetSave),
@@ -796,10 +788,10 @@ export class Screens {
     // n'exige aucun changement ici, juste une nouvelle entree dans
     // UNIT_UPGRADES (point 7 de la demande : "ne hardcode pas toute l'UI
     // autour de seulement trois unites").
-    const unitUpgradeRunes = document.createElement('p');
-    unitUpgradeRunes.className = 'screen-text shop-gold';
-    this.unitUpgradeRunesAmount = document.createElement('span');
-    unitUpgradeRunes.append('Runes : ', this.unitUpgradeRunesAmount, createRuneIcon(16));
+    const forgeGold = document.createElement('p');
+    forgeGold.className = 'screen-text shop-gold';
+    this.forgeGoldAmount = document.createElement('span');
+    forgeGold.append('Or : ', this.forgeGoldAmount, createCoinIcon(16));
 
     const cardsContainer = document.createElement('div');
     cardsContainer.className = 'upgrade-cards';
@@ -832,10 +824,10 @@ export class Screens {
     );
 
     this.unitUpgradeShop = this.overlay('unit-upgrade-shop', [
-      this.title('Boutique d’amélioration'),
-      unitUpgradeRunes,
+      this.title('Forge'),
+      forgeGold,
       cardsContainer,
-      this.button('Retour', handlers.onCloseUnitUpgradeShop),
+      this.button('Retour', handlers.onCloseForge),
     ]);
 
     this.pause = this.overlay('pause', [
@@ -1005,6 +997,12 @@ export class Screens {
    *  main.ts, openShopFromPlacement) plutot que de toujours rouvrir. */
   isShopOpen(): boolean {
     return this.shop.classList.contains('screen-overlay--visible');
+  }
+
+  /** Vrai si la boutique de la Forge est affichee (voir main.ts : Echap la
+   *  ferme en priorite, la fiche d'entite est masquee dessous). */
+  isForgeOpen(): boolean {
+    return this.unitUpgradeShop.classList.contains('screen-overlay--visible');
   }
 
   /** Vrai si l'ecran Parametres est actuellement affiche — utilise par
@@ -1192,30 +1190,29 @@ export class Screens {
     return costLine;
   }
 
-  /** Affiche la boutique d'amelioration a jour — toujours appeler ceci
-   *  plutot que show('unitUpgradeShop') directement (meme motif que
+  /** Affiche la boutique de la Forge a jour — toujours appeler ceci plutot
+   *  que show('unitUpgradeShop') directement (meme motif que
    *  showShop/showTalents). */
-  showUnitUpgradeShop(progress: MetaProgress): void {
-    this.refreshUnitUpgradeShop(progress);
+  showForge(run: RunState, progress: MetaProgress): void {
+    this.refreshForge(run, progress);
     this.show('unitUpgradeShop');
   }
 
-  /** Remet a jour le compteur de runes et chaque carte d'unite — appelee a
-   *  l'ouverture ET apres chaque achat (voir main.ts, onPurchaseUnitUpgrade),
-   *  meme motif que refreshShop/refreshTalents. */
-  refreshUnitUpgradeShop(progress: MetaProgress): void {
-    // Boutique du MENU : aucune run n'existe, elle affiche et achete les
-    // niveaux PERMANENTS (MetaProgress.unitUpgrades), lus ici sous la forme
-    // attendue par les formules d'effet. Transition jusqu'aux achats en run.
-    const levels = copyMetaUpgradeLevelsForRun(progress);
-    this.unitUpgradeRunesAmount.textContent = String(progress.upgradeRunes);
+  /** Remet a jour l'Or et chaque carte — appelee a l'ouverture ET apres
+   *  chaque achat (voir main.ts, onPurchaseRunUpgrade). Niveaux : ceux de la
+   *  RUN (run.upgrades) ; prix : bareme en Or (runUpgradeGoldCost) ; achat
+   *  possible : canPurchaseRunUpgrade. `progress` ne sert qu'aux talents
+   *  (carte Soins excedentaires). */
+  refreshForge(run: RunState, progress: MetaProgress): void {
+    const levels = run.upgrades;
+    this.forgeGoldAmount.textContent = formatGold(run.gold);
     for (const [unitId, refs] of this.unitUpgradeCards) {
       const def = getUnitUpgradeDef(unitId);
       if (!def) continue;
-      const level = getUnitUpgradeLevel(progress, unitId);
+      const level = runUpgradeLevel(levels, unitId);
       const hpBonus = upgradeHpBonusDisplay(def, level);
       const attackBonus = upgradeAttackBonusDisplay(def, level);
-      const nextCost = effectiveUpgradeCost(progress, def, level);
+      const nextCost = runUpgradeGoldCost(level);
       const remaining = upgradeRemainingUntilAttackBonus(def, level);
       const grantsAttack = upgradeNextPurchaseGrantsAttackBonus(def, level);
 
@@ -1230,8 +1227,8 @@ export class Screens {
         : `Prochaine amélioration : +1 PV`;
       refs.remainingAttackEl.textContent =
         remaining === 1 ? 'Prochain bonus ATK : dans 1 amélioration' : `Prochain bonus ATK : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = String(nextCost);
-      refs.button.disabled = !canPurchaseUnitUpgrade(progress, unitId);
+      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.button.disabled = !canPurchaseRunUpgrade(run, unitId);
     }
 
     // Baliste (2026-08-13, etendue le 2026-08-16 avec le bonus de PV de la
@@ -1241,7 +1238,7 @@ export class Screens {
       const attackSpeedPct = Math.round(ballistaAttackSpeedBonus(level) * 100);
       const damageBonus = ballistaDamageBonusDisplay(level);
       const hpBonus = ballistaHpBonusDisplay(level);
-      const nextCost = effectiveUpgradeCost(progress, BALLISTA_UPGRADE, level);
+      const nextCost = runUpgradeGoldCost(level);
       const remaining = ballistaRemainingUntilDamageBonus(level);
       const grantsDamage = ballistaNextPurchaseGrantsDamageBonus(level);
       const refs = this.ballistaUpgradeCard;
@@ -1261,8 +1258,8 @@ export class Screens {
         remaining === 1
           ? 'Prochain bonus de dégâts : dans 1 amélioration'
           : `Prochain bonus de dégâts : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = String(nextCost);
-      refs.button.disabled = !canPurchaseUpgrade(progress, BALLISTA_UPGRADE.id, BALLISTA_UPGRADE);
+      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.button.disabled = !canPurchaseRunUpgrade(run, BALLISTA_UPGRADE.id);
     }
 
     // Parchemin de soin (2026-08-13) — voir run/healScrollUpgradeEffects.ts.
@@ -1270,7 +1267,7 @@ export class Screens {
       const level = healScrollUpgradeLevel(levels);
       const healBonus = healBonusDisplay(level);
       const secondaryCount = healSecondaryTargetCount(level);
-      const nextCost = effectiveUpgradeCost(progress, HEAL_SCROLL_UPGRADE, level);
+      const nextCost = runUpgradeGoldCost(level);
       const remaining = healRemainingUntilNextTarget(level);
       const grantsTarget = healNextPurchaseGrantsExtraTarget(level);
       const refs = this.healScrollUpgradeCard;
@@ -1289,8 +1286,8 @@ export class Screens {
         remaining === 1
           ? 'Prochain allié supplémentaire : dans 1 amélioration'
           : `Prochain allié supplémentaire : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = String(nextCost);
-      refs.button.disabled = !canPurchaseUpgrade(progress, HEAL_SCROLL_UPGRADE.id, HEAL_SCROLL_UPGRADE);
+      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.button.disabled = !canPurchaseRunUpgrade(run, HEAL_SCROLL_UPGRADE.id);
     }
 
     // Nova de glace (2026-08-14) — voir run/iceNovaUpgradeEffects.ts. Duree
@@ -1299,7 +1296,7 @@ export class Screens {
     // separement — meme bonus partage, mais deux effets gameplay distincts.
     {
       const effects = computePlayerIceNovaUpgradeEffects(levels);
-      const nextCost = effectiveUpgradeCost(progress, ICE_NOVA_UPGRADE, effects.level);
+      const nextCost = runUpgradeGoldCost(effects.level);
       const remaining = iceNovaRemainingUntilDamageBonus(effects.level);
       const grantsDamage = iceNovaNextPurchaseGrantsDamageBonus(effects.level);
       const refs = this.iceNovaUpgradeCard;
@@ -1317,8 +1314,8 @@ export class Screens {
         remaining === 1
           ? 'Prochain bonus de dégâts : dans 1 amélioration'
           : `Prochain bonus de dégâts : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = String(nextCost);
-      refs.button.disabled = !canPurchaseUpgrade(progress, ICE_NOVA_UPGRADE.id, ICE_NOVA_UPGRADE);
+      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.button.disabled = !canPurchaseRunUpgrade(run, ICE_NOVA_UPGRADE.id);
     }
 
     // Mine (2026-08-14) — voir run/mineUpgradeEffects.ts. TOUJOURS visible
@@ -1330,13 +1327,13 @@ export class Screens {
       const refs = this.mineUpgradeCard;
       const level = mineUpgradeLevel(levels);
       const goldPerSecond = MINE_BASE_GOLD_PER_SECOND + mineGoldPerSecondBonus(level);
-      const nextCost = effectiveUpgradeCost(progress, MINE_UPGRADE, level);
+      const nextCost = runUpgradeGoldCost(level);
 
       refs.levelEl.textContent = `Niveau : ${level}`;
       refs.goldPerSecondEl.textContent = `Or/seconde : ${goldPerSecond.toFixed(1)}`;
       refs.nextUpgradeEl.textContent = 'Prochaine amélioration : +0,2 or/seconde';
-      refs.runeCostEl.textContent = String(nextCost);
-      refs.button.disabled = !canPurchaseUpgrade(progress, MINE_UPGRADE.id, MINE_UPGRADE);
+      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.button.disabled = !canPurchaseRunUpgrade(run, MINE_UPGRADE.id);
     }
 
     // Caserne (2026-08-17, REFONTE le meme jour — voir
@@ -1371,8 +1368,8 @@ export class Screens {
           : remaining === 1
             ? 'Prochaine réduction d’intervalle : dans 1 amélioration'
             : `Prochaine réduction d’intervalle : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = String(effectiveUpgradeCost(progress, BARRACKS_UPGRADE, level));
-      refs.button.disabled = !canPurchaseUpgrade(progress, BARRACKS_UPGRADE.id, BARRACKS_UPGRADE);
+      refs.runeCostEl.textContent = formatGold(runUpgradeGoldCost(level));
+      refs.button.disabled = !canPurchaseRunUpgrade(run, BARRACKS_UPGRADE.id);
     }
 
     // Sentinelle (2026-08-14) — voir run/sentinelUpgradeEffects.ts. PAS de
@@ -1381,7 +1378,7 @@ export class Screens {
     // ennemi provoque.
     {
       const effects = computePlayerSentinelUpgradeEffects(levels);
-      const nextCost = effectiveUpgradeCost(progress, SENTINEL_UPGRADE, effects.level);
+      const nextCost = runUpgradeGoldCost(effects.level);
       const remaining = sentinelRemainingUntilShieldBonus(effects.level);
       const grantsShield = sentinelNextPurchaseGrantsShieldBonus(effects.level);
       const refs = this.sentinelUpgradeCard;
@@ -1398,8 +1395,8 @@ export class Screens {
         remaining === 1
           ? 'Prochain bonus de bouclier : dans 1 amélioration'
           : `Prochain bonus de bouclier : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = String(nextCost);
-      refs.button.disabled = !canPurchaseUpgrade(progress, SENTINEL_UPGRADE.id, SENTINEL_UPGRADE);
+      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.button.disabled = !canPurchaseRunUpgrade(run, SENTINEL_UPGRADE.id);
     }
 
     // Soins excédentaires (2026-08-15) — voir run/shadowUpgradeEffects.ts.
@@ -1414,7 +1411,7 @@ export class Screens {
         const level = shadowUpgradeLevel(levels);
         const damage = shadowDamagePerProjectileDisplay(level);
         const bonusCount = shadowBonusProjectileCount(level);
-        const nextCost = effectiveUpgradeCost(progress, SHADOW_UPGRADE, level);
+        const nextCost = runUpgradeGoldCost(level);
         const remaining = shadowRemainingUntilBonusProjectile(level);
         const grantsBonus = shadowNextPurchaseGrantsBonusProjectile(level);
 
@@ -1428,8 +1425,8 @@ export class Screens {
           remaining === 1
             ? 'Prochain projectile bonus : dans 1 amélioration'
             : `Prochain projectile bonus : dans ${remaining} améliorations`;
-        refs.runeCostEl.textContent = String(nextCost);
-        refs.button.disabled = !canPurchaseUpgrade(progress, SHADOW_UPGRADE.id, SHADOW_UPGRADE);
+        refs.runeCostEl.textContent = formatGold(nextCost);
+        refs.button.disabled = !canPurchaseRunUpgrade(run, SHADOW_UPGRADE.id);
       }
     }
   }
@@ -1467,7 +1464,7 @@ export class Screens {
     const runeCostEl = document.createElement('span');
     const runeCostGroup = document.createElement('span');
     runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createRuneIcon(14));
+    runeCostGroup.append(runeCostEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1475,7 +1472,7 @@ export class Screens {
     button.addEventListener('mouseenter', () => this.uiSound.hover());
     button.addEventListener('click', () => {
       this.uiSound.click();
-      handlers.onPurchaseUnitUpgrade(unitId);
+      handlers.onPurchaseRunUpgrade(unitId);
     });
     buyRow.append(runeCostGroup, button);
 
@@ -1527,7 +1524,7 @@ export class Screens {
     const runeCostEl = document.createElement('span');
     const runeCostGroup = document.createElement('span');
     runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createRuneIcon(14));
+    runeCostGroup.append(runeCostEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1535,7 +1532,7 @@ export class Screens {
     button.addEventListener('mouseenter', () => this.uiSound.hover());
     button.addEventListener('click', () => {
       this.uiSound.click();
-      handlers.onPurchaseUnitUpgrade(BALLISTA_UPGRADE.id);
+      handlers.onPurchaseRunUpgrade(BALLISTA_UPGRADE.id);
     });
     buyRow.append(runeCostGroup, button);
 
@@ -1575,7 +1572,7 @@ export class Screens {
     const runeCostEl = document.createElement('span');
     const runeCostGroup = document.createElement('span');
     runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createRuneIcon(14));
+    runeCostGroup.append(runeCostEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1583,7 +1580,7 @@ export class Screens {
     button.addEventListener('mouseenter', () => this.uiSound.hover());
     button.addEventListener('click', () => {
       this.uiSound.click();
-      handlers.onPurchaseUnitUpgrade(HEAL_SCROLL_UPGRADE.id);
+      handlers.onPurchaseRunUpgrade(HEAL_SCROLL_UPGRADE.id);
     });
     buyRow.append(runeCostGroup, button);
 
@@ -1621,7 +1618,7 @@ export class Screens {
     const runeCostEl = document.createElement('span');
     const runeCostGroup = document.createElement('span');
     runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createRuneIcon(14));
+    runeCostGroup.append(runeCostEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1629,7 +1626,7 @@ export class Screens {
     button.addEventListener('mouseenter', () => this.uiSound.hover());
     button.addEventListener('click', () => {
       this.uiSound.click();
-      handlers.onPurchaseUnitUpgrade(ICE_NOVA_UPGRADE.id);
+      handlers.onPurchaseRunUpgrade(ICE_NOVA_UPGRADE.id);
     });
     buyRow.append(runeCostGroup, button);
 
@@ -1663,7 +1660,7 @@ export class Screens {
     const runeCostEl = document.createElement('span');
     const runeCostGroup = document.createElement('span');
     runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createRuneIcon(14));
+    runeCostGroup.append(runeCostEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1671,7 +1668,7 @@ export class Screens {
     button.addEventListener('mouseenter', () => this.uiSound.hover());
     button.addEventListener('click', () => {
       this.uiSound.click();
-      handlers.onPurchaseUnitUpgrade(MINE_UPGRADE.id);
+      handlers.onPurchaseRunUpgrade(MINE_UPGRADE.id);
     });
     buyRow.append(runeCostGroup, button);
 
@@ -1711,7 +1708,7 @@ export class Screens {
     const runeCostEl = document.createElement('span');
     const runeCostGroup = document.createElement('span');
     runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createRuneIcon(14));
+    runeCostGroup.append(runeCostEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1719,7 +1716,7 @@ export class Screens {
     button.addEventListener('mouseenter', () => this.uiSound.hover());
     button.addEventListener('click', () => {
       this.uiSound.click();
-      handlers.onPurchaseUnitUpgrade(BARRACKS_UPGRADE.id);
+      handlers.onPurchaseRunUpgrade(BARRACKS_UPGRADE.id);
     });
     buyRow.append(runeCostGroup, button);
 
@@ -1756,7 +1753,7 @@ export class Screens {
     const runeCostEl = document.createElement('span');
     const runeCostGroup = document.createElement('span');
     runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createRuneIcon(14));
+    runeCostGroup.append(runeCostEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1764,7 +1761,7 @@ export class Screens {
     button.addEventListener('mouseenter', () => this.uiSound.hover());
     button.addEventListener('click', () => {
       this.uiSound.click();
-      handlers.onPurchaseUnitUpgrade(SENTINEL_UPGRADE.id);
+      handlers.onPurchaseRunUpgrade(SENTINEL_UPGRADE.id);
     });
     buyRow.append(runeCostGroup, button);
 
@@ -1801,7 +1798,7 @@ export class Screens {
     const runeCostEl = document.createElement('span');
     const runeCostGroup = document.createElement('span');
     runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createRuneIcon(14));
+    runeCostGroup.append(runeCostEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1809,7 +1806,7 @@ export class Screens {
     button.addEventListener('mouseenter', () => this.uiSound.hover());
     button.addEventListener('click', () => {
       this.uiSound.click();
-      handlers.onPurchaseUnitUpgrade(SHADOW_UPGRADE.id);
+      handlers.onPurchaseRunUpgrade(SHADOW_UPGRADE.id);
     });
     buyRow.append(runeCostGroup, button);
 

@@ -80,12 +80,10 @@ import { TauntVfxView } from './render/tauntVfx';
 import { ShadowProjectileView } from './render/shadowProjectileView';
 import { VfxManager } from './render/vfx/VfxManager';
 import {
-  awardUpgradeRunesForWaveWin,
   canPlayerRecruitUnit,
   grantFirstRunPointIfNeeded,
   isTalentUnlocked,
   loadMetaProgress,
-  purchaseUpgrade,
   registerEnemyDefeat,
   registerWaveReached,
   resetMetaProgress,
@@ -99,20 +97,16 @@ import {
   effectivePlayerUnitCost,
   effectivePlayerUnitMaxHp,
 } from './run/unitUpgradeEffects';
-import { BALLISTA_UPGRADE } from './data/ballistaUpgrade';
 import { HEAL_SCROLL_UPGRADE } from './data/healScrollUpgrade';
-import { ICE_NOVA_UPGRADE } from './data/iceNovaUpgrade';
-import { getUnitUpgradeDef } from './data/unitUpgrades';
 import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
 import { computePlayerIceNovaUpgradeEffects, effectiveIceNovaCost } from './run/iceNovaUpgradeEffects';
 import { effectiveMineGoldPerSecond } from './run/mineUpgradeEffects';
 import { getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
-import { MINE_UPGRADE } from './data/mineUpgrade';
-import { SENTINEL_UPGRADE } from './data/sentinelUpgrade';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './run/playerUnitStats';
 import { effectivePlayerArrowCooldown, effectivePlayerArrowDamage, effectivePlayerArrowSpeed, playerArrowBoltsPerVolley } from './run/ballistaStats';
 import {
   battleBallistaInfo,
+  type EntityInfoAction,
   battleBuildingInfo,
   battleGroupInfo,
   battleUnitInfo,
@@ -122,10 +116,8 @@ import {
   placementUnitInfo,
   type EntityInfoViewModel,
 } from './run/entityInfo';
-import { SHADOW_UPGRADE } from './data/shadowUpgrade';
 import { computePlayerShadowEffects } from './run/shadowUpgradeEffects';
 import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from './run/barracksUpgradeEffects';
-import { BARRACKS_UPGRADE } from './data/barracksUpgrade';
 import {
   effectiveHealScrollCost,
   effectivePlayerHealAmount,
@@ -144,7 +136,7 @@ import {
   type OwnedBuilding,
   type RunState,
 } from './run/runState';
-import { copyMetaUpgradeLevelsForRun, type PlayerProgression, type RunUpgradeLevels } from './run/runUpgrades';
+import { purchaseRunUpgrade, type PlayerProgression, type RunUpgradeLevels } from './run/runUpgrades';
 import { forwardDir, type Entity, type Team } from './sim/entity';
 import type { ArrowShotSpec } from './sim/playerArrow';
 import { World } from './sim/world';
@@ -183,7 +175,7 @@ const towerPlacementBanner = new TowerPlacementBanner();
 // fireBallistaFromKey) ; un seul HUD affiche son etat, sa recharge et la
 // selection.
 const ballistaIndicator = new BallistaIndicator();
-const entityInfoPanel = new EntityInfoPanel();
+const entityInfoPanel = new EntityInfoPanel((id) => onEntityInfoAction(id));
 // Les unites selectionnees ont l'anneau commun (render/unitSelectionRing.ts).
 // Modele de l'anneau rouge sous la cible d'un ordre d'attaque d'une unite
 // selectionnee, jamais ajoute a la scene : BattleSelection le clone
@@ -832,25 +824,23 @@ function enemyAbilityDamageBonus(unitId: string, waveNumber: number): number {
 // pour de bon). Une nouvelle run (reset complet) ne demarre qu'au clic sur
 // "Jouer" depuis le menu principal (voir startNewRun) — continuer apres la
 // boutique reutilise la MEME run, juste la vague suivante.
-let currentRun = createRunWithMetaUpgrades();
+let currentRun = createFreshRun();
 
-/** Nouvelle run. TRANSITION (etape F0) : ses niveaux d'amelioration
- *  demarrent avec une COPIE des niveaux permanents achetes dans la boutique
- *  du menu (copyMetaUpgradeLevelsForRun) ; ensuite, seuls ceux de la run
- *  comptent. Le Fantassin de depart recoit les PV max de ces niveaux. */
-function createRunWithMetaUpgrades(): RunState {
-  const upgrades = copyMetaUpgradeLevelsForRun(metaProgress);
+/** Nouvelle run : aucune amelioration (elles s'achetent en Or a la Forge
+ *  pendant la run). Les anciens niveaux permanents de la sauvegarde
+ *  (MetaProgress.unitUpgrades) ne sont plus lus. */
+function createFreshRun(): RunState {
+  const upgrades: RunUpgradeLevels = {};
   return createNewRun(computeStartingGoldBonus(metaProgress), effectivePlayerUnitMaxHp('fantassin', upgrades), upgrades);
 }
 
 /** SOURCE UNIQUE de la progression du joueur pour les statistiques
  *  effectives : talents permanents (metaProgress) et niveaux d'amelioration
- *  de la run (currentRun.upgrades). Pendant "Tester le scenario", qui n'est
- *  pas une run, les niveaux sont l'instantane pris au lancement du test
- *  (testScenarioUpgrades). Toujours relue : currentRun change a chaque
- *  nouvelle run. */
+ *  de la run (currentRun.upgrades). "Tester le scenario", qui n'est pas une
+ *  run, se joue sans amelioration. Toujours relue : currentRun change a
+ *  chaque nouvelle run. */
 function playerProgression(): PlayerProgression {
-  return { talents: metaProgress, upgrades: inTestMode ? testScenarioUpgrades : currentRun.upgrades };
+  return { talents: metaProgress, upgrades: inTestMode ? {} : currentRun.upgrades };
 }
 /** Or gagne a la derniere bataille (kills + bonus de vague) — retenu entre
  *  applyBattleOutcome et l'ouverture de la boutique pour y jouer l'animation
@@ -1701,7 +1691,7 @@ function resetRunPlacementState(): void {
  *  contrairement a "Continuer" depuis la boutique, qui reutilise la run en
  *  cours pour passer a la vague suivante (voir startPlacement seul). */
 function startNewRun(): void {
-  currentRun = createRunWithMetaUpgrades();
+  currentRun = createFreshRun();
   resetRunPlacementState();
   // Une run PRECEDENTE peut avoir agrandi le plateau (2026-08-18, voir
   // applyMapExpansionForCompletedWave) — currentMap est un module partage
@@ -1755,6 +1745,61 @@ function openShopFromPlacement(): void {
   screens.showShop(currentRun, metaProgress, lastUnitPurchase !== null);
 }
 
+/** Au moins une Forge possedee : condition d'acces a la boutique des
+ *  ameliorations. Une Forge detruite a deja ete retiree de
+ *  currentRun.buildings (applyBattleOutcome). Plusieurs Forges ouvrent la
+ *  MEME boutique, sur les memes niveaux de run. */
+function hasForge(): boolean {
+  return currentRun.buildings.some((b) => b.buildingId === 'forge');
+}
+
+/** Action de la fiche d'entite (ui/entityInfoPanel.ts). */
+function onEntityInfoAction(id: EntityInfoAction['id']): void {
+  if (id !== 'openForge') return;
+  const selected = selectedBuildingIndex !== null ? currentRun.buildings[selectedBuildingIndex] : undefined;
+  if (selected?.buildingId === 'forge') openForge();
+}
+
+/** Ouvre la boutique de la Forge : preparation uniquement, jamais en
+ *  bataille, pendant la pause ni pendant un placement de bâtiment. Masque
+ *  les controles de preparation qui passent au-dessus des overlays
+ *  ("Vendre"/"Boutique", "Pret pour la bataille"), comme le menu pause. La
+ *  selection de la Forge est conservee : sa fiche revient a la fermeture. */
+function openForge(): void {
+  if (!inPlacementPhase || towerPlacementActive || pauseMenuOpen || buildingPlacementMode || !hasForge()) return;
+  disarmItem();
+  sellZone.setVisible(false);
+  placementPanel.hide();
+  screens.showForge(currentRun, metaProgress);
+}
+
+/** "Retour" ou Echap : retour a la preparation. */
+function closeForge(): void {
+  if (!screens.isForgeOpen()) return;
+  screens.hideAll();
+  sellZone.setVisible(true);
+  placementPanel.show();
+}
+
+/** Achat d'un niveau a la Forge (Or de la run, voir run/runUpgrades.ts). Une
+ *  amelioration qui augmente les PV max d'une unite deja possedee augmente
+ *  aussi ses PV actuels du meme ecart (les PV manquants restent les memes) ;
+ *  aucune autre amelioration ne soigne. */
+function purchaseForgeUpgrade(id: string): void {
+  if (!screens.isForgeOpen() || !inPlacementPhase || !hasForge()) return;
+  const maxHpBefore = placementSlots.map((slot) => effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades));
+  if (!purchaseRunUpgrade(currentRun, id)) return;
+  placementSlots.forEach((slot, i) => {
+    const gained = effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades) - maxHpBefore[i]!;
+    if (gained <= 0) return;
+    slot.hp += gained;
+    const owned = currentRun.army[i];
+    if (owned) owned.hp = slot.hp;
+  });
+  refreshPlayerPreview();
+  screens.refreshForge(currentRun, metaProgress);
+}
+
 // --- Editeur de maps (chantier en cours — voir CLAUDE.md) ---------------
 //
 // Accessible depuis le menu principal. A son PROPRE sol/grille/zones/
@@ -1773,9 +1818,6 @@ let inEditorMode = false;
  *  jamais vrais en meme temps (le clic editeur est desactive pendant le test,
  *  exactement comme pendant une bataille normale). */
 let inTestMode = false;
-/** Niveaux d'amelioration de "Tester le scenario" (voir playerProgression) :
- *  copie des niveaux permanents, prise au lancement de chaque test. */
-let testScenarioUpgrades: RunUpgradeLevels = {};
 let editorState: EditorState | null = null;
 let editorAssets: EnvironmentAssets | null = null;
 let editorGhost: THREE.Object3D | null = null;
@@ -2345,7 +2387,6 @@ async function testScenario(): Promise<void> {
   editorUI.hideProperties();
   inEditorMode = false;
   inTestMode = true;
-  testScenarioUpgrades = copyMetaUpgradeLevelsForRun(metaProgress);
   // Bâtiments possédés (Mine/Caserne) jamais injectés pendant "Tester le
   // scénario" — une carte d'éditeur n'a aucun lien avec la progression d'une
   // run réelle. Seule la Baliste, toujours présente, est créée (voir
@@ -3053,7 +3094,7 @@ function currentBallistaStatus(): BallistaStatus {
 function isEntityInfoContextActive(): boolean {
   if (inEditorMode || pauseMenuOpen) return false;
   if (inBattlePhase()) return true;
-  return inPlacementPhase && !towerPlacementActive && buildingPlacementMode === null && !screens.isShopOpen();
+  return inPlacementPhase && !towerPlacementActive && buildingPlacementMode === null && !screens.isShopOpen() && !screens.isForgeOpen();
 }
 
 /** Modele de la fiche pour la selection courante, ou null sans selection.
@@ -4595,24 +4636,6 @@ const loop = new Loop(
             const outcome = applyBattleOutcome(currentRun, world.entities);
             lastBattleGoldEarned = outcome.goldEarned;
 
-            // Runes d'amelioration permanente (2026-08-13, boutique
-            // d'amelioration — voir CLAUDE.md) : par vague REELLEMENT
-            // GAGNEE (point 4 de la demande), jamais sur une defaite. Montant
-            // MIS A L'ECHELLE par palier de 10 vagues depuis le 2026-08-15
-            // (chantier polish/equilibrage, voir run/metaProgress.ts,
-            // upgradeRunesRewardForWave) — `waveBeingFought` (capture avant
-            // increment, la vague REELLEMENT jouee/gagnee, 1-indexee comme
-            // affichee au joueur) est le bon numero a lui passer, jamais
-            // `currentRun.waveNumber` post-increment. Ce callback ne
-            // s'execute QU'UNE SEULE FOIS par bataille resolue (voir
-            // `battleOver`, pose juste avant `waveTransition.play`, et jamais
-            // rejoue au reload puisque rien ne persiste une run en cours —
-            // voir CLAUDE.md, "Pas encore fait"), donc aucun risque de double
-            // recompense (point 5) sans mecanisme de garde supplementaire :
-            // c'est le MEME point de verite deja utilise pour
-            // WAVE_CLEAR_BONUS/registerWaveReached juste au-dessus.
-            const runesEarnedThisBattle = outcome.won ? awardUpgradeRunesForWaveWin(metaProgress, waveBeingFought) : 0;
-            if (runesEarnedThisBattle > 0) saveMetaProgress(metaProgress);
 
             // Le deblocage du Mage/de la Sentinelle cote JOUEUR ne depend
             // PLUS d'un numero de vague depuis le 2026-08-15 (voir
@@ -4714,7 +4737,7 @@ const loop = new Loop(
               await applyMapExpansionForCompletedWave(waveBeingFought);
               talentPointToast.show(metaProgress.talentPoints - talentPointsBefore);
               const result: WaveResult = playerAlive > 0 ? 'victoire' : 'defaite';
-              screens.showWaveComplete(waveBeingFought, result, runesEarnedThisBattle);
+              screens.showWaveComplete(waveBeingFought, result);
             }
           });
         }
@@ -5238,49 +5261,9 @@ const screens = new Screens({
       screens.refreshTalents(metaProgress);
     }
   },
-  // Boutique d'AMELIORATION PERMANENTE des unites (2026-08-13, demande
-  // d'Antoine) — accessible UNIQUEMENT depuis le menu titre, DISTINCTE de la
-  // boutique de run et de l'arbre de talents (voir CLAUDE.md). Meme motif
-  // que onUnlockTalent : le handler verifie/mute lui-meme via
-  // purchaseUnitUpgrade (canPurchaseUnitUpgrade en interne), sauvegarde
-  // IMMEDIATEMENT si l'achat a reussi (point 11.4 de la demande), puis
-  // rafraichit l'ecran.
-  onOpenUnitUpgradeShop: () => screens.showUnitUpgradeShop(metaProgress),
-  onCloseUnitUpgradeShop: () => screens.show('menu'),
-  // Dispatch GENERIQUE par id (2026-08-13, extension Baliste/Parchemin de
-  // soin ; 2026-08-14, extension Nova de glace) : `getUnitUpgradeDef` couvre
-  // Fantassin/Archer/Mage, BALLISTA_UPGRADE/HEAL_SCROLL_UPGRADE/
-  // ICE_NOVA_UPGRADE couvrent les 3 autres ameliorations — un SEUL point
-  // d'achat generique (purchaseUpgrade, run/metaProgress.ts) pour les 6,
-  // jamais un if par id disperse. Runes insuffisantes : purchaseUpgrade ne
-  // fait rien (point 11 de la demande initiale, "si non : ne rien acheter")
-  // — aucun feedback sonore/visuel dedie (systeme audio globalement
-  // desactive, voir CLAUDE.md), le bouton reste simplement desactive
-  // (refreshUnitUpgradeShop) des que les runes ne suffisent plus, ce qui
-  // empeche deja concretement ce cas via un clic normal.
-  onPurchaseUnitUpgrade: (id) => {
-    const costDef =
-      getUnitUpgradeDef(id) ??
-      (id === BALLISTA_UPGRADE.id
-        ? BALLISTA_UPGRADE
-        : id === HEAL_SCROLL_UPGRADE.id
-          ? HEAL_SCROLL_UPGRADE
-          : id === ICE_NOVA_UPGRADE.id
-            ? ICE_NOVA_UPGRADE
-            : id === MINE_UPGRADE.id
-              ? MINE_UPGRADE
-              : id === SENTINEL_UPGRADE.id
-                ? SENTINEL_UPGRADE
-                : id === SHADOW_UPGRADE.id
-                  ? SHADOW_UPGRADE
-                  : id === BARRACKS_UPGRADE.id
-                    ? BARRACKS_UPGRADE
-                    : undefined);
-    if (costDef && purchaseUpgrade(metaProgress, id, costDef)) {
-      saveMetaProgress(metaProgress);
-      screens.refreshUnitUpgradeShop(metaProgress);
-    }
-  },
+  // Forge (ameliorations de la run, en Or) : voir openForge/purchaseForgeUpgrade.
+  onCloseForge: () => closeForge(),
+  onPurchaseRunUpgrade: (id) => purchaseForgeUpgrade(id),
   // Reset des talents (2026-08-11, demande d'Antoine : "rajoute également
   // une option reset point de talent") — rembourse les points depenses
   // (respec), ne touche a rien d'autre. Sauvegarde IMMEDIATE, meme motif
@@ -5497,6 +5480,8 @@ window.addEventListener('keydown', (event) => {
           editorState.select(null);
           refreshEditorObjects();
         }
+      } else if (screens.isForgeOpen()) {
+        closeForge();
       } else if (armedItemIndex !== null) {
         disarmItem();
       } else if (towerPlacementActive) {

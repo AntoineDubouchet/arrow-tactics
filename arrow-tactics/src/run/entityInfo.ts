@@ -51,6 +51,15 @@ export interface EntityInfoHp {
   shieldFraction?: number;
 }
 
+/** Action proposee par la fiche (bouton). Donnee pure : main.ts recoit
+ *  l'`id` au clic et decide de l'effet ; l'adaptateur ne connait pas le DOM. */
+export interface EntityInfoAction {
+  id: 'openForge';
+  label: string;
+  enabled: boolean;
+  hint?: string;
+}
+
 export interface EntityInfoStatus {
   label: string;
   tone: 'ready' | 'busy' | 'muted' | 'danger';
@@ -63,6 +72,8 @@ interface EntityInfoCommon {
   rows: EntityInfoRow[];
   sections: EntityInfoSection[];
   status: EntityInfoStatus | null;
+  /** Actions proposees (boutons) ; absent = aucune. */
+  actions?: EntityInfoAction[];
 }
 
 export interface UnitInfo extends EntityInfoCommon {
@@ -343,7 +354,10 @@ export function placementBuildingInfo(owned: { buildingId: string; hp: number },
   let rows: EntityInfoRow[] = [];
   if (def.id === 'mine') rows = mineRows(progress);
   else if (def.spawner) rows = barracksRows(def.spawner.unitId, effectiveBarracksSpawnInterval(progress.upgrades), effectiveBarracksSpawnCount(progress.upgrades));
-  return { kind: 'building', buildingId: def.id, title: def.displayName, team: 'player', hp: hpOf(owned.hp, def.maxHp), rows, sections: [], status: null };
+  // Forge : seul acces aux ameliorations de la run, en preparation
+  // uniquement (aucune action dans battleBuildingInfo).
+  const actions: EntityInfoAction[] | undefined = def.id === 'forge' ? [{ id: 'openForge', label: 'Ouvrir la Forge', enabled: true }] : undefined;
+  return { kind: 'building', buildingId: def.id, title: def.displayName, team: 'player', hp: hpOf(owned.hp, def.maxHp), rows, sections: [], status: null, actions };
 }
 
 /** Bâtiment en bataille : PV et production lus sur l'entite. Le revenu de
