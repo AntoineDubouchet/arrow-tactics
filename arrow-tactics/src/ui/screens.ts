@@ -1191,6 +1191,9 @@ export class Screens {
       const noun = count > 1 ? 'Fantassins' : 'Fantassin';
       return `${costLine} Produit automatiquement ${count} ${noun} toutes les ${effectiveBarracksSpawnInterval(levels).toFixed(0)} secondes pendant la bataille.`;
     }
+    if (buildingId === 'forge') {
+      return `${costLine} Permettra d’améliorer l’armée.`;
+    }
     return costLine;
   }
 

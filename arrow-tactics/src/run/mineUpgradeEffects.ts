@@ -31,7 +31,7 @@ export function effectiveMineGoldPerSecond(levels: RunUpgradeLevels): number {
 }
 
 /** Cout Gold EFFECTIF d'achat EN PARTIE (boutique de run) — base
- *  (`getBuilding('mine').cost`, 100) + niveau d'amelioration permanente x
+ *  (`getBuilding('mine').cost`, 25) + niveau d'amelioration permanente x
  *  `goldCostPerLevel` (5) — 2026-08-18, demande explicite d'Antoine, meme
  *  motif exact que run/sentinelUpgradeEffects.ts, effectiveSentinelGoldCost.
  *  SOURCE UNIQUE : appelee a la fois par l'affichage boutique (ui/screens.ts)

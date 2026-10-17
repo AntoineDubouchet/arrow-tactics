@@ -61,7 +61,7 @@ export function barracksNextPurchaseGrantsIntervalMilestone(level: number): bool
 }
 
 /** Cout Gold EFFECTIF d'achat EN PARTIE (boutique de run) — base
- *  (`getBuilding('barracks').cost`, 50) + niveau d'amelioration permanente x
+ *  (`getBuilding('barracks').cost`, 15) + niveau d'amelioration permanente x
  *  `goldCostPerLevel` (5) — 2026-08-18, demande explicite d'Antoine, meme
  *  motif exact que run/sentinelUpgradeEffects.ts, effectiveSentinelGoldCost/
  *  run/mineUpgradeEffects.ts, effectiveMineGoldCost. SOURCE UNIQUE : appelee

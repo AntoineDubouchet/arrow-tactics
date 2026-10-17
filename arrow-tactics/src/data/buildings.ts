@@ -101,10 +101,11 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 1.6,
-    // 2026-08-17, demande explicite d'Antoine ("prix de base pendant la
-    // run : 100 GOLD") — remplace l'ancienne acquisition automatique via le
-    // talent "Le temps, c'est de l'argent" (retiré, voir data/talents.ts).
-    cost: 100,
+    // Prix de base en Or (25 depuis la refonte economique autour de la
+    // Forge ; 100 auparavant). Remplace l'ancienne acquisition automatique
+    // via le talent "Le temps, c'est de l'argent" (retiré, voir
+    // data/talents.ts).
+    cost: 25,
     buildingModel: 'blue_mine',
     footprintTilesX: 2,
     footprintTilesZ: 2,
@@ -144,7 +145,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 1.8,
-    cost: 50,
+    // Prix de base en Or (15 depuis la refonte economique autour de la
+    // Forge ; 50 auparavant).
+    cost: 15,
     buildingModel: 'blue_barracks',
     footprintTilesX: 2,
     footprintTilesZ: 2,
@@ -158,6 +161,26 @@ export const BUILDINGS: Record<string, BuildingDef> = {
       baseIntervalSeconds: 5,
       minIntervalSeconds: 1,
     },
+  },
+  // Forge (refonte economique) — batiment allie achetable, sans production,
+  // revenu ni effet passif pour l'instant : ciblable, destructible et
+  // collidable comme la Mine. Plusieurs exemplaires possibles.
+  forge: {
+    id: 'forge',
+    displayName: 'Forge',
+    maxHp: 15 * HP_PER_PIP,
+    // Modele (KayKit blacksmith) plus bas et plus compact que la Caserne :
+    // meme rayon que la Mine.
+    radius: 1.0,
+    targetable: true,
+    countsForDefeat: true,
+    // Modele d'environ 1,5 de haut une fois ajuste a l'empreinte 2x2 :
+    // barre juste au-dessus du toit, comme la Mine.
+    hpBarHeight: 1.7,
+    cost: 15,
+    buildingModel: 'blue_blacksmith',
+    footprintTilesX: 2,
+    footprintTilesZ: 2,
   },
 };
 
