@@ -1872,6 +1872,10 @@ let editorBaseMap: MapDef = DEFAULT_MAP;
 // avoir a le reconstruire a chaque aller-retour. Construit a l'entree du
 // test, retire de la scene au retour dans l'editeur.
 let testBoard: Board | null = null;
+/** Map REELLE active juste avant "Tester le scenario" (voir testScenario),
+ *  restauree au retour : le plateau visuel du jeu (`board`, masque mais
+ *  jamais reconstruit pendant le test) a ete construit pour elle. */
+let mapBeforeTest: MapDef = DEFAULT_MAP;
 
 // Mesh par id d'obstacle deja construit, pour eviter de rappeler
 // createRock/createTreeObstacle (qui tirent leur composition/orientation au
@@ -2431,6 +2435,7 @@ async function testScenario(): Promise<void> {
   // run réelle. Seule la Baliste, toujours présente, est créée (voir
   // setupTestBattle).
 
+  mapBeforeTest = currentMap;
   currentMap = testMap;
   rebuildCurrentTerritoryIndex();
   world.setMap(currentMap);
@@ -2482,8 +2487,12 @@ function returnToEditorAfterTest(): void {
   shadowProjectileView.clear();
 
   // La partie REELLE (menu -> Jouer) ne doit jamais heriter de la map de
-  // test : on revient a DEFAULT_MAP comme si le test n'avait pas eu lieu.
-  currentMap = DEFAULT_MAP;
+  // test : on revient a la map active AVANT le test, comme si le test
+  // n'avait pas eu lieu. Pas DEFAULT_MAP : apres une run agrandie, le
+  // plateau visuel resterait a la taille agrandie, et startNewRun (qui ne
+  // reinitialise le plateau que si currentMap !== DEFAULT_MAP) ne le
+  // reconstruirait jamais.
+  currentMap = mapBeforeTest;
   rebuildCurrentTerritoryIndex();
   world.setMap(currentMap);
   playerArrowOrigin = computePlayerArrowOrigin(currentMap);
