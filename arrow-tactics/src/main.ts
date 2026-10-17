@@ -31,6 +31,7 @@ import {
   type MapDef,
   type MapUnitPlacement,
 } from './config/mapDef';
+import { buildTerritoryIndex, deriveLegacyTerritory, territoryOwnerAtPoint, type TerritoryIndex } from './config/territory';
 import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapExpansion';
 import { Loop } from './core/loop';
 import { dist } from './core/math';
@@ -630,6 +631,7 @@ async function applyMapExpansionForCompletedWave(completedWave: number): Promise
   const result = applyMapExpansionStep(currentMap, currentRun.mapExpansion, step);
   currentMap = result.map;
   currentRun.mapExpansion = { ...result.state, lastExpandedWave: completedWave };
+  rebuildCurrentTerritoryIndex();
 
   // Batiments POSSEDES par le joueur (2026-08-17) : translates SEULEMENT par
   // l'ETAPE C (offsetForZ vaut toujours 0 pour spawnBack/sides — voir
@@ -669,6 +671,7 @@ async function applyMapExpansionForCompletedWave(completedWave: number): Promise
  */
 async function resetGameBoardToDefaultMap(): Promise<void> {
   currentMap = DEFAULT_MAP;
+  rebuildCurrentTerritoryIndex();
   await rebuildGameBoardVisuals(currentRun.mapExpansion.spawnDepth);
   world.setMap(currentMap);
 }
@@ -825,6 +828,42 @@ function enemyAbilityDamageBonus(unitId: string, waveNumber: number): number {
 // "Jouer" depuis le menu principal (voir startNewRun) — continuer apres la
 // boutique reutilise la MEME run, juste la vague suivante.
 let currentRun = createFreshRun();
+
+/** Territoire courant du jeu (config/territory.ts) : SOURCE UNIQUE de la zone
+ *  de placement du joueur, lue par isValidPlacementTile. Encore entierement
+ *  derive du systeme historique (currentMap + spawnDepth de la run) : meme
+ *  forme de zone qu'avant. Reconstruit par rebuildCurrentTerritoryIndex a
+ *  chaque changement de l'une de ces deux sources, jamais par validation ni
+ *  par image. `map`/`spawnDepth` memorisent les sources de l'index, pour
+ *  detecter un index perime (voir currentTerritoryIndex). */
+interface CurrentTerritory {
+  index: TerritoryIndex;
+  map: MapDef;
+  spawnDepth: number;
+}
+let currentTerritory = deriveCurrentTerritory();
+
+function deriveCurrentTerritory(): CurrentTerritory {
+  const spawnDepth = currentRun.mapExpansion.spawnDepth;
+  return { index: buildTerritoryIndex(deriveLegacyTerritory(currentMap, spawnDepth)), map: currentMap, spawnDepth };
+}
+
+/** A appeler juste apres tout changement de currentMap ou de
+ *  currentRun.mapExpansion.spawnDepth. */
+function rebuildCurrentTerritoryIndex(): void {
+  currentTerritory = deriveCurrentTerritory();
+}
+
+/** Index du territoire courant. Garde-fou : si un changement de source a
+ *  oublie de reconstruire l'index, il est reconstruit ici (avec un
+ *  avertissement en console) plutot que de valider contre une zone perimee. */
+function currentTerritoryIndex(): TerritoryIndex {
+  if (currentTerritory.map !== currentMap || currentTerritory.spawnDepth !== currentRun.mapExpansion.spawnDepth) {
+    console.warn('Index de territoire perime : reconstruit.');
+    rebuildCurrentTerritoryIndex();
+  }
+  return currentTerritory.index;
+}
 
 /** Nouvelle run : aucune amelioration (elles s'achetent en Or a la Forge
  *  pendant la run) ; aucun niveau n'est conserve d'une run a l'autre. */
@@ -1691,6 +1730,7 @@ function resetRunPlacementState(): void {
  *  cours pour passer a la vague suivante (voir startPlacement seul). */
 function startNewRun(): void {
   currentRun = createFreshRun();
+  rebuildCurrentTerritoryIndex();
   resetRunPlacementState();
   // Une run PRECEDENTE peut avoir agrandi le plateau (2026-08-18, voir
   // applyMapExpansionForCompletedWave) — currentMap est un module partage
@@ -2392,6 +2432,7 @@ async function testScenario(): Promise<void> {
   // setupTestBattle).
 
   currentMap = testMap;
+  rebuildCurrentTerritoryIndex();
   world.setMap(currentMap);
 
   if (testBoard) renderer.scene.remove(testBoard.group);
@@ -2443,6 +2484,7 @@ function returnToEditorAfterTest(): void {
   // La partie REELLE (menu -> Jouer) ne doit jamais heriter de la map de
   // test : on revient a DEFAULT_MAP comme si le test n'avait pas eu lieu.
   currentMap = DEFAULT_MAP;
+  rebuildCurrentTerritoryIndex();
   world.setMap(currentMap);
   playerArrowOrigin = computePlayerArrowOrigin(currentMap);
   ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
@@ -3774,11 +3816,9 @@ function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: numb
   });
   if (onObstacle) return false;
 
-  const halfW = (currentMap.width * TILE) / 2;
-  const halfH = (currentMap.height * TILE) / 2;
-  // spawnDepth DYNAMIQUE — voir computeArmyFormation, meme raisonnement.
-  const zoneMinZ = halfH - currentRun.mapExpansion.spawnDepth * TILE;
-  return tileX > -halfW && tileX < halfW && tileZ > zoneMinZ && tileZ < halfH;
+  // Zone de placement : la case doit appartenir au joueur dans le territoire
+  // courant (voir currentTerritoryIndex) — plus aucun calcul de bande ici.
+  return territoryOwnerAtPoint(currentTerritoryIndex(), tileX, tileZ) === 'player';
 }
 
 // --- Achat/placement de batiments (2026-08-17, chantier "batiments
