@@ -1,5 +1,6 @@
 import { isCollidableObstacle, obstacleBounds, obstacleCenter, PLACEMENT_ROWS, type ObstacleBounds, type ObstacleDef } from '../config/constants';
 import {
+  BALLISTA_PLACEMENT_TILES,
   buildCellIndex,
   cellKey,
   computeBallistaObstacle,
@@ -12,7 +13,15 @@ import {
   type TerrainCellDef,
   type TerrainType,
 } from '../config/mapDef';
-import { resolveMapTerritory, type TerritoryCell, type TerritoryTeam } from '../config/territory';
+import {
+  buildTerritoryIndex,
+  isFootprintOwnedBy,
+  resolveMapTerritory,
+  territoryOwnerAtPoint,
+  type TerritoryCell,
+  type TerritoryIndex,
+  type TerritoryTeam,
+} from '../config/territory';
 import type { Team } from '../sim/entity';
 
 /**
@@ -42,12 +51,11 @@ export type PlacementTemplate = Omit<ObstacleDef, 'cornerX' | 'cornerZ' | 'x' | 
 
 /**
  * Unite placee dans l'editeur (bestiaire du jeu, voir data/units.ts). Le
- * camp n'est PAS choisi explicitement dans l'asset browser : demande
- * d'Antoine (2026-08-08) — une unite posee du cote bleu du plateau (z >= 0)
- * devient automatiquement bleue, posee du cote rouge elle devient rouge,
- * exactement comme au deroulement normal d'une partie (voir main.ts,
- * startPlacement). `team` est recalcule a chaque deplacement, pas fige a la
- * pose.
+ * camp n'est PAS choisi explicitement dans l'asset browser : c'est le
+ * proprietaire de la case dans le territoire (voir territoryOwnerAt) — case
+ * bleue -> joueur, case rouge -> ennemi, case neutre -> pose refusee.
+ * `team` est recalcule a chaque deplacement ; il n'est jamais recalcule au
+ * chargement ni quand on repeint le territoire sous l'unite.
  */
 export interface EditorUnit {
   id: number;
@@ -81,12 +89,10 @@ export type EditorTool =
    *  l'efface (case neutre). */
   | { type: 'paint-territory'; team: TerritoryTeam | null };
 
-/** Camp determine par la moitie du plateau : z >= 0 cote bleu (joueur), z < 0
- *  cote rouge (ennemi) — meme convention que les zones de placement du
- *  plateau (voir render/board.ts, createZonesGroup). */
-export function teamForZ(z: number): Team {
-  return z >= 0 ? 'player' : 'enemy';
-}
+/** Proprietaire de la Baliste de la carte : toujours le joueur (meme camp
+ *  que spawnBallistaBuilding en jeu) ; son placement interactif exige une
+ *  empreinte entierement dans ce territoire. */
+export const EDITOR_BALLISTA_OWNER: TerritoryTeam = 'player';
 
 /** Les deux rectangles se chevauchent (un simple contact de bord ne compte
  *  pas). */
@@ -137,9 +143,13 @@ export class EditorState {
   /** Territoire EXPLICITE du brouillon (voir MapDef.territory), copie de la
    *  map chargee — `undefined` si elle n'en avait pas (repli historique, et
    *  aucun champ a l'export), `[]` s'il est explicitement vide. Modifie
-   *  uniquement par paintTerritoryCell / restoreTerritory / removeCell ; ni
-   *  la pose ni le camp des unites ne le lisent encore. */
+   *  uniquement par paintTerritoryCell / restoreTerritory / removeCell. */
   territory: TerritoryCell[] | undefined;
+
+  /** Index du territoire resolu (voir territoryOwnerAt), construit a la
+   *  demande et invalide par toute modification du territoire ou des
+   *  cellules (le repli historique depend des cellules). */
+  private territoryIndexCache: TerritoryIndex | null = null;
 
   /** Par defaut, repart de la map actuelle : l'editeur sert d'abord a
    *  AJUSTER ce qui existe deja, pas a repartir d'une carte vide. Un appelant
@@ -195,9 +205,10 @@ export class EditorState {
   /** Vrai si la Baliste peut etre centree en (x, z) : toutes les cases sous
    *  son empreinte existent (donc ni hors du plateau ni au-dessus d'un
    *  trou), aucun obstacle COLLIDABLE ne la chevauche et aucune unite n'a son
-   *  centre dedans. SOURCE UNIQUE de la validation, deplacement comme
-   *  relocalisation. Aucune restriction de moitie de plateau (dependra du
-   *  futur chantier de zone constructible). */
+   *  centre dedans. Validite GEOMETRIQUE seulement, sans territoire : sert a
+   *  relocaliser une position chargee invalide, sans jamais deplacer une
+   *  Baliste chargee hors du territoire joueur (voir canMoveBallistaTo pour
+   *  un deplacement interactif). */
   canPlaceBallistaAt(x: number, z: number): boolean {
     const b = this.ballistaBoundsAt(x, z);
     for (let cz = Math.floor(b.minZ); cz < b.maxZ; cz++) {
@@ -231,13 +242,31 @@ export class EditorState {
     return null;
   }
 
+  /** Vrai si les BALLISTA_PLACEMENT_TILES × BALLISTA_PLACEMENT_TILES cases
+   *  de placement de la Baliste centree en (x, z) (centre cale par
+   *  snapBallistaOrigin) appartiennent toutes au joueur. */
+  isBallistaFootprintInPlayerTerritory(x: number, z: number): boolean {
+    const cornerX = Math.round(x - BALLISTA_PLACEMENT_TILES / 2);
+    const cornerZ = Math.round(z - BALLISTA_PLACEMENT_TILES / 2);
+    return isFootprintOwnedBy(this.territoryIndex(), EDITOR_BALLISTA_OWNER, cornerX, cornerZ, BALLISTA_PLACEMENT_TILES, BALLISTA_PLACEMENT_TILES);
+  }
+
+  /** Validite d'un deplacement INTERACTIF de la Baliste vers (x, z) (centre
+   *  deja cale) : regles geometriques de canPlaceBallistaAt ET empreinte de
+   *  placement entierement en territoire joueur. SOURCE UNIQUE partagee par
+   *  le deplacement et son apercu. */
+  canMoveBallistaTo(x: number, z: number): boolean {
+    return this.canPlaceBallistaAt(x, z) && this.isBallistaFootprintInPlayerTerritory(x, z);
+  }
+
   /** Deplace la Baliste vers la position calee sur sa grille la plus proche
-   *  de (x, z), si elle est valide — la rend explicite. Renvoie false (rien
-   *  ne change) si la position est invalide ou identique. */
+   *  de (x, z), si elle est valide (canMoveBallistaTo) — la rend explicite.
+   *  Renvoie false (rien ne change) si la position est invalide ou
+   *  identique. */
   moveBallista(x: number, z: number): boolean {
     const target = snapBallistaOrigin(x, z);
     if (target.x === this.ballista.x && target.z === this.ballista.z) return false;
-    if (!this.canPlaceBallistaAt(target.x, target.z)) return false;
+    if (!this.canMoveBallistaTo(target.x, target.z)) return false;
     this.ballista = target;
     this.ballistaExplicit = true;
     return true;
@@ -274,6 +303,7 @@ export class EditorState {
   addCell(x: number, z: number, terrain: TerrainType): boolean {
     if (!this.canAddCell(x, z)) return false;
     this.cellMap.set(cellKey(x, z), { x, z, terrain });
+    this.invalidateTerritoryIndex();
     return true;
   }
 
@@ -305,6 +335,7 @@ export class EditorState {
     if (!this.canRemoveCell(x, z)) return false;
     this.cellMap.delete(cellKey(x, z));
     if (this.territory) this.territory = this.territory.filter((c) => c.x !== x || c.z !== z);
+    this.invalidateTerritoryIndex();
     return true;
   }
 
@@ -313,6 +344,23 @@ export class EditorState {
    *  n'a pas de run), limitees aux cellules existantes. */
   resolvedTerritory(): TerritoryCell[] {
     return resolveMapTerritory({ width: this.width, height: this.height, cells: this.cells, territory: this.territory }, PLACEMENT_ROWS);
+  }
+
+  /** Camp proprietaire de la case qui contient le point (x, z), d'apres le
+   *  territoire resolu (explicite, sinon repli historique) — null si la case
+   *  est neutre ou absente. SOURCE UNIQUE du camp des unites de l'editeur
+   *  (pose, deplacement, apercus). */
+  territoryOwnerAt(x: number, z: number): TerritoryTeam | null {
+    return territoryOwnerAtPoint(this.territoryIndex(), x, z);
+  }
+
+  private territoryIndex(): TerritoryIndex {
+    if (!this.territoryIndexCache) this.territoryIndexCache = buildTerritoryIndex(this.resolvedTerritory());
+    return this.territoryIndexCache;
+  }
+
+  private invalidateTerritoryIndex(): void {
+    this.territoryIndexCache = null;
   }
 
   /** Vrai si la case (x, z) — coordonnees entieres de case — existe et peut
@@ -338,6 +386,7 @@ export class EditorState {
     const next = current.filter((c) => !isCell(c));
     if (team) next.splice(index >= 0 ? index : next.length, 0, { x, z, team });
     this.territory = next;
+    this.invalidateTerritoryIndex();
     return true;
   }
 
@@ -351,6 +400,7 @@ export class EditorState {
    *  territorySnapshot (annuler / retablir), sans validation. */
   restoreTerritory(snapshot: TerritoryCell[] | undefined): void {
     this.territory = snapshot?.map((c) => ({ x: c.x, z: c.z, team: c.team }));
+    this.invalidateTerritoryIndex();
   }
 
   private toEditorUnit(u: MapUnitPlacement, team: Team): EditorUnit {
@@ -382,6 +432,7 @@ export class EditorState {
         if (!this.cellMap.has(key)) this.cellMap.set(key, { x, z, terrain: 'grass' });
       }
     }
+    this.invalidateTerritoryIndex();
     // Baliste jamais deplacee : elle suit le repli historique du coin, comme
     // le ferait "Tester le scenario" sur la map exportee (sans champ).
     if (!this.ballistaExplicit) this.ballista = computePlayerArrowOrigin(this);
@@ -460,7 +511,8 @@ export class EditorState {
   }
 
   /** Vrai si une UNITE peut être placée à (x, z) — cellule de terrain
-   *  existante, aucun obstacle COLLIDABLE (rocher, arbre, bâtiment — jamais
+   *  existante appartenant à un camp (case neutre interdite), aucun obstacle
+   *  COLLIDABLE (rocher, arbre, bâtiment — jamais
    *  un prop traversable, voir isCollidableObstacle) et aucune autre unité
    *  déjà sur cette même case (2026-08-16, demande explicite : "aucune
    *  unité incompatible déjà présente" / "aucun bâtiment n'occupe cette
@@ -473,6 +525,8 @@ export class EditorState {
     const cellX = Math.floor(x);
     const cellZ = Math.floor(z);
     if (!this.hasCellAt(cellX, cellZ)) return false;
+    // Case neutre : interdite aux unites (le camp vient du territoire).
+    if (this.territoryOwnerAt(x, z) === null) return false;
     if (this.isInsideBallista(x, z)) return false;
 
     const onObstacle = this.obstacles.some((o) => {
@@ -485,15 +539,17 @@ export class EditorState {
     return !this.units.some((u) => !ignoreUnitIds?.has(u.id) && Math.floor(u.x) === cellX && Math.floor(u.z) === cellZ);
   }
 
-  /** Place une nouvelle unite au point donne — le camp est deduit de la
-   *  position (voir teamForZ), pas choisi dans l'asset browser. Refuse
-   *  (voir canPlaceUnitAt) si aucune cellule de terrain n'existe à cet
-   *  endroit, si un obstacle/bâtiment occupe déjà la case, ou si une autre
-   *  unité y est déjà posée — jamais dans un trou ni superposée. */
+  /** Place une nouvelle unite au point donne — son camp est celui de la case
+   *  dans le territoire (voir territoryOwnerAt), pas choisi dans l'asset
+   *  browser. Refuse (voir canPlaceUnitAt) si aucune cellule de terrain
+   *  n'existe à cet endroit, si la case est neutre, si un obstacle/bâtiment
+   *  occupe déjà la case, ou si une autre unité y est déjà posée. */
   placeUnitAt(x: number, z: number): EditorUnit | null {
     if (this.tool.type !== 'place-unit') return null;
     if (!this.canPlaceUnitAt(x, z)) return null;
-    const unit: EditorUnit = { id: this.nextId++, unitId: this.tool.unitId, team: teamForZ(z), x, z };
+    const team = this.territoryOwnerAt(x, z);
+    if (!team) return null;
+    const unit: EditorUnit = { id: this.nextId++, unitId: this.tool.unitId, team, x, z };
     this.units.push(unit);
     this.tool = { type: 'select' };
     this.selection = { kind: 'unit', id: unit.id };
@@ -536,10 +592,12 @@ export class EditorState {
   }
 
   /** Applique un deplacement d'unites deja valide (voir main.ts,
-   *  planEditorUnitMove, meme calcul que l'apercu) et recalcule le camp de
-   *  chaque unite deplacee selon la moitie du plateau (teamForZ) : une unite
-   *  amenee de l'autre cote change de camp. Renvoie l'etat de chaque unite
-   *  avant et apres, pour l'historique. */
+   *  planEditorUnitMove, meme calcul que l'apercu) et donne a chaque unite
+   *  deplacee le camp de sa case d'arrivee (territoryOwnerAt) : une unite
+   *  amenee en territoire adverse change de camp. Le plan valide n'arrive
+   *  jamais sur une case neutre (canPlaceUnitAt) ; par prudence, le camp est
+   *  alors conserve. Renvoie l'etat de chaque unite avant et apres, pour
+   *  l'historique. */
   moveUnits(moves: readonly { id: number; x: number; z: number }[]): { before: EditorUnitState[]; after: EditorUnitState[] } {
     const before: EditorUnitState[] = [];
     const after: EditorUnitState[] = [];
@@ -549,7 +607,7 @@ export class EditorState {
       before.push({ id: u.id, x: u.x, z: u.z, team: u.team });
       u.x = move.x;
       u.z = move.z;
-      u.team = teamForZ(move.z);
+      u.team = this.territoryOwnerAt(move.x, move.z) ?? u.team;
       after.push({ id: u.id, x: u.x, z: u.z, team: u.team });
     }
     return { before, after };

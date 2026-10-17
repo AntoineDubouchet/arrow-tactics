@@ -113,7 +113,7 @@ export function buildGhost(template: PlacementTemplate, x: number, z: number, as
 
 /** Fantome semi-transparent qui suit la souris pendant le placement d'une
  *  unite — le camp (donc la couleur) se met deja a jour en temps reel selon
- *  la moitie du plateau survolee, pour montrer le resultat AVANT le clic. */
+ *  le territoire de la case survolee, pour montrer le resultat AVANT le clic. */
 export function buildUnitGhost(unitId: string, team: Team, x: number, z: number): THREE.Group {
   const mesh = buildUnit(unitId, team);
   if (team === 'enemy') mesh.rotation.y = Math.PI;

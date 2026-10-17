@@ -13,9 +13,8 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
   // quel obstacle/unite au clic, voir editorScene.ts) : aucun sens en dehors
   // de la session d'edition, jamais serialise. `team` d'une unite non plus :
   // il est RECALCULE au chargement depuis playerUnits/enemyUnits (voir
-  // EditorState.toEditorUnit) plutot que sauvegarde, pour rester coherent
-  // meme si le format de map evolue plus tard (un camp qui viendrait a se
-  // determiner autrement que par la moitie du plateau).
+  // EditorState.toEditorUnit) plutot que sauvegarde : seules les listes
+  // playerUnits / enemyUnits portent le camp dans le fichier.
   return {
     name: base.name,
     version: base.version,

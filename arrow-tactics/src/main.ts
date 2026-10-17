@@ -24,10 +24,12 @@ import {
   obstacleBounds,
 } from './config/constants';
 import {
+  BALLISTA_PLACEMENT_TILES,
   computeBallistaObstacle,
   computePlayerArrowOrigin,
   DEFAULT_MAP,
   resolveBallistaOrigin,
+  snapBallistaOrigin,
   type MapDef,
   type MapUnitPlacement,
 } from './config/mapDef';
@@ -39,7 +41,7 @@ import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMov
 import { getBuilding } from './data/buildings';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
 import { getUnit, type UnitStats } from './data/units';
-import { EditorState, teamForZ } from './editor/editorState';
+import { EDITOR_BALLISTA_OWNER, EditorState } from './editor/editorState';
 import { EditorHistory } from './editor/history';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
@@ -1943,7 +1945,8 @@ let editorZonesGroup: THREE.Group | null = null;
 /** Remplace seulement les zones de l'editeur — apres un coup de pinceau de
  *  territoire, sans reconstruire sol ni grille. Territoire explicite du
  *  brouillon, sinon repli historique (EditorState.resolvedTerritory).
- *  Affichage seulement : le camp des unites posees suit toujours teamForZ. */
+ *  Le camp des unites posees ou deplacees suit ce meme territoire
+ *  (EditorState.territoryOwnerAt). */
 function refreshEditorZones(): void {
   if (!editorState) return;
   if (editorZonesGroup) editorBoardGroup.remove(editorZonesGroup);
@@ -1963,9 +1966,6 @@ renderer.scene.add(editorSelectionRing);
 // que l'anneau des unites (render/unitSelectionRing.ts, teamColor).
 const editorSelectionRingMaterial = editorSelectionRing.material as THREE.MeshBasicMaterial;
 const EDITOR_DECOR_RING_COLOR = editorSelectionRingMaterial.color.getHex();
-/** Proprietaire de la Baliste de la carte : toujours le joueur aujourd'hui
- *  (meme camp que spawnBallistaBuilding). */
-const EDITOR_BALLISTA_OWNER: Team = 'player';
 // Zone de saisie (invisible, plus large que le trait) qui fait de l'anneau la
 // poignee de rotation d'un decor selectionne — voir tryStartRingRotate.
 const editorRingHitArea = createSelectionRingHitArea();
@@ -2532,6 +2532,9 @@ function returnToEditorAfterTest(): void {
   editorBoardGroup.visible = true;
   editorObjectsGroup.visible = true;
   editorUnitsGroup.visible = true;
+  // Masque par testScenario : sans cette ligne, plus aucun apercu de
+  // l'editeur (fantomes, cases, pinceau, Baliste) ne s'affichait apres un test.
+  editorGhostGroup.visible = true;
   editorUI.setVisible(true);
   // editorState n'a jamais ete touche pendant le test : on retrouve
   // exactement la configuration de depart, comme demande.
@@ -2580,11 +2583,12 @@ function updateEditorGhost(x: number, z: number): void {
     editorGhost = buildGhost(editorState.tool.template, x, z, editorAssets);
     editorGhostGroup.add(editorGhost);
   } else if (editorState.tool.type === 'place-unit') {
-    // Le camp du fantome suit deja la moitie du plateau survolee : Antoine
-    // voit la couleur AVANT de cliquer, pas seulement apres.
+    // Le camp du fantome est celui de la case survolee dans le territoire :
+    // Antoine voit la couleur AVANT de cliquer. Case neutre : pose
+    // impossible, seul l'apercu de case rouge (invalide) est montre.
     const unitX = snapToTileCenter(x);
     const unitZ = snapToTileCenter(z);
-    const team: Team = unitZ >= 0 ? 'player' : 'enemy';
+    const team = editorState.territoryOwnerAt(unitX, unitZ);
     // Preview de case (2026-08-16, demande explicite d'Antoine : "je veux
     // désormais matérialiser clairement LA CASE sur laquelle elle sera
     // posée... case verte/rouge translucide") — meme buildCellPreview que
@@ -2598,7 +2602,7 @@ function updateEditorGhost(x: number, z: number): void {
     const valid = editorState.canPlaceUnitAt(unitX, unitZ);
     const combined = new THREE.Group();
     combined.add(buildCellPreview(cellX, cellZ, valid));
-    combined.add(buildUnitGhost(editorState.tool.unitId, team, unitX, unitZ));
+    if (team) combined.add(buildUnitGhost(editorState.tool.unitId, team, unitX, unitZ));
     editorGhost = combined;
     editorGhostGroup.add(editorGhost);
   } else if (editorState.tool.type === 'add-cell') {
@@ -2816,9 +2820,9 @@ function pickEditorObjectAt(event: MouseEvent): { kind: 'ballista' } | { kind: '
 /** Plan de deplacement des unites selectionnees de l'editeur, le centre de
  *  la formation venant au point `target`. Regles de l'editeur
  *  (canPlaceUnitAt : case existante, hors Baliste, sans obstacle bloquant ni
- *  autre unite), sans compter les cases actuelles des unites deplacees. Le
- *  camp montre est celui que le deplacement donnera (teamForZ, moitie du
- *  plateau). */
+ *  autre unite, case non neutre), sans compter les cases actuelles des unites
+ *  deplacees. Le camp montre est celui que le deplacement donnera : le
+ *  proprietaire de la case d'arrivee (EditorState.territoryOwnerAt). */
 function editorUnitMoveProposal(target: { x: number; z: number }): UnitMoveProposal | null {
   if (!editorState) return null;
   const state = editorState;
@@ -2831,7 +2835,7 @@ function editorUnitMoveProposal(target: { x: number; z: number }): UnitMovePropo
     searchRadius: GRID_MOVE_SEARCH_RADIUS,
     tile: TILE,
   });
-  const items = plan.destinations.map((d, i) => ({ unitId: units[i]!.unitId, team: teamForZ(d.z), x: d.x, z: d.z, valid: d.placed }));
+  const items = plan.destinations.map((d, i) => ({ unitId: units[i]!.unitId, team: state.territoryOwnerAt(d.x, d.z) ?? units[i]!.team, x: d.x, z: d.z, valid: d.placed }));
   return { members, plan, items };
 }
 
@@ -6128,11 +6132,37 @@ window.addEventListener('mousemove', (event) => {
 });
 
 window.addEventListener('mousemove', (event) => {
-  if (!inEditorMode || !editorState || editorState.tool.type === 'select') return;
+  if (!inEditorMode || !editorState) return;
+  if (editorState.tool.type === 'select') {
+    updateEditorBallistaMovePreview(event);
+    return;
+  }
   setRaycasterFromEvent(event);
   if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
   updateEditorGhost(groundHit.x, groundHit.z);
 });
+
+/** Baliste selectionnee, outil selection : apercu (vert/rouge) des cases de
+ *  placement 3×3 ou un clic au sol la deplacerait — meme regle que le clic
+ *  (EditorState.canMoveBallistaTo : geometrie + territoire joueur). Rien si
+ *  le curseur vise un objet, qu'un clic selectionnerait au lieu de deplacer. */
+function updateEditorBallistaMovePreview(event: MouseEvent): void {
+  clearEditorGhost();
+  if (!editorState || editorState.selection?.kind !== 'ballista' || event.target !== canvas) return;
+  if (pickEditorObjectAt(event) !== null) return;
+  setRaycasterFromEvent(event);
+  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
+  const target = snapBallistaOrigin(groundHit.x, groundHit.z);
+  const valid = editorState.canMoveBallistaTo(target.x, target.z);
+  const cornerX = Math.round(target.x - BALLISTA_PLACEMENT_TILES / 2);
+  const cornerZ = Math.round(target.z - BALLISTA_PLACEMENT_TILES / 2);
+  const group = new THREE.Group();
+  for (let dz = 0; dz < BALLISTA_PLACEMENT_TILES; dz++) {
+    for (let dx = 0; dx < BALLISTA_PLACEMENT_TILES; dx++) group.add(buildCellPreview(cornerX + dx, cornerZ + dz, valid));
+  }
+  editorGhost = group;
+  editorGhostGroup.add(editorGhost);
+}
 
 // Seuil de glisser sur un bâtiment DEJA POSSEDE (2026-08-18) : promeut un
 // simple clic maintenu en VRAI deplacement des que le curseur s'est assez
