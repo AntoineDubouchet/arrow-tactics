@@ -6,7 +6,7 @@ import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 /**
  * Amelioration permanente du PARCHEMIN DE SOIN (2026-08-13, voir
  * data/healScrollUpgrade.ts) — meme principe que run/unitUpgradeEffects.ts.
- * Stockee dans la MEME MetaProgress.unitUpgrades que les unites/la baliste
+ * Niveau lu dans RunState.upgrades, comme les unites/la baliste
  * (cle HEAL_SCROLL_UPGRADE.id = 'heal_scroll_minor', le meme id que
  * l'objet lui-meme dans data/items.ts — pas de nouveau champ de
  * sauvegarde).

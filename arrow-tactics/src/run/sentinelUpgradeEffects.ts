@@ -7,8 +7,8 @@ import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
  * Amelioration permanente de la SENTINELLE (2026-08-14, voir
  * data/sentinelUpgrade.ts) — meme principe que run/ballistaUpgradeEffects.ts/
  * run/iceNovaUpgradeEffects.ts : ce module sait ce qu'est un niveau
- * d'amelioration, main.ts ne recoit que des valeurs deja calculees. Stockee
- * dans la MEME MetaProgress.unitUpgrades que les autres ameliorations (cle
+ * d'amelioration, main.ts ne recoit que des valeurs deja calculees. Niveau
+ * lu dans RunState.upgrades, comme les autres ameliorations (cle
  * SENTINEL_UPGRADE.id = 'sentinel') — aucun nouveau champ de sauvegarde.
  *
  * N'affecte JAMAIS une Sentinelle ENNEMIE (point 37 de la demande) : ce

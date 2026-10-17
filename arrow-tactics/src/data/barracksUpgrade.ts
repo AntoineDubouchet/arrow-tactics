@@ -1,9 +1,9 @@
-import type { RuneCostDef } from './unitUpgrades';
+import type { UpgradeDefBase } from './unitUpgrades';
 
 /**
  * Amelioration permanente de la CASERNE (2026-08-17, demande d'Antoine) —
  * meme famille de systeme que data/ballistaUpgrade.ts/data/mineUpgrade.ts
- * (RuneCostDef, premier achat -> prix double a chaque achat suivant).
+ * (UpgradeDefBase).
  *
  * REFONTE le meme jour (retour d'Antoine apres un premier test) : deux
  * effets desormais combines par niveau, plutot qu'un seul levier
@@ -22,7 +22,7 @@ import type { RuneCostDef } from './unitUpgrades';
  * d'intervalle atteint — l'ancien plafond (8) n'avait de sens que quand
  * l'intervalle etait le SEUL levier d'amelioration.
  */
-export interface BarracksUpgradeDef extends RuneCostDef {
+export interface BarracksUpgradeDef extends UpgradeDefBase {
   id: 'barracks';
   /** +N Fantassin(s) produits PAR ACHAT, ADDITIF depuis la base (1) —
    *  s'applique a CHAQUE niveau, voir run/barracksUpgradeEffects.ts,
@@ -37,12 +37,6 @@ export interface BarracksUpgradeDef extends RuneCostDef {
 
 export const BARRACKS_UPGRADE: BarracksUpgradeDef = {
   id: 'barracks',
-  // Meme point de depart que toutes les autres ameliorations permanentes de
-  // ce jeu (10 runes, regle permanente confirmee par Antoine le 2026-08-14 :
-  // "de toute manière quand tu ajoutes un truc dans la boutique
-  // d'amélioration, fais-le commencer à 10").
-  baseRuneCost: 10,
-  costMultiplier: 2,
   countPerLevel: 1,
   intervalReductionPerMilestone: 1,
   intervalEveryLevels: 3,

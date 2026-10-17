@@ -827,8 +827,7 @@ function enemyAbilityDamageBonus(unitId: string, waveNumber: number): number {
 let currentRun = createFreshRun();
 
 /** Nouvelle run : aucune amelioration (elles s'achetent en Or a la Forge
- *  pendant la run). Les anciens niveaux permanents de la sauvegarde
- *  (MetaProgress.unitUpgrades) ne sont plus lus. */
+ *  pendant la run) ; aucun niveau n'est conserve d'une run a l'autre. */
 function createFreshRun(): RunState {
   const upgrades: RunUpgradeLevels = {};
   return createNewRun(computeStartingGoldBonus(metaProgress), effectivePlayerUnitMaxHp('fantassin', upgrades), upgrades);
@@ -5311,11 +5310,9 @@ const screens = new Screens({
   onRequestQuitRun: requestQuitRun,
   onCancelQuitRun: cancelQuitRun,
   onConfirmQuitRun: confirmQuitRun,
-  // Cout EN OR desormais EFFECTIF (2026-08-13, boutique d'amelioration
-  // permanente — voir run/unitUpgradeEffects.ts, effectivePlayerUnitCost) :
-  // baseCost + goldCostBonus (chaque palier d'attaque achete en runes
-  // renchérit le recrutement de cette unite pendant les runs, point 16/22/23
-  // de la demande d'Antoine). `hp` (PV de depart de l'OwnedUnit) lit de meme
+  // Cout EN OR EFFECTIF (voir run/unitUpgradeEffects.ts,
+  // effectivePlayerUnitCost : cout de base, les ameliorations ne le changent
+  // pas). `hp` (PV de depart de l'OwnedUnit) lit de meme
   // le maxHp EFFECTIF (base + bonus PV permanent) — sans ca, une unite tout
   // juste achetee apparaitrait avec plus de PV MAX (statOverrides) mais pas
   // plus de PV ACTUELS, un ecart illogique pour une unite jamais blessee.

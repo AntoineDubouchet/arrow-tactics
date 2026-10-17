@@ -105,7 +105,7 @@ interface SliderControl {
 }
 
 /** Refs vers les elements dynamiques d'UNE carte de la boutique
- *  d'amelioration permanente (voir buildUnitUpgradeCard/refreshUnitUpgradeShop) —
+ *  d'amelioration permanente (voir buildUnitUpgradeCard/refreshForge) —
  *  meme motif que talentNodes, cle par unitId. */
 interface UnitUpgradeCardRefs {
   button: HTMLButtonElement;
@@ -115,11 +115,11 @@ interface UnitUpgradeCardRefs {
   goldCostEl: HTMLElement;
   nextUpgradeEl: HTMLElement;
   remainingAttackEl: HTMLElement;
-  runeCostEl: HTMLElement;
+  costEl: HTMLElement;
 }
 
 /** Refs de la carte "Baliste" (2026-08-13) — voir buildBallistaUpgradeCard/
- *  refreshUnitUpgradeShop. Forme dediee : cadence en %, pas de "PV". */
+ *  refreshForge. Forme dediee : cadence en %, pas de "PV". */
 interface BallistaUpgradeCardRefs {
   button: HTMLButtonElement;
   levelEl: HTMLElement;
@@ -130,11 +130,11 @@ interface BallistaUpgradeCardRefs {
   hpBonusEl: HTMLElement;
   nextUpgradeEl: HTMLElement;
   remainingDamageEl: HTMLElement;
-  runeCostEl: HTMLElement;
+  costEl: HTMLElement;
 }
 
 /** Refs de la carte "Parchemin de soin" (2026-08-13) — voir
- *  buildHealScrollUpgradeCard/refreshUnitUpgradeShop. */
+ *  buildHealScrollUpgradeCard/refreshForge. */
 interface HealScrollUpgradeCardRefs {
   button: HTMLButtonElement;
   levelEl: HTMLElement;
@@ -143,11 +143,11 @@ interface HealScrollUpgradeCardRefs {
   secondaryRatioEl: HTMLElement;
   nextUpgradeEl: HTMLElement;
   remainingTargetEl: HTMLElement;
-  runeCostEl: HTMLElement;
+  costEl: HTMLElement;
 }
 
 /** Refs de la carte "Nova de glace" (2026-08-14) — voir
- *  buildIceNovaUpgradeCard/refreshUnitUpgradeShop. Duree affichee pour le
+ *  buildIceNovaUpgradeCard/refreshForge. Duree affichee pour le
  *  Root (immobilisation, TOUJOURS actif) ET la zone Blizzard (degats,
  *  n'agit que si le talent Blizzard est debloque) separement, meme si les
  *  deux partagent le meme bonus. */
@@ -159,11 +159,11 @@ interface IceNovaUpgradeCardRefs {
   damageEl: HTMLElement;
   nextUpgradeEl: HTMLElement;
   remainingDamageEl: HTMLElement;
-  runeCostEl: HTMLElement;
+  costEl: HTMLElement;
 }
 
 /** Refs de la carte "Mine" (2026-08-14) — voir buildMineUpgradeCard/
- *  refreshUnitUpgradeShop. TOUJOURS visible depuis le 2026-08-17 (la Mine
+ *  refreshForge. TOUJOURS visible depuis le 2026-08-17 (la Mine
  *  est devenue un bâtiment achetable en boutique de RUN, plus liee a un
  *  talent — voir data/buildings.ts) : ameliorer une Mine que le joueur n'a
  *  pas encore achetee cette run reste valide (demande explicite d'Antoine,
@@ -175,12 +175,12 @@ interface MineUpgradeCardRefs {
   levelEl: HTMLElement;
   goldPerSecondEl: HTMLElement;
   nextUpgradeEl: HTMLElement;
-  runeCostEl: HTMLElement;
+  costEl: HTMLElement;
 }
 
 /** Refs de la carte "Caserne" (2026-08-17, REFONTE le meme jour — deux
  *  effets desormais combines, voir data/barracksUpgrade.ts) — voir
- *  buildBarracksUpgradeCard/refreshUnitUpgradeShop. TOUJOURS visible (meme
+ *  buildBarracksUpgradeCard/refreshForge. TOUJOURS visible (meme
  *  principe que la Mine ci-dessus), plus de plafond/etat "MAX" (le bonus de
  *  nombre de Fantassins reste utile a tout niveau). */
 interface BarracksUpgradeCardRefs {
@@ -191,12 +191,12 @@ interface BarracksUpgradeCardRefs {
   intervalEl: HTMLElement;
   nextUpgradeEl: HTMLElement;
   remainingIntervalEl: HTMLElement;
-  runeCostEl: HTMLElement;
-  runeCostGroup: HTMLElement;
+  costEl: HTMLElement;
+  costGroup: HTMLElement;
 }
 
 /** Refs de la carte "Sentinelle" (2026-08-14) — voir buildSentinelUpgradeCard/
- *  refreshUnitUpgradeShop. Shape dediee (PV + Bouclier/ennemi, PAS
+ *  refreshForge. Shape dediee (PV + Bouclier/ennemi, PAS
  *  d'Attaque) : ne rentre pas dans UnitUpgradeCardRefs (qui suppose
  *  toujours un palier d'attaque, voir data/unitUpgrades.ts) — meme
  *  raisonnement que Baliste/Nova de glace/Mine, toujours visible (pas de
@@ -208,13 +208,13 @@ interface SentinelUpgradeCardRefs {
   shieldPerEnemyEl: HTMLElement;
   nextUpgradeEl: HTMLElement;
   remainingShieldEl: HTMLElement;
-  runeCostEl: HTMLElement;
+  costEl: HTMLElement;
 }
 
 /** Refs de la carte "Soins excédentaires" (2026-08-15) — meme convention de
  *  masquage que la Mine (voir MineUpgradeCardRefs) : tant que le talent
  *  "Soins excédentaires" n'est pas debloque, l'ameliorer n'aurait aucun sens
- *  (voir refreshUnitUpgradeShop). Le NIVEAU deja achete reste toutefois
+ *  (voir refreshForge). Le NIVEAU deja achete reste toutefois
  *  intact meme masque (voir run/shadowUpgradeEffects.ts) — seule la carte
  *  disparait, jamais la progression. */
 interface ShadowUpgradeCardRefs {
@@ -225,7 +225,7 @@ interface ShadowUpgradeCardRefs {
   bonusCountEl: HTMLElement;
   nextUpgradeEl: HTMLElement;
   remainingBonusEl: HTMLElement;
-  runeCostEl: HTMLElement;
+  costEl: HTMLElement;
 }
 
 export interface ScreenHandlers {
@@ -446,12 +446,6 @@ export class Screens {
   private readonly talentTooltipDesc: HTMLElement;
   private readonly waveComplete: HTMLElement;
   private readonly waveCompleteTitle: HTMLElement;
-  /** Petit feedback "+N runes d'amélioration" (2026-08-13, point 6 de la
-   *  demande d'Antoine : "un petit feedback intégré à l'écran de victoire
-   *  suffit... ne fais pas une énorme fenêtre") — texte vide (masqué en
-   *  pratique par un contenu vide) sur une défaite, aucune rune n'est
-   *  jamais gagnee dans ce cas (voir main.ts). */
-  private readonly waveCompleteRunes: HTMLElement;
   private readonly shop: HTMLElement;
   private readonly shopGold: HTMLElement;
   /** Nombre d'or affiché dans shopGold — élément dédié pour ne pas écraser
@@ -490,8 +484,8 @@ export class Screens {
    *  visible (jamais reservee) — desormais gouvernee par la MEME regle
    *  generique que le Mage, voir refreshShop. */
   private readonly shopSentinelRow: HTMLElement;
-  /** Boutique d'AMELIORATION PERMANENTE des unites (2026-08-13) — voir
-   *  data/unitUpgrades.ts. */
+  /** Boutique de la FORGE (ameliorations de la run, en Or ; id interne
+   *  historique `unitUpgradeShop`) — voir data/unitUpgrades.ts. */
   private readonly unitUpgradeShop: HTMLElement;
   private readonly forgeGoldAmount: HTMLElement;
   private readonly unitUpgradeCards = new Map<string, UnitUpgradeCardRefs>();
@@ -511,7 +505,7 @@ export class Screens {
   /** Carte "Sentinelle" (2026-08-14) — voir buildSentinelUpgradeCard. */
   private readonly sentinelUpgradeCard: SentinelUpgradeCardRefs;
   /** Carte "Soins excédentaires" (2026-08-15) — MASQUEE tant que le talent
-   *  du meme nom n'est pas debloque, voir refreshUnitUpgradeShop. */
+   *  du meme nom n'est pas debloque, voir refreshForge. */
   private readonly shadowUpgradeCard: ShadowUpgradeCardRefs;
   /** Onglets de la boutique (2026-08-11, demande d'Antoine : "classer les
    *  objets de la boutique dans des fenêtres distinctes") — un onglet par
@@ -629,10 +623,8 @@ export class Screens {
     ]);
 
     this.waveCompleteTitle = this.title('');
-    this.waveCompleteRunes = this.paragraph('');
     this.waveComplete = this.overlay('wave-complete', [
       this.waveCompleteTitle,
-      this.waveCompleteRunes,
       this.button('Continuer', handlers.onContinueAfterWave),
     ]);
 
@@ -936,14 +928,10 @@ export class Screens {
 
   /** `waveNumber` : la vague qui vient d'etre JOUEE (pas la suivante) —
    *  voir main.ts, waveBeingFought (capture avant l'increment de
-   *  applyBattleOutcome). `runesEarned` (2026-08-13, point 4/6 de la demande
-   *  d'Antoine sur la boutique d'amelioration) : 0 sur une defaite (jamais
-   *  gagne dans ce cas, voir main.ts) — le texte reste vide plutot que
-   *  d'afficher "+0 runes". */
-  showWaveComplete(waveNumber: number, result: WaveResult, runesEarned = 0): void {
+   *  applyBattleOutcome). */
+  showWaveComplete(waveNumber: number, result: WaveResult): void {
     this.waveCompleteTitle.textContent =
       result === 'victoire' ? `Vague ${waveNumber} terminée — Victoire` : `Vague ${waveNumber} terminée — Défaite`;
-    this.waveCompleteRunes.textContent = runesEarned > 0 ? `+${runesEarned} runes d’amélioration` : '';
     this.show('waveComplete');
   }
 
@@ -1037,9 +1025,8 @@ export class Screens {
 
   /** Affiche la boutique a jour pour la run en cours — toujours appeler ceci
    *  plutot que show('shop') directement, sinon l'or/les boutons resteraient
-   *  perimes depuis le dernier passage. `progress` (2026-08-13) : le cout
-   *  EFFECTIF des unites depend du niveau d'amelioration permanente, voir
-   *  run/unitUpgradeEffects.ts. `canUndoLastPurchase` (2026-08-13) : active
+   *  perimes depuis le dernier passage. `progress` : talents (unites
+   *  recrutables, descriptions dependant d'un talent). `canUndoLastPurchase` (2026-08-13) : active
    *  ou non le bouton "Annuler le dernier achat" (voir main.ts,
    *  lastUnitPurchase — Screens ne connait pas cet etat, main.ts le fournit
    *  a chaque appel). */
@@ -1081,9 +1068,7 @@ export class Screens {
     if (sentinelPriceEl) sentinelPriceEl.textContent = formatGold(costSentinel);
 
     // Boutons "×5" (2026-08-13) — desactives des que l'or ne couvre pas 5
-    // achats d'affilee (le cout par unite reste CONSTANT sur ces 5 achats :
-    // seule la boutique d'amelioration permanente, menu titre uniquement,
-    // peut le faire varier — jamais en cours de run).
+    // achats d'affilee (le cout par unite reste CONSTANT sur ces 5 achats).
     const fantassinFiveEl = this.shopUnitBuyFiveEls.get('fantassin');
     if (fantassinFiveEl) fantassinFiveEl.disabled = run.gold < costFantassin * 5;
     const archerFiveEl = this.shopUnitBuyFiveEls.get('archer');
@@ -1227,7 +1212,7 @@ export class Screens {
         : `Prochaine amélioration : +1 PV`;
       refs.remainingAttackEl.textContent =
         remaining === 1 ? 'Prochain bonus ATK : dans 1 amélioration' : `Prochain bonus ATK : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.costEl.textContent = formatGold(nextCost);
       refs.button.disabled = !canPurchaseRunUpgrade(run, unitId);
     }
 
@@ -1258,7 +1243,7 @@ export class Screens {
         remaining === 1
           ? 'Prochain bonus de dégâts : dans 1 amélioration'
           : `Prochain bonus de dégâts : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.costEl.textContent = formatGold(nextCost);
       refs.button.disabled = !canPurchaseRunUpgrade(run, BALLISTA_UPGRADE.id);
     }
 
@@ -1286,7 +1271,7 @@ export class Screens {
         remaining === 1
           ? 'Prochain allié supplémentaire : dans 1 amélioration'
           : `Prochain allié supplémentaire : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.costEl.textContent = formatGold(nextCost);
       refs.button.disabled = !canPurchaseRunUpgrade(run, HEAL_SCROLL_UPGRADE.id);
     }
 
@@ -1314,7 +1299,7 @@ export class Screens {
         remaining === 1
           ? 'Prochain bonus de dégâts : dans 1 amélioration'
           : `Prochain bonus de dégâts : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.costEl.textContent = formatGold(nextCost);
       refs.button.disabled = !canPurchaseRunUpgrade(run, ICE_NOVA_UPGRADE.id);
     }
 
@@ -1332,7 +1317,7 @@ export class Screens {
       refs.levelEl.textContent = `Niveau : ${level}`;
       refs.goldPerSecondEl.textContent = `Or/seconde : ${goldPerSecond.toFixed(1)}`;
       refs.nextUpgradeEl.textContent = 'Prochaine amélioration : +0,2 or/seconde';
-      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.costEl.textContent = formatGold(nextCost);
       refs.button.disabled = !canPurchaseRunUpgrade(run, MINE_UPGRADE.id);
     }
 
@@ -1368,7 +1353,7 @@ export class Screens {
           : remaining === 1
             ? 'Prochaine réduction d’intervalle : dans 1 amélioration'
             : `Prochaine réduction d’intervalle : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = formatGold(runUpgradeGoldCost(level));
+      refs.costEl.textContent = formatGold(runUpgradeGoldCost(level));
       refs.button.disabled = !canPurchaseRunUpgrade(run, BARRACKS_UPGRADE.id);
     }
 
@@ -1395,7 +1380,7 @@ export class Screens {
         remaining === 1
           ? 'Prochain bonus de bouclier : dans 1 amélioration'
           : `Prochain bonus de bouclier : dans ${remaining} améliorations`;
-      refs.runeCostEl.textContent = formatGold(nextCost);
+      refs.costEl.textContent = formatGold(nextCost);
       refs.button.disabled = !canPurchaseRunUpgrade(run, SENTINEL_UPGRADE.id);
     }
 
@@ -1425,14 +1410,14 @@ export class Screens {
           remaining === 1
             ? 'Prochain projectile bonus : dans 1 amélioration'
             : `Prochain projectile bonus : dans ${remaining} améliorations`;
-        refs.runeCostEl.textContent = formatGold(nextCost);
+        refs.costEl.textContent = formatGold(nextCost);
         refs.button.disabled = !canPurchaseRunUpgrade(run, SHADOW_UPGRADE.id);
       }
     }
   }
 
   /** Construit une carte GENERIQUE de la boutique d'amelioration pour UNE
-   *  unite (voir refreshUnitUpgradeShop pour le remplissage des valeurs) —
+   *  unite (voir refreshForge pour le remplissage des valeurs) —
    *  aucun id d'unite code en dur au-dela du nom/de l'icone du bouton
    *  d'achat, point 7 de la demande. */
   private buildUnitUpgradeCard(unitId: string, handlers: ScreenHandlers): HTMLElement {
@@ -1461,10 +1446,10 @@ export class Screens {
 
     const buyRow = document.createElement('div');
     buyRow.className = 'upgrade-card-buy-row';
-    const runeCostEl = document.createElement('span');
-    const runeCostGroup = document.createElement('span');
-    runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createCoinIcon(14));
+    const costEl = document.createElement('span');
+    const costGroup = document.createElement('span');
+    costGroup.className = 'shop-item-price-group';
+    costGroup.append(costEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1474,7 +1459,7 @@ export class Screens {
       this.uiSound.click();
       handlers.onPurchaseRunUpgrade(unitId);
     });
-    buyRow.append(runeCostGroup, button);
+    buyRow.append(costGroup, button);
 
     card.append(nameEl, levelEl, hpBonusEl, attackBonusEl, goldCostGroup, nextUpgradeEl, remainingAttackEl, buyRow);
 
@@ -1486,7 +1471,7 @@ export class Screens {
       goldCostEl,
       nextUpgradeEl,
       remainingAttackEl,
-      runeCostEl,
+      costEl,
     });
 
     return card;
@@ -1521,10 +1506,10 @@ export class Screens {
 
     const buyRow = document.createElement('div');
     buyRow.className = 'upgrade-card-buy-row';
-    const runeCostEl = document.createElement('span');
-    const runeCostGroup = document.createElement('span');
-    runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createCoinIcon(14));
+    const costEl = document.createElement('span');
+    const costGroup = document.createElement('span');
+    costGroup.className = 'shop-item-price-group';
+    costGroup.append(costEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1534,13 +1519,13 @@ export class Screens {
       this.uiSound.click();
       handlers.onPurchaseRunUpgrade(BALLISTA_UPGRADE.id);
     });
-    buyRow.append(runeCostGroup, button);
+    buyRow.append(costGroup, button);
 
     card.append(nameEl, levelEl, hpBonusEl, attackSpeedEl, damageEl, nextUpgradeEl, remainingDamageEl, buyRow);
 
     return {
       card,
-      refs: { button, levelEl, attackSpeedEl, damageEl, hpBonusEl, nextUpgradeEl, remainingDamageEl, runeCostEl },
+      refs: { button, levelEl, attackSpeedEl, damageEl, hpBonusEl, nextUpgradeEl, remainingDamageEl, costEl },
     };
   }
 
@@ -1569,10 +1554,10 @@ export class Screens {
 
     const buyRow = document.createElement('div');
     buyRow.className = 'upgrade-card-buy-row';
-    const runeCostEl = document.createElement('span');
-    const runeCostGroup = document.createElement('span');
-    runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createCoinIcon(14));
+    const costEl = document.createElement('span');
+    const costGroup = document.createElement('span');
+    costGroup.className = 'shop-item-price-group';
+    costGroup.append(costEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1582,11 +1567,11 @@ export class Screens {
       this.uiSound.click();
       handlers.onPurchaseRunUpgrade(HEAL_SCROLL_UPGRADE.id);
     });
-    buyRow.append(runeCostGroup, button);
+    buyRow.append(costGroup, button);
 
     card.append(nameEl, levelEl, healEl, secondaryCountEl, secondaryRatioEl, nextUpgradeEl, remainingTargetEl, buyRow);
 
-    return { card, refs: { button, levelEl, healEl, secondaryCountEl, secondaryRatioEl, nextUpgradeEl, remainingTargetEl, runeCostEl } };
+    return { card, refs: { button, levelEl, healEl, secondaryCountEl, secondaryRatioEl, nextUpgradeEl, remainingTargetEl, costEl } };
   }
 
   /** Carte "Nova de glace" (2026-08-14, boutique d'amelioration) — duree
@@ -1615,10 +1600,10 @@ export class Screens {
 
     const buyRow = document.createElement('div');
     buyRow.className = 'upgrade-card-buy-row';
-    const runeCostEl = document.createElement('span');
-    const runeCostGroup = document.createElement('span');
-    runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createCoinIcon(14));
+    const costEl = document.createElement('span');
+    const costGroup = document.createElement('span');
+    costGroup.className = 'shop-item-price-group';
+    costGroup.append(costEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1628,15 +1613,15 @@ export class Screens {
       this.uiSound.click();
       handlers.onPurchaseRunUpgrade(ICE_NOVA_UPGRADE.id);
     });
-    buyRow.append(runeCostGroup, button);
+    buyRow.append(costGroup, button);
 
     card.append(nameEl, levelEl, rootDurationEl, blizzardDurationEl, damageEl, nextUpgradeEl, remainingDamageEl, buyRow);
 
-    return { card, refs: { button, levelEl, rootDurationEl, blizzardDurationEl, damageEl, nextUpgradeEl, remainingDamageEl, runeCostEl } };
+    return { card, refs: { button, levelEl, rootDurationEl, blizzardDurationEl, damageEl, nextUpgradeEl, remainingDamageEl, costEl } };
   }
 
   /** Carte "Mine" (2026-08-14, boutique d'amelioration) — or/seconde, shape
-   *  different de buildUnitUpgradeCard. MASQUEE (voir refreshUnitUpgradeShop)
+   *  different de buildUnitUpgradeCard. MASQUEE (voir refreshForge)
    *  tant que le talent "Le temps, c'est de l'argent" n'est pas debloque —
    *  meme convention que l'ancien deblocage du Cavalier ("elle ne doit
    *  afficher que ce qui est réellement achetable"). */
@@ -1657,10 +1642,10 @@ export class Screens {
 
     const buyRow = document.createElement('div');
     buyRow.className = 'upgrade-card-buy-row';
-    const runeCostEl = document.createElement('span');
-    const runeCostGroup = document.createElement('span');
-    runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createCoinIcon(14));
+    const costEl = document.createElement('span');
+    const costGroup = document.createElement('span');
+    costGroup.className = 'shop-item-price-group';
+    costGroup.append(costEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1670,11 +1655,11 @@ export class Screens {
       this.uiSound.click();
       handlers.onPurchaseRunUpgrade(MINE_UPGRADE.id);
     });
-    buyRow.append(runeCostGroup, button);
+    buyRow.append(costGroup, button);
 
     card.append(nameEl, levelEl, goldPerSecondEl, nextUpgradeEl, buyRow);
 
-    return { card, button, levelEl, goldPerSecondEl, nextUpgradeEl, runeCostEl };
+    return { card, button, levelEl, goldPerSecondEl, nextUpgradeEl, costEl };
   }
 
   /** Carte "Caserne" (2026-08-17, boutique d'amelioration — REFONTE le meme
@@ -1705,10 +1690,10 @@ export class Screens {
 
     const buyRow = document.createElement('div');
     buyRow.className = 'upgrade-card-buy-row';
-    const runeCostEl = document.createElement('span');
-    const runeCostGroup = document.createElement('span');
-    runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createCoinIcon(14));
+    const costEl = document.createElement('span');
+    const costGroup = document.createElement('span');
+    costGroup.className = 'shop-item-price-group';
+    costGroup.append(costEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1718,11 +1703,11 @@ export class Screens {
       this.uiSound.click();
       handlers.onPurchaseRunUpgrade(BARRACKS_UPGRADE.id);
     });
-    buyRow.append(runeCostGroup, button);
+    buyRow.append(costGroup, button);
 
     card.append(nameEl, levelEl, countEl, intervalEl, nextUpgradeEl, remainingIntervalEl, buyRow);
 
-    return { card, button, levelEl, countEl, intervalEl, nextUpgradeEl, remainingIntervalEl, runeCostEl, runeCostGroup };
+    return { card, button, levelEl, countEl, intervalEl, nextUpgradeEl, remainingIntervalEl, costEl, costGroup };
   }
 
   /** Carte "Sentinelle" (2026-08-14, boutique d'amelioration) — PV + Bouclier
@@ -1750,10 +1735,10 @@ export class Screens {
 
     const buyRow = document.createElement('div');
     buyRow.className = 'upgrade-card-buy-row';
-    const runeCostEl = document.createElement('span');
-    const runeCostGroup = document.createElement('span');
-    runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createCoinIcon(14));
+    const costEl = document.createElement('span');
+    const costGroup = document.createElement('span');
+    costGroup.className = 'shop-item-price-group';
+    costGroup.append(costEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1763,16 +1748,16 @@ export class Screens {
       this.uiSound.click();
       handlers.onPurchaseRunUpgrade(SENTINEL_UPGRADE.id);
     });
-    buyRow.append(runeCostGroup, button);
+    buyRow.append(costGroup, button);
 
     card.append(nameEl, levelEl, hpBonusEl, shieldPerEnemyEl, nextUpgradeEl, remainingShieldEl, buyRow);
 
-    return { card, refs: { button, levelEl, hpBonusEl, shieldPerEnemyEl, nextUpgradeEl, remainingShieldEl, runeCostEl } };
+    return { card, refs: { button, levelEl, hpBonusEl, shieldPerEnemyEl, nextUpgradeEl, remainingShieldEl, costEl } };
   }
 
   /** Carte "Soins excédentaires" (2026-08-15, boutique d'amelioration) —
    *  Degats par projectile + Bonus de nombre de projectiles (palier tous les
-   *  3 achats), MASQUEE (voir refreshUnitUpgradeShop) tant que le talent du
+   *  3 achats), MASQUEE (voir refreshForge) tant que le talent du
    *  meme nom n'est pas debloque — meme convention que la Mine. */
   private buildShadowUpgradeCard(handlers: ScreenHandlers): ShadowUpgradeCardRefs {
     const card = document.createElement('div');
@@ -1795,10 +1780,10 @@ export class Screens {
 
     const buyRow = document.createElement('div');
     buyRow.className = 'upgrade-card-buy-row';
-    const runeCostEl = document.createElement('span');
-    const runeCostGroup = document.createElement('span');
-    runeCostGroup.className = 'shop-item-price-group';
-    runeCostGroup.append(runeCostEl, createCoinIcon(14));
+    const costEl = document.createElement('span');
+    const costGroup = document.createElement('span');
+    costGroup.className = 'shop-item-price-group';
+    costGroup.append(costEl, createCoinIcon(14));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'screen-button upgrade-card-button';
@@ -1808,11 +1793,11 @@ export class Screens {
       this.uiSound.click();
       handlers.onPurchaseRunUpgrade(SHADOW_UPGRADE.id);
     });
-    buyRow.append(runeCostGroup, button);
+    buyRow.append(costGroup, button);
 
     card.append(nameEl, levelEl, damageEl, bonusCountEl, nextUpgradeEl, remainingBonusEl, buyRow);
 
-    return { card, button, levelEl, damageEl, bonusCountEl, nextUpgradeEl, remainingBonusEl, runeCostEl };
+    return { card, button, levelEl, damageEl, bonusCountEl, nextUpgradeEl, remainingBonusEl, costEl };
   }
 
   /** Bascule quel onglet de la boutique est visible (2026-08-11) — voir le

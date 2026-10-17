@@ -1,15 +1,9 @@
-import type { RuneCostDef } from './unitUpgrades';
+import type { UpgradeDefBase } from './unitUpgrades';
 
 /**
  * Amelioration permanente du talent "Soins excédentaires" (2026-08-15) —
  * meme famille de systeme que data/mineUpgrade.ts/ballistaUpgrade.ts
- * (RuneCostDef generique, cout qui double a chaque achat). Point de depart
- * IDENTIQUE aux autres ameliorations (10 runes, voir data/unitUpgrades.ts) —
- * jamais la valeur "1" litteralement demandee dans la specification
- * initiale : Antoine a explicitement tranche depuis (voir CLAUDE.md,
- * "de toute maniere quand tu ajoutes un truc dans la boutique d'amelioration,
- * fais-le commencer a 10") que TOUTE nouvelle amelioration de boutique suit
- * cette convention, y compris celle-ci.
+ * (UpgradeDefBase).
  *
  * N'a d'effet reel que si le talent "Soins excédentaires" lui-meme (voir
  * data/talents.ts) est deverrouille — le NIVEAU achete ici n'est jamais
@@ -19,7 +13,7 @@ import type { RuneCostDef } from './unitUpgrades';
  * MASQUEE tant que le talent n'est pas debloque (voir ui/screens.ts), meme
  * convention que la Mine pour "Le temps, c'est de l'argent".
  */
-export interface ShadowUpgradeDef extends RuneCostDef {
+export interface ShadowUpgradeDef extends UpgradeDefBase {
   id: 'soins_excedentaires';
   /** +N degats AFFICHES par projectile, par niveau — ADDITIF depuis la base
    *  (1 point, voir config/constants.ts SHADOW_PROJECTILE_BASE_DAMAGE),
@@ -33,8 +27,6 @@ export interface ShadowUpgradeDef extends RuneCostDef {
 
 export const SHADOW_UPGRADE: ShadowUpgradeDef = {
   id: 'soins_excedentaires',
-  baseRuneCost: 10,
-  costMultiplier: 2,
   damagePerLevel: 0.5,
   bonusProjectileEveryLevels: 3,
 };

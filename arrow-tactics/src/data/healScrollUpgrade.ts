@@ -1,12 +1,12 @@
-import type { RuneCostDef } from './unitUpgrades';
+import type { UpgradeDefBase } from './unitUpgrades';
 
 /**
  * Amelioration permanente du PARCHEMIN DE SOIN (2026-08-13, demande
  * d'Antoine) — meme famille de systeme que data/unitUpgrades.ts
- * (RuneCostDef), mais un SHAPE different (soin + cibles secondaires, pas
+ * (UpgradeDefBase), mais un SHAPE different (soin + cibles secondaires, pas
  * PV/ATK d'une UnitDef).
  */
-export interface HealScrollUpgradeDef extends RuneCostDef {
+export interface HealScrollUpgradeDef extends UpgradeDefBase {
   id: 'heal_scroll_minor';
   /** +N PV AFFICHES (pas internes x10) par achat, ajoutes au soin
    *  PRINCIPAL de data/items.ts, heal_scroll_minor.effect.amount. */
@@ -34,12 +34,6 @@ export interface HealScrollUpgradeDef extends RuneCostDef {
 
 export const HEAL_SCROLL_UPGRADE: HealScrollUpgradeDef = {
   id: 'heal_scroll_minor',
-  // 1 -> 10 runes (2026-08-13, demande explicite d'Antoine : "le prix de
-  // l'amélioration de la baliste et du parchemin de soins commence
-  // également à partir de 10 runes") — aligne le premier achat sur celui
-  // des unites/de la Baliste (voir data/unitUpgrades.ts).
-  baseRuneCost: 10,
-  costMultiplier: 2,
   healPerLevel: 1,
   extraTargetEveryLevels: 3,
   secondaryHealRatio: 0.5,

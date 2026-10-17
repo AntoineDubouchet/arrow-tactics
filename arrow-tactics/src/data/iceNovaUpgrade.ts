@@ -1,12 +1,11 @@
-import type { RuneCostDef } from './unitUpgrades';
+import type { UpgradeDefBase } from './unitUpgrades';
 
 /**
  * Amelioration permanente du parchemin NOVA DE GLACE (2026-08-14, demande
  * d'Antoine) — meme famille de systeme que data/ballistaUpgrade.ts/
- * data/healScrollUpgrade.ts (RuneCostDef, premier achat -> prix double a
- * chaque achat suivant).
+ * data/healScrollUpgrade.ts (UpgradeDefBase).
  */
-export interface IceNovaUpgradeDef extends RuneCostDef {
+export interface IceNovaUpgradeDef extends UpgradeDefBase {
   id: 'ice_nova';
   /** +N secondes par achat — demande explicite d'Antoine : LE MEME bonus
    *  est ajoute A LA FOIS a la duree du Root (immobilisation, voir
@@ -24,10 +23,6 @@ export interface IceNovaUpgradeDef extends RuneCostDef {
 
 export const ICE_NOVA_UPGRADE: IceNovaUpgradeDef = {
   id: 'ice_nova',
-  // Meme point de depart que les 4 autres ameliorations permanentes (10
-  // runes, voir data/unitUpgrades.ts) — le NIVEAU reste independant.
-  baseRuneCost: 10,
-  costMultiplier: 2,
   durationPerLevel: 0.5,
   damageEveryLevels: 3,
   damagePerMilestone: 1,

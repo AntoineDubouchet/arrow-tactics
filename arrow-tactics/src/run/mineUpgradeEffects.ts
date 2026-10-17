@@ -6,7 +6,7 @@ import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
  * Amelioration permanente de la MINE (2026-08-14, voir data/mineUpgrade.ts)
  * — meme principe que run/ballistaUpgradeEffects.ts : ce module sait ce
  * qu'est un niveau d'amelioration, main.ts ne recoit que des nombres deja
- * calcules. Stockee dans la MEME MetaProgress.unitUpgrades que les autres
+ * calcules. Niveau lu dans RunState.upgrades, comme les autres
  * ameliorations (cle MINE_UPGRADE.id = 'mine'). Formule PUREMENT LINEAIRE,
  * sans palier (revu le 2026-08-14, voir data/mineUpgrade.ts).
  */

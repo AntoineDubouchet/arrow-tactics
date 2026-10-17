@@ -29,7 +29,7 @@ export const MACHINE_GUN_BOLTS_PER_VOLLEY = 3;
 
 /** Somme de TOUS les bonus de VITESSE D'ATTAQUE (cadence) de la Baliste,
  *  TOUS ADDITIFS entre eux — talent "Tir rapide" (bonus FIXE) + amelioration
- *  permanente "Baliste" (bonus CROISSANT avec le niveau achete en runes) +
+ *  "Baliste" de la Forge (bonus CROISSANT avec le niveau achete) +
  *  tout futur bonus qui s'ajouterait ici. Reutilisee par
  *  effectivePlayerArrowCooldown ET par le talent "Mitraillette" :
  *  Mitraillette multiplie ce TOTAL par

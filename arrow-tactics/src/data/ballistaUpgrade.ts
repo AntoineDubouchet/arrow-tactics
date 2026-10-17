@@ -1,16 +1,15 @@
-import type { RuneCostDef } from './unitUpgrades';
+import type { UpgradeDefBase } from './unitUpgrades';
 
 /**
  * Amelioration permanente de la BALISTE (2026-08-13, demande d'Antoine) —
  * "la baliste" est l'arme qui tire la fleche du JOUEUR (voir
  * config/constants.ts, les constantes PLAYER_ARROW_..., et render/ballista.ts
  * pour le modele visuel) : ce fichier ne decrit QUE le bonus permanent, pas
- * une nouvelle unite. Meme famille de systeme que data/unitUpgrades.ts (RuneCostDef,
- * premier achat -> prix double a chaque achat suivant), mais un SHAPE
+ * une nouvelle unite. Meme famille de systeme que data/unitUpgrades.ts (UpgradeDefBase), mais un SHAPE
  * different (cadence de tir en %, pas PV/ATK d'une UnitDef) — pas de sens a
  * le forcer dans UnitUpgradeDef.
  */
-export interface BallistaUpgradeDef extends RuneCostDef {
+export interface BallistaUpgradeDef extends UpgradeDefBase {
   id: 'ballista';
   /** +X (fraction, 0.20 = +20 points de pourcentage) de CADENCE DE TIR par
    *  achat — additif depuis la cadence de BASE (jamais multiplicatif d'un
@@ -34,14 +33,6 @@ export interface BallistaUpgradeDef extends RuneCostDef {
 
 export const BALLISTA_UPGRADE: BallistaUpgradeDef = {
   id: 'ballista',
-  // 1 -> 10 runes (2026-08-13, demande explicite d'Antoine : "le prix de
-  // l'amélioration de la baliste et du parchemin de soins commence
-  // également à partir de 10 runes") — aligne le premier achat sur celui
-  // des unites (voir data/unitUpgrades.ts). Le NIVEAU reste independant
-  // (acheter la Baliste n'avance pas le niveau du Fantassin/Parchemin, etc.),
-  // seule la valeur de DEPART du cout est desormais partagee.
-  baseRuneCost: 10,
-  costMultiplier: 2,
   attackSpeedPerLevel: 0.2,
   damageEveryLevels: 3,
   damagePerMilestone: 1,

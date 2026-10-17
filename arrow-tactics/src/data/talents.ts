@@ -176,28 +176,6 @@ export const TALENTS: Record<string, TalentDef> = {
     cost: 2,
     requires: 'aux_petits_oignons',
   },
-  // Palier 2 de la branche Armee (2026-08-17, demande d'Antoine) — SEUL
-  // talent avec `requires: 'reflexes_fantassin'` pour l'instant, donc aucune
-  // exclusivite de fratrie ne s'applique (meme situation que Mitraillette/
-  // Recyclage/Soins excedentaires ci-dessus/dessous). Cout NON precise par
-  // Antoine au-dela de "meme convention que les autres palier 2" — 2.
-  maitre_forge: {
-    id: 'maitre_forge',
-    name: 'Maître de la forge',
-    // Effet implante dans run/metaProgress.ts (effectiveUpgradeCost, SOURCE
-    // UNIQUE utilisee a la fois par la vraie transaction —
-    // canPurchaseUpgrade/purchaseUpgrade — et par l'affichage du prix dans
-    // ui/screens.ts) : divise par 4 (arrondi, jamais sous 1 rune) le cout en
-    // Runes du PROCHAIN achat de TOUTE amelioration de la boutique
-    // d'amelioration permanente (unites, Baliste, Parchemin de soin, Nova
-    // de glace, Mine, Caserne, Sentinelle, Soins excedentaires) — jamais les
-    // couts en Gold/or de la boutique de RUN, un systeme totalement
-    // different (voir run/unitUpgradeEffects.ts, effectivePlayerUnitCost).
-    description: 'Divise par 4 le coût en Runes de toutes les améliorations de la boutique d’amélioration.',
-    branch: 'armee',
-    cost: 2,
-    requires: 'reflexes_fantassin',
-  },
   mitraillette: {
     id: 'mitraillette',
     name: 'Mitraillette',

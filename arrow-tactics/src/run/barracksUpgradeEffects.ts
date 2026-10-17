@@ -6,9 +6,8 @@ import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
  * Amelioration permanente de la CASERNE (2026-08-17, voir
  * data/barracksUpgrade.ts) — meme principe que run/ballistaUpgradeEffects.ts/
  * run/mineUpgradeEffects.ts : ce module sait ce qu'est un niveau
- * d'amelioration, main.ts ne recoit que des nombres deja calcules. Stockee
- * dans la MEME MetaProgress.unitUpgrades que les autres ameliorations (cle
- * BARRACKS_UPGRADE.id = 'barracks').
+ * d'amelioration, main.ts ne recoit que des nombres deja calcules. Niveau
+ * lu dans RunState.upgrades (cle BARRACKS_UPGRADE.id = 'barracks').
  */
 
 export function barracksUpgradeLevel(levels: RunUpgradeLevels): number {

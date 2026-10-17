@@ -1,5 +1,4 @@
 import { getTalent, TALENTS } from '../data/talents';
-import { getUnitUpgradeDef, nextUpgradeCost, type RuneCostDef } from '../data/unitUpgrades';
 import { getUnit } from '../data/units';
 
 const STORAGE_KEY = 'arrow-tactics.meta-progress.v1';
@@ -108,26 +107,11 @@ export interface MetaProgress {
    *  canPlayerRecruitUnit), jamais stocke separement. */
   defeatedEnemyUnitIds: string[];
 
-  // --- Boutique d'AMELIORATION PERMANENTE des unites (2026-08-13, demande
-  // d'Antoine, point 34 : "TalentProgression et UnitUpgradeProgression
-  // séparés... ne mélange pas leurs données") — systeme totalement
-  // independant des talents ci-dessus : ni resetTalentPoints (respec des
-  // talents) ni la logique de migration des talents ne doivent y toucher.
-  // Voir data/unitUpgrades.ts (config par unite) et
-  // run/unitUpgradeEffects.ts (calcul des bonus reels a partir du level).
-  /** Monnaie permanente "Runes d'amélioration" — jamais convertie
-   *  depuis/vers l'or de run ou les points de talent. */
-  upgradeRunes: number;
-  /** level = nombre TOTAL d'achats effectues pour cette unite (cle =
-   *  UnitDef.id) — SEULE valeur stockee par unite, hpBonus/attackBonus/
-   *  nextCost se derivent tous depuis ce nombre (point 9 de la demande,
-   *  voir run/unitUpgradeEffects.ts). */
-  unitUpgrades: Record<string, UnitUpgradeState>;
-}
-
-/** Etat permanent d'amelioration d'UNE unite (voir MetaProgress.unitUpgrades). */
-export interface UnitUpgradeState {
-  level: number;
+  // Les ameliorations ne font PAS partie de la progression permanente : elles
+  // s'achetent en Or a la Forge et vivent dans RunState.upgrades (voir
+  // run/runUpgrades.ts). Les anciennes cles `upgradeRunes`/`unitUpgrades`
+  // d'une sauvegarde sont ignorees au chargement et disparaissent a la
+  // sauvegarde suivante.
 }
 
 export const DEFAULT_META_PROGRESS: MetaProgress = {
@@ -138,8 +122,6 @@ export const DEFAULT_META_PROGRESS: MetaProgress = {
   highestWaveReached: 0,
   claimedWaveRewards: [],
   defeatedEnemyUnitIds: [],
-  upgradeRunes: 0,
-  unitUpgrades: {},
 };
 
 function cloneDefault(): MetaProgress {
@@ -148,7 +130,6 @@ function cloneDefault(): MetaProgress {
     unlockedTalents: [],
     claimedWaveRewards: [],
     defeatedEnemyUnitIds: [],
-    unitUpgrades: {},
   };
 }
 
@@ -194,8 +175,10 @@ function mergeLegacyUnlockedUnits(obj: Record<string, unknown>, defeatedEnemyUni
  * stripRemovedTalents) : le talent disparait de `unlockedTalents`, son cout
  * est REMBOURSE en points de talent (demande explicite d'Antoine, point 44 :
  * "je ne veux pas qu'un joueur perde définitivement ses points").
+ * "Maître de la forge" (maitre_forge, 2 points) : retire avec les Runes,
+ * dont il divisait le cout ; les ameliorations s'achetent desormais en Or.
  */
-const REMOVED_TALENT_REFUNDS: Record<string, number> = { temps_argent: 2 };
+const REMOVED_TALENT_REFUNDS: Record<string, number> = { temps_argent: 2, maitre_forge: 2 };
 
 /**
  * Retire tout talent de `REMOVED_TALENT_REFUNDS` de `unlockedTalents` et
@@ -245,21 +228,6 @@ export function loadMetaProgress(): MetaProgress {
       const raw = obj[key];
       return Array.isArray(raw) && raw.every((v) => typeof v === 'number' && Number.isFinite(v)) ? (raw as number[]) : [];
     };
-    // Chaque entree validee individuellement (meme prudence que strArray/
-    // numArray) : une cle corrompue ou un `level` du mauvais type est
-    // simplement ignoree plutot que de rejeter toute la sauvegarde.
-    const unitUpgradesRecord = (key: string): Record<string, UnitUpgradeState> => {
-      const raw = obj[key];
-      if (typeof raw !== 'object' || raw === null) return {};
-      const result: Record<string, UnitUpgradeState> = {};
-      for (const [unitId, value] of Object.entries(raw as Record<string, unknown>)) {
-        if (typeof value !== 'object' || value === null) continue;
-        const level = (value as Record<string, unknown>)['level'];
-        if (typeof level === 'number' && Number.isFinite(level)) result[unitId] = { level };
-      }
-      return result;
-    };
-
     // Migration "talent retire" (2026-08-17 — voir stripRemovedTalents) :
     // s'applique a CHAQUE chargement, avant de construire l'objet final —
     // idempotente par construction, aucun risque de double remboursement une
@@ -277,8 +245,6 @@ export function loadMetaProgress(): MetaProgress {
       // une sauvegarde V2 ecrite AVANT cette refonte peut deja contenir
       // "mage" sous l'ancienne cle — ne jamais faire regresser ce joueur.
       defeatedEnemyUnitIds: mergeLegacyUnlockedUnits(obj, strArray('defeatedEnemyUnitIds')),
-      upgradeRunes: num('upgradeRunes', 0),
-      unitUpgrades: unitUpgradesRecord('unitUpgrades'),
     };
   } catch {
     return cloneDefault();
@@ -447,154 +413,5 @@ export function resetMetaProgress(progress: MetaProgress): void {
   // "Effacer la sauvegarde" doit effacer ces deblocages (point 27 de la
   // demande) — meme reset total que le reste de cette fonction.
   progress.defeatedEnemyUnitIds = fresh.defeatedEnemyUnitIds;
-  // Boutique d'amelioration (2026-08-13) : progression du joueur au meme
-  // titre que les talents/unites debloquees ci-dessus, contrairement aux
-  // parametres audio (voir CLAUDE.md) — "Effacer la sauvegarde" doit donc
-  // aussi remettre les runes et tous les niveaux d'amelioration a zero
-  // (point 33 de la demande d'Antoine).
-  progress.upgradeRunes = fresh.upgradeRunes;
-  progress.unitUpgrades = fresh.unitUpgrades;
   saveMetaProgress(progress);
-}
-
-// --- Boutique d'amelioration permanente des unites (2026-08-13) -----------
-//
-// Systeme separe des talents ci-dessus (voir le commentaire sur
-// MetaProgress.upgradeRunes) : gain de runes a chaque VICTOIRE de vague
-// (awardUpgradeRunesForWaveWin) + achat par unite (canPurchaseUnitUpgrade/
-// purchaseUnitUpgrade). Le calcul des BONUS reels (PV/attaque/cout Gold) vit
-// dans run/unitUpgradeEffects.ts, qui lit `getUnitUpgradeLevel` ci-dessous —
-// ce fichier-ci ne connait que le stockage/l'achat, jamais le gameplay.
-
-/** +10 runes pour CHAQUE vague REELLEMENT GAGNEE (point 4 de la demande —
- *  pas seulement en fin de run). L'appelant (main.ts) est responsable de
- *  n'appeler ceci QU'UNE SEULE FOIS par victoire reelle — voir le commentaire
- *  au site d'appel (meme point de verite deja utilise pour WAVE_CLEAR_BONUS/
- *  registerWaveReached : le callback de fin de bataille ne s'execute jamais
- *  plus d'une fois par bataille resolue, jamais rejoue au reload). */
-export const RUNES_PER_WAVE_WIN = 10;
-
-/**
- * Recompense de runes MISE A L'ECHELLE par palier de 10 vagues (2026-08-15,
- * chantier polish/equilibrage, demande explicite d'Antoine) — double tous
- * les 10 numeros de vague : `RUNES_PER_WAVE_WIN * 2^floor(waveNumber/10)`.
- * `waveNumber` est le numero de vague REELLEMENT AFFICHE au joueur ("Vague
- * N", 1-indexe) — voir main.ts, `waveBeingFought` (capture AVANT
- * l'incrementation de RunState.waveNumber par applyBattleOutcome, la meme
- * valeur deja utilisee pour l'indicateur de vague et la banniere de fin de
- * vague), jamais le numero POST-incrementation. Verifie contre le tableau de
- * valeurs demande par Antoine : vagues 1-9 -> 10, 10-19 -> 20, 20-29 -> 40,
- * 30-39 -> 80, 40-49 -> 160.
- */
-export function upgradeRunesRewardForWave(waveNumber: number): number {
-  return RUNES_PER_WAVE_WIN * Math.pow(2, Math.floor(waveNumber / 10));
-}
-
-/** `waveNumber` : la vague REELLEMENT GAGNEE (voir upgradeRunesRewardForWave
- *  ci-dessus) — l'appelant (main.ts) reste responsable de n'appeler ceci
- *  QU'UNE SEULE FOIS par victoire reelle (meme garde-fou qu'avant ce
- *  changement, non modifie ici). */
-export function awardUpgradeRunesForWaveWin(progress: MetaProgress, waveNumber: number): number {
-  const reward = upgradeRunesRewardForWave(waveNumber);
-  progress.upgradeRunes = roundRunes(progress.upgradeRunes + reward);
-  return reward;
-}
-
-/** Nombre d'achats DEJA effectues pour `unitId` — 0 si jamais achete. */
-export function getUnitUpgradeLevel(progress: MetaProgress, unitId: string): number {
-  return progress.unitUpgrades[unitId]?.level ?? 0;
-}
-
-/** Version GENERIQUE (2026-08-13, extension Baliste/Parchemin de soin) —
- *  n'importe quelle amelioration a base de runes (id + RuneCostDef), pas
- *  seulement les unites. `canPurchaseUnitUpgrade`/`purchaseUnitUpgrade`
- *  ci-dessous restent des enveloppes minces autour de celle-ci pour les
- *  appelants existants (ecran boutique d'amelioration, main.ts) — ne
- *  cassent rien, meme comportement qu'avant. */
-/** Arrondit un montant de Runes au DIXIEME le plus proche (2026-08-17,
- *  meme motif exact que roundGold, voir run/runState.ts) — le talent
- *  "Maître de la forge" introduit des couts FRACTIONNAIRES (10/4 = 2.5,
- *  le tout premier achat de chaque amelioration, base=10) : sans ce garde-
- *  fou, des soustractions repetees sur `progress.upgradeRunes` finiraient
- *  par accumuler du bruit de virgule flottante (meme classe de bug deja
- *  rencontree et corrigee pour l'or de run — voir CLAUDE.md, "Correctif :
- *  derive de virgule flottante sur l'or"). Applique a CHAQUE mutation de
- *  `progress.upgradeRunes` (awardUpgradeRunesForWaveWin ET purchaseUpgrade),
- *  pas seulement au chemin le plus a risque — meme lecon tiree du
- *  correctif Gold ("l'ancien correctif ne couvrait QUE son propre
- *  chemin"). */
-function roundRunes(amount: number): number {
-  return Math.round(amount * 10) / 10;
-}
-
-/**
- * Cout EFFECTIF (en Runes) du PROCHAIN achat d'une amelioration — applique
- * le talent "Maître de la forge" (2026-08-17, palier 2 Armee, a la suite de
- * "Réflexes de vétéran" : "divise par 4 le coût de toutes les améliorations
- * de la boutique d'amélioration") PAR-DESSUS la formule de base
- * (nextUpgradeCost, data/unitUpgrades.ts). SOURCE UNIQUE utilisee a la fois
- * par canPurchaseUpgrade/purchaseUpgrade (la vraie transaction) ET par tout
- * affichage de prix (voir ui/screens.ts, refreshUnitUpgradeShop) — jamais
- * deux calculs qui pourraient diverger.
- *
- * CORRIGE (meme jour, retour direct d'Antoine apres un premier essai en
- * jeu : "les améliorations qui coûtent 10 coûtent désormais 3 et non
- * 2.5") — la premiere version ARRONDISSAIT AU PLUS PROCHE (`Math.round`),
- * ce qui gonflait artificiellement 2.5 -> 3 (rune la plus chere que la
- * vraie division par 4). Desormais la valeur EXACTE (base / 4) est
- * conservee, seulement protegee contre le bruit de virgule flottante
- * (roundRunes, au dixieme pres — jamais un arrondi qui CHANGERAIT le
- * prix, seulement un nettoyage de precision). Plancher a 0.1 rune (jamais
- * gratuit) — abaisse depuis l'ancien plancher a 1 rune entiere, qui n'a
- * plus de sens une fois des couts fractionnaires reellement affiches.
- * S'applique UNIFORMEMENT a TOUTE amelioration passant par ce systeme
- * (unites, Baliste, Parchemin de soin, Nova de glace, Mine, Caserne,
- * Sentinelle, Soins excedentaires) — aucun `if id === ...` special, le
- * talent n'a besoin d'aucun changement le jour ou une nouvelle
- * amelioration est ajoutee.
- */
-export function effectiveUpgradeCost(progress: MetaProgress, costDef: RuneCostDef, level: number): number {
-  const base = nextUpgradeCost(costDef, level);
-  if (!isTalentUnlocked(progress, 'maitre_forge')) return base;
-  return Math.max(0.1, roundRunes(base / 4));
-}
-
-export function canPurchaseUpgrade(progress: MetaProgress, id: string, costDef: RuneCostDef): boolean {
-  const level = getUnitUpgradeLevel(progress, id);
-  // Plafond explicite (2026-08-17, Caserne — voir RuneCostDef.maxLevel) :
-  // refuse tout achat au-dela, quel que soit le nombre de runes disponibles.
-  // Absent pour toutes les autres ameliorations de ce jeu, comportement
-  // strictement inchange pour elles.
-  if (costDef.maxLevel !== undefined && level >= costDef.maxLevel) return false;
-  return progress.upgradeRunes >= effectiveUpgradeCost(progress, costDef, level);
-}
-
-/** Achat generique (voir canPurchaseUpgrade) : verifie le cout, retire les
- *  runes, incremente le level, ne fait RIEN si les runes sont insuffisantes
- *  (retourne false). Ne sauvegarde PAS elle-meme (meme motif qu'unlockTalent) —
- *  l'appelant sauvegarde immediatement apres. */
-export function purchaseUpgrade(progress: MetaProgress, id: string, costDef: RuneCostDef): boolean {
-  if (!canPurchaseUpgrade(progress, id, costDef)) return false;
-  const level = getUnitUpgradeLevel(progress, id);
-  progress.upgradeRunes = roundRunes(progress.upgradeRunes - effectiveUpgradeCost(progress, costDef, level));
-  progress.unitUpgrades[id] = { level: level + 1 };
-  return true;
-}
-
-export function canPurchaseUnitUpgrade(progress: MetaProgress, unitId: string): boolean {
-  const def = getUnitUpgradeDef(unitId);
-  if (!def) return false;
-  return canPurchaseUpgrade(progress, unitId, def);
-}
-
-/** Achat d'un niveau d'amelioration permanente (point 11 de la demande) :
- *  verifie le cout, retire les runes, incremente le level, ne fait RIEN si
- *  les runes sont insuffisantes (retourne false — l'appelant affiche le
- *  feedback "runes insuffisantes"). Ne sauvegarde PAS elle-meme (meme motif
- *  qu'unlockTalent) — l'appelant (main.ts) sauvegarde immediatement apres,
- *  point 11.4 : "sauvegarder immédiatement". */
-export function purchaseUnitUpgrade(progress: MetaProgress, unitId: string): boolean {
-  const def = getUnitUpgradeDef(unitId);
-  if (!def) return false;
-  return purchaseUpgrade(progress, unitId, def);
 }

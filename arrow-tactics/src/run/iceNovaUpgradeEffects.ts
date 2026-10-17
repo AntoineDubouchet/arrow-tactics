@@ -8,7 +8,7 @@ import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
  * data/iceNovaUpgrade.ts) — meme principe que run/ballistaUpgradeEffects.ts/
  * run/healScrollUpgradeEffects.ts : ce module sait ce qu'est un niveau
  * d'amelioration, main.ts (castIceNova) ne recoit que des valeurs deja
- * calculees. Stockee dans la MEME MetaProgress.unitUpgrades que les autres
+ * calculees. Niveau lu dans RunState.upgrades, comme les autres
  * ameliorations (cle ICE_NOVA_UPGRADE.id = 'ice_nova', le meme id que
  * l'objet lui-meme dans data/items.ts) — aucun nouveau champ de sauvegarde.
  */

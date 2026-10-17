@@ -140,8 +140,8 @@ export function computePlayerUnitUpgradeEffects(unitId: string, levels: RunUpgra
  * Niveau d'amelioration "difficulte" applique aux unites ENNEMIES
  * (2026-08-13, demande explicite d'Antoine : "les unités ennemies doivent
  * être améliorées (même buff que boutique améliorations)") — un mecanisme
- * SEPARE de la boutique d'amelioration du joueur (aucune rune, aucun
- * MetaProgress ici), purement fonction du numero de vague.
+ * SEPARE des ameliorations du joueur (aucun RunState ni MetaProgress ici),
+ * purement fonction du numero de vague.
  *
  * Cadence CORRIGEE deux fois le meme jour :
  *  1. D'abord "toutes les 3 vagues" (`floor((wave-1)/3)`), corrige en

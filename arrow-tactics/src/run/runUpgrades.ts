@@ -5,7 +5,7 @@ import { ICE_NOVA_UPGRADE } from '../data/iceNovaUpgrade';
 import { MINE_UPGRADE } from '../data/mineUpgrade';
 import { SENTINEL_UPGRADE } from '../data/sentinelUpgrade';
 import { SHADOW_UPGRADE } from '../data/shadowUpgrade';
-import { UNIT_UPGRADES } from '../data/unitUpgrades';
+import { UNIT_UPGRADES, type UpgradeDefBase } from '../data/unitUpgrades';
 import type { MetaProgress } from './metaProgress';
 import { roundGold, spendGold, type RunState } from './runState';
 
@@ -36,34 +36,13 @@ export interface PlayerProgression {
   upgrades: RunUpgradeLevels;
 }
 
-/**
- * TRANSITION (etape F0) : copie des niveaux PERMANENTS achetes dans la
- * boutique du menu (MetaProgress.unitUpgrades) en niveaux de run. Utilisee
- * a la creation d'une run, pour que celle-ci demarre avec les memes niveaux
- * qu'avant l'introduction de RunState.upgrades, et par la boutique du menu,
- * qui affiche encore ces niveaux permanents. Renvoie toujours un NOUVEL
- * objet : modifier l'un ne modifie jamais l'autre. A retirer quand les
- * ameliorations seront achetees pendant la run.
- */
-export function copyMetaUpgradeLevelsForRun(progress: MetaProgress): RunUpgradeLevels {
-  const levels: RunUpgradeLevels = {};
-  for (const [id, state] of Object.entries(progress.unitUpgrades)) levels[id] = state.level;
-  return levels;
-}
-
-// --- Achat d'ameliorations de run en Or ---------------------------------
+// --- Achat d'ameliorations de run en Or (boutique de la Forge) ----------
 //
-// Circuit DISTINCT de l'ancienne boutique du menu (Runes, MetaProgress, voir
-// run/metaProgress.ts purchaseUpgrade) : il ne lit et n'ecrit que
-// RunState.gold et RunState.upgrades. Aucun talent n'en modifie le cout.
-
-/** Limites d'une amelioration achetable : `maxLevel` absent = sans maximum. */
-interface RunUpgradeLimits {
-  maxLevel?: number;
-}
+// Ne lit et n'ecrit que RunState.gold et RunState.upgrades. Aucun talent n'en
+// modifie le cout.
 
 /** Ameliorations achetables, par id (memes cles que RunState.upgrades). */
-const RUN_UPGRADE_DEFS: Readonly<Record<string, RunUpgradeLimits>> = {
+const RUN_UPGRADE_DEFS: Readonly<Record<string, UpgradeDefBase>> = {
   ...UNIT_UPGRADES,
   [SENTINEL_UPGRADE.id]: SENTINEL_UPGRADE,
   [BALLISTA_UPGRADE.id]: BALLISTA_UPGRADE,
