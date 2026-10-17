@@ -241,9 +241,8 @@ function rewardForKill(unitId: string): number {
   return KILL_REWARD[unitId] ?? 0;
 }
 
-/** Or de depart d'une toute nouvelle run (10 depuis la passe economique
- *  d'avant playtest ; 5 auparavant). */
-export const STARTING_GOLD = 10;
+/** Or de depart d'une toute nouvelle run (15 ; 5 a l'origine). */
+export const STARTING_GOLD = 15;
 
 /** Etat de depart d'une toute nouvelle run : un seul fantassin a pleins PV —
  *  "le minimum possible pour une partie" (Antoine). `startingGoldBonus`

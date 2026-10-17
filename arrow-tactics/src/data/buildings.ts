@@ -101,11 +101,11 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 1.6,
-    // Prix de base en Or (25 depuis la refonte economique autour de la
-    // Forge ; 100 auparavant). Remplace l'ancienne acquisition automatique
+    // Prix de base en Or (20 ; 100 avant la refonte economique autour de
+    // la Forge). Remplace l'ancienne acquisition automatique
     // via le talent "Le temps, c'est de l'argent" (retiré, voir
     // data/talents.ts).
-    cost: 25,
+    cost: 20,
     buildingModel: 'blue_mine',
     footprintTilesX: 2,
     footprintTilesZ: 2,
@@ -145,9 +145,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 1.8,
-    // Prix de base en Or (15 depuis la refonte economique autour de la
-    // Forge ; 50 auparavant).
-    cost: 15,
+    // Prix de base en Or (10 ; 50 avant la refonte economique autour de
+    // la Forge).
+    cost: 10,
     buildingModel: 'blue_barracks',
     footprintTilesX: 2,
     footprintTilesZ: 2,
@@ -177,7 +177,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // Modele d'environ 1,5 de haut une fois ajuste a l'empreinte 2x2 :
     // barre juste au-dessus du toit, comme la Mine.
     hpBarHeight: 1.7,
-    cost: 15,
+    cost: 10,
     buildingModel: 'blue_blacksmith',
     footprintTilesX: 2,
     footprintTilesZ: 2,
