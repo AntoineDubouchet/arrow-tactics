@@ -33,11 +33,6 @@ export interface BarracksUpgradeDef extends RuneCostDef {
    *  countPerLevel) — voir effectiveBarracksSpawnInterval. */
   intervalReductionPerMilestone: number;
   intervalEveryLevels: number;
-  /** +N Gold sur le COUT D'ACHAT EN PARTIE (boutique de run) par niveau
-   *  d'amelioration permanente (2026-08-18, demande explicite d'Antoine :
-   *  "+5 Gold par amelioration" — meme mecanisme que la Mine/la Sentinelle).
-   *  Voir run/barracksUpgradeEffects.ts, effectiveBarracksGoldCost. */
-  goldCostPerLevel: number;
 }
 
 export const BARRACKS_UPGRADE: BarracksUpgradeDef = {
@@ -51,5 +46,4 @@ export const BARRACKS_UPGRADE: BarracksUpgradeDef = {
   countPerLevel: 1,
   intervalReductionPerMilestone: 1,
   intervalEveryLevels: 3,
-  goldCostPerLevel: 5,
 };

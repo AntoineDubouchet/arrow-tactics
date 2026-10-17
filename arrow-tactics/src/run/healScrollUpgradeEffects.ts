@@ -57,16 +57,10 @@ export function effectivePlayerSecondaryHealAmount(levels: RunUpgradeLevels): nu
   return effectivePlayerHealAmount(levels) * HEAL_SCROLL_UPGRADE.secondaryHealRatio;
 }
 
-/** Cout Gold EFFECTIF d'achat en boutique de RUN (2026-08-15, chantier
- *  polish/equilibrage) — `getItem('heal_scroll_minor').cost` (base) +
- *  niveau d'amelioration x `goldCostPerLevel` (0.5) — SOURCE UNIQUE lue par
- *  ui/screens.ts (affichage/activation des boutons x1 ET x5) ET main.ts
- *  (transaction reelle), jamais recalculee independamment a ces deux
- *  endroits. Le cout en RUNES de l'amelioration elle-meme (voir
- *  run/metaProgress.ts, effectiveUpgradeCost) n'est jamais touche par cette
- *  fonction. */
-export function effectiveHealScrollCost(levels: RunUpgradeLevels): number {
-  const base = getItem('heal_scroll_minor').cost;
-  const level = healScrollUpgradeLevel(levels);
-  return base + level * HEAL_SCROLL_UPGRADE.goldCostPerLevel;
+/** Cout Gold EFFECTIF d'achat en boutique de RUN — SOURCE UNIQUE lue par
+ *  ui/screens.ts (boutons x1 et x5) et main.ts (transaction reelle). Les
+ *  niveaux d'amelioration ne le modifient plus (refonte economique) : c'est
+ *  aujourd'hui le cout de base du parchemin. */
+export function effectiveHealScrollCost(): number {
+  return getItem('heal_scroll_minor').cost;
 }

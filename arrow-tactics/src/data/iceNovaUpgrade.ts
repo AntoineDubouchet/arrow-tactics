@@ -20,11 +20,6 @@ export interface IceNovaUpgradeDef extends RuneCostDef {
    *  n'inflige jamais de degats), meme principe que ballistaDamageBonus. */
   damageEveryLevels: number;
   damagePerMilestone: number;
-  /** A chaque NIVEAU d'amelioration achete, +N au cout GOLD d'achat de la
-   *  Nova de glace en boutique de RUN (2026-08-15, chantier polish/
-   *  equilibrage — voir run/iceNovaUpgradeEffects.ts, effectiveIceNovaCost).
-   *  Ne change JAMAIS le cout en RUNES de l'amelioration elle-meme. */
-  goldCostPerLevel: number;
 }
 
 export const ICE_NOVA_UPGRADE: IceNovaUpgradeDef = {
@@ -36,5 +31,4 @@ export const ICE_NOVA_UPGRADE: IceNovaUpgradeDef = {
   durationPerLevel: 0.5,
   damageEveryLevels: 3,
   damagePerMilestone: 1,
-  goldCostPerLevel: 0.5,
 };

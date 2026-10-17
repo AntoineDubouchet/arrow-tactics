@@ -71,17 +71,3 @@ export function computePlayerSentinelUpgradeEffects(levels: RunUpgradeLevels): S
     effectiveShieldPerEnemyDisplay: SHIELD_PER_TAUNTED_ENEMY + shieldBonusPerEnemyDisplay,
   };
 }
-
-/** Cout Gold EFFECTIF de RECRUTEMENT en boutique de RUN (2026-08-15, chantier
- *  polish/equilibrage — REVIREMENT explicite sur la decision documentee dans
- *  data/sentinelUpgrade.ts, "toujours 40" abandonne) — `getUnit('sentinel').cost`
- *  (base, 40) + niveau d'amelioration x `goldCostPerLevel` (5). Appelee
- *  depuis run/unitUpgradeEffects.ts, effectivePlayerUnitCost (cas special
- *  'sentinel', meme motif que le cas special deja existant dans
- *  effectivePlayerUnitMaxHp) — jamais depuis un calcul ENNEMI, une Sentinelle
- *  adverse n'a pas de cout Gold et ne recoit jamais ce bonus. */
-export function effectiveSentinelGoldCost(levels: RunUpgradeLevels): number {
-  const base = getUnit('sentinel').cost;
-  const level = sentinelUpgradeLevel(levels);
-  return base + level * SENTINEL_UPGRADE.goldCostPerLevel;
-}

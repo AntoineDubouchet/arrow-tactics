@@ -33,6 +33,21 @@ export function roundGold(amount: number): number {
 }
 
 /**
+ * Debit d'Or centralise : refuse un montant invalide (non fini ou negatif) ou
+ * superieur a l'Or disponible, sans rien modifier ; sinon retire le montant
+ * (arrondi au dixieme, roundGold) et renvoie true. Ne rend jamais l'Or
+ * negatif. Utilise par l'achat des ameliorations de run (run/runUpgrades.ts) ;
+ * les achats plus anciens (unites, bâtiments, parchemins, main.ts) gardent
+ * pour l'instant leur propre debit, avec la meme regle.
+ */
+export function spendGold(run: RunState, amount: number): boolean {
+  if (!Number.isFinite(amount) || amount < 0) return false;
+  if (run.gold < amount) return false;
+  run.gold = Math.max(0, roundGold(run.gold - amount));
+  return true;
+}
+
+/**
  * Formate un montant d'or pour l'AFFICHAGE (2026-08-15, chantier polish/
  * equilibrage — prix des consommables desormais fractionnaires, ex. 2.5 or
  * pour un parchemin de soin ameliore). Distinct de `roundGold` : ne mute

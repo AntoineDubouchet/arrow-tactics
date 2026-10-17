@@ -1386,7 +1386,7 @@ function computeSellValue(indices: number[]): number {
   for (const index of indices) {
     const slot = placementSlots[index];
     if (!slot) continue;
-    total += isRecyclageEligible(slot) ? Math.round(3 * effectivePlayerUnitCost(slot.unitId, playerProgression().upgrades)) : (KILL_REWARD[slot.unitId] ?? 0);
+    total += isRecyclageEligible(slot) ? Math.round(3 * effectivePlayerUnitCost(slot.unitId)) : (KILL_REWARD[slot.unitId] ?? 0);
   }
   return total;
 }
@@ -3907,7 +3907,7 @@ function requestPlaceBuilding(buildingId: string): void {
   // Cout EFFECTIF (2026-08-18, Mine/Caserne desormais plus cheres a chaque
   // amelioration permanente — voir getEffectiveBuildingCost, SOURCE UNIQUE
   // partagee avec l'affichage boutique ET confirmBuildingPlacement plus bas).
-  if (currentRun.gold < getEffectiveBuildingCost(buildingId, playerProgression().upgrades)) return;
+  if (currentRun.gold < getEffectiveBuildingCost(buildingId)) return;
   disarmItem();
   buildingPlacementMode = { buildingId, rotationY: 0, movingIndex: null };
   buildingRotationHint.setVisible(true);
@@ -4056,7 +4056,7 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   // Cout EFFECTIF (2026-08-18) — voir requestPlaceBuilding, meme source
   // unique (getEffectiveBuildingCost) : le prix retire ICI doit toujours
   // correspondre exactement a celui affiche/verifie en boutique.
-  const cost = getEffectiveBuildingCost(buildingPlacementMode.buildingId, playerProgression().upgrades);
+  const cost = getEffectiveBuildingCost(buildingPlacementMode.buildingId);
   if (currentRun.gold < cost) {
     cancelBuildingPlacement();
     return false;
@@ -5146,7 +5146,7 @@ function addUnitToPlacement(unitId: string, hp: number): void {
  *  dernier achat" (voir undoLastUnitPurchase). */
 function buyUnit(unitId: string): void {
   if (!canPlayerRecruitUnit(metaProgress, unitId)) return;
-  const cost = effectivePlayerUnitCost(unitId, playerProgression().upgrades);
+  const cost = effectivePlayerUnitCost(unitId);
   if (currentRun.gold < cost) return;
   // Math.max(0, ...) : filet de securite defensif contre tout bruit de
   // virgule flottante residuel (2026-08-14, bug remonte par Antoine : "il
@@ -5199,8 +5199,8 @@ function buyUnitFive(unitId: string): void {
  *  et simplement si l'un des deux manque, sans rien acheter du tout.
  *  `effectiveCost` est la MEME fonction que celle utilisee pour l'affichage
  *  du prix (ui/screens.ts, refreshShop) — source de verite unique. */
-function buyConsumable(itemId: string, quantity: number, effectiveCost: (levels: RunUpgradeLevels) => number): void {
-  const unitPrice = effectiveCost(playerProgression().upgrades);
+function buyConsumable(itemId: string, quantity: number, effectiveCost: () => number): void {
+  const unitPrice = effectiveCost();
   const totalCost = roundGold(unitPrice * quantity);
   if (currentRun.gold < totalCost) return;
   if (!canAddItemsToInventory(currentRun.inventory, itemId, quantity)) return;

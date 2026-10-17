@@ -59,15 +59,3 @@ export function barracksRemainingUntilIntervalMilestone(level: number): number {
 export function barracksNextPurchaseGrantsIntervalMilestone(level: number): boolean {
   return (level + 1) % BARRACKS_UPGRADE.intervalEveryLevels === 0;
 }
-
-/** Cout Gold EFFECTIF d'achat EN PARTIE (boutique de run) — base
- *  (`getBuilding('barracks').cost`, 15) + niveau d'amelioration permanente x
- *  `goldCostPerLevel` (5) — 2026-08-18, demande explicite d'Antoine, meme
- *  motif exact que run/sentinelUpgradeEffects.ts, effectiveSentinelGoldCost/
- *  run/mineUpgradeEffects.ts, effectiveMineGoldCost. SOURCE UNIQUE : appelee
- *  a la fois par l'affichage boutique (ui/screens.ts) et la transaction
- *  reelle (main.ts, requestPlaceBuilding). */
-export function effectiveBarracksGoldCost(levels: RunUpgradeLevels): number {
-  const base = getBuilding('barracks').cost ?? 0;
-  return base + barracksUpgradeLevel(levels) * BARRACKS_UPGRADE.goldCostPerLevel;
-}

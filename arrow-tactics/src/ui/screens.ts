@@ -1065,15 +1065,10 @@ export class Screens {
     // ui/goldHud.ts), qui reste inchange pour sa propre raison documentee.
     this.shopGoldAmount.textContent = formatGold(run.gold);
 
-    const costFantassin = effectivePlayerUnitCost('fantassin', run.upgrades);
-    const costArcher = effectivePlayerUnitCost('archer', run.upgrades);
-    const costMage = effectivePlayerUnitCost('mage', run.upgrades);
-    // Sentinelle (2026-08-15, chantier polish/equilibrage — REVIREMENT
-    // explicite sur la decision "toujours 40" documentee auparavant, voir
-    // data/sentinelUpgrade.ts) : cout desormais CROISSANT avec le niveau
-    // d'amelioration permanente (effectivePlayerUnitCost route en interne
-    // vers effectiveSentinelGoldCost pour cette unite precise).
-    const costSentinel = effectivePlayerUnitCost('sentinel', run.upgrades);
+    const costFantassin = effectivePlayerUnitCost('fantassin');
+    const costArcher = effectivePlayerUnitCost('archer');
+    const costMage = effectivePlayerUnitCost('mage');
+    const costSentinel = effectivePlayerUnitCost('sentinel');
     this.shopBuyFantassin.disabled = run.gold < costFantassin;
     this.shopBuyArcher.disabled = run.gold < costArcher;
     this.shopBuyMage.disabled = run.gold < costMage;
@@ -1117,7 +1112,7 @@ export class Screens {
     // place suffit deja si une pile existante n'est pas pleine) et x5
     // (canAddItemsToInventory, verifie les 5 EN MEME TEMPS — jamais un achat
     // partiel silencieux).
-    const costHeal = effectiveHealScrollCost(run.upgrades);
+    const costHeal = effectiveHealScrollCost();
     this.shopBuyHealScroll.disabled = run.gold < costHeal || !canAddItemToInventory(run.inventory, 'heal_scroll_minor');
     const healPriceEl = this.shopUnitPriceEls.get('heal_scroll_minor');
     if (healPriceEl) healPriceEl.textContent = formatGold(costHeal);
@@ -1135,7 +1130,7 @@ export class Screens {
     // data/items.ts — sinon la description resterait perimee ("4 secondes")
     // des le premier niveau achete a la boutique d'amelioration. Cout
     // EFFECTIF (2026-08-15) — meme motif que le Parchemin de soin ci-dessus.
-    const costIceNova = effectiveIceNovaCost(run.upgrades);
+    const costIceNova = effectiveIceNovaCost();
     this.shopBuyIceNova.disabled = run.gold < costIceNova || !canAddItemToInventory(run.inventory, 'ice_nova');
     const iceNovaPriceEl = this.shopUnitPriceEls.get('ice_nova');
     if (iceNovaPriceEl) iceNovaPriceEl.textContent = formatGold(costIceNova);
@@ -1158,7 +1153,7 @@ export class Screens {
     // getEffectiveBuildingCost, SOURCE UNIQUE partagee avec la transaction
     // reelle dans main.ts).
     for (const buildingId of listBuyableBuildingIds()) {
-      const cost = getEffectiveBuildingCost(buildingId, run.upgrades);
+      const cost = getEffectiveBuildingCost(buildingId);
       const button = this.shopBuildingButtons.get(buildingId);
       if (button) button.disabled = run.gold < cost;
       const priceEl = this.shopUnitPriceEls.get(buildingId);
@@ -1227,11 +1222,11 @@ export class Screens {
       refs.levelEl.textContent = `Niveau d’amélioration : ${level}`;
       refs.hpBonusEl.textContent = `PV : +${hpBonus}`;
       refs.attackBonusEl.textContent = `Attaque : +${attackBonus}`;
-      refs.goldCostEl.textContent = `Coût en partie : ${effectivePlayerUnitCost(unitId, levels)}`;
+      refs.goldCostEl.textContent = `Coût en partie : ${effectivePlayerUnitCost(unitId)}`;
       // Palier d'attaque mis en avant si le PROCHAIN achat le declenche
       // (point 27 de la demande : "rends-le tres clair").
       refs.nextUpgradeEl.textContent = grantsAttack
-        ? `Prochaine amélioration : +1 PV, +1 ATTAQUE, +1 coût Gold`
+        ? `Prochaine amélioration : +1 PV, +1 ATTAQUE`
         : `Prochaine amélioration : +1 PV`;
       refs.remainingAttackEl.textContent =
         remaining === 1 ? 'Prochain bonus ATK : dans 1 amélioration' : `Prochain bonus ATK : dans ${remaining} améliorations`;

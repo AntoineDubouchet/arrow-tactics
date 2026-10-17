@@ -67,14 +67,10 @@ export function computePlayerIceNovaUpgradeEffects(levels: RunUpgradeLevels): Ic
   };
 }
 
-/** Cout Gold EFFECTIF d'achat en boutique de RUN (2026-08-15, chantier
- *  polish/equilibrage) — `getItem('ice_nova').cost` (base) + niveau
- *  d'amelioration x `goldCostPerLevel` (0.5) — SOURCE UNIQUE lue par
- *  ui/screens.ts (x1/x5) ET main.ts (transaction reelle). Le cout en RUNES
- *  de l'amelioration elle-meme (voir run/metaProgress.ts,
- *  effectiveUpgradeCost) n'est jamais touche par cette fonction. */
-export function effectiveIceNovaCost(levels: RunUpgradeLevels): number {
-  const base = getItem('ice_nova').cost;
-  const level = iceNovaUpgradeLevel(levels);
-  return base + level * ICE_NOVA_UPGRADE.goldCostPerLevel;
+/** Cout Gold EFFECTIF d'achat en boutique de RUN — SOURCE UNIQUE lue par
+ *  ui/screens.ts (x1/x5) et main.ts (transaction reelle). Les niveaux
+ *  d'amelioration ne le modifient plus (refonte economique) : c'est
+ *  aujourd'hui le cout de base de la Nova. */
+export function effectiveIceNovaCost(): number {
+  return getItem('ice_nova').cost;
 }

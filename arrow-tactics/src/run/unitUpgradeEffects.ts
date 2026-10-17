@@ -2,7 +2,7 @@ import { HP_PER_PIP } from '../config/constants';
 import { getUnitUpgradeDef, type UnitUpgradeDef } from '../data/unitUpgrades';
 import { getUnit, type UnitStats } from '../data/units';
 import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
-import { computePlayerSentinelUpgradeEffects, effectiveSentinelGoldCost } from './sentinelUpgradeEffects';
+import { computePlayerSentinelUpgradeEffects } from './sentinelUpgradeEffects';
 
 /**
  * Calcule les bonus de la boutique d'amelioration permanente (2026-08-13,
@@ -43,26 +43,14 @@ export function upgradeNextPurchaseGrantsAttackBonus(def: UnitUpgradeDef, level:
   return (level + 1) % def.attackEveryLevels === 0;
 }
 
-/** Cout Gold EFFECTIF d'achat en boutique de RUN — baseCost + goldCostBonus
- *  (point 22/23) : `getUnit(unitId).cost` reste la valeur de BASE inchangee,
- *  seule cette fonction derive le cout reellement facture au joueur. Unite
- *  sans amelioration definie (future Cavalier/Baliste...) : retombe
- *  simplement sur le cout de base. */
-export function effectivePlayerUnitCost(unitId: string, levels: RunUpgradeLevels): number {
-  // Sentinelle (2026-08-15, chantier polish/equilibrage) : amelioration
-  // DEDIEE (voir data/sentinelUpgrade.ts), pas enregistree dans UNIT_UPGRADES
-  // (forme incompatible, pas de palier d'attaque) — sans ce cas special,
-  // effectivePlayerUnitCost retomberait sur le cout de BASE malgre le
-  // REVIREMENT explicite d'Antoine ("augmente FORTEMENT le prix de
-  // recrutement... en fonction de son niveau d'amelioration permanente"),
-  // meme motif que le cas special deja existant dans effectivePlayerUnitMaxHp.
-  if (unitId === 'sentinel') return effectiveSentinelGoldCost(levels);
-
-  const base = getUnit(unitId).cost;
-  const def = getUnitUpgradeDef(unitId);
-  if (!def) return base;
-  const level = runUpgradeLevel(levels, unitId);
-  return base + upgradeAttackBonusDisplay(def, level) * def.goldCostPerAttackUpgrade;
+/** Cout Gold EFFECTIF de recrutement en boutique de RUN : SOURCE UNIQUE du
+ *  prix affiche, du prix facture et de la revente avec Recyclage. Les
+ *  niveaux d'amelioration ne le modifient plus (refonte economique : une
+ *  amelioration achetee a la Forge ne renchérit pas ce qu'elle ameliore) ;
+ *  c'est aujourd'hui le cout de base de l'unite, point d'entree garde pour
+ *  tout futur modificateur de prix. */
+export function effectivePlayerUnitCost(unitId: string): number {
+  return getUnit(unitId).cost;
 }
 
 /** PV MAXIMUM effectifs (base + bonus permanent), echelle INTERNE (x10) —

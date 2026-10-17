@@ -1,7 +1,4 @@
 import { getBuilding } from '../data/buildings';
-import type { RunUpgradeLevels } from './runUpgrades';
-import { effectiveBarracksGoldCost } from './barracksUpgradeEffects';
-import { effectiveMineGoldCost } from './mineUpgradeEffects';
 
 /**
  * Cout Gold EFFECTIF d'achat EN PARTIE d'un bâtiment achetable (Mine,
@@ -15,12 +12,11 @@ import { effectiveMineGoldCost } from './mineUpgradeEffects';
  * ET la transaction reelle (main.ts, requestPlaceBuilding/confirmBuildingPlacement) —
  * jamais un cout recalcule separement a deux endroits.
  *
- * Un bâtiment sans amelioration de cout dediee (la Baliste — jamais
- * achetable via ce systeme, voir data/buildings.ts, `cost` absent) retombe
- * simplement sur `def.cost ?? 0`.
+ * Les niveaux d'amelioration ne modifient plus ce cout (refonte economique :
+ * une Mine amelioree ne rend pas la Mine suivante plus chere) : c'est
+ * aujourd'hui `def.cost ?? 0` (0 pour la Baliste, jamais achetable), point
+ * d'entree garde pour tout futur modificateur de prix.
  */
-export function getEffectiveBuildingCost(buildingId: string, levels: RunUpgradeLevels): number {
-  if (buildingId === 'mine') return effectiveMineGoldCost(levels);
-  if (buildingId === 'barracks') return effectiveBarracksGoldCost(levels);
+export function getEffectiveBuildingCost(buildingId: string): number {
   return getBuilding(buildingId).cost ?? 0;
 }

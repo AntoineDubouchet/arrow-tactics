@@ -20,13 +20,6 @@ export interface MineUpgradeDef extends RuneCostDef {
    *  (MINE_BASE_GOLD_PER_SECOND, voir config/constants.ts), jamais
    *  compose d'un niveau a l'autre, jamais de palier. */
   goldPerSecondPerLevel: number;
-  /** +N Gold sur le COUT D'ACHAT EN PARTIE (boutique de run, distinct du
-   *  cout en Runes ci-dessus) par niveau d'amelioration permanente
-   *  (2026-08-18, demande explicite d'Antoine : "+5 Gold par amelioration"
-   *  — meme mecanisme deja etabli pour la Sentinelle, voir
-   *  data/sentinelUpgrade.ts). Voir run/mineUpgradeEffects.ts,
-   *  effectiveMineGoldCost. */
-  goldCostPerLevel: number;
 }
 
 export const MINE_UPGRADE: MineUpgradeDef = {
@@ -36,5 +29,4 @@ export const MINE_UPGRADE: MineUpgradeDef = {
   baseRuneCost: 10,
   costMultiplier: 2,
   goldPerSecondPerLevel: 0.2,
-  goldCostPerLevel: 5,
 };

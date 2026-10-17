@@ -53,10 +53,6 @@ export interface UnitUpgradeDef extends RuneCostDef {
   hpPerLevel: number;
   /** Tous les N achats, +1 point d'ATTAQUE affiche (voir primaryDamageTarget). */
   attackEveryLevels: number;
-  /** A chaque palier d'attaque franchi, +N au cout Gold d'achat de cette
-   *  unite en boutique de RUN (voir run/unitUpgradeEffects.ts,
-   *  effectivePlayerUnitCost). */
-  goldCostPerAttackUpgrade: number;
   /** OU s'applique le bonus d'ATTAQUE (demande explicite d'Antoine, point 15 :
    *  "je veux que +1 attaque represente principalement la puissance
    *  offensive de l'unite... ne modifie pas aveuglement toutes les sources
@@ -78,7 +74,6 @@ export const UNIT_UPGRADES: Record<string, UnitUpgradeDef> = {
     costMultiplier: 2,
     hpPerLevel: 1,
     attackEveryLevels: 3,
-    goldCostPerAttackUpgrade: 1,
     primaryDamageTarget: 'stats',
   },
   archer: {
@@ -87,7 +82,6 @@ export const UNIT_UPGRADES: Record<string, UnitUpgradeDef> = {
     costMultiplier: 2,
     hpPerLevel: 1,
     attackEveryLevels: 3,
-    goldCostPerAttackUpgrade: 1,
     primaryDamageTarget: 'stats',
   },
   mage: {
@@ -96,7 +90,6 @@ export const UNIT_UPGRADES: Record<string, UnitUpgradeDef> = {
     costMultiplier: 2,
     hpPerLevel: 1,
     attackEveryLevels: 3,
-    goldCostPerAttackUpgrade: 1,
     // Attaque PRINCIPALE du Mage = la Boule de feu (voir data/units.ts,
     // UNITS.mage.abilities), jamais le "Coup de bâton" de repli.
     primaryDamageTarget: 'ability',

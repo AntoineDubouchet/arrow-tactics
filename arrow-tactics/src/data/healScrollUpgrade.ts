@@ -30,12 +30,6 @@ export interface HealScrollUpgradeDef extends RuneCostDef {
    *  constants.ts) comme demande explicitement (point 28 : "centralise
    *  cette valeur dans la definition de l'amelioration"). */
   secondaryTargetRadius: number;
-  /** A chaque NIVEAU d'amelioration achete (pas seulement par palier), +N au
-   *  cout GOLD d'achat du parchemin en boutique de RUN (2026-08-15, chantier
-   *  polish/equilibrage — voir run/healScrollUpgradeEffects.ts,
-   *  effectiveHealScrollCost). Ne change JAMAIS le cout en RUNES de
-   *  l'amelioration elle-meme (RuneCostDef ci-dessus, inchange). */
-  goldCostPerLevel: number;
 }
 
 export const HEAL_SCROLL_UPGRADE: HealScrollUpgradeDef = {
@@ -50,5 +44,4 @@ export const HEAL_SCROLL_UPGRADE: HealScrollUpgradeDef = {
   extraTargetEveryLevels: 3,
   secondaryHealRatio: 0.5,
   secondaryTargetRadius: 2,
-  goldCostPerLevel: 0.5,
 };
