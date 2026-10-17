@@ -79,10 +79,10 @@ export function isRunUpgradeId(id: string): boolean {
   return Object.prototype.hasOwnProperty.call(RUN_UPGRADE_DEFS, id);
 }
 
-/** Bareme PROVISOIRE (meme courbe numerique que l'ancienne boutique) :
- *  10 Or pour passer du niveau 0 au niveau 1, puis x2 a chaque niveau.
- *  Seul endroit a modifier pour le reequilibrer. */
-export const RUN_UPGRADE_GOLD_COST_BASE = 10;
+/** Bareme PROVISOIRE : 2 Or pour passer du niveau 0 au niveau 1, puis x2 a
+ *  chaque niveau (2, 4, 8, 16...). Seul endroit a modifier pour le
+ *  reequilibrer. */
+export const RUN_UPGRADE_GOLD_COST_BASE = 2;
 export const RUN_UPGRADE_GOLD_COST_GROWTH = 2;
 
 /** Cout en Or du niveau suivant, depuis le niveau `level` deja atteint. */

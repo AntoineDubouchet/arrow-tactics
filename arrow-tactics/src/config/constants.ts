@@ -208,8 +208,9 @@ export const SENTINEL_INITIAL_TAUNT_LOCKOUT = 7.0;
  *  regroupes ici comme le reste des reglages du jeu ("aucun nombre magique
  *  ailleurs"). Valeurs choisies par Claude, jamais confirmees par Antoine
  *  au-dela de ce qu'il a explicitement decrit. */
-/** or_depart : bonus applique a STARTING_GOLD. */
-export const TALENT_STARTING_GOLD_BONUS = 3;
+/** or_depart : bonus applique a STARTING_GOLD (5 depuis la passe
+ *  economique d'avant playtest ; 3 auparavant). */
+export const TALENT_STARTING_GOLD_BONUS = 5;
 /** Or/seconde de base genere par une Mine VIVANTE (voir data/buildings.ts,
  *  run/mineUpgradeEffects.ts pour le bonus permanent additif) — 2026-08-14,
  *  demande explicite d'Antoine : "ce bâtiment génère 1 gold par seconde pour

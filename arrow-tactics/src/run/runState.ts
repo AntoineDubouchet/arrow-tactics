@@ -241,10 +241,9 @@ function rewardForKill(unitId: string): number {
   return KILL_REWARD[unitId] ?? 0;
 }
 
-/** Or de depart d'une toute nouvelle run (demande d'Antoine, 2026-08-08) :
- *  de quoi acheter un premier renfort avant meme la premiere vague (2 or =
- *  un fantassin, pas encore de quoi un archer a 3). */
-export const STARTING_GOLD = 5;
+/** Or de depart d'une toute nouvelle run (10 depuis la passe economique
+ *  d'avant playtest ; 5 auparavant). */
+export const STARTING_GOLD = 10;
 
 /** Etat de depart d'une toute nouvelle run : un seul fantassin a pleins PV —
  *  "le minimum possible pour une partie" (Antoine). `startingGoldBonus`
