@@ -1,19 +1,12 @@
 import * as THREE from 'three';
 import { COLORS, PLACEMENT_ROWS, TILE } from '../config/constants';
 import { resolveMapCells, type MapDef } from '../config/mapDef';
+import { resolveMapTerritory, type TerritoryCell, type TerritoryTeam } from '../config/territory';
 import { loadEnvironmentAssets } from './assetLibrary';
 import { box } from './meshHelpers';
 import { buildObstacleMesh } from './obstacleFactory';
 import { buildCellGridLines, buildTerrainCellsView } from './terrainCells';
-
-/** Ce dont le sol/la grille/les zones ont besoin — juste la taille, pas toute
- *  une MapDef : sert a l'editeur de maps, qui doit pouvoir reconstruire ces
- *  trois pieces pour une taille de BROUILLON qui n'a pas encore d'obstacles/
- *  unites/nom valides (voir editorState.ts, EditorState.width/height). */
-export interface MapSize {
-  width: number;
-  height: number;
-}
+import { teamColor } from './unitSelectionRing';
 
 export interface Board {
   group: THREE.Group;
@@ -68,14 +61,14 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   const gridLines = buildCellGridLines(cells, COLORS.gridLine);
   group.add(gridLines);
 
-  // Zones de placement. Pas encore interactives : elles servent a verifier
-  // que les deux camps se lisent au premier coup d'oeil pendant le placement.
-  // `spawnDepth` (2026-08-18, agrandissement progressif de la map) : profondeur
-  // REELLE de la zone pour la run en cours (voir run/mapExpansion.ts,
-  // MapExpansionState.spawnDepth) — absent = retombe sur PLACEMENT_ROWS (la
-  // constante de depart), comportement inchange pour l'editeur/testBoard, qui
+  // Zones de camp : le territoire de la map (config/territory.ts,
+  // resolveMapTerritory — meme resolution que la validation du placement),
+  // explicite ou, a defaut, les bandes historiques de profondeur
+  // `spawnDepth` (2026-08-18, agrandissement progressif de la map : profondeur
+  // REELLE pour la run en cours, voir run/mapExpansion.ts) — absent = retombe
+  // sur PLACEMENT_ROWS (la constante de depart), pour l'editeur/testBoard, qui
   // n'ont aucun lien avec la progression d'une run reelle.
-  const zones = createZonesGroup(map, spawnDepth);
+  const zones = createZonesGroup(resolveMapTerritory(map, spawnDepth ?? PLACEMENT_ROWS));
   group.add(zones);
 
   // Obstacles : rochers et arbres bloquent la ligne de tir ET les pas en
@@ -96,19 +89,61 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   return { group, gridLines, zones, obstacles };
 }
 
-/** Zones bleue/rouge seules — extraite pour etre reconstruite par l'editeur
- *  de maps a une taille de brouillon (voir MapSize) sans reconstruire tout
- *  le plateau. Pas encore consciente des cellules (voir terrainCells.ts) :
- *  reste un simple rectangle plein base sur width/height, simplification
- *  assumee — un "trou" de terrain garde quand meme sa teinte de zone, sans
- *  consequence gameplay (le placement y reste de toute facon impossible,
- *  voir Part AL). */
-export function createZonesGroup(map: MapSize, spawnDepth: number = PLACEMENT_ROWS): THREE.Group {
-  const halfH = (map.height * TILE) / 2;
+/** Hauteur des zones au-dessus du sol (sous la grille, a 0.012). */
+const ZONE_HEIGHT = 0.006;
+/** Case de zone unitaire, deja couchee au sol — partagee par toutes les
+ *  zones et jamais liberee (meme principe que la geometrie des anneaux de
+ *  selection, voir unitSelectionRing.ts) : une reconstruction du plateau ne
+ *  cree aucune geometrie. */
+const zoneCellGeometry = new THREE.PlaneGeometry(TILE, TILE).rotateX(-Math.PI / 2);
+/** Un materiau par camp, partage et jamais modifie ni libere. */
+const zoneMaterials = new Map<TerritoryTeam, THREE.MeshBasicMaterial>();
+
+function zoneMaterial(team: TerritoryTeam): THREE.MeshBasicMaterial {
+  let material = zoneMaterials.get(team);
+  if (!material) {
+    material = new THREE.MeshBasicMaterial({ color: teamColor(team), transparent: true, opacity: 0.16, depthWrite: false });
+    zoneMaterials.set(team, material);
+  }
+  return material;
+}
+
+/** Zones de camp, une case d'overlay par case de territoire (`x → x+1`,
+ *  `z → z+1`) : trous, formes irregulieres et camps melanges sont rendus
+ *  tels quels, une case neutre n'a aucun overlay. Un `InstancedMesh` par
+ *  camp present (meme technique que terrainCells.ts), soit au plus deux
+ *  draw calls. Chaque mesh est place au centre de ses cases : l'ordre de
+ *  tri des objets transparents (zones, grille) reste celui des anciennes
+ *  bandes. Recoit les cases deja resolues (resolveMapTerritory) — aucun
+ *  calcul de zone ici. */
+export function createZonesGroup(cells: readonly TerritoryCell[]): THREE.Group {
   const zones = new THREE.Group();
-  zones.add(createZone(map, COLORS.playerZone, halfH - (spawnDepth * TILE) / 2, spawnDepth));
-  zones.add(createZone(map, COLORS.enemyZone, -halfH + (spawnDepth * TILE) / 2, spawnDepth));
+  for (const team of ['player', 'enemy'] as const) {
+    const teamCells = cells.filter((c) => c.team === team);
+    if (teamCells.length > 0) zones.add(buildZoneLayer(teamCells, zoneMaterial(team)));
+  }
   return zones;
+}
+
+function buildZoneLayer(cells: TerritoryCell[], material: THREE.MeshBasicMaterial): THREE.InstancedMesh {
+  let cx = 0;
+  let cz = 0;
+  for (const c of cells) {
+    cx += c.x + TILE / 2;
+    cz += c.z + TILE / 2;
+  }
+  cx /= cells.length;
+  cz /= cells.length;
+
+  const mesh = new THREE.InstancedMesh(zoneCellGeometry, material, cells.length);
+  mesh.position.set(cx, ZONE_HEIGHT, cz);
+  const matrix = new THREE.Matrix4();
+  cells.forEach((c, i) => {
+    matrix.makeTranslation(c.x + TILE / 2 - cx, 0, c.z + TILE / 2 - cz);
+    mesh.setMatrixAt(i, matrix);
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  return mesh;
 }
 
 /** Densites calibrees sur le tout premier plateau (14x18) : le nombre
@@ -176,14 +211,4 @@ function createWoodDebris(x: number, z: number): THREE.Group {
   debris.position.set(x, 0, z);
   debris.rotation.y = Math.random() * Math.PI;
   return debris;
-}
-
-function createZone(map: MapSize, color: number, centerZ: number, spawnDepth: number): THREE.Mesh {
-  const zone = new THREE.Mesh(
-    new THREE.PlaneGeometry(map.width * TILE, spawnDepth * TILE),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.16, depthWrite: false }),
-  );
-  zone.rotation.x = -Math.PI / 2;
-  zone.position.set(0, 0.006, centerZ);
-  return zone;
 }

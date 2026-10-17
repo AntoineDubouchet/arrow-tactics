@@ -19,6 +19,7 @@ import {
   GRID_MOVE_SEARCH_RADIUS,
   type ObstacleDef,
   PLACEMENT_GOLD_WARNING_RATIO,
+  PLACEMENT_ROWS,
   SHADOW_PROJECTILE_SPEED,
   TILE,
   obstacleBounds,
@@ -1932,7 +1933,12 @@ function rebuildEditorBoard(): void {
   const cells = editorState.cells;
   editorBoardGroup.add(buildTerrainCellsView(cells).group);
   editorBoardGroup.add(buildCellGridLines(cells, COLORS.gridLine));
-  editorBoardGroup.add(createZonesGroup(editorState));
+  // Zones : territoire explicite du brouillon s'il en a un, sinon bandes
+  // historiques de profondeur PLACEMENT_ROWS (l'editeur n'a pas de run),
+  // limitees aux cellules existantes. Affichage seulement : le camp des
+  // unites posees suit toujours teamForZ.
+  const territory = resolveMapTerritory({ width: editorState.width, height: editorState.height, cells, territory: editorState.territory }, PLACEMENT_ROWS);
+  editorBoardGroup.add(createZonesGroup(territory));
 }
 
 // Anneau reutilise pour toute selection : construit une fois a rayon unite,
