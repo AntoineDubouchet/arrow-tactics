@@ -30,7 +30,6 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-05 | L'undo d'un déplacement au gizmo peut réorienter un décor | Confirmé (lecture du code) |
 | KI-06 | R / « Tourner 90° » : hors historique et départ à 0° | Confirmé (lecture du code) |
 | KI-07 | « Tester le scénario » sans Mine ni Caserne | Dette |
-| KI-08 | Commentaire de Maître de la forge : « jamais sous 1 rune » | Confirmé |
 | KI-09 | Descriptions de talents aux valeurs codées en dur | Dette |
 | KI-10 | Commentaire inexact du bouton d'achat ×5 | Dette |
 | KI-11 | Nom trompeur `MAGE_UNLOCK_WAVE` | Dette |
@@ -45,7 +44,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-23 | Raycast sur un modèle animé avant son premier rendu | Dette |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
-(c'est le cas de KI-14, KI-17 et KI-18).
+(c'est le cas de KI-08, KI-14, KI-17 et KI-18).
 
 ---
 
@@ -236,16 +235,6 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 
 ## C. Incohérences entre documentation et code
 
-### KI-08 — Commentaire de Maître de la forge : « jamais sous 1 rune »
-
-- **Statut** : Confirmé.
-- **Écart** : le commentaire de `data/talents.ts` (talent `maitre_forge`)
-  annonce un minimum d'une Rune. Le code (`effectiveUpgradeCost`,
-  `run/metaProgress.ts`) applique un minimum de **0,1** Rune et produit des
-  coûts fractionnaires.
-- **Impact actuel** : documentaire uniquement.
-- **Piste** : corriger le commentaire.
-
 ### KI-09 — Descriptions de talents aux valeurs codées en dur
 
 - **Statut** : Dette.
@@ -257,7 +246,7 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
   - Blizzard : 4 s et 2 dégâts.
 
   Ces textes ne suivent pas les constantes de `config/constants.ts` et
-  `data/items.ts`, ni les améliorations permanentes. Le soin réel du
+  `data/items.ts`, ni les améliorations de Forge. Le soin réel du
   parchemin, par exemple, peut dépasser 5 PV.
 - **Impact actuel** : les textes sont exacts pour les valeurs **de base**.
 - **Vérification** : comparer chaque description aux constantes

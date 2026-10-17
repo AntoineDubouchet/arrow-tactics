@@ -154,7 +154,7 @@ Quatre unités jouables, toutes des `.glb` avec squelette (`SkinnedMesh`) :
 
 Ces éléments n'ont aucun fichier d'asset :
 
-- icônes de pièce et de rune (SVG pixel, `ui/pixelIcon.ts`) ;
+- icône de pièce (SVG pixel, `ui/pixelIcon.ts`) ;
 - icônes de repli des objets sans image (SVG, `ui/itemIcons.ts`) ;
 - anneaux de sélection, télégraphes, aperçus de cases, fantômes de placement ;
 - la plupart des formes des effets (sphères, anneaux), en complément des

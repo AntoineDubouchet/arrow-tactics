@@ -170,8 +170,8 @@ bâtiments. Elle regroupe :
 
 **`World.spawn(unitId, team, x, z, hp?, statOverrides?, abilityDamageBonus?, tauntShieldBonus?)`**
 crée une unité depuis `data/units.ts`, avec `stats = { ...def.stats,
-...statOverrides }`. Les bonus (talents, upgrades permanents, renforcement
-des ennemis par vague) sont calculés hors de la simulation. Ils arrivent sous
+...statOverrides }`. Les bonus (talents, améliorations de Forge de la run,
+renforcement des ennemis par vague) sont calculés hors de la simulation. Ils arrivent sous
 forme de nombres finaux : la simulation ne sait jamais *pourquoi* une stat
 diffère de la base.
 
@@ -281,7 +281,7 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
 ## 9. Système BUILDING
 
-- **Entité** : un bâtiment gameplay (Mine, Caserne, Baliste) est une vraie
+- **Entité** : un bâtiment gameplay (Mine, Caserne, Forge, Baliste) est une vraie
   `Entity` (`isBuilding: true`), créée par `World.spawnBuilding` depuis une
   `BuildingDef` (`data/buildings.ts`), jamais depuis `data/units.ts`. Ses stats
   sont neutres : aggro, vitesse et dégâts nuls.
@@ -308,45 +308,81 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 ## 10. État de run, méta-progression, réglages
 
 - **`RunState`** (`run/runState.ts`) : or, armée possédée, inventaire, vague,
-  bâtiments, position de la tour, état d'expansion de la carte. En mémoire
-  uniquement, **jamais sauvegardé**.
+  bâtiments, position de la tour, état d'expansion de la carte, niveaux
+  d'amélioration de la run (`upgrades`). En mémoire uniquement, **jamais
+  sauvegardé**. `createNewRun` part de `upgrades = {}` ; `spendGold(run,
+  montant)` est le débit centralisé (refus si montant invalide ou Or
+  insuffisant, jamais d'Or négatif), utilisé par l'achat d'améliorations.
 - **Contrat d'ordre de spawn** : `applyBattleOutcome` recolle chaque `Entity`
   du joueur à son `OwnedUnit` par **ordre de spawn**. Les unités du joueur
   doivent être spawnées dans l'ordre de `run.army` ; les bâtiments sont
   exclus de cette correspondance. Ce contrat est implicite, documenté
   seulement par un commentaire.
-- **`MetaProgress`** (`run/metaProgress.ts`) : talents, Runes, niveaux
-  d'upgrades, records, unités débloquées.
+- **`MetaProgress`** (`run/metaProgress.ts`) : progression **permanente**
+  seulement — talents et points de talent, record de vague, paliers de
+  points accordés, ennemis vaincus. Il ne contient aucune amélioration ni
+  monnaie (plus de Runes).
   - Stocké dans `localStorage` sous une clé versionnée.
   - Chargement défensif : retour aux valeurs par défaut en cas de donnée
-    invalide.
+    invalide. Les clés inconnues d'une ancienne sauvegarde (`upgradeRunes`,
+    `unitUpgrades`) sont ignorées.
   - Migrations appliquées à chaque chargement (`migrateToV2`,
-    `stripRemovedTalents`, `mergeLegacyUnlockedUnits`).
+    `stripRemovedTalents`, `mergeLegacyUnlockedUnits`). `stripRemovedTalents`
+    retire les talents supprimés de l'arbre et rembourse leur coût
+    (`REMOVED_TALENT_REFUNDS` : `temps_argent`, `maitre_forge`).
   - Les fonctions de mutation ne sauvegardent jamais elles-mêmes : l'appelant
     appelle `saveMetaProgress`.
 - **Réglages** (`run/userSettings.ts`) : clé `localStorage` séparée, non
   touchée par l'effacement de la sauvegarde.
+- **Améliorations de run** (`run/runUpgrades.ts`) : niveaux, coûts et achat
+  en Or des améliorations de la Forge.
+  - `RunUpgradeLevels` (id d'amélioration → niveau) et
+    `runUpgradeLevel(levels, id)` (0 si absent).
+  - Séparation explicite des deux sources de progression :
+
+    ```
+    PlayerProgression
+    ├── talents: MetaProgress        (permanent)
+    └── upgrades: RunUpgradeLevels   (RunState.upgrades, propre à la run)
+    ```
+
+    `main.ts` la construit à la demande (`playerProgression()`, jamais
+    stockée) ; « Tester le scénario » se joue avec `upgrades = {}`.
+  - Coût : `runUpgradeGoldCost(id, niveau)` = coût de départ × 2^niveau.
+    Coût de départ `RUN_UPGRADE_GOLD_COST_BASE` (2), sauf valeur propre dans
+    `RUN_UPGRADE_GOLD_COST_BASE_BY_ID` (Mine et Caserne : 25) ; croissance
+    `RUN_UPGRADE_GOLD_COST_GROWTH` (2). Aucun talent n'intervient.
+  - Achat : `canPurchaseRunUpgrade` / `purchaseRunUpgrade(run, id)` (id
+    connu via `isRunUpgradeId`, `maxLevel` éventuel de la définition,
+    débit par `spendGold`, puis niveau + 1 ; tout ou rien).
+  - Les définitions (`data/*Upgrade.ts`, type commun `UpgradeDefBase`) ne
+    portent que les effets et un `maxLevel` facultatif, jamais de prix.
 - **Calcul des effets** (`run/*UpgradeEffects.ts`, `run/talentEffects.ts`) :
-  seuls `run/` et `main.ts` connaissent talents et upgrades. Ils transmettent
-  des nombres à la simulation et des prix à l'UI ; l'achat et l'affichage
-  utilisent les mêmes fonctions.
+  seuls `run/` et `main.ts` connaissent talents et améliorations. Les
+  modules `*UpgradeEffects.ts` reçoivent les niveaux de la run
+  (`RunUpgradeLevels`) ; les prix effectifs d'unités, de bâtiments et de
+  parchemins (`effectivePlayerUnitCost`, `getEffectiveBuildingCost`…) ne
+  dépendent d'aucun niveau. L'achat et l'affichage utilisent les mêmes
+  fonctions. `computeEnemyUnitUpgradeEffects` réutilise les définitions
+  d'unités pour le renforcement par vague, indépendamment du joueur.
 - **Statistiques effectives du joueur** : fonctions pures de la progression,
-  source commune du gameplay et de l'interface. Aucune de ces formules n'est
+  source commune du gameplay et de l'interface. Elles combinent talents
+  permanents et améliorations de la run ; aucune de ces formules n'est
   dupliquée dans `ui/` ni dans `main.ts`.
   - `run/playerUnitStats.ts` :
-    - `playerUnitStatOverrides(unitId, progress)` : surcharges de stats
-      passées à `World.spawn` (esquive du talent, PV et dégâts des
-      améliorations, PV de la Sentinelle) ;
-    - `playerUnitAbilityDamageBonus` : bonus de dégâts de capacité (Boule de
-      feu du Mage) ;
-    - `playerUnitTauntShieldBonus` : bonus de bouclier par ennemi provoqué
-      (Sentinelle).
+    - `playerUnitStatOverrides(unitId, progression)` (`PlayerProgression`) :
+      surcharges de stats passées à `World.spawn` (esquive du talent, PV et
+      dégâts des améliorations, PV de la Sentinelle) ;
+    - `playerUnitAbilityDamageBonus(unitId, niveaux)` : bonus de dégâts de
+      capacité (Boule de feu du Mage) ;
+    - `playerUnitTauntShieldBonus(unitId, niveaux)` : bonus de bouclier par
+      ennemi provoqué (Sentinelle).
   - `run/ballistaStats.ts` :
-    - `effectivePlayerArrowDamage`, `effectivePlayerArrowCooldown`,
-      `effectivePlayerArrowSpeed`, `totalBallistaAttackSpeedBonus` et
-      `playerArrowBoltsPerVolley` : dégâts, recharge, vitesse, somme des
-      bonus de cadence et carreaux par volée (talents Tir rapide et
-      Mitraillette, amélioration de la Baliste) ;
+    - `effectivePlayerArrowDamage`, `effectivePlayerArrowCooldown` et
+      `totalBallistaAttackSpeedBonus` reçoivent une `PlayerProgression`
+      (talents Tir rapide et Mitraillette, amélioration de la Baliste) ;
+      `effectivePlayerArrowSpeed` et `playerArrowBoltsPerVolley` ne
+      dépendent que des talents (`MetaProgress`) ;
     - le type `BallistaStatus`, ses libellés (`BALLISTA_STATUS_LABELS`) et
       le format de la recharge restante (`formatBallistaCooldownSeconds`),
       partagés par le HUD de la Baliste et la fiche d'entité.
@@ -360,7 +396,9 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     état de la Baliste.
   - Il rend un `EntityInfoViewModel` (`UnitInfo | GroupInfo | BuildingInfo
     | BallistaInfo`) : `kind`, titre, camp, PV (texte et fraction), lignes,
-    sections (capacités), statut ; composition pour un groupe.
+    sections (capacités), statut ; composition pour un groupe ; `actions`
+    facultatives (données pures : `id`, libellé, activé). Seule la fiche de
+    préparation d'une Forge en porte une : `openForge`.
   - En préparation, il recalcule les valeurs avec les fonctions ci-dessus
     (même fusion que `World.spawn`). En bataille, il lit l'entité (`stats`,
     `hp`, `abilityDamageBonus`, `tauntShieldBonus`, `abilityCooldowns`,
@@ -434,9 +472,16 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
 - Toute l'UI est en DOM par-dessus le canvas, stylée par `ui/style.css`.
 - **`Screens`** (`ui/screens.ts`) : menus, boutique de run, arbre de talents,
-  boutique d'améliorations, paramètres, confirmations. Il reçoit des
-  callbacks (`ScreenHandlers`) depuis `main.ts` et lit `RunState` /
-  `MetaProgress` pour l'affichage (prix effectifs calculés via `run/`).
+  boutique de la Forge, paramètres, confirmations. Il reçoit des callbacks
+  (`ScreenHandlers`) depuis `main.ts` et lit `RunState` / `MetaProgress`
+  pour l'affichage (prix calculés via `run/`).
+  - La boutique de la Forge réutilise l'overlay d'id interne
+    `unitUpgradeShop` (`showForge` / `refreshForge`) : Or de la run, niveaux
+    de `RunState.upgrades`, prix `runUpgradeGoldCost`, boutons activés par
+    `canPurchaseRunUpgrade`. `main.ts` l'ouvre (`openForge`, préparation
+    uniquement, au moins une Forge possédée), réalise l'achat
+    (`purchaseForgeUpgrade`) et la ferme (`closeForge`, « Retour » ou Échap,
+    prioritaire sur la pause).
 - **HUD et composants** : `goldHud`, `waveIndicator`, `inventoryBar`,
   `sellZone`, `placementPanel`, `selectionBox`, toasts, `combatOverlay`
   (barres de PV et textes flottants positionnés par projection monde →
@@ -456,7 +501,9 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     ne reconstruit le DOM que si la forme du modèle change (type, libellés,
     sections) ; sinon il ne réécrit que les textes et largeurs modifiés. La
     barre de PV réutilise les classes de `combatOverlay`
-    (`health-bar-track`, `shield-bar`).
+    (`health-bar-track`, `shield-bar`). Les `actions` du modèle deviennent
+    des boutons (seuls éléments cliquables du panneau) ; un clic transmet
+    seulement l'`id` au rappel fourni par `main.ts` (`onEntityInfoAction`).
   - `main.ts` choisit la sélection courante (`currentEntityInfo`) et décide
     de la visibilité (`isEntityInfoContextActive`). `updateEntityInfoPanel`,
     appelé dans `onRender`, recalcule la fiche immédiatement quand la
@@ -464,7 +511,7 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - L'inspection d'un bâtiment en bataille (`battleInspectedEntityId`) est
     distincte de `BattleSelection` : un bâtiment n'entre jamais dans la
     sélection RTS, donc dans aucun ordre. `pickBattleInspectableBuilding`
-    retient une Mine ou une Caserne pointée, ou le bâtiment dont l'empreinte
+    retient une Mine, une Caserne ou une Forge pointée, ou le bâtiment dont l'empreinte
     au sol contient le point visé (seul critère pour la Baliste) ; une unité
     sous le curseur passe avant. L'id est abandonné hors bataille, puisque
     les ids repartent de 1 après `world.clear()`.
@@ -555,8 +602,8 @@ Le détail d'usage relève de `EDITOR.md`.
 - **Lumières** : aucune `PointLight` n'est ajoutée ni retirée en cours de
   partie (réserve fixe, `render/vfx/lightPool.ts`). Changer le nombre de
   lumières force une recompilation des shaders.
-- **Montants fractionnaires** : l'or et les Runes passent par `roundGold` /
-  `roundRunes` pour éviter la dérive de virgule flottante.
+- **Montants fractionnaires** : l'or passe par `roundGold` pour éviter la
+  dérive de virgule flottante.
 - **Raycast** : `THREE.Raycaster` ignore `visible`. Un mesh invisible reste
   donc touchable (c'est le principe de la zone de saisie de l'anneau de
   l'éditeur). Les indicateurs qui ne doivent pas l'être (anneaux de

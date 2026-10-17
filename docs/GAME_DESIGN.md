@@ -156,7 +156,7 @@ Archétypes possibles (exemples, pas des décisions) :
 **Ce qui fait un archétype** :
 
 - il s'appuie sur **plusieurs systèmes à la fois** (unités, talents,
-  boutique, Runes, sorts, bâtiments) ;
+  boutique, améliorations de Forge, sorts, bâtiments) ;
 - il a des **forces et des faiblesses** identifiables face à certaines
   menaces ;
 - il fait naître des **synergies** : deux choix valent plus ensemble que
@@ -213,10 +213,15 @@ distinct pour ne pas faire doublon :
 | Système | Rôle recherché |
 |---|---|
 | **Talents** | Orienter le style de jeu ; ouvrir ou renforcer des archétypes |
-| **Runes / améliorations permanentes** | Progression permanente graduelle |
 | **Déblocages** | Élargir les possibilités : nouvelles unités, nouveaux sorts, nouveaux bâtiments… |
 | **Achievements** | Proposer des objectifs et des défis |
 | **Collection** | Conserver une trace des découvertes et des accomplissements |
+
+Les améliorations de statistiques ne relèvent plus de la progression
+permanente : elles s'achètent en **Or**, pendant la run, à une **Forge**
+construite par le joueur, et disparaissent avec la run. Elles entrent ainsi
+en concurrence directe avec le recrutement et la construction : investir dans
+une amélioration **ou** acheter de quoi survivre à la vague suivante.
 
 **Principes** :
 
@@ -301,7 +306,7 @@ le reste.
 ## 13. Évaluer une nouvelle idée
 
 Questions à se poser avant d'ajouter une unité, un ennemi, un sort, un
-talent, un bâtiment ou une Rune :
+talent, un bâtiment ou une amélioration :
 
 1. **Est-ce amusant ?** Cette question passe avant « est-ce techniquement
    complet ? ».
@@ -325,7 +330,8 @@ Constat uniquement, sans plan d'action (voir `ROADMAP.md`) :
   dédié n'existe encore ;
 - le choix d'unités et de sorts pour le joueur reste **restreint** ;
 - l'arbre de talents est **réduit** et les synergies sont rares ;
-- les Runes servent surtout à des **améliorations de statistiques** ;
+- les améliorations de Forge restent surtout des **améliorations de
+  statistiques**, peu perceptibles aux premiers niveaux ;
 - les archétypes existent **en ébauche**, sans identité forte ;
 - **ni achievements ni collection** ;
 - une seule carte, et **peu de variation** d'une run à l'autre ;
@@ -364,10 +370,11 @@ Aucune de ces questions n'est tranchée.
 
 **Économie et progression**
 
-- L'économie exacte des Runes et l'équilibre entre or et Runes.
+- L'équilibre de l'Or entre recrutement, bâtiments et améliorations de
+  Forge (barème encore provisoire).
 - La forme d'un arbre de talents « beaucoup plus riche » : choix exclusifs ou
   cumulables, réinitialisation, et comment éviter la dilution en petits bonus.
-- La répartition des récompenses et des déblocages entre talents, Runes,
+- La répartition des récompenses et des déblocages entre talents,
   déblocages, achievements et collection.
 - La forme des achievements et de la collection, et la nature de leurs
   récompenses.

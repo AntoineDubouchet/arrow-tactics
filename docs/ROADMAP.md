@@ -34,7 +34,7 @@ est d'aller le plus loin possible dans des vagues potentiellement infinies.
 L'intérêt doit venir :
 
 - du **buildcraft** : composition de l'armée, bâtiments, sorts, talents ;
-- de la **progression permanente** : Runes, talents, collection ;
+- de la **progression permanente** : talents, collection ;
 - de la **rejouabilité** : des runs qui ne se ressemblent pas.
 
 Les intentions de design détaillées relèvent de `GAME_DESIGN.md`.
@@ -71,7 +71,7 @@ systèmes de progression.
     parallèle.
 - **Dépendances** : aucune.
 - **Décisions ouvertes** : outil de test ; métriques à suivre (durée de
-  bataille, survie, or et Runes gagnés…).
+  bataille, survie, or gagné et dépensé…).
 - **Ce qui doit attendre** : une couverture exhaustive. On commence par ce qui
   sert l'équilibrage.
 
@@ -129,14 +129,14 @@ buildcraft.
 ### M2 — Rééquilibrage global — *Direction forte*
 
 - **Objectif** : un rythme de difficulté et d'économie cohérent sur une run
-  longue : or, Runes, coûts des améliorations, renforcement des ennemis,
-  puissance des talents.
+  longue : or, coûts des bâtiments et des améliorations de Forge,
+  renforcement des ennemis, puissance des talents.
 - **Pourquoi** : plusieurs courbes progressent de façon exponentielle et
   indépendante ; leur interaction sur une run très longue n'a jamais été
   mesurée.
 - **Dépendances** : C2 pour le réglage chiffré ; M1.
-- **Décisions ouvertes** : économie des Runes, durée de run visée, arbitrages
-  d'équilibrage listés au §6.
+- **Décisions ouvertes** : barème de l'Or (bâtiments, améliorations de Forge),
+  durée de run visée, arbitrages d'équilibrage listés au §6.
 - **Ce qui doit attendre** : les réglages chiffrés définitifs, tant que le
   harnais n'est pas disponible.
 
@@ -165,7 +165,7 @@ buildcraft.
 
 ## 4. Long terme
 
-Richesse du bestiaire, talents, Runes, achievements, nouveaux archétypes,
+Richesse du bestiaire, talents, boutique de run et Forge, achievements, nouveaux archétypes,
 rejouabilité.
 
 ### L1 — Bestiaire ennemi enrichi — *Direction forte*
@@ -187,15 +187,18 @@ rejouabilité.
 - **Décisions ouvertes** : profondeur de l'arbre ; exclusivités ; nouvelles
   branches (l'idée « Héros » est notée, non engagée).
 
-### L3 — Boutique et progression par les Runes — *Direction forte*
+### L3 — Boutique de run et améliorations de Forge — *Direction forte*
 
-- **Objectif** : enrichir ce que les Runes permettent d'obtenir et la variété de
-  la boutique de run.
-- **Pourquoi** : donner à chaque run un intérêt durable au-delà de la run
-  elle-même.
+- **Objectif** : enrichir la variété de la boutique de run et des
+  améliorations achetables en Or à la Forge.
+- **Pourquoi** : multiplier les arbitrages économiques pendant la run
+  (investir ou survivre) et différencier les runs entre elles. Les Runes, qui
+  portaient l'ancienne progression permanente par la boutique, sont supprimées
+  (`DESIGN_DECISIONS.md` D5) ; la progression permanente relève des talents
+  (L2) et des achievements (L4).
 - **Dépendances** : M2, C3.
-- **Décisions ouvertes** : économie des Runes ; plafonds ; boutique fixe ou à
-  offres aléatoires ; déblocage de contenu par Runes ou par achievements.
+- **Décisions ouvertes** : barème de l'Or ; plafonds de niveau ; boutique fixe
+  ou à offres aléatoires ; déblocage de contenu par achievements ou autre.
 
 ### L4 — Achievements et progression collectionnable — *Direction forte (forme ouverte)*
 
@@ -268,7 +271,8 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
 - **Sauvegarde d'une run en cours** : nécessaire ou non pour des runs longues.
 - **Évolution de la carte** : carte unique qui s'étend, succession de cartes,
   ou variété de terrains.
-- **Économie des Runes** : rythme de gain, coûts, plafonds éventuels.
+- **Économie de l'Or** : rythme de gain, coûts des bâtiments et des
+  améliorations de Forge (barème actuel provisoire), plafonds éventuels.
 - **Nouveaux types de contenu** :
   - quelles unités joueur et quels ennemis ;
   - quels sorts ;

@@ -68,6 +68,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | D2 | Bâtiments gameplay et bâtiments décoratifs distincts | Active |
 | D3 | Placement obligatoire de la tour en début de run | Active |
 | D4 | Sauvegarde d'une run en cours | Ouverte |
+| D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Forge et Or) / Remplacée (Runes et améliorations permanentes) |
 | E1 | Manipulation directe pendant le placement | Active |
 | E2 | Collision des décors : emprise rectangulaire, props traversables | Active |
 | E3 | Rotation des décors dans l'éditeur | Remplacée (W/E) / Active (anneau et Ctrl+molette) |
@@ -342,7 +343,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Raison connue** : le joueur doit décider **s'il** construit, **lequel**,
   **quand** et **où**.
 - **Aujourd'hui** :
-  - Mine et Caserne achetables et déplaçables pendant le placement ;
+  - Mine, Caserne et Forge achetables et déplaçables pendant le placement ;
   - plusieurs exemplaires possibles ;
   - aucun talent ne crée de bâtiment automatiquement.
 - **À ne pas faire** : ne pas recréer de talent qui place un bâtiment sans
@@ -357,7 +358,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Contexte** : le même pack fournit des bâtiments utilisés comme décor et
   d'autres utilisés en jeu.
 - **Décision** :
-  - les bâtiments **gameplay** (Mine, Caserne, Baliste) sont des entités de
+  - les bâtiments **gameplay** (Mine, Caserne, Forge, Baliste) sont des entités de
     simulation : ciblables, destructibles, avec des PV ;
   - les bâtiments **décoratifs** de l'éditeur restent de simples obstacles.
 - **Raison connue** : garder le décor neutre ; seuls les bâtiments posés par
@@ -389,14 +390,64 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 - **Statut** : Ouverte.
 - **État actuel** : seule la méta-progression est sauvegardée (talents,
-  améliorations permanentes, déblocages, record). Quitter en cours de run perd
-  l'or, l'armée et l'inventaire de la run.
+  déblocages, record). Quitter en cours de run perd l'or, l'armée,
+  l'inventaire, les bâtiments et les améliorations de Forge de la run.
 - **Historique** : l'archive qualifie ce comportement de « voulu, pas un
   oubli », sans plus d'argument. **La raison de fond n'est pas établie.**
 - **Enjeu** : la question devient particulièrement importante si les runs
   s'allongent, ce que vise la survie sans fin.
 - **Sources** : archive (chantier « Sauvegarde & progression permanente ») ;
   `run/metaProgress.ts`, `CURRENT_STATE.md` §15, `GAME_DESIGN.md` §15.
+
+### D5 — Or monnaie unique, Runes supprimées, améliorations achetées à la Forge
+
+- **Statut** : Active (Or et Forge). Remplacée : la monnaie Rune, la boutique
+  d'amélioration permanente du menu principal et le talent « Maître de la
+  forge ».
+- **Contexte** : les améliorations de statistiques s'achetaient avec des
+  Runes gagnées à chaque victoire, dans une boutique du menu principal, et
+  restaient acquises d'une run à l'autre. Elles ne créaient aucun arbitrage
+  pendant la partie, et faisaient doublon avec la progression des talents.
+- **Décision** :
+  - l'**Or** est la seule monnaie de la run : recrutement, parchemins,
+    bâtiments et améliorations ;
+  - les Runes sont supprimées (gain, solde, prix, boutique du menu) ;
+  - les améliorations deviennent **propres à la run** (`RunState.upgrades`,
+    remises à zéro à chaque nouvelle run, jamais sauvegardées) ;
+  - elles s'achètent uniquement depuis une **Forge**, un bâtiment construit
+    par le joueur, en préparation. La Forge est un point d'accès à une
+    boutique globale, pas une source de bonus : plusieurs Forges ne
+    cumulent rien ; si toutes sont détruites, les améliorations acquises
+    restent actives mais aucun nouvel achat n'est possible avant
+    reconstruction ;
+  - une amélioration n'augmente plus le prix de ce qu'elle améliore (unité,
+    bâtiment, parchemin) ;
+  - « Maître de la forge », qui ne réduisait que le coût en Runes, est retiré
+    de l'arbre ; ses points sont remboursés au chargement des anciennes
+    sauvegardes.
+- **Raison connue** : créer une vraie tension économique pendant la run —
+  investir dans une amélioration **ou** acheter des unités et des bâtiments
+  pour survivre — et séparer clairement les rôles : talents pour la
+  progression permanente et les règles, Forge pour l'investissement
+  économique de la run.
+- **Aujourd'hui** :
+  - Or de départ 15 (20 avec « Or de départ ») ; Forge 10, Mine 20,
+    Caserne 25 ;
+  - coût d'une amélioration : `runUpgradeGoldCost(id, niveau)`, 2 / 4 / 8 / 16…
+    en général, 25 / 50 / 100… pour la Mine et la Caserne
+    (`RUN_UPGRADE_GOLD_COST_BASE_BY_ID`), qui accélèrent directement
+    l'économie ou l'armée. Ces montants sont de l'**équilibrage provisoire**,
+    pas une décision ;
+  - `MetaProgress` ne contient plus que la progression permanente ; les clés
+    `upgradeRunes` / `unitUpgrades` des anciennes sauvegardes sont ignorées.
+- **À ne pas faire** :
+  - ne pas réintroduire de monnaie permanente qui achèterait des
+    améliorations de statistiques hors de la run ;
+  - ne pas faire dépendre la puissance des améliorations du nombre de Forges ;
+  - ne pas réintroduire de surcoût lié au niveau d'amélioration.
+- **Sources** : `run/runUpgrades.ts`, `run/runState.ts`, `run/metaProgress.ts`
+  (`REMOVED_TALENT_REFUNDS`), `data/buildings.ts`, `main.ts` (`openForge`,
+  `purchaseForgeUpgrade`), `CURRENT_STATE.md` §6, §7 et §14.
 
 ---
 
@@ -504,7 +555,7 @@ ou de l'équilibrage, suivis dans `GAME_DESIGN.md` §15 et `ROADMAP.md`.
 | Taux de raté autour de 10–15 % | Ancienne intention, non actée — question ouverte |
 | Poids de la flèche du joueur (« environ 20 % des dégâts d'une vague ») et cadence d'origine | Ancienne intention, non actée — question ouverte |
 | Ancienne formule de production de la Caserne | Équilibrage, remplacée depuis — pas une décision |
-| Économie des Runes (coûts, gains) | Équilibrage — question ouverte |
+| Économie des Runes (coûts, gains) | Obsolète : Runes supprimées (voir D5) |
 | Sentinelle ennemie renforcée ou non au fil des vagues | Question ouverte |
 | Persistance des unités produites par la Caserne | Question ouverte |
 | Forme exacte de la survie infinie et courbe des vagues | Question ouverte |

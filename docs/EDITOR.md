@@ -346,7 +346,8 @@ voir aussi `ARCHITECTURE.md`.
 - **Ce que fait le test** : il lance une **vraie bataille** sur la carte en
   cours d'édition, avec les mêmes règles qu'en partie.
 - **Baliste** : une **vraie** Baliste est créée, comme en partie. C'est un
-  bâtiment de simulation avec ses PV (améliorations permanentes comprises),
+  bâtiment de simulation avec ses PV (de base : le test n'applique aucune
+  amélioration de Forge),
   sa collision (les unités ne la traversent pas) et sa destruction : HUD
   `[Q] BALISTE — DÉTRUITE`, tir Q bloqué, collision libérée.
   - **Position** : celle de la carte (`ballista`), sinon le repli historique.

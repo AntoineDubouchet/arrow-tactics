@@ -18,15 +18,15 @@ contient ni intentions de design ni décisions futures.
 3. Unités
 4. Déblocage des unités
 5. La Baliste (tour du joueur)
-6. Bâtiments gameplay : Mine et Caserne
+6. Bâtiments gameplay : Mine, Caserne et Forge
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
 10. Vagues ennemies
 11. Expansion de la carte
 12. Talents
-13. Méta-progression : points de talent et Runes
-14. Améliorations permanentes
+13. Méta-progression : points de talent
+14. Améliorations de Forge
 15. Sauvegarde : ce qui persiste
 16. Éditeur de maps
 17. Audio
@@ -41,12 +41,14 @@ Roguelite tactique web en vue 3/4. Le joueur pose sa tour, place son armée,
 puis la bataille se déroule automatiquement. Il intervient avec la Baliste et
 des parchemins de bataille.
 
-- Chaque vague rapporte de l'or, dépensé dans la boutique de run.
-- Chaque victoire rapporte aussi des Runes, dépensées en améliorations
-  permanentes.
+- L'**Or** est la seule monnaie de la run. Il sert à recruter des unités,
+  acheter des parchemins, construire des bâtiments et acheter des
+  améliorations à la **Forge**.
 - La run continue tant que le joueur gagne ; elle s'arrête à la première
   défaite.
-- Talents, Runes et améliorations sont conservés entre les runs.
+- Seuls les talents et la progression générale (record, ennemis vaincus…)
+  sont conservés entre les runs. Les améliorations de Forge sont propres à
+  la run. Il n'y a plus de Runes.
 
 ## 2. Déroulé d'une run
 
@@ -55,8 +57,10 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
 
 1. **Nouvelle run** (menu → Jouer, `createNewRun`) :
    - armée de départ : 1 Fantassin ;
-   - or de départ : 5 (+3 avec le talent Or de départ) ;
-   - inventaire et bâtiments vides, vague 1.
+   - or de départ : 15 (`STARTING_GOLD`), 20 avec le talent Or de départ
+     (+5, `TALENT_STARTING_GOLD_BONUS`) ;
+   - inventaire et bâtiments vides, aucune amélioration (`upgrades = {}`),
+     vague 1.
 2. **Placement obligatoire de la tour**. Une bannière demande de placer la
    tour dans la zone de spawn. Son empreinte de 3×3 cases doit tenir
    entièrement dans la zone joueur. Échap est sans effet tant que la tour
@@ -67,6 +71,7 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
    peut :
    - déplacer, sélectionner et vendre ses unités ;
    - acheter, poser et déplacer des bâtiments ;
+   - ouvrir une Forge possédée pour acheter des améliorations (§14) ;
    - utiliser un parchemin de soin.
 
    **Sélection des unités**, avec les mêmes gestes qu'en bataille et dans
@@ -98,8 +103,8 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
    Ce mécanisme est détaillé dans `EDITOR.md` §7.
 
    **Sélection des bâtiments et de la Baliste** :
-   - un clic sur une Mine ou une Caserne possédée la sélectionne ; un second
-     clic la désélectionne. Un glisser la déplace (§6) ;
+   - un clic sur une Mine, une Caserne ou une Forge possédée la sélectionne ;
+     un second clic la désélectionne. Un glisser la déplace (§6) ;
    - la Baliste se sélectionne par un clic sur sa **base** (son empreinte au
      sol), jamais par le haut de la tour. Elle ne se déplace pas en
      préparation ;
@@ -117,7 +122,7 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
      ajouter ou retirer, glisser pour un rectangle de sélection, double-clic
      pour les unités visibles du même type ; si un parchemin est armé, le
      clic gauche sert à l'utiliser ;
-   - **clic gauche sur une Mine, une Caserne ou la Baliste alliée** :
+   - **clic gauche sur une Mine, une Caserne, une Forge ou la Baliste alliée** :
      inspection seule (fiche d'entité, ci-dessous), avec un anneau à la
      couleur du camp. Un bâtiment inspecté n'est **jamais commandable** : il
      ne reçoit ni ordre au clic droit ni Stop. L'inspection vide la sélection
@@ -138,8 +143,8 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
      déplacer, molette pour zoomer (détail dans `EDITOR.md`, §12).
 5. **Fin de bataille**, dès qu'un camp n'a plus de combattant (unités et
    bâtiments du joueur comptent tous les deux) :
-   - **Victoire** : bonus d'or, Runes, étape d'expansion de la carte, écran de
-     fin de vague, puis placement de la vague suivante.
+   - **Victoire** : bonus d'or, étape d'expansion de la carte, écran de fin
+     de vague, puis placement de la vague suivante.
    - **Défaite** : écran « Partie terminée », puis retour au menu.
 6. **Abandon** (Échap → Quitter → confirmation) : retour au menu. Les gains de
    méta-progression déjà obtenus pendant la run restent acquis (ils sont
@@ -155,9 +160,9 @@ Une fiche compacte décrit ce que le joueur a sélectionné, en préparation et
 en bataille. Elle n'existe pas dans l'éditeur.
 
 - **Sélections prises en charge** :
-  - préparation : unité seule, groupe, Mine, Caserne, Baliste ;
-  - bataille : unité alliée seule, groupe allié, Mine, Caserne, Baliste
-    (bâtiments inspectés, voir ci-dessus).
+  - préparation : unité seule, groupe, Mine, Caserne, Forge, Baliste ;
+  - bataille : unité alliée seule, groupe allié, Mine, Caserne, Forge,
+    Baliste (bâtiments inspectés, voir ci-dessus).
 - **Valeurs** : ce sont celles réellement utilisées par le jeu, à l'**échelle
   du joueur** (PV et dégâts divisés par 10, comme les barres de vie), jamais
   les valeurs internes ×10. En préparation, elles sont recalculées avec les
@@ -179,6 +184,8 @@ en bataille. Elle n'existe pas dans l'éditeur.
   - **Caserne** : PV, unité produite, intervalle, unités par production. En
     bataille, aussi la prochaine production, ou « En attente » quand le lot
     attend des cases libres ;
+  - **Forge** : PV seulement. En préparation, la fiche porte le bouton
+    **« Ouvrir la Forge »** (§14) ; en bataille, aucun bouton ;
   - **Baliste** : PV, dégâts par carreau, recharge, carreaux par volée.
     Aucune portée, le tir n'en a pas. En préparation : PV max / max et
     « Prête pour la bataille ». En bataille : PV de l'entité et état
@@ -193,14 +200,16 @@ en bataille. Elle n'existe pas dans l'éditeur.
 - **Emplacement** : en haut à gauche (`left: 12px; top: 12px`), environ
   236 px de large, même style sombre que le HUD de la Baliste, liseré à la
   couleur du camp.
-- **Visibilité** : masquée sans sélection, en pause, sous la boutique,
+- **Visibilité** : masquée sans sélection, en pause, sous la boutique ou la
+  Forge,
   pendant le placement de la tour ou d'un bâtiment, pendant la transition de
   fin de vague, dans les menus et dans l'éditeur.
 - **Mise à jour** : immédiate à chaque changement de sélection, sinon environ
   10 fois par seconde. Le DOM n'est reconstruit que si la forme de la fiche
   change.
 - **Morts et destructions** : une unité morte quitte la sélection et la fiche
-  disparaît. Une Mine ou une Caserne détruite n'est plus inspectée. La
+  disparaît. Une Mine, une Caserne ou une Forge détruite n'est plus
+  inspectée. La
   Baliste détruite reste inspectable, avec l'état `DÉTRUITE`.
 
 ## 3. Unités
@@ -228,8 +237,8 @@ Quatre unités existent, communes au joueur et à l'ennemi.
     bataille.
 - **Valeur au kill et à la revente** (`KILL_REWARD`) : Fantassin 1, Archer
   1,5, Mage 5, Sentinelle 20.
-- Le coût réellement payé en partie peut être supérieur au coût de base, à
-  cause des améliorations permanentes (§14).
+- Le coût payé en partie est toujours le coût de base : les améliorations de
+  Forge (§14) ne le modifient pas.
 
 ## 4. Déblocage des unités
 
@@ -280,7 +289,7 @@ effectives du tir), `sim/playerArrow.ts`, `main.ts`.
   - chaque tir envoie 3 carreaux sous une seule recharge. Les deux
     supplémentaires visent les deux ennemis les plus proches du curseur, dans
     un rayon de 3.
-- **Amélioration permanente** : voir §14.
+- **Amélioration de Forge « Baliste »** : voir §14.
 - **Parchemin armé** : le clic gauche sert au parchemin. Q tire quand même
   avec la Baliste, et le parchemin reste armé.
 - **Réticule** : un anneau doré discret suit le sol sous le curseur pendant
@@ -298,13 +307,13 @@ effectives du tir), `sim/playerArrow.ts`, `main.ts`.
   - en petit, le nombre d'unités sélectionnées (ligne masquée quand rien
     n'est sélectionné).
 
-## 6. Bâtiments gameplay : Mine et Caserne
+## 6. Bâtiments gameplay : Mine, Caserne et Forge
 
 Sources : `data/buildings.ts`, `run/mineUpgradeEffects.ts`,
 `run/barracksUpgradeEffects.ts`, `run/buildingUpgradeEffects.ts`,
 `sim/systems/barracksSystem.ts`, `main.ts`.
 
-Ils s'achètent dans l'onglet « Bâtiments » de la boutique de run.
+Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 
 - **Achat** : cliquer sur le bâtiment passe en mode placement. L'or n'est
   payé qu'au clic de confirmation sur un emplacement valide de la zone
@@ -313,29 +322,47 @@ Ils s'achètent dans l'onglet « Bâtiments » de la boutique de run.
 - **Déplacement** : un bâtiment possédé se déplace gratuitement en le
   faisant glisser pendant le placement.
 - **Persistance** : les bâtiments restent d'une vague à l'autre, avec leurs
-  PV. Plusieurs exemplaires de chaque bâtiment sont possibles.
+  PV. Un bâtiment détruit en bataille disparaît de la run à la fin de la
+  vague. Plusieurs exemplaires de chaque bâtiment sont possibles.
+- **Survie du camp** : les trois bâtiments comptent pour la défaite
+  (`countsForDefeat`), comme les unités et la Baliste.
 
-| | Mine | Caserne |
-|---|---|---|
-| Coût en partie | 100 + 5 × niveau d'amélioration | 50 + 5 × niveau d'amélioration |
-| PV / emprise | 15 / 2×2 | 25 / 2×2 |
-| Effet pendant la bataille | +1 or/s par Mine vivante (+0,2 or/s par niveau d'amélioration) | Produit des Fantassins (voir ci-dessous) |
+| | Mine | Caserne | Forge |
+|---|---|---|---|
+| Coût en partie | 20 | 25 | 10 |
+| PV / emprise | 15 / 2×2 | 25 / 2×2 | 15 / 2×2 |
+| Effet | +1 or/s par Mine vivante pendant la bataille (+0,2 or/s par niveau d'amélioration Mine) | Produit des Fantassins (voir ci-dessous) | Accès à la boutique des améliorations de la run (§14) ; aucun effet passif |
+
+Les coûts sont fixes : une amélioration de Forge ne les augmente pas (une
+Mine améliorée coûte toujours 20, une Caserne améliorée toujours 25).
 
 Production de la Caserne :
 
 - **Rythme** : base de 1 Fantassin toutes les 5 s. Chaque niveau
-  d'amélioration ajoute 1 Fantassin par production, et retire 1 s
+  d'amélioration Caserne ajoute 1 Fantassin par production, et retire 1 s
   d'intervalle tous les 3 niveaux (minimum 1 s).
 - **Production atomique** : si les cases libres autour d'elle ne suffisent
   pas pour tout le lot, rien n'est produit et la production attend.
-- **Bonus** : les Fantassins produits reçoivent les mêmes bonus permanents
-  qu'un Fantassin acheté.
+- **Bonus** : les Fantassins produits reçoivent les mêmes bonus (talents et
+  améliorations de la run) qu'un Fantassin acheté.
 - **Persistance** : ils **ne rejoignent pas** l'armée qui persiste entre les
   vagues.
 
+La Forge (modèle `blue_blacksmith`) est un vrai bâtiment : ciblable,
+destructible, collidable. Elle n'a ni production ni revenu ; toutes les
+Forges ouvrent la **même** boutique d'améliorations, sans bonus par
+exemplaire. Si toutes les Forges sont détruites, les améliorations déjà
+achetées restent actives, mais aucun nouvel achat n'est possible tant
+qu'une Forge n'est pas reconstruite.
+
 ## 7. Économie d'or
 
-Sources : `run/runState.ts`, `run/talentEffects.ts`, `main.ts`.
+Sources : `run/runState.ts`, `run/talentEffects.ts`, `run/runUpgrades.ts`,
+`main.ts`.
+
+L'Or est la **seule monnaie** de la run. Il sert à recruter des unités,
+acheter des parchemins, construire des bâtiments et acheter des
+améliorations à la Forge (§14).
 
 Gains :
 
@@ -352,8 +379,9 @@ Revente d'unités (phase de placement uniquement) :
   « Vendre » pour vendre la sélection.
 - **Barème** : `KILL_REWARD`.
 - **Avec le talent Recyclage** : une unité sous 50 % de ses PV maximum
-  rapporte `round(3 × coût effectif)` au lieu du barème normal. Les unités
-  concernées sont surlignées en jaune.
+  rapporte `round(3 × coût)` au lieu du barème normal (coût de base, que
+  les améliorations ne changent pas). Les unités concernées sont surlignées
+  en jaune.
 
 Tous les montants d'or sont arrondis au dixième (`roundGold`).
 
@@ -387,8 +415,8 @@ Sources : `data/items.ts`, `run/runState.ts` (`INVENTORY_CAPACITY`,
 
 | Objet | Coût en partie | Utilisable | Effet de base |
 |---|---|---|---|
-| Parchemin de soin mineur | 1 + 0,5 × niveau d'amélioration | placement et bataille | Soigne 5 PV à l'unité alliée blessée la plus touchée (en proportion de ses PV max) dans un rayon de 2 autour du clic |
-| Nova de glace | 4 + 0,5 × niveau d'amélioration | bataille | Immobilise pendant 4 s les ennemis présents dans un rayon d'environ 2,3 (1,15 × rayon de la Boule de feu) |
+| Parchemin de soin mineur | 1 | placement et bataille | Soigne 5 PV à l'unité alliée blessée la plus touchée (en proportion de ses PV max) dans un rayon de 2 autour du clic |
+| Nova de glace | 4 | bataille | Immobilise pendant 4 s les ennemis présents dans un rayon d'environ 2,3 (1,15 × rayon de la Boule de feu) |
 
 Effets liés aux talents :
 
@@ -465,14 +493,17 @@ Palier II (coût 2, prérequis = le talent de Palier I de la même branche) :
 | Recyclage | Butin de guerre | Revente améliorée (voir §7) |
 | Mitraillette | Tir rapide | Voir §5 |
 | Soins excédentaires | Aux petits oignons | Projectiles d'ombre (voir §9) |
-| Maître de la forge | Réflexes de vétéran | Coût en Runes des améliorations divisé par 4 (minimum 0,1 Rune) |
 
+- **Talent retiré** : « Maître de la forge » (qui divisait le coût en Runes
+  des améliorations) n'existe plus. Une sauvegarde qui l'avait débloqué le
+  perd au chargement et récupère ses 2 points (`REMOVED_TALENT_REFUNDS`,
+  `run/metaProgress.ts`) ; les autres talents sont conservés.
 - **Exclusivité** : une exclusivité existe entre talents qui partagent le
   même prérequis ; aucun talent actuel n'est concerné.
 - **Réinitialisation** : « Réinitialiser les talents » rembourse tous les
   points dépensés.
 
-## 13. Méta-progression : points de talent et Runes
+## 13. Méta-progression : points de talent
 
 Source : `run/metaProgress.ts`.
 
@@ -486,38 +517,51 @@ Points de talent (chaque source est accordée une seule fois par sauvegarde) :
 
 Autres éléments :
 
-- **Runes** : à chaque vague gagnée, `10 × 2^floor(v / 10)`, soit 10 pour les
-  vagues 1 à 9, 20 pour les vagues 10 à 19, 40 pour les vagues 20 à 29…
-  (`upgradeRunesRewardForWave`).
 - **Record** : le plus haut numéro de vague atteint est conservé et affiché.
 
-## 14. Améliorations permanentes
+## 14. Améliorations de Forge
 
-Sources : `data/*Upgrade.ts`, `run/*UpgradeEffects.ts`,
-`run/metaProgress.ts` (`effectiveUpgradeCost`).
+Sources : `run/runUpgrades.ts` (niveaux, coûts, achat), `data/*Upgrade.ts`,
+`run/*UpgradeEffects.ts`, `ui/screens.ts` (overlay), `main.ts`
+(`openForge`, `purchaseForgeUpgrade`).
 
-Elles sont accessibles depuis le menu principal (boutique d'amélioration).
+Les améliorations sont **propres à la run** : niveaux stockés dans
+`RunState.upgrades`, remis à `{}` à chaque nouvelle run, jamais
+sauvegardés. Elles s'achètent en Or, uniquement depuis une Forge.
 
-- **Coût en Runes** : 10 pour le premier niveau, puis doublé à chaque niveau.
-  Le talent Maître de la forge divise ce coût par 4.
+- **Accès** : en préparation, sélectionner une Forge possédée, puis
+  « Ouvrir la Forge » sur sa fiche. En bataille, la Forge reste inspectable
+  mais la boutique est inaccessible.
+- **Overlay** : titre « Forge », Or actuel, une carte par amélioration avec
+  son niveau, ses effets et le coût du niveau suivant. « Retour » ou Échap
+  ramène à la préparation, la Forge toujours sélectionnée. Pendant
+  l'overlay, « Vendre », « Boutique » et « Prêt pour la bataille » sont
+  masqués.
+- **Achat** : Or débité, niveau +1, effet immédiat (fiches, unités recrutées
+  ensuite, prochaine bataille). Bouton désactivé si l'Or ne suffit pas.
+- **PV max** : quand un achat augmente les PV max d'une unité déjà possédée,
+  ses PV actuels augmentent du même écart (5/5 → 6/6, 3/5 → 4/6).
+- **Coût** (`runUpgradeGoldCost(id, niveau)`) : coût de départ × 2^niveau.
+  - Cas général : 2 / 4 / 8 / 16 / 32…
+  - Mine et Caserne : 25 / 50 / 100 / 200… (`RUN_UPGRADE_GOLD_COST_BASE_BY_ID`),
+    parce qu'elles accélèrent directement l'économie ou l'armée.
+  - Aucun talent ne modifie ce coût.
 - **Plafond** : aucune amélioration n'a de niveau maximum.
+- **Prix indépendants** : une amélioration n'augmente jamais le prix de ce
+  qu'elle améliore (unité, bâtiment, parchemin).
 
-| Amélioration | Effet par niveau | Effet sur le coût en partie |
-|---|---|---|
-| Fantassin, Archer, Mage | +1 PV ; +1 attaque tous les 3 niveaux (pour le Mage, sur la Boule de feu) | +1 or à chaque palier d'attaque |
-| Sentinelle | +5 PV ; +1 bouclier par ennemi provoqué tous les 3 niveaux | +5 or par niveau |
-| Baliste | +20 % de cadence (additif), +10 PV ; +1 dégât tous les 3 niveaux | — |
-| Parchemin de soin | +1 PV soigné ; une cible secondaire de plus tous les 3 niveaux (moitié du soin, à 2 cases de la cible) | +0,5 or par niveau |
-| Nova de glace | +0,5 s d'immobilisation et de Blizzard ; +1 dégât de Blizzard tous les 3 niveaux | +0,5 or par niveau |
-| Mine | +0,2 or/s | +5 or par niveau |
-| Caserne | +1 Fantassin par production ; −1 s d'intervalle tous les 3 niveaux (minimum 1 s) | +5 or par niveau |
-| Soins excédentaires | +0,5 dégât par projectile ; +1 projectile tous les 3 niveaux | — |
+| Amélioration | Effet par niveau |
+|---|---|
+| Fantassin, Archer, Mage | +1 PV ; +1 attaque tous les 3 niveaux (pour le Mage, sur la Boule de feu) |
+| Sentinelle | +5 PV ; +1 bouclier par ennemi provoqué tous les 3 niveaux |
+| Baliste | +20 % de cadence (additif), +10 PV ; +1 dégât tous les 3 niveaux |
+| Parchemin de soin | +1 PV soigné ; une cible secondaire de plus tous les 3 niveaux (moitié du soin, à 2 cases de la cible) |
+| Nova de glace | +0,5 s d'immobilisation et de Blizzard ; +1 dégât de Blizzard tous les 3 niveaux |
+| Mine | +0,2 or/s |
+| Caserne | +1 Fantassin par production ; −1 s d'intervalle tous les 3 niveaux (minimum 1 s) |
+| Soins excédentaires | +0,5 dégât par projectile ; +1 projectile tous les 3 niveaux |
 
-Dans la boutique d'améliorations permanentes, toutes les cartes sont visibles
-en permanence, sauf « Soins excédentaires », qui n'apparaît qu'une fois le
-talent du même nom débloqué. Réinitialiser les talents ne touche pas aux
-niveaux d'amélioration déjà achetés : la carte est seulement masquée, puis
-retrouve ses niveaux quand le talent est de nouveau débloqué.
+La carte « Soins excédentaires » n'apparaît qu'avec le talent du même nom.
 
 ## 15. Sauvegarde : ce qui persiste
 
@@ -526,15 +570,18 @@ Sources : `run/metaProgress.ts`, `run/userSettings.ts`.
 **Persistant** (dans le navigateur, `localStorage`) :
 
 - points de talent et talents débloqués ;
-- Runes et niveaux d'amélioration ;
 - record de vague ;
 - types d'ennemis déjà vaincus (déblocages) ;
 - paliers de points de talent déjà accordés ;
 - réglages (clé séparée).
 
 **Non persistant** : toute la run en cours (or, armée, inventaire, bâtiments,
-vague, position de la tour, état de la carte). Quitter ou recharger la page la
-fait perdre.
+améliorations de Forge, vague, position de la tour, état de la carte).
+Quitter ou recharger la page la fait perdre.
+
+Une ancienne sauvegarde contenant des Runes (`upgradeRunes`) ou des niveaux
+d'amélioration permanents (`unitUpgrades`) se charge normalement : ces clés
+sont ignorées, puis disparaissent à la sauvegarde suivante.
 
 **« Effacer la sauvegarde »** (menu principal) remet toute la
 méta-progression à zéro, après confirmation. Les réglages sont conservés.
@@ -618,7 +665,11 @@ de la documentation. L'historique des retraits relèvera de
   - la capacité Charge existe dans le code, mais aucune unité ne la possède.
 - **Ennemis** : pas de bâtiments ennemis.
 - **Talents** : « Le temps, c'est de l'argent » n'existe plus (la Mine est un
-  bâtiment acheté). Les points des anciennes sauvegardes sont remboursés.
+  bâtiment acheté), ni « Maître de la forge » (§12). Les points des
+  anciennes sauvegardes sont remboursés.
+- **Économie** : plus de Runes, ni de gain de Runes en fin de vague, ni de
+  boutique d'amélioration permanente dans le menu principal. Les
+  améliorations s'achètent en Or à la Forge et sont propres à la run (§14).
 - **Boutique** : pas d'onglet « Soins » ni de bouton « Soigner une unité » ;
   le soin passe uniquement par le parchemin.
 - **Cartes** : pas de succession de cartes prédéfinies distinctes au fil des
