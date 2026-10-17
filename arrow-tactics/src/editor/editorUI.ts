@@ -553,7 +553,7 @@ export class EditorUI {
     toolbar.appendChild(testButton);
 
     const title = document.createElement('span');
-    title.className = 'editor-toolbar-title';
+    title.className = 'editor-toolbar-title editor-toolbar-title--main';
     title.textContent = 'Éditeur de maps';
     toolbar.appendChild(title);
     this.root.appendChild(toolbar);
