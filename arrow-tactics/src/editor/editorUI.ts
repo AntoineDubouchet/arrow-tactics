@@ -2,9 +2,13 @@ import { obstacleCenter } from '../config/constants';
 import type { TerrainType } from '../config/mapDef';
 import type { TerritoryTeam } from '../config/territory';
 import { UNITS } from '../data/units';
-import type { EditorObstacle, EditorUnit, PlacementTemplate } from './editorState';
+import { teamColor } from '../render/unitSelectionRing';
+import type { EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate } from './editorState';
 
 export interface EditorUIHandlers {
+  /** Bouton "Sélection" (outil par défaut) — même effet qu'Échap ou le clic
+   *  droit quand un autre outil est actif. */
+  onSelectSelectTool: () => void;
   onSelectTemplate: (template: PlacementTemplate) => void;
   /** Carte "Unités" choisie dans l'asset browser — le camp n'est pas transmis
    *  ici, il est deduit de la position au moment de la pose (voir
@@ -441,6 +445,22 @@ export class EditorUI {
   private readonly deleteButton: HTMLButtonElement;
   private readonly widthInput: HTMLInputElement;
   private readonly heightInput: HTMLInputElement;
+  private readonly statusLine: HTMLElement;
+
+  // Boutons d'outils, pour la mise en surbrillance de l'outil actif (voir
+  // syncTool) — l'etat de l'outil reste celui d'EditorState.tool.
+  private readonly selectButton: HTMLButtonElement;
+  private readonly addGrassButton: HTMLButtonElement;
+  private readonly addDirtButton: HTMLButtonElement;
+  private readonly removeCellButton: HTMLButtonElement;
+  private readonly territoryButton: HTMLButtonElement;
+  private readonly territoryValueButtons = new Map<TerritoryTeam | null, HTMLButtonElement>();
+  private readonly unitCards = new Map<string, HTMLButtonElement>();
+  private readonly assetCards = new Map<PlacementTemplate, { button: HTMLButtonElement; label: string }>();
+  /** Camp que reprend le bouton "Peindre le territoire" : le dernier choisi. */
+  private territoryValue: TerritoryTeam | null = 'player';
+  private activeButtons: HTMLButtonElement[] = [];
+  private testMode = false;
 
   constructor(handlers: EditorUIHandlers) {
     this.root = document.createElement('div');
@@ -480,71 +500,6 @@ export class EditorUI {
     toolbar.appendChild(loadButton);
     toolbar.appendChild(loadInput);
 
-    const sizeLabel = document.createElement('span');
-    sizeLabel.className = 'editor-toolbar-title';
-    sizeLabel.textContent = 'Taille :';
-    toolbar.appendChild(sizeLabel);
-
-    this.widthInput = document.createElement('input');
-    this.widthInput.type = 'number';
-    this.widthInput.min = '1';
-    this.widthInput.className = 'editor-size-input';
-    toolbar.appendChild(this.widthInput);
-
-    const sizeSeparator = document.createElement('span');
-    sizeSeparator.className = 'editor-toolbar-title';
-    sizeSeparator.textContent = '×';
-    toolbar.appendChild(sizeSeparator);
-
-    this.heightInput = document.createElement('input');
-    this.heightInput.type = 'number';
-    this.heightInput.min = '1';
-    this.heightInput.className = 'editor-size-input';
-    toolbar.appendChild(this.heightInput);
-
-    const applySizeButton = document.createElement('button');
-    applySizeButton.type = 'button';
-    applySizeButton.className = 'editor-button';
-    applySizeButton.textContent = 'Appliquer';
-    applySizeButton.addEventListener('click', () => {
-      const width = parseInt(this.widthInput.value, 10);
-      const height = parseInt(this.heightInput.value, 10);
-      if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-        handlers.onResizeMap(width, height);
-      }
-    });
-    toolbar.appendChild(applySizeButton);
-
-    // Outil "Ajouter/Supprimer case" (2026-08-16, chantier map irrégulière,
-    // Part X-AI) : deux boutons de type de terrain + un bouton suppression,
-    // regroupés visuellement (même conteneur que Taille, pas un onglet à
-    // part pour rester simple — voir CLAUDE.md, "ne pas sur-abstraire").
-    const cellLabel = document.createElement('span');
-    cellLabel.className = 'editor-toolbar-title';
-    cellLabel.textContent = 'Terrain :';
-    toolbar.appendChild(cellLabel);
-
-    const addGrassButton = document.createElement('button');
-    addGrassButton.type = 'button';
-    addGrassButton.className = 'editor-button';
-    addGrassButton.textContent = '+ Case (Herbe)';
-    addGrassButton.addEventListener('click', () => handlers.onSelectAddCellTool('grass'));
-    toolbar.appendChild(addGrassButton);
-
-    const addDirtButton = document.createElement('button');
-    addDirtButton.type = 'button';
-    addDirtButton.className = 'editor-button';
-    addDirtButton.textContent = '+ Case (Terre)';
-    addDirtButton.addEventListener('click', () => handlers.onSelectAddCellTool('dirt'));
-    toolbar.appendChild(addDirtButton);
-
-    const removeCellButton = document.createElement('button');
-    removeCellButton.type = 'button';
-    removeCellButton.className = 'editor-button editor-button--danger';
-    removeCellButton.textContent = '− Supprimer case';
-    removeCellButton.addEventListener('click', handlers.onSelectRemoveCellTool);
-    toolbar.appendChild(removeCellButton);
-
     const testButton = document.createElement('button');
     testButton.type = 'button';
     testButton.className = 'editor-button';
@@ -560,14 +515,83 @@ export class EditorUI {
 
     const browser = document.createElement('div');
     browser.className = 'editor-asset-browser';
+
+    // Outil Selection : toujours visible (colle en haut de la colonne, meme
+    // quand le catalogue defile). Echap et clic droit y ramenent aussi.
+    const pinned = document.createElement('div');
+    pinned.className = 'editor-tools-pinned';
+    this.selectButton = this.toolCard('Sélection', handlers.onSelectSelectTool);
+    this.selectButton.title = 'V';
+    pinned.appendChild(this.selectButton);
+    browser.appendChild(pinned);
+
+    // Carte : taille du plateau et cases de terrain (outils repetables).
+    browser.appendChild(this.groupHeader('Carte'));
+    browser.appendChild(this.categoryHeader('Taille'));
+    const sizeRow = document.createElement('div');
+    sizeRow.className = 'editor-size-row';
+    this.widthInput = document.createElement('input');
+    this.widthInput.type = 'number';
+    this.widthInput.min = '1';
+    this.widthInput.className = 'editor-size-input';
+    this.widthInput.setAttribute('aria-label', 'Largeur');
+    const sizeSeparator = document.createElement('span');
+    sizeSeparator.className = 'editor-size-separator';
+    sizeSeparator.textContent = '×';
+    this.heightInput = document.createElement('input');
+    this.heightInput.type = 'number';
+    this.heightInput.min = '1';
+    this.heightInput.className = 'editor-size-input';
+    this.heightInput.setAttribute('aria-label', 'Hauteur');
+    const applySizeButton = document.createElement('button');
+    applySizeButton.type = 'button';
+    applySizeButton.className = 'editor-button';
+    applySizeButton.textContent = 'Appliquer';
+    applySizeButton.addEventListener('click', () => {
+      const width = parseInt(this.widthInput.value, 10);
+      const height = parseInt(this.heightInput.value, 10);
+      if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+        handlers.onResizeMap(width, height);
+      }
+    });
+    sizeRow.append(this.widthInput, sizeSeparator, this.heightInput, applySizeButton);
+    browser.appendChild(sizeRow);
+    browser.appendChild(this.categoryHeader('Cases'));
+    this.addGrassButton = this.toolCard('+ Case (Herbe)', () => handlers.onSelectAddCellTool('grass'));
+    this.addDirtButton = this.toolCard('+ Case (Terre)', () => handlers.onSelectAddCellTool('dirt'));
+    this.removeCellButton = this.toolCard('− Supprimer case', handlers.onSelectRemoveCellTool);
+    this.removeCellButton.classList.add('editor-asset-card--danger');
+    browser.append(this.addGrassButton, this.addDirtButton, this.removeCellButton);
+
+    // Territoire : UN outil (le pinceau) et une valeur (le camp peint).
     browser.appendChild(this.groupHeader('Territoire'));
+    this.territoryButton = this.toolCard('Peindre le territoire', () => handlers.onSelectTerritoryTool(this.territoryValue));
+    browser.appendChild(this.territoryButton);
+    const segmented = document.createElement('div');
+    segmented.className = 'editor-segmented';
     for (const [label, team] of [
-      ['Bleu (joueur)', 'player'],
-      ['Rouge (ennemi)', 'enemy'],
-      ['Effacer (neutre)', null],
+      ['Joueur', 'player'],
+      ['Ennemi', 'enemy'],
+      ['Neutre', null],
     ] as const) {
-      browser.appendChild(this.toolCard(label, () => handlers.onSelectTerritoryTool(team)));
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'editor-segment';
+      const swatch = document.createElement('span');
+      swatch.className = 'editor-swatch';
+      if (team) swatch.style.background = `#${teamColor(team).toString(16).padStart(6, '0')}`;
+      else swatch.classList.add('editor-swatch--neutral');
+      button.append(swatch, label);
+      button.addEventListener('click', () => handlers.onSelectTerritoryTool(team));
+      this.territoryValueButtons.set(team, button);
+      segmented.appendChild(button);
     }
+    browser.appendChild(segmented);
+    const legend = document.createElement('div');
+    legend.className = 'editor-legend';
+    legend.textContent = 'Bleu : unités joueur · Rouge : unités ennemies · Neutre : aucune unité · Baliste : 3×3 en territoire joueur';
+    browser.appendChild(legend);
+
     browser.appendChild(this.groupHeader('Unités'));
     browser.appendChild(this.categoryHeader('Bestiaire'));
     for (const unit of UNIT_ASSETS) browser.appendChild(this.unitAssetCard(unit, handlers.onSelectUnit));
@@ -607,21 +631,12 @@ export class EditorUI {
 
     this.root.appendChild(this.propertiesPanel);
 
-    // Simplifie (2026-08-16, demande explicite d'Antoine : le paragraphe
-    // unique precedent "devient difficile a lire") — meme information
-    // essentielle, en raccourcis courts sur 2 lignes plutot qu'une phrase
-    // continue. Le detail (unite alignee sur la grille, decor libre,
-    // "Tester le scenario"...) reste dans les tooltips/le reste de
-    // l'interface, pas duplique ici.
+    // Ligne d'etat CONTEXTUELLE : outil actif et gestes utiles (voir
+    // syncTool), ou le test du scenario (voir setTestMode).
     const status = document.createElement('div');
     status.className = 'editor-status';
-    const statusLine1 = document.createElement('div');
-    statusLine1.textContent =
-      'Clic : sélectionner / placer — Clic droit : annuler / désélectionner — Glisser les flèches : déplacer — Glisser l’anneau : tourner';
-    const statusLine2 = document.createElement('div');
-    statusLine2.textContent = 'Ctrl+molette : rotation 15° (Maj : 1°) — R : +90° — Ctrl+Z / Ctrl+Y : annuler / rétablir — Suppr : supprimer';
-    status.appendChild(statusLine1);
-    status.appendChild(statusLine2);
+    this.statusLine = document.createElement('div');
+    status.appendChild(this.statusLine);
     this.root.appendChild(status);
 
     document.body.appendChild(this.root);
@@ -629,6 +644,69 @@ export class EditorUI {
 
   setVisible(visible: boolean): void {
     this.root.style.display = visible ? '' : 'none';
+  }
+
+  /** Reflete l'outil actif (EditorState.tool) : surbrillance du bouton
+   *  correspondant et ligne d'etat contextuelle. Appele apres chaque
+   *  rafraichissement de l'editeur (voir main.ts, refreshEditorObjects). */
+  syncTool(tool: EditorTool, selection: EditorSelection): void {
+    if (this.testMode) return;
+    if (tool.type === 'paint-territory') this.territoryValue = tool.team;
+    const active: HTMLButtonElement[] = [];
+    let status: string;
+    switch (tool.type) {
+      case 'select':
+        active.push(this.selectButton);
+        status = selectStatus(selection);
+        break;
+      case 'place-unit': {
+        const card = this.unitCards.get(tool.unitId);
+        if (card) active.push(card);
+        status = `Outil : Unité — ${UNITS[tool.unitId]?.name ?? tool.unitId} · Clic : poser (camp = territoire de la case, neutre interdit) · Échap : Sélection`;
+        break;
+      }
+      case 'place-obstacle': {
+        const entry = this.assetCards.get(tool.template);
+        if (entry) active.push(entry.button);
+        status = `Outil : Décor — ${entry?.label ?? 'objet'} · Clic : poser · Échap : Sélection`;
+        break;
+      }
+      case 'add-cell':
+        active.push(tool.terrain === 'grass' ? this.addGrassButton : this.addDirtButton);
+        status = `Outil : + Case — ${tool.terrain === 'grass' ? 'Herbe' : 'Terre'} · Clic : ajouter une case · Échap : Sélection`;
+        break;
+      case 'remove-cell':
+        active.push(this.removeCellButton);
+        status = 'Outil : − Case · Clic : supprimer une case · Échap : Sélection';
+        break;
+      case 'paint-territory': {
+        active.push(this.territoryButton);
+        const value = this.territoryValueButtons.get(tool.team);
+        if (value) active.push(value);
+        const name = tool.team === 'player' ? 'Joueur' : tool.team === 'enemy' ? 'Ennemi' : 'Neutre';
+        status = `Outil : Territoire — ${name} · Clic / glisser : peindre · 1 / 2 / 3 : Joueur / Ennemi / Neutre · Échap : Sélection`;
+        break;
+      }
+    }
+    for (const button of this.activeButtons) {
+      if (active.includes(button)) continue;
+      button.classList.remove('is-active');
+      button.setAttribute('aria-pressed', 'false');
+    }
+    for (const button of active) {
+      button.classList.add('is-active');
+      button.setAttribute('aria-pressed', 'true');
+    }
+    this.activeButtons = active;
+    if (this.statusLine.textContent !== status) this.statusLine.textContent = status;
+  }
+
+  /** Pendant "Tester le scénario" : seule la ligne d'etat reste affichee,
+   *  avec la facon de revenir a l'editeur. */
+  setTestMode(active: boolean): void {
+    this.testMode = active;
+    this.root.classList.toggle('editor-ui--testing', active);
+    if (active) this.statusLine.textContent = 'Test du scénario · Échap : revenir à l’éditeur';
   }
 
   /** Synchronise les champs largeur/hauteur avec l'etat reel — appele en
@@ -717,10 +795,11 @@ export class EditorUI {
     button.className = 'editor-asset-card';
     button.textContent = asset.label;
     button.addEventListener('click', () => onSelect(asset.template));
+    this.assetCards.set(asset.template, { button, label: asset.label });
     return button;
   }
 
-  private toolCard(label: string, onSelect: () => void): HTMLElement {
+  private toolCard(label: string, onSelect: () => void): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'editor-asset-card';
@@ -735,6 +814,23 @@ export class EditorUI {
     button.className = 'editor-asset-card';
     button.textContent = unit.label;
     button.addEventListener('click', () => onSelect(unit.unitId));
+    this.unitCards.set(unit.unitId, button);
     return button;
+  }
+}
+
+/** Ligne d'etat de l'outil Selection, selon ce qui est selectionne. */
+function selectStatus(selection: EditorSelection): string {
+  if (!selection) return 'Outil : Sélection · Clic : sélectionner · Glisser : sélection multiple · Ctrl+Z / Ctrl+Y : annuler / rétablir · Maj+clic droit : tourner la vue';
+  switch (selection.kind) {
+    case 'obstacle':
+      return 'Outil : Sélection — décor · Flèches : déplacer · Anneau ou Ctrl+molette : tourner · R : +90° · Suppr : supprimer · Échap : désélectionner';
+    case 'unit':
+    case 'unit-group': {
+      const count = selection.kind === 'unit' ? 1 : selection.ids.length;
+      return `Outil : Sélection — ${count} unité${count > 1 ? 's' : ''} · Clic au sol : déplacer (camp = territoire d'arrivée) · Suppr : supprimer · Échap : désélectionner`;
+    }
+    case 'ballista':
+      return 'Outil : Sélection — Baliste · Clic au sol : déplacer (3×3 en territoire joueur) · Échap : désélectionner';
   }
 }

@@ -1408,6 +1408,131 @@ img {
   background: rgba(231, 227, 216, 0.14);
 }
 
+/* Outil actif (bouton d'outil ou carte du catalogue) : fond plus clair,
+   bord plein et liseré à gauche — un seul style pour tous les outils. */
+.editor-asset-card.is-active,
+.editor-segment.is-active {
+  background: rgba(231, 227, 216, 0.2);
+  border-color: rgba(231, 227, 216, 0.7);
+  box-shadow: inset 3px 0 0 var(--ink);
+  font-weight: 600;
+}
+
+.editor-asset-card--danger {
+  background: rgba(224, 74, 74, 0.12);
+  border-color: rgba(224, 74, 74, 0.4);
+}
+
+.editor-asset-card--danger:hover {
+  background: rgba(224, 74, 74, 0.22);
+}
+
+/* Outil Sélection : reste collé en haut de la colonne pendant le défilement
+   du catalogue (fond opaque pour masquer ce qui passe dessous). */
+.editor-tools-pinned {
+  position: sticky;
+  top: -10px;
+  z-index: 1;
+  margin: -10px -10px 0;
+  padding: 10px 10px 4px;
+  background: rgb(22, 25, 30);
+  border-bottom: 1px solid var(--edge);
+}
+
+.editor-tools-pinned .editor-asset-card {
+  margin-bottom: 6px;
+}
+
+.editor-size-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.editor-size-row .editor-size-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.editor-size-row .editor-button {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.editor-size-separator {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* Territoire : valeur du pinceau (camp peint). */
+.editor-segmented {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.editor-segment {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 4px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--ink);
+  white-space: nowrap;
+  background: rgba(231, 227, 216, 0.06);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.editor-segment:hover {
+  background: rgba(231, 227, 216, 0.14);
+}
+
+.editor-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.editor-swatch--neutral {
+  border: 1px solid var(--ink-dim);
+}
+
+.editor-legend {
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+
+/* "Tester le scénario" : seule la ligne d'état reste affichée. */
+.editor-ui--testing .editor-toolbar,
+.editor-ui--testing .editor-asset-browser,
+.editor-ui--testing .editor-properties {
+  display: none !important;
+}
+
+/* Pendant le test, l'indication tient dans un cartouche en haut à gauche
+   pour ne pas recouvrir le HUD de bataille, situé en bas de l'écran. */
+.editor-ui--testing .editor-status {
+  top: 12px;
+  bottom: auto;
+  left: 12px;
+  right: auto;
+  height: auto;
+  padding: 6px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+}
+
 .editor-properties {
   position: fixed;
   top: var(--editor-topbar-height);

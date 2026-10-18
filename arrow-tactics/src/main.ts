@@ -2166,6 +2166,12 @@ window.addEventListener('blur', () => {
 });
 
 const editorUI = new EditorUI({
+  onSelectSelectTool: () => {
+    if (!editorState) return;
+    if (editorState.tool.type !== 'select') editorState.setTool({ type: 'select' });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
   onSelectTemplate: (template) => {
     if (!editorState) return;
     editorState.setTool({ type: 'place-obstacle', template });
@@ -2376,6 +2382,8 @@ function refreshEditorObjects(): void {
   } else if (transformControls.object) {
     transformControls.detach();
   }
+  // Outil actif et ligne d'etat de l'interface (surbrillance, aide).
+  editorUI.syncTool(editorState.tool, editorState.selection);
   refreshMovePreview();
 }
 
@@ -2449,7 +2457,8 @@ async function testScenario(): Promise<void> {
   clearEditorGhost();
   editorSelectionRing.visible = false;
   transformControls.detach();
-  editorUI.setVisible(false);
+  // Seule la ligne d'etat reste visible : elle indique comment revenir.
+  editorUI.setTestMode(true);
   editorUI.hideProperties();
   inEditorMode = false;
   inTestMode = true;
@@ -2535,6 +2544,7 @@ function returnToEditorAfterTest(): void {
   // Masque par testScenario : sans cette ligne, plus aucun apercu de
   // l'editeur (fantomes, cases, pinceau, Baliste) ne s'affichait apres un test.
   editorGhostGroup.visible = true;
+  editorUI.setTestMode(false);
   editorUI.setVisible(true);
   // editorState n'a jamais ete touche pendant le test : on retrouve
   // exactement la configuration de depart, comme demande.
@@ -5563,6 +5573,25 @@ window.addEventListener('keydown', (event) => {
     if (event.key === 'y' || event.key === 'Y') {
       event.preventDefault();
       editorHistory.redo();
+      return;
+    }
+  }
+
+  // Raccourcis de l'editeur (E1) : V -> outil Selection ; 1 / 2 / 3 -> camp
+  // du pinceau quand l'outil Territoire est actif. Jamais pendant une saisie
+  // dans un champ (Taille), ni avec un modificateur.
+  if (inEditorMode && editorState && !event.ctrlKey && !event.metaKey && !event.altKey && !isTypingInField(event.target)) {
+    if (event.key === 'v' || event.key === 'V') {
+      if (editorState.tool.type !== 'select') editorState.setTool({ type: 'select' });
+      clearEditorGhost();
+      refreshEditorObjects();
+      return;
+    }
+    const team = ({ '1': 'player', '2': 'enemy', '3': null } as const)[event.key as '1' | '2' | '3'];
+    if (team !== undefined && editorState.tool.type === 'paint-territory') {
+      editorState.setTool({ type: 'paint-territory', team });
+      clearEditorGhost();
+      refreshEditorObjects();
       return;
     }
   }
