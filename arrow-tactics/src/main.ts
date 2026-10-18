@@ -462,7 +462,10 @@ interface OwnedBuildingView {
 const ownedBuildingViews: OwnedBuildingView[] = [];
 
 function clearOwnedBuildingViews(): void {
-  for (const b of ownedBuildingViews) renderer.scene.remove(b.mesh);
+  for (const b of ownedBuildingViews) {
+    renderer.scene.remove(b.mesh);
+    b.view.dispose();
+  }
   ownedBuildingViews.length = 0;
 }
 
@@ -3495,7 +3498,7 @@ function currentEntityInfo(): EntityInfoViewModel | null {
       if (entity && entity.alive) units.push(entity);
     }
     if (units.length === 0) return null;
-    return units.length === 1 ? battleUnitInfo(units[0]!, world.time) : battleGroupInfo(units);
+    return units.length === 1 ? battleUnitInfo(units[0]!, world.time, playerProgression().upgrades) : battleGroupInfo(units, playerProgression().upgrades);
   }
   if (placementBallistaSelected) return placementBallistaInfo(playerProgression());
   if (selectedBuildingIndex !== null) {
@@ -5483,6 +5486,14 @@ function quitToMenu(): void {
   shadowProjectileView.clear();
   battleOver = false;
   loop.timeScale = 1;
+  // La run abandonnee (ou perdue) se termine ici : sans cela, ses batiments
+  // (meshes ajoutes a la scene, hors du plateau) restaient visibles dans le
+  // menu et l'editeur, et un retour de "Tester le scenario" les
+  // reconstruisait depuis currentRun. Une run vierge les remplace ;
+  // resetRunPlacementState retire leurs vues et l'anneau de selection.
+  currentRun = createFreshRun();
+  rebuildCurrentTerritoryIndex();
+  resetRunPlacementState();
   board.gridLines.visible = false;
   board.zones.visible = false;
   waveIndicator.setVisible(false);

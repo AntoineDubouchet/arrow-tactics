@@ -579,7 +579,7 @@ export class Screens {
 
     this.menu = this.overlay('menu', [
       this.title('Arrow Tactics'),
-      this.button('Jouer', handlers.onPlay),
+      this.button('Mode survie', handlers.onPlay),
       this.button('Arbre de talents', handlers.onOpenTalents),
       this.button('Éditeur de maps', handlers.onOpenEditor),
       this.button('Paramètres', handlers.onOpenSettingsFromMenu),

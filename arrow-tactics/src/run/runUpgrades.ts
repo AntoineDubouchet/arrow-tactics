@@ -25,6 +25,26 @@ export function runUpgradeLevel(levels: Readonly<RunUpgradeLevels>, id: string):
   return Object.prototype.hasOwnProperty.call(levels, id) ? (levels[id] ?? 0) : 0;
 }
 
+/** Amelioration de Forge propre a une entite du joueur, par id de
+ *  definition (unite de data/units.ts ou batiment de data/buildings.ts).
+ *  Absente = entite sans amelioration (Forge, par exemple). */
+const ENTITY_UPGRADE_IDS: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(Object.entries(UNIT_UPGRADES).map(([id, def]) => [def.unitId, id])),
+  sentinel: SENTINEL_UPGRADE.id,
+  ballista: BALLISTA_UPGRADE.id,
+  mine: MINE_UPGRADE.id,
+  barracks: BARRACKS_UPGRADE.id,
+};
+
+/** Niveau de run de l'amelioration d'une entite du joueur (le meme pour
+ *  toutes les entites d'un type), ou null si aucune amelioration de Forge ne
+ *  la concerne. */
+export function entityRunUpgradeLevel(levels: Readonly<RunUpgradeLevels>, definitionId: string): number | null {
+  if (!Object.prototype.hasOwnProperty.call(ENTITY_UPGRADE_IDS, definitionId)) return null;
+  const id = ENTITY_UPGRADE_IDS[definitionId];
+  return id === undefined ? null : runUpgradeLevel(levels, id);
+}
+
 /**
  * Sources de la progression du joueur pour les statistiques effectives :
  * - `talents` : progression PERMANENTE (talents debloques) ;

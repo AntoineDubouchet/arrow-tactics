@@ -103,4 +103,19 @@ export class BuildingView {
     for (const p of this.debris) this.vfxGroup.remove(p.mesh);
     this.debris.length = 0;
   }
+
+  /** Vue abandonnee (batiment de run retire) : retire ses debris et libere
+   *  ce qu'elle possede en propre — materiaux clones et debris. La geometrie
+   *  du mesh, partagee par le cache d'assets, n'est jamais liberee ici. */
+  dispose(): void {
+    for (const p of this.debris) {
+      this.vfxGroup.remove(p.mesh);
+      const debris = p.mesh as THREE.Mesh;
+      debris.geometry?.dispose();
+      (debris.material as THREE.Material | undefined)?.dispose();
+    }
+    this.debris.length = 0;
+    for (const mat of this.materials) mat.dispose();
+    this.materials.length = 0;
+  }
 }

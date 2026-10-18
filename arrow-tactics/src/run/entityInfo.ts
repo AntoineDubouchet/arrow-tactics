@@ -15,7 +15,7 @@ import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
 import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from './barracksUpgradeEffects';
 import { effectiveMineGoldPerSecond } from './mineUpgradeEffects';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
-import type { PlayerProgression } from './runUpgrades';
+import { entityRunUpgradeLevel, type PlayerProgression, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Fiche d'entite : adaptateur PUR entre l'etat du jeu (emplacements de
@@ -106,6 +106,18 @@ function formatNumber(value: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
+/** Titre suivi du niveau d'amelioration de run (« Fantassin — Niv. 3 ») ;
+ *  inchange pour une entite sans amelioration (niveau null). */
+function titleWithLevel(title: string, level: number | null): string {
+  return level === null ? title : `${title} — Niv. ${level}`;
+}
+
+/** Niveau a afficher pour une entite : seulement dans le camp du joueur
+ *  (les ameliorations de la Forge ne concernent que lui). */
+function playerLevel(team: Team, levels: Readonly<RunUpgradeLevels>, definitionId: string): number | null {
+  return team === 'player' ? entityRunUpgradeLevel(levels, definitionId) : null;
+}
+
 /** Valeur interne (PV, degats, bouclier) -> points affiches. */
 export function toDisplayPoints(internal: number): number {
   return internal / HP_PER_PIP;
@@ -179,6 +191,8 @@ interface UnitInfoSource {
   abilityDamageBonus: number;
   tauntShieldBonus: number;
   battle: BattleUnitState | null;
+  /** Niveau d'amelioration de run du type d'unite, null s'il n'y en a pas. */
+  upgradeLevel: number | null;
 }
 
 function abilityState(remaining: number | undefined, lockoutRemaining = 0): string {
@@ -233,7 +247,7 @@ function buildUnitInfo(source: UnitInfoSource): UnitInfo {
   return {
     kind: 'unit',
     unitId: source.unitId,
-    title: def.name,
+    title: titleWithLevel(def.name, source.upgradeLevel),
     team: source.team,
     hp: hpOf(source.hp, stats.maxHp, battle?.shield ?? 0),
     rows,
@@ -260,11 +274,13 @@ export function placementUnitInfo(slot: { unitId: string; hp: number }, progress
     abilityDamageBonus: playerUnitAbilityDamageBonus(slot.unitId, progress.upgrades),
     tauntShieldBonus: playerUnitTauntShieldBonus(slot.unitId, progress.upgrades),
     battle: null,
+    upgradeLevel: playerLevel('player', progress.upgrades, slot.unitId),
   });
 }
 
-/** Unite seule en bataille : tout vient de l'entite, deja effective. */
-export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number): UnitInfo {
+/** Unite seule en bataille : tout vient de l'entite, deja effective, sauf
+ *  le niveau d'amelioration, lu dans les niveaux de la run (`levels`). */
+export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, levels: Readonly<RunUpgradeLevels>): UnitInfo {
   return buildUnitInfo({
     unitId: entity.unitId,
     team: entity.team,
@@ -278,6 +294,7 @@ export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number): Un
       shield: entity.shield,
       battleElapsedSeconds,
     },
+    upgradeLevel: playerLevel(entity.team, levels, entity.unitId),
   });
 }
 
@@ -289,7 +306,7 @@ interface GroupMember {
   maxHp: number;
 }
 
-function buildGroupInfo(members: GroupMember[], team: Team): GroupInfo {
+function buildGroupInfo(members: GroupMember[], team: Team, levels: Readonly<RunUpgradeLevels>): GroupInfo {
   const counts = new Map<string, number>();
   let hp = 0;
   let maxHp = 0;
@@ -305,6 +322,10 @@ function buildGroupInfo(members: GroupMember[], team: Team): GroupInfo {
   const composition = [...counts.entries()]
     .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
     .map(([unitId, count]) => `${count} ${plural(count, getUnit(unitId).name)}`);
+  // Un seul type : un seul niveau de run, rappele sur la ligne de composition.
+  const onlyType = counts.size === 1 ? [...counts.keys()][0]! : null;
+  const level = onlyType ? playerLevel(team, levels, onlyType) : null;
+  if (level !== null) composition[0] = titleWithLevel(composition[0]!, level);
   return {
     kind: 'group',
     title: `${members.length} ${plural(members.length, 'unité')}`,
@@ -321,15 +342,17 @@ export function placementGroupInfo(slots: readonly { unitId: string; hp: number 
   return buildGroupInfo(
     slots.map((s) => ({ unitId: s.unitId, hp: s.hp, maxHp: effectivePlayerUnitStats(s.unitId, progress).maxHp })),
     'player',
+    progress.upgrades,
   );
 }
 
 /** `entities` : unites encore vivantes de la selection (les mortes en sont
  *  deja retirees par BattleSelection.sync). */
-export function battleGroupInfo(entities: readonly Entity[]): GroupInfo {
+export function battleGroupInfo(entities: readonly Entity[], levels: Readonly<RunUpgradeLevels>): GroupInfo {
   return buildGroupInfo(
     entities.map((e) => ({ unitId: e.unitId, hp: e.hp, maxHp: e.stats.maxHp })),
     entities[0]?.team ?? 'player',
+    levels,
   );
 }
 
@@ -357,7 +380,8 @@ export function placementBuildingInfo(owned: { buildingId: string; hp: number },
   // Forge : seul acces aux ameliorations de la run, en preparation
   // uniquement (aucune action dans battleBuildingInfo).
   const actions: EntityInfoAction[] | undefined = def.id === 'forge' ? [{ id: 'openForge', label: 'Ouvrir la Forge', enabled: true }] : undefined;
-  return { kind: 'building', buildingId: def.id, title: def.displayName, team: 'player', hp: hpOf(owned.hp, def.maxHp), rows, sections: [], status: null, actions };
+  const title = titleWithLevel(def.displayName, playerLevel('player', progress.upgrades, def.id));
+  return { kind: 'building', buildingId: def.id, title, team: 'player', hp: hpOf(owned.hp, def.maxHp), rows, sections: [], status: null, actions };
 }
 
 /** Bâtiment en bataille : PV et production lus sur l'entite. Le revenu de
@@ -375,7 +399,8 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression):
       rows.push({ label: 'Prochaine production', value: entity.spawnTimer > 0 ? formatRemaining(entity.spawnTimer) : 'En attente' });
     }
   }
-  return { kind: 'building', buildingId: def.id, title: def.displayName, team: entity.team, hp: hpOf(entity.hp, entity.stats.maxHp), rows, sections: [], status: null };
+  const title = titleWithLevel(def.displayName, playerLevel(entity.team, progress.upgrades, def.id));
+  return { kind: 'building', buildingId: def.id, title, team: entity.team, hp: hpOf(entity.hp, entity.stats.maxHp), rows, sections: [], status: null };
 }
 
 // --- Baliste ---------------------------------------------------------------
@@ -394,7 +419,7 @@ export function placementBallistaInfo(progress: PlayerProgression): BallistaInfo
   const maxHp = effectiveBallistaMaxHp(progress.upgrades);
   return {
     kind: 'ballista',
-    title: getBuilding('ballista').displayName,
+    title: titleWithLevel(getBuilding('ballista').displayName, playerLevel('player', progress.upgrades, 'ballista')),
     team: 'player',
     hp: hpOf(maxHp, maxHp),
     rows: ballistaRows(progress),
@@ -408,7 +433,7 @@ export function placementBallistaInfo(progress: PlayerProgression): BallistaInfo
 export function battleBallistaInfo(entity: Entity, status: BallistaStatus, progress: PlayerProgression): BallistaInfo {
   return {
     kind: 'ballista',
-    title: getBuilding('ballista').displayName,
+    title: titleWithLevel(getBuilding('ballista').displayName, playerLevel(entity.team, progress.upgrades, 'ballista')),
     team: entity.team,
     hp: hpOf(entity.alive ? entity.hp : 0, entity.stats.maxHp),
     rows: ballistaRows(progress),
