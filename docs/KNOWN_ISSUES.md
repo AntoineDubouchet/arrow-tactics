@@ -24,11 +24,10 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | ID | Titre | Statut |
 |---|---|---|
 | KI-01 | Cache des bornes d'obstacles et emprises de bâtiments modifiées en place | À vérifier |
-| KI-02 | Placement en jeu insensible aux trous de cellules | Dette |
+| KI-02 | Placement en jeu sans test direct des cellules | Dette (atténuée) |
 | KI-03 | Bâtiment potentiellement inatteignable | À vérifier |
 | KI-04 | Contrat implicite « ordre de spawn = ordre de l'armée » | Dette |
 | KI-05 | L'undo d'un déplacement au gizmo peut réorienter un décor | Confirmé (lecture du code) |
-| KI-06 | R / « Tourner 90° » : hors historique et départ à 0° | Confirmé (lecture du code) |
 | KI-07 | « Tester le scénario » sans Mine ni Caserne | Dette |
 | KI-09 | Descriptions de talents aux valeurs codées en dur | Dette |
 | KI-10 | Commentaire inexact du bouton d'achat ×5 | Dette |
@@ -37,14 +36,25 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-13 | Commentaires de code périmés | Dette |
 | KI-15 | Aucune suite de tests automatisée | Dette |
 | KI-16 | Assets inutilisés copiés dans le build | Confirmé (mesuré) |
-| KI-19 | Raccourcis clavier actifs pendant la saisie dans un champ | Confirmé (lecture du code) |
 | KI-20 | Validation partielle des positions dans l'éditeur | Dette |
 | KI-21 | Justificatifs de provenance et de droits des assets non archivés | Dette |
 | KI-22 | Assets suivis directement par Git, sans Git LFS | Dette |
 | KI-23 | Raycast sur un modèle animé avant son premier rendu | Dette |
+| KI-24 | Espace réactive le bouton qui a gardé le focus | Confirmé (éditeur) / À vérifier (jeu) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
-(c'est le cas de KI-08, KI-14, KI-17 et KI-18).
+(c'est le cas de KI-06, KI-08, KI-14, KI-17, KI-18 et KI-19).
+
+Retirées lors de la refonte de l'éditeur, résolues côté code :
+
+- **KI-06** (R / « Tourner 90° » hors historique et départ à 0°) : R et
+  « +90° (R) » partent de l'orientation réellement affichée et créent une
+  entrée d'historique ; annuler la première rotation rend son orientation
+  d'origine à un décor jamais tourné (`EDITOR.md` §9 et §11).
+- **KI-19** (raccourcis actifs pendant la saisie) : une garde centrale en
+  tête de l'écouteur `keydown` de `main.ts` (`isTypingInField`) ignore tous
+  les raccourcis du jeu et de l'éditeur quand le focus est dans un champ ;
+  seul Échap fait sortir du champ, puis garde son rôle habituel.
 
 ---
 
@@ -82,20 +92,31 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 - **Piste** : invalider le cache quand la liste change (nouveau tableau au
   lieu d'une mutation en place, ou clé de version).
 
-### KI-02 — Placement en jeu insensible aux trous de cellules
+### KI-02 — Placement en jeu sans test direct des cellules
 
-- **Statut** : Dette.
+- **Statut** : Dette, atténuée par le territoire.
 - **Risque** : `isValidPlacementTile` (`main.ts`) vérifie le placement des
-  unités, des bâtiments et de la tour. Il ne teste que le rectangle de zone
-  et les obstacles, jamais `MapDef.cells`. Sur une carte à trous, on pourrait
-  poser un élément au-dessus d'un vide.
-- **Impact actuel** : aucun. La carte de départ et l'expansion A/B/C
-  produisent toujours un rectangle plein de cellules. La simulation bloque
-  déjà les trous (`computeVoidObstacles`, `sim/world.ts`).
+  unités, des bâtiments et de la tour. Il teste les obstacles et le
+  **territoire** (la case doit appartenir au joueur), jamais `MapDef.cells`
+  directement.
+- **Atténuation** : un trou n'a normalement pas de territoire, donc il est
+  refusé :
+  - le repli historique (`deriveLegacyTerritory`) ne couvre que les cases
+    existantes ;
+  - dans l'éditeur, supprimer une case retire aussi son entrée de territoire
+    explicite.
+- **Reste possible** : un `territory` explicite écrit à la main (ou issu d'un
+  autre outil) peut couvrir une case absente ; le chargement ne le vérifie
+  pas. On pourrait alors poser un élément au-dessus d'un vide.
+- **Impact actuel** : aucun. Une run ne charge que la carte de départ et son
+  expansion A/B/C, qui restent des rectangles pleins sans territoire
+  explicite. La simulation bloque déjà les trous (`computeVoidObstacles`,
+  `sim/world.ts`).
 - **Vérification** : pas faisable sans modification, car le jeu réel ne
-  charge pas encore de carte à trous.
+  charge pas encore de carte de l'éditeur.
 - **Piste** : faire tenir compte des cellules à `isValidPlacementTile`
-  (`buildCellIndex`, `config/mapDef.ts`).
+  (`buildCellIndex`, `config/mapDef.ts`), ou filtrer le territoire sur les
+  cellules au chargement.
 
 ### KI-03 — Bâtiment potentiellement inatteignable
 
@@ -148,32 +169,12 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
   `main.ts`), ou faire en sorte que l'undo d'une translation ne restaure que
   la position.
 
-### KI-06 — R / « Tourner 90° » : hors historique et départ à 0°
-
-- **Statut** : Confirmé par lecture du code, non reproduit manuellement.
-- **Symptômes** :
-  1. un décor jamais tourné passe à 90° **absolus** au premier appui, au lieu
-     de pivoter de +90° depuis son orientation actuelle ;
-  2. l'action n'est pas enregistrée dans l'historique : Ctrl+Z annule
-     l'action précédente.
-- **Code concerné** :
-  - `editor/editorState.ts`, `rotateSelected` : `(rotationY ?? 0) + delta` ;
-  - `main.ts` (bouton `onRotate` et touche R) : pas d'appel à
-    `editorHistory.push`.
-- **Impact actuel** : comportement incohérent avec la rotation par l'anneau
-  et par Ctrl+molette, qui partent de l'orientation réelle et sont
-  annulables.
-- **Vérification** : poser un arbre, appuyer sur R, regarder l'angle affiché,
-  puis faire Ctrl+Z.
-- **Piste** : réutiliser `currentObstacleRotation` et
-  `pushObstacleRotationCommand` (déjà présents dans `main.ts`).
-
 ### KI-07 — « Tester le scénario » sans Mine ni Caserne
 
 - **Statut** : Dette (limitation), partiellement résolue.
 - **Résolu** : la **Baliste** est désormais un vrai bâtiment en test (PV,
   collision, destruction), à la position de la carte (`MapDef.ballista`, ou
-  le repli historique) — voir `EDITOR.md` §14-§15.
+  le repli historique) — voir `EDITOR.md` §15-§16.
 - **Symptôme restant** : aucune Mine ni Caserne n'est créée pendant un test
   depuis l'éditeur ; ces bâtiments ne peuvent pas y être testés.
 - **Code concerné** :
@@ -188,31 +189,6 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 - **Piste** : une métadonnée optionnelle sur les obstacles
   `kind: 'building'`, ou une option du test.
 
-### KI-19 — Raccourcis clavier actifs pendant la saisie dans un champ
-
-- **Statut** : Confirmé par lecture du code, non reproduit manuellement.
-- **Certain dans le code** :
-  - `main.ts` n'a qu'un seul écouteur `keydown`, posé sur `window` ;
-  - seules les touches **S** (Stop) et **Q** (tir de la Baliste) ignorent
-    un champ de saisie (`isTypingInField`) ; les autres raccourcis ne
-    filtrent pas la cible de l'événement ;
-  - les champs exposés sont les deux `<input type=number>` « Taille » de
-    l'éditeur (`editor/editorUI.ts`) et les contrôles de l'écran Paramètres
-    (`ui/screens.ts`).
-- **Effets attendus, non observés à l'écran** :
-  - Retour arrière ou Suppr dans un champ « Taille » supprimerait aussi le
-    décor ou l'unité sélectionné ;
-  - les flèches modifieraient la valeur du champ et feraient en plus pivoter
-    ou incliner la caméra ;
-  - A, E et Espace agiraient sur la caméra ;
-  - R tournerait la sélection dans l'éditeur.
-- **Impact actuel** : risque de suppression ou de mouvement de caméra
-  involontaire pendant une saisie.
-- **Vérification** : sélectionner un décor dans l'éditeur, cliquer dans le
-  champ « Taille », appuyer sur Retour arrière, puis vérifier si le décor
-  existe toujours.
-- **Piste** : ignorer les raccourcis quand le focus est sur un champ de saisie.
-
 ### KI-20 — Validation partielle des positions dans l'éditeur
 
 - **Statut** : Dette. Confirmé par lecture du code.
@@ -225,13 +201,39 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
     unité.
 - **Résolu** : l'ancienne asymétrie entre pose et déplacement d'unités a
   disparu. Les déplacements utilisent désormais `canPlaceUnitAt` (voir
-  `EDITOR.md` §7), et deux unités ne peuvent plus finir sur la même case.
+  `EDITOR.md` §8), et deux unités ne peuvent plus finir sur la même case.
 - **Impact actuel** : une carte peut contenir des unités posées sur le bord
   d'un gros obstacle, sans avertissement.
 - **Vérification** : poser ou déplacer une unité sur une case de bord d'un
   rocher 2×2 ; retirer une case au bord d'un bâtiment 2×2.
 - **Piste** : tester toute l'emprise d'un obstacle (`obstacleBounds`).
-- Voir aussi `EDITOR.md` §7 et §17.
+- **Hors de cette entrée** : la Baliste teste toute son emprise
+  (`obstacleBounds`), et le jeu réel aussi (`isValidPlacementTile`) ; la
+  divergence ne concerne que les règles de l'éditeur citées plus haut.
+- Voir aussi `EDITOR.md` §8 et §18.
+
+### KI-24 — Espace réactive le bouton qui a gardé le focus
+
+- **Statut** : Confirmé dans l'éditeur (reproduit dans le navigateur) ; à
+  vérifier sur les boutons du jeu.
+- **Mécanisme** : un bouton HTML cliqué à la souris garde le focus. Espace
+  réinitialise la caméra (écouteur `keydown` de `main.ts`), mais le
+  navigateur active aussi le bouton qui a le focus, comme un second clic.
+- **Cas connus** :
+  - éditeur, reproduit : cliquer une catégorie du catalogue puis appuyer sur
+    Espace la referme aussitôt. Les autres boutons de la colonne de gauche
+    (outils, valeurs du territoire) sont dans la même situation ;
+  - pas concernés : les chevrons de repli des panneaux (ils rendent le focus
+    après un clic souris) et les boutons du panneau de propriétés quand leur
+    action reconstruit le panneau (par exemple « +90° (R) ») ;
+  - jeu : boutique, Forge ou autres boutons cliqués juste avant Espace,
+    effet non vérifié.
+- **Impact actuel** : action répétée involontaire ; gêne surtout dans
+  l'éditeur, où Espace sert souvent.
+- **Vérification** : dans l'éditeur, ouvrir la catégorie « Fleurs » à la
+  souris, puis appuyer sur Espace.
+- **Piste** : rendre le focus après un clic souris sur ces boutons, ou
+  empêcher l'action par défaut d'Espace quand elle sert à la caméra.
 
 ## C. Incohérences entre documentation et code
 
@@ -308,7 +310,12 @@ Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
     n'est utilisé dans le jeu, et un commentaire renvoie à un `License.txt`
     « copié avec les fichiers », absent du dépôt ;
   - `render/board.ts` : un commentaire affirme que seuls les rochers et les
-    arbres viennent de modèles `.glb`.
+    arbres viennent de modèles `.glb` ;
+  - `config/territory.ts` : l'en-tête affirme que ni l'éditeur ni le rendu
+    n'utilisent encore le module, alors que tous deux s'en servent ;
+  - `data/buildings.ts` : renvoie au catalogue `ASSET_GROUPS`
+    « Bâtiments (KayKit) », remplacé par `DECOR_CATALOG` (catégorie
+    « Structures décoratives »).
 - **Impact actuel** : risque d'induire en erreur un développeur ou un agent.
 - **Piste** : un passage de nettoyage des commentaires.
 

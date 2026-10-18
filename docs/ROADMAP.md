@@ -99,6 +99,23 @@ systèmes de progression.
   fragile.
 - **Ce qui doit attendre** : les autres entrées suivent leur propre rythme.
 
+### C5 — Territoire statique et refonte de l'éditeur — *Terminé*
+
+- **Résultat** :
+  - **territoire par cases** (`config/territory.ts`, `MapDef.territory`),
+    avec repli sur les bandes historiques pour les cartes qui n'en ont pas ;
+    il pilote le placement en préparation et le rendu des zones
+    (`DESIGN_DECISIONS.md` E5) ;
+  - **éditeur de territoire** : peinture Joueur / Ennemi / Neutre, camp des
+    unités fixé par le territoire, Baliste 3×3 en territoire joueur ;
+  - **refonte de l'éditeur** (étapes E0 à E6) : mise en page en barres et
+    panneaux, outils et ligne d'état, catalogue par catégories avec
+    recherche, panneau de propriétés, annuler / rétablir complet, état non
+    enregistré et Nouvelle carte, caméra cadrée dans l'espace libre et
+    panneaux repliables. Détail dans `EDITOR.md`.
+- **Reste hors de C5** : le territoire de run (M5), les limitations listées
+  en T5.
+
 ---
 
 ## 3. Moyen terme
@@ -160,6 +177,24 @@ buildcraft.
 - **Dépendances** : M3 ; en partie L2 (talents).
 - **Décisions ouvertes** : quels archétypes ; comment le jeu oriente le joueur
   vers eux (boutique, talents, offres).
+
+### M5 — Territoire de run (fief) — *Décision ouverte*
+
+- **Objectif** : un territoire propre à la run, qui s'étend au fil des
+  vagues, au lieu des bandes recalculées par l'agrandissement A/B/C.
+- **Pourquoi** : le territoire statique (C5) en pose la base ; un fief qui
+  grandit pourrait porter l'expansion de la carte et le placement des
+  bâtiments.
+- **Dépendances** : C5. Pour la Baliste, la décision D3
+  (`DESIGN_DECISIONS.md`).
+- **Décisions ouvertes** :
+  - `RunState.territory` et la règle d'extension ;
+  - devenir de l'expansion A/B/C (et de la translation du camp ennemi à
+    l'étape C) avec un territoire explicite ;
+  - Baliste placée automatiquement au cœur du territoire, qui remplacerait
+    le placement obligatoire (D3).
+- **Ce qui doit attendre** : tout chargement en run d'une carte de l'éditeur
+  à territoire explicite, tant que ce territoire ne suit pas l'expansion.
 
 ---
 
@@ -252,7 +287,9 @@ Chantiers continus, menés au fil des besoins plutôt qu'en blocs isolés.
   `ui/screens.ts` ce que les chantiers touchent (boutique, placement,
   bâtiments). Jamais de refonte isolée sans besoin concret.
 - **T5 — Outils** :
-  - éditeur de maps : KI-05, KI-06, test de scénario avec bâtiments (KI-07) ;
+  - éditeur de maps : KI-05, KI-20, KI-24, test de scénario avec
+    bâtiments (KI-07), nom de carte modifiable, priorité de clic des petits
+    décors traversables ;
   - lecture des résultats du harnais d'équilibrage ;
   - retrait des boutons de debug au moment opportun.
 
@@ -274,6 +311,8 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
 - **Sauvegarde d'une run en cours** : nécessaire ou non pour des runs longues.
 - **Évolution de la carte** : carte unique qui s'étend, succession de cartes,
   ou variété de terrains.
+- **Territoire de run** : forme de l'extension du fief, Baliste automatique
+  au cœur du territoire (remplacerait D3), voir M5.
 - **Économie de l'Or** : rythme de gain, coûts des bâtiments et des
   améliorations de Forge (barème actuel provisoire), plafonds éventuels.
 - **Nouveaux types de contenu** :

@@ -55,7 +55,7 @@ Le dépôt a deux niveaux :
 | Dossier | Rôle |
 |---|---|
 | `core/` | Boucle à pas fixe, petites maths, RNG à graine, calcul pur du déplacement d'unités sur la grille (`gridGroupMove.ts`) |
-| `config/` | Constantes de réglage, types `ObstacleDef`, format de map `MapDef` |
+| `config/` | Constantes de réglage, types `ObstacleDef`, format de map `MapDef`, territoire par cases (`territory.ts`) |
 | `data/` | Définitions déclaratives : unités, bâtiments, objets, talents, capacités, upgrades (avec quelques lookups et calculs purs) |
 | `sim/` | Simulation de bataille |
 | `run/` | État d'une run, méta-progression, réglages, calcul des effets de talents/upgrades, statistiques effectives du joueur (`playerUnitStats.ts`, `ballistaStats.ts`), adaptateur de la fiche d'entité (`entityInfo.ts`), expansion de map |
@@ -349,7 +349,7 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     `main.ts` la construit à la demande (`playerProgression()`, jamais
     stockée) ; « Tester le scénario » se joue avec `upgrades = {}`.
   - Coût : `runUpgradeGoldCost(id, niveau)` = coût de départ × 2^niveau.
-    Coût de départ `RUN_UPGRADE_GOLD_COST_BASE` (2), sauf valeur propre dans
+    Coût de départ `RUN_UPGRADE_GOLD_COST_BASE` (1), sauf valeur propre dans
     `RUN_UPGRADE_GOLD_COST_BASE_BY_ID` (Mine et Caserne : 25) ; croissance
     `RUN_UPGRADE_GOLD_COST_GROWTH` (2). Aucun talent n'intervient.
   - Achat : `canPurchaseRunUpgrade` / `purchaseRunUpgrade(run, id)` (id
@@ -408,11 +408,43 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 - **Expansion de map** (`run/mapExpansion.ts`) : fonctions pures sur `MapDef`
   et un état d'expansion. `main.ts` les applique derrière l'écran de
   transition, après une victoire.
+- **Territoire** (`config/territory.ts`, module pur sans DOM ni Three.js) :
+  - `TerritoryCell = { x, z, team: 'player' | 'enemy' }`, dans la
+    convention de `MapDef.cells` (coin entier de la case). Une case sans
+    entrée est neutre ; neutre n'est pas un `TerritoryTeam`. Le type est un
+    littéral local, structurellement identique à `Team` (`config/`
+    n'importe jamais `sim/`) ;
+  - `MapDef.territory?` : absent = repli historique ; `[]` = territoire
+    explicitement vide, sans repli. `resolveMapTerritory(map, spawnDepth)`
+    est la **seule** source du repli (`deriveLegacyTerritory` : bandes de
+    `spawnDepth` rangées comptées depuis l'emprise réelle des cellules,
+    limitées aux cellules existantes) ;
+  - `buildTerritoryIndex` (lookup O(1)), `territoryOwnerAtPoint`,
+    `isFootprintOwnedBy` (toute l'empreinte doit appartenir au camp).
+- **Territoire courant du jeu** (`main.ts`, `currentTerritory`) : index
+  construit depuis `currentMap` et `currentRun.mapExpansion.spawnDepth`,
+  reconstruit par `rebuildCurrentTerritoryIndex` à chaque changement de l'un
+  des deux (nouvelle run, expansion, test du scénario et retour), jamais par
+  image. `isValidPlacementTile` le lit pour unités, bâtiments et tour ; un
+  index périmé est détecté et reconstruit avec un avertissement. Un
+  territoire explicite ne suit pas encore l'expansion (pas de
+  `RunState.territory`) ; sans effet tant qu'une run ne charge que
+  `DEFAULT_MAP`, qui n'en a pas. La simulation ne connaît pas le
+  territoire.
 
 ## 11. Rendu
 
 - **Caméra** : `render/renderer.ts`, caméra orthographique inclinée (yaw,
   pitch, zoom, déplacement).
+  - Zone d'affichage partielle, utilisée par l'éditeur seulement :
+    `setViewportInsets` (marges en pixels mesurées sur le DOM) centre la vue
+    dans l'espace libre ; le frustum couvre toujours tout le canvas, donc le
+    raycast et les projections ne changent pas. `frameBox` cadre une
+    emprise sans changer l'orientation, et la recadre au changement de zone
+    tant que la caméra n'a pas été touchée.
+  - `getViewState` / `setViewState` : l'éditeur sauvegarde la vue du jeu à
+    l'entrée et la restaure à la sortie. Sans marges, le calcul est celui du
+    jeu.
 - **Unités** :
   - `render/unitViews.ts` crée une vue par entité, interpole sa position,
     joue les animations, le flash de dégâts et la mort ;
@@ -421,6 +453,10 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - attaques procédurales : `proceduralAttackAnimator.ts`, `proceduralSwing.ts`.
 - **Plateau** : `render/board.ts` (sol, grille, zones), `terrainCells.ts`
   (un `InstancedMesh` par type de terrain), `textures.ts`.
+  - Zones : `createZonesGroup(cells)` rend un territoire déjà résolu, une
+    instance par case et un `InstancedMesh` par camp, aux couleurs de
+    `teamColor`. Partagé par le plateau du jeu (`createBoard`, même
+    résolution que la validation du placement) et celui de l'éditeur.
 - **Décor** : `render/assetLibrary.ts` (chargement et cache des modèles
   glTF/OBJ/FBX) et `obstacleFactory.ts` (construction selon `kind`), partagés
   par le jeu et l'éditeur.
@@ -521,8 +557,9 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   de placement en bas au centre, or, boutique, vente et inventaire en bas à
   droite, aide de vitesse en bas à gauche.
 - **Règles transversales** :
-  - pas de dialogue natif (`alert`/`confirm`), sauf dans l'éditeur pour une
-    carte invalide ;
+  - pas de dialogue natif (`alert`/`confirm`), sauf dans l'éditeur : alerte
+    de carte invalide, confirmation avant de perdre une carte non
+    enregistrée, et avertissement `beforeunload` du navigateur ;
   - menu contextuel du navigateur désactivé sur `document.body` (`main.ts`) ;
   - `user-select: none` global, sauf pour les champs de saisie.
 
@@ -530,18 +567,31 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
 | Fichier | Rôle |
 |---|---|
-| `editor/editorState.ts` | État pur : obstacles, unités, cellules, position de la Baliste (`ballista`, `ballistaExplicit`), sélection (un décor, la Baliste ou un ensemble d'unités), outil actif ; application d'un déplacement d'unités et restauration pour l'historique (`moveUnits`, `setUnitStates`) |
+| `editor/editorState.ts` | État pur : obstacles, unités, cellules, territoire explicite (`territory`, `undefined` tant qu'il n'a pas été modifié) avec index résolu en cache (`territoryOwnerAt`, invalidé à chaque changement de cellule ou de territoire), position de la Baliste (`ballista`, `ballistaExplicit`), sélection, outil actif ; instantanés pour l'historique (`objectsSnapshot`, `mapShapeSnapshot`, `territorySnapshot`) |
 | `editor/editorScene.ts` | Construction des meshes (réutilise les fabriques du jeu), fantômes des outils de pose, aperçus de cellule, anneau de sélection des décors (doré) et de la Baliste (couleur de son camp, fixée par `main.ts`) |
-| `editor/editorUI.ts` | Interface DOM : catalogue d'assets, barre d'outils, panneau de propriétés |
+| `editor/editorUI.ts` | Interface DOM : barre du haut, colonne de gauche (outils, catalogue `DECOR_CATALOG`, recherche), panneau de propriétés, ligne d'état, panneaux repliables, mesure de l'espace libre (`getViewportInsets`) |
 | `editor/history.ts` | Pile de commandes undo/redo (`{undo, redo}`) ; la coalescence d'un geste en une commande est faite par l'appelant |
-| `editor/mapSerializer.ts` | `MapDef` ↔ JSON (export par téléchargement, import par fichier) |
+| `editor/mapSerializer.ts` | `MapDef` ↔ JSON (export par téléchargement, import par fichier) ; `territory` et `ballista` écrits seulement s'ils sont explicites |
 
 L'orchestration reste dans `main.ts` :
 
 - cache de meshes par id d'obstacle, jamais reconstruits, car certaines
   fabriques tirent leur composition au hasard ;
 - `TransformControls` en translation seule ;
-- rotation par l'anneau de sélection et par Ctrl+molette ;
+- rotation par l'anneau de sélection, Ctrl+molette, boutons du panneau et R ;
+- historique : une commande par geste, par instantanés de l'état
+  (`pushEditorObjectsCommand`, `pushObstacleRotationCommand`, traits de
+  territoire, `applyEditorMapShape` pour la Taille) ;
+- camp des unités : `EditorState.territoryOwnerAt` à la pose et au
+  déplacement ; une case neutre est refusée par `canPlaceUnitAt` ;
+- état non enregistré : `editorCleanExport` mémorise l'export (JSON, cases
+  et territoire triés) du dernier état enregistré ; `isEditorDirty` le
+  compare à l'export courant, recalculé au plus une fois par image.
+  `confirmDiscardEditorDraft` centralise les confirmations ; l'historique
+  n'intervient pas dans ce calcul ;
+- cadrage : `updateEditorViewport` transmet les marges de l'interface à la
+  caméra (ouverture, repli d'un panneau, redimensionnement, retour de test),
+  `frameEditorMap` cadre la carte ;
 - sélection et déplacement des unités :
   - clic, Maj + clic, rectangle et double-clic ;
   - plan calculé par `core/gridGroupMove.ts` avec `canPlaceUnitAt` ;

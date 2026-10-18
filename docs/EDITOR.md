@@ -7,117 +7,241 @@ le code fait foi.
 Pour l'organisation technique générale, voir `ARCHITECTURE.md` ; pour les bugs
 et limitations, `KNOWN_ISSUES.md`.
 
+**Portée des cartes de l'éditeur** : une run normale n'en charge aucune. Elle
+part toujours de la carte de campagne intégrée au code (`DEFAULT_MAP`, voir
+`CURRENT_STATE.md` §11). Une carte de l'éditeur sert à « Tester le
+scénario » (§15) ; ses unités (`playerUnits`, `enemyUnits`) ne définissent
+ni l'armée de départ ni les vagues d'une run.
+
 ## Sommaire
 
-1. Ouvrir et quitter l'éditeur
+1. Ouvrir, quitter, nouvelle carte
 2. L'interface
-3. Plateau : taille et cases de terrain
-4. Objets disponibles
+3. Carte : taille et cases de terrain
+4. Territoire
 5. Unités
-6. Sélection
-7. Déplacement
-8. Rotation des décors
-9. Supprimer
-10. Annuler / rétablir
-11. Panneau de propriétés
-12. Caméra
-13. Enregistrer et charger
-14. Tester le scénario
-15. Bâtiments décoratifs, bâtiments gameplay et Baliste
-16. Cartes à trous
-17. Limitations connues
-18. Pour les développeurs
-19. Récapitulatif des contrôles
+6. Catalogue des décors
+7. Sélection
+8. Déplacement
+9. Rotation des décors
+10. Supprimer
+11. Annuler / rétablir
+12. Panneau de propriétés
+13. Caméra
+14. Enregistrer, charger, état non enregistré
+15. Tester le scénario
+16. Structures décoratives, bâtiments gameplay et Baliste
+17. Cartes à trous
+18. Limitations connues
+19. Pour les développeurs
+20. Récapitulatif des contrôles
 
 ---
 
-## 1. Ouvrir et quitter l'éditeur
+## 1. Ouvrir, quitter, nouvelle carte
 
-- **Ouvrir** : menu principal → **Éditeur de maps**.
-- **Contenu au démarrage** : l'éditeur s'ouvre toujours sur la **carte de
-  campagne par défaut** (« vague1-20 »), avec un historique d'annulation vide.
-- **Quitter** : **« ← Retour au menu »** abandonne le brouillon en cours. Rien
-  n'est conservé si la carte n'a pas été enregistrée (§13).
+- **Ouvrir** : menu principal → **Éditeur de maps**. L'éditeur s'ouvre
+  toujours sur la **carte de campagne par défaut** (« vague1-20 »), avec un
+  historique vide. Cette carte est considérée comme enregistrée (§14).
+- **Quitter** : **« ← Retour au menu »**. Si la carte a des modifications
+  non enregistrées, une confirmation est demandée (§14).
+- **Nouvelle carte** (barre du haut) : remplace le brouillon par une carte
+  vierge, après confirmation si le brouillon n'est pas enregistré :
+  - 18×26 cases, rectangle plein de cases d'herbe ;
+  - aucun obstacle, aucune unité ;
+  - pas de position de Baliste explicite (repli du coin, §16) ;
+  - pas de territoire explicite : le territoire affiché est le repli
+    historique (§4) jusqu'au premier coup de pinceau ;
+  - `version: 1`, nom « Nouvelle carte » ;
+  - historique vide, carte **non enregistrée** jusqu'au premier Enregistrer.
+- **Nom de la carte** : il n'est pas modifiable dans l'interface. Une
+  nouvelle carte s'enregistre donc sous le nom « Nouvelle carte ».
 - **Indépendance** : l'éditeur affiche son propre plateau. La partie réelle
-  n'est pas modifiée par ce qui se passe dans l'éditeur.
+  n'est pas modifiée par ce qui se passe dans l'éditeur, et la caméra du jeu
+  est restaurée en sortant (§13).
 
 ## 2. L'interface
 
-- **En haut**, la barre d'outils :
-  - « ← Retour au menu », « Enregistrer », « Charger une carte » ;
-  - réglage de la taille ;
-  - outils de terrain ;
-  - « Tester le scénario ».
-- **À gauche**, le catalogue d'assets, rangé par groupes.
-- **À droite**, le panneau de propriétés, affiché quand un décor ou une unité
-  est sélectionné.
-- **En bas**, un rappel des principaux raccourcis.
+- **Barre du haut** (48 px, une ligne) : « ← Retour au menu », « Nouvelle
+  carte », « Enregistrer », « Charger une carte », « Tester le scénario »,
+  puis à droite « Éditeur de maps · *nom de la carte* », suivi de
+  « • non enregistré » quand la carte a des modifications non enregistrées.
+- **Colonne de gauche** (220 px), de haut en bas :
+  - **Sélection** : outil par défaut, toujours visible en haut de la colonne,
+    même quand le reste défile ;
+  - **Carte** : Taille (§3) et outils de cases ;
+  - **Territoire** : outil « Peindre le territoire », valeur Joueur / Ennemi
+    / Neutre et légende (§4) ;
+  - **Unités** : le bestiaire (§5) ;
+  - **Décors** : recherche et catalogue par catégories (§6).
+- **Panneau de droite** (240 px) : **Propriétés** de la sélection (§12).
+  Il est toujours présent ; sans sélection, il affiche « Aucune sélection ».
+- **Ligne d'état** (barre du bas, 44 px) : outil actif et gestes utiles,
+  selon le contexte (par exemple « Outil : Territoire — Joueur · Clic /
+  glisser : peindre · 1 / 2 / 3 : Joueur / Ennemi / Neutre · Échap :
+  Sélection »).
+- **Outil actif** : son bouton est mis en surbrillance (`aria-pressed`).
+  Échap, le clic droit ou **V** ramènent à l'outil Sélection.
+- **Panneaux repliables** : un petit chevron en haut du bord intérieur de
+  chaque panneau latéral le replie ou le déplie (`aria-expanded`, infobulle
+  « Masquer… » / « Afficher… »). Replié, le panneau disparaît et son chevron
+  reste contre le bord de la fenêtre ; le plateau récupère la place.
+  - Le contenu et la sélection sont conservés.
+  - L'état replié tient pendant « Tester le scénario » et au retour, mais
+    n'est pas sauvegardé.
+  - Utile surtout à 1280×720.
+- **Pendant « Tester le scénario »** : toute l'interface de l'éditeur est
+  masquée, sauf un cartouche en haut à gauche (« Test du scénario · Échap :
+  revenir à l'éditeur »).
 
-## 3. Plateau : taille et cases de terrain
+## 3. Carte : taille et cases de terrain
 
 **Taille**
 
 - Deux champs (largeur × hauteur) et le bouton **Appliquer**. Le minimum est
-  de 1×1.
+  de 1×1. Taper une valeur sans Appliquer ne change rien.
 - Agrandir **ajoute** des cases d'herbe.
 - Réduire **ne supprime ni cases ni objets** existants : ils restent en place,
-  éventuellement hors des nouvelles dimensions.
-- Le redimensionnement ne peut pas être annulé avec Ctrl+Z.
+  éventuellement hors des nouvelles dimensions. Ce comportement est
+  volontaire ; pour retirer des cases, utiliser « − Supprimer case ».
+- Appliquer une nouvelle taille est **annulable** (Ctrl+Z), avec les cases
+  ajoutées et la position de repli de la Baliste. Appliquer la même taille
+  ne crée aucune entrée d'historique.
 
 **Cases de terrain**
 
 - Outils : **+ Case (Herbe)**, **+ Case (Terre)**, **− Supprimer case**.
 - Ce sont des outils **répétables** : ils restent actifs jusqu'à Échap, un
-  clic droit ou le choix d'un autre outil.
+  clic droit ou le choix d'un autre outil. Chaque case ajoutée ou supprimée
+  est une entrée d'historique.
 - Un aperçu vert ou rouge indique sous le curseur si l'action est possible.
-- **Ajout** : refusé si une case existe déjà à cet endroit.
+- **Ajout** : refusé si une case existe déjà à cet endroit. Une case ajoutée
+  est neutre si le territoire est explicite ; avec le repli historique, les
+  bandes sont recalculées sur les cases présentes (§4).
 - **Suppression** : refusée si une unité ou un obstacle bloquant occupe la
-  case, ou si la case est sous l'empreinte de la Baliste (§15). Un prop
-  décoratif n'empêche pas la suppression.
+  case (seule la case du centre de l'obstacle compte, **KI-20**), ou si la
+  case est sous l'empreinte de la Baliste (§16). Un décor traversable
+  n'empêche pas la suppression. Supprimer une case retire aussi son entrée de
+  territoire explicite.
 
-## 4. Objets disponibles
+## 4. Territoire
 
-Catalogue (groupes dépliables) :
+Le territoire dit à quel camp appartient chaque case. Il est sauvegardé dans
+la carte (`MapDef.territory`, §14) et sert :
 
-| Groupe | Contenu |
-|---|---|
-| Obstacles | Rochers, arbres |
-| Décors | Champignons, buissons et plantes, fleurs, bois (bûches, souches), divers |
-| KayKit (médiéval) | Nature, props |
-| Bâtiments (KayKit) | Bleu, rouge, neutres |
-| Unités | Bestiaire du jeu (construit automatiquement depuis `data/units.ts`) |
+- en jeu, de **zone de placement** du joueur (unités, bâtiments, tour), voir
+  `CURRENT_STATE.md` §11 ;
+- dans l'éditeur, à **déterminer le camp** des unités posées ou déplacées
+  (§5) et à valider le déplacement de la Baliste (§16) ;
+- au **rendu** des zones, case par case : bleu pour le joueur, rouge pour
+  l'ennemi, rien pour une case neutre.
 
-- **Pose libre** : un clic pose l'objet exactement sous le curseur, sans
-  alignement sur une case. Un fantôme semi-transparent montre l'objet avant
-  le clic. Après la pose, l'éditeur revient à l'outil de sélection et l'objet
-  posé est sélectionné.
-- **Collisions en bataille** : les props sont traversables ; les rochers, les
-  arbres et les bâtiments bloquent le passage et la ligne de tir.
+**Valeurs**
+
+- Une case appartient au **joueur**, à l'**ennemi**, ou n'a pas d'entrée :
+  elle est alors **neutre**. Neutre n'est pas un troisième camp, c'est
+  l'absence d'entrée.
+
+**Territoire explicite ou repli historique**
+
+- **Carte sans champ `territory`** (anciennes cartes, nouvelle carte) : le
+  territoire affiché et utilisé est le **repli historique**, deux bandes de
+  7 rangées (`PLACEMENT_ROWS`), à l'arrière +z pour le joueur et à l'arrière
+  −z pour l'ennemi, limitées aux cases existantes ; le centre est neutre. Ce
+  repli est recalculé quand les cases changent.
+- **`territory: []`** : territoire explicitement vide. Toutes les cases sont
+  neutres ; le repli ne s'applique pas.
+- **Ouvrir puis enregistrer** une carte sans toucher au territoire ne crée
+  pas le champ : le repli n'est jamais matérialisé par un simple
+  enregistrement.
+- **Premier vrai changement** (coup de pinceau qui modifie une case) : le
+  repli affiché est d'abord copié en territoire explicite, puis la
+  modification est appliquée. Les bandes ne disparaissent donc pas.
+
+**Outil « Peindre le territoire »**
+
+- Choisir **Joueur**, **Ennemi** ou **Neutre** (boutons ou touches
+  **1 / 2 / 3** quand l'outil est actif ; choisir une valeur active l'outil).
+- **Clic** ou **glisser** sur les cases : elles prennent la valeur choisie.
+  Un aperçu de case s'affiche sous le curseur. Seules les cases existantes
+  se peignent.
+- Un trait complet (de l'appui au relâchement) est **une seule entrée**
+  d'historique.
+- Peindre ne change le camp d'**aucune unité déjà posée** : une unité
+  restée sur une case devenue neutre ou adverse garde son camp jusqu'à son
+  prochain déplacement. Le panneau de propriétés le signale (§12).
 
 ## 5. Unités
 
-- **Pose** : alignée au **centre d'une case**, avec un aperçu de case vert ou
-  rouge.
+- **Pose** : choisir une unité du bestiaire, puis cliquer. L'unité est
+  alignée au **centre d'une case**, avec un aperçu de case vert ou rouge et
+  un fantôme du modèle. Après la pose, l'outil revient à Sélection et l'unité
+  posée est sélectionnée.
+- **Camp** : celui du **territoire de la case** (§4) au moment de la pose ou
+  du déplacement. Il n'y a pas de choix de camp séparé.
+  - territoire joueur → unité du joueur ;
+  - territoire ennemi → unité ennemie ;
+  - case **neutre** → pose et déplacement **interdits**.
 - **Pose refusée** :
   - sans case de terrain ;
-  - sur un obstacle bloquant ;
+  - sur une case neutre ;
+  - sur un obstacle bloquant (seule la case du centre de l'obstacle compte,
+    **KI-20**) ;
   - sur une autre unité ;
-  - dans l'empreinte de la Baliste (§15).
+  - dans l'empreinte de la Baliste (§16).
 
-  Les déplacements d'unités appliquent les mêmes règles (§7).
-- **Camp** : déduit automatiquement de la moitié du plateau. `z ≥ 0` donne le
-  camp joueur, sinon le camp ennemi. Le camp est recalculé à chaque
-  déplacement, et rien ne restreint la pose aux zones de spawn.
-- **Rotation** : les unités ne se tournent pas. Le bouton « Tourner » est
-  masqué pour elles, et l'anneau de rotation ne sert qu'aux décors.
+  Les déplacements d'unités appliquent les mêmes règles (§8).
+- **Unités anciennes** : une unité chargée, ou laissée par un changement de
+  territoire, sur une case neutre ou adverse est **conservée telle quelle**,
+  avec son camp, jusqu'à ce qu'elle soit déplacée.
+- **Rotation** : les unités ne se tournent pas ; les actions de rotation ne
+  s'affichent que pour les décors.
+- **Rôle** : ces unités forment le scénario de « Tester le scénario » (§15),
+  pas l'armée d'une run.
 
-## 6. Sélection
+## 6. Catalogue des décors
+
+Rangement du catalogue, par catégories dépliables (seule « Obstacles » est
+ouverte au départ) :
+
+| Catégorie | Contenu |
+|---|---|
+| Obstacles | Rochers, arbres (bloquants) |
+| Végétation | Buissons et plantes, champignons |
+| Fleurs | Fleurs |
+| Bois | Bûches, souches |
+| Accessoires | Accessoires KayKit |
+| Nature | Éléments de nature KayKit |
+| Structures décoratives | Bâtiments KayKit : teinte bleue, teinte rouge, neutres |
+| Divers | Autres décors |
+
+- **Carte de décor** : nom lisible, taille, et badge **Bloquant** ou
+  **Traversable** (même règle de collision qu'en bataille).
+- **Recherche** : le champ « Rechercher un décor… » filtre en direct, sans
+  tenir compte des accents ni de la casse, sur le nom, la catégorie et
+  l'identifiant technique. Les catégories qui contiennent un résultat
+  s'ouvrent, les autres se masquent ; un message s'affiche si rien ne
+  correspond. Effacer la recherche rétablit l'état des catégories.
+- **Pose libre** : un clic pose le décor exactement sous le curseur, sans
+  alignement sur une case. Un fantôme semi-transparent le montre avant le
+  clic. Après la pose, l'outil revient à Sélection et le décor posé est
+  sélectionné.
+- **Collisions en bataille** : les décors traversables (fleurs, plantes,
+  accessoires…) n'ont pas de collision ; rochers, arbres et structures
+  bloquent le passage et la ligne de tir.
+- **Structures décoratives ≠ bâtiments gameplay** : une Forge, une Mine ou
+  une Caserne du catalogue n'est qu'un **décor bloquant**, sans PV ni effet
+  (§16).
+
+## 7. Sélection
 
 - **Décor ou Baliste** : un clic gauche le sélectionne, dès l'appui. Un décor
-  (neutre) est entouré d'un anneau doré. La Baliste, qui reste un objet
-  distinct des unités, est entourée d'un anneau à la couleur de son camp
-  propriétaire, aujourd'hui le bleu du joueur (même règle de couleur que
-  l'anneau des unités).
+  est entouré d'un anneau doré. La Baliste, qui reste un objet distinct des
+  unités, est entourée d'un anneau à la couleur de son camp (le bleu du
+  joueur).
+- **Priorité** : le clic retient l'objet touché le plus proche de la caméra,
+  décor, unité ou Baliste. Un petit décor traversable peut donc capter un
+  clic destiné au sol ou à une unité derrière lui (§18).
 - **Unités** : mêmes gestes qu'en préparation et en bataille. Les unités des
   deux camps sont sélectionnables.
 
@@ -126,16 +250,14 @@ Catalogue (groupes dépliables) :
 | Clic gauche sur une unité | Sélection simple : elle devient la seule sélectionnée |
 | Maj + clic sur une unité | L'ajoute à la sélection ou l'en retire |
 | Maj + clic dans le vide | Rien : la sélection reste |
-| Glisser (rectangle), depuis le sol ou une unité | Remplace la sélection par les unités encadrées, des deux camps. Avec Maj, remplace aussi. Jamais quand la Baliste est sélectionnée (§7) |
-| Double-clic sur une unité | Unités du même type **et du même camp** visibles à l'écran (projetées dans le canvas), jamais celles hors champ |
+| Glisser (rectangle), depuis le sol ou une unité | Remplace la sélection par les unités encadrées, des deux camps. Avec Maj, remplace aussi. Jamais quand la Baliste est sélectionnée (§8) |
+| Double-clic sur une unité | Unités du même type **et du même camp** visibles à l'écran, jamais celles hors champ |
 
 - **Rectangle** : il ne sélectionne jamais un décor ni la Baliste. Un vrai
   glisser n'est jamais pris pour un clic au relâchement, et un clic droit
-  ajouté pendant le rectangle l'annule (déplacement de la caméra, §12).
-- **Anneau des unités** : chaque unité sélectionnée a l'anneau commun aux
-  unités, comme en préparation et en bataille. Sa couleur est celle de son
-  camp (bleu pour le joueur, rouge pour l'ennemi), jamais une couleur de
-  validation (le vert et le rouge de l'aperçu de déplacement, §7).
+  ajouté pendant le rectangle l'annule (déplacement de la caméra, §13).
+- **Anneau des unités** : celui de la préparation et de la bataille, à la
+  couleur du camp de l'unité, jamais une couleur de validation.
 - **Une seule sélection à la fois** : un décor, la Baliste, ou un ensemble
   d'unités. Ils ne se mélangent jamais. Maj + clic sur une unité alors qu'un
   décor ou la Baliste est sélectionné démarre une nouvelle sélection
@@ -144,22 +266,22 @@ Catalogue (groupes dépliables) :
   - clic droit ou Échap ;
   - clic gauche dans le vide, sans Maj, quand ni unité ni Baliste n'est
     sélectionnée. Avec des unités ou la Baliste sélectionnées, ce clic est
-    un déplacement (§7).
+    un déplacement (§8).
 - Avec un **décor** sélectionné, un clic gauche sur le sol le désélectionne.
 
-## 7. Déplacement
+## 8. Déplacement
 
 - **Décors** :
   - uniquement avec les **flèches du gizmo** ;
   - déplacement libre sur le plan horizontal ;
-  - un glisser complet compte comme **une seule opération** d'historique.
+  - un glisser complet compte comme **une seule entrée** d'historique.
 - **Unités et groupes** : même geste et même calcul qu'en préparation.
   - **Aperçu au survol** : avec une ou plusieurs unités sélectionnées, le
     survol du terrain montre leur destination avant le clic. Chaque unité a
     une **empreinte** au sol, **verte** si sa destination est valide,
-    **rouge** sinon, et une **silhouette translucide** de son modèle,
-    dans le camp qu'elle aura à l'arrivée. Les vraies unités restent
-    visibles avec leur anneau.
+    **rouge** sinon, et une **silhouette translucide** de son modèle, dans
+    le camp qu'elle aura à l'arrivée. Les vraies unités restent visibles
+    avec leur anneau.
   - **Clic gauche au sol** : applique **exactement** la disposition
     affichée. Le clic refait le même calcul, au point de relâchement.
   - **Calcul** (`core/gridGroupMove.ts`, partagé avec la préparation) :
@@ -173,9 +295,8 @@ Catalogue (groupes dépliables) :
     - deux unités ne finissent jamais sur la même case.
   - **Tout ou rien** : si une seule unité n'a pas de destination, l'aperçu
     la montre en rouge et le clic ne déplace personne.
-  - **Après un déplacement réussi**, d'une unité ou d'un groupe : la
-    sélection est vidée et l'aperçu disparaît aussitôt. Il ne reste ni
-    silhouette, ni empreinte, ni anneau.
+  - **Après un déplacement réussi** : la sélection est vidée et l'aperçu
+    disparaît aussitôt.
   - **Après un refus** : rien ne bouge, la sélection et l'aperçu restent
     disponibles pour une nouvelle tentative.
   - **Aperçu masqué** :
@@ -184,92 +305,118 @@ Catalogue (groupes dépliables) :
       rotation à l'anneau ;
     - avec un outil de pose ;
     - quand le plan ne déplacerait aucune unité.
+- **Règle de validité** : celle de la pose (§5, `canPlaceUnitAt`), y compris
+  le refus des cases neutres. Les cases actuelles des unités déplacées ne
+  comptent pas.
+- **Camp** : chaque unité déplacée prend le camp du territoire de sa case
+  d'arrivée. Amenée en territoire adverse, elle change de camp ; l'aperçu le
+  montre déjà. Un déplacement de groupe est **une seule entrée**
+  d'historique, qui restaure positions et camps.
+- **Baliste** : la sélectionner, puis cliquer au sol, voir §16.
 
-    Un décor ou la Baliste sélectionnés n'affichent jamais de silhouette
-    d'unité.
-- **Règle de validité** : celle de la pose (§5, `canPlaceUnitAt`). La case
-  doit exister, ne pas être dans l'empreinte de la Baliste, ni sur un
-  obstacle bloquant (seule la case du centre de l'obstacle compte, voir
-  **KI-20**), ni sur une autre unité. Les cases actuelles des unités
-  déplacées ne comptent pas.
-- **Camp** : recalculé pour chaque unité déplacée selon la moitié du plateau
-  (`teamForZ`, règle inchangée). Franchir la ligne médiane fait donc changer
-  une unité de camp ; l'aperçu le montre déjà.
-- **Baliste** : la sélectionner, puis cliquer au sol. Le déplacement est
-  tenté **dès l'appui** au sol (sans Maj). Un glisser au sol ne démarre donc
-  pas de rectangle de sélection d'unités tant que la Baliste est
-  sélectionnée ; le rectangle reste disponible dans les autres cas. La
-  position est calée sur une grille de 3×3 cases. Un emplacement invalide
-  est refusé sans rien changer, et la Baliste reste sélectionnée. Détail
-  dans §15.
-
-## 8. Rotation des décors
-
-Quatre façons de tourner un décor sélectionné :
+## 9. Rotation des décors
 
 | Moyen | Effet |
 |---|---|
-| Glisser l'**anneau jaune** autour de l'objet | Rotation libre autour de l'axe vertical |
+| Glisser l'**anneau jaune** autour du décor | Rotation libre autour de l'axe vertical |
 | **Ctrl + molette** | ±15° par cran |
 | **Ctrl + Maj + molette** | ±1° par cran |
-| **R** ou bouton **« Tourner 90° (R) »** | +90° |
+| Boutons **−15°** / **+15°** du panneau | ±15° |
+| **R** ou bouton **« +90° (R) »** | +90° |
 
-- **Point de départ** : l'anneau et Ctrl+molette partent de l'orientation
-  **réelle** du décor, y compris l'orientation aléatoire d'un décor jamais
-  tourné.
+- **Point de départ** : tous ces moyens partent de l'orientation **réellement
+  affichée**, y compris l'orientation aléatoire d'un décor jamais tourné.
 - **Pas de saut** au passage 0° / 360°.
-- **Annulation** : un glisser de l'anneau = une opération d'historique ;
-  chaque cran de molette = une opération.
-- **Ce qui a changé** : il n'existe plus de mode rotation W/E. W ne fait rien
-  et E sert au zoom.
+- **Historique** : un glisser de l'anneau = une entrée ; chaque cran de
+  molette = une entrée ; chaque appui sur R ou sur un bouton = une entrée.
+  Annuler la première rotation d'un décor jamais tourné lui rend exactement
+  son orientation d'origine.
+- **Ce qui n'existe plus** : le mode rotation W/E du gizmo. W ne fait rien et
+  E sert au zoom.
 - **À ne pas confondre** : le **Ctrl+molette par pas de 45°** concerne le
   placement des bâtiments **en partie**, pas l'éditeur.
-- **R / « Tourner 90° »** se comporte différemment de l'anneau et de
-  Ctrl+molette : voir **KI-06**.
 
-## 9. Supprimer
+## 10. Supprimer
 
 - **Suppr**, **Retour arrière** ou le bouton **« Supprimer (Suppr) »**
   suppriment la sélection : un décor, une unité ou un groupe.
+- La suppression est **annulable** : Ctrl+Z restaure les objets et la
+  sélection.
 - **La Baliste ne se supprime pas** : Suppr est sans effet sur elle, tout
   comme R.
-- La suppression ne peut pas être annulée avec Ctrl+Z.
 
-## 10. Annuler / rétablir
+## 11. Annuler / rétablir
 
 - **Raccourcis** : **Ctrl+Z** pour annuler, **Ctrl+Y** ou **Ctrl+Maj+Z** pour
   rétablir.
-
-| Annulable | Non annulable |
-|---|---|
-| Déplacement d'un décor au gizmo | Pose d'un objet ou d'une unité |
-| Rotation à l'anneau | Suppression |
-| Rotation par Ctrl+molette (par cran) | Redimensionnement du plateau |
-| Ajout ou suppression d'une case | R / « Tourner 90° » (KI-06) |
-| Déplacement de la Baliste (position **et** statut « position définie », §15) | |
-| Déplacement d'unités : **une seule entrée** pour tout le groupe, qui restaure la position **et le camp** de chaque unité | |
-
+- **Opérations historisées**, une entrée par geste :
+  - pose d'une unité ou d'un décor ;
+  - suppression d'un décor, d'une unité ou d'un groupe ;
+  - déplacement d'unités (une entrée pour tout le groupe, positions et
+    camps) ;
+  - déplacement d'un décor au gizmo ;
+  - rotation à l'anneau, par Ctrl+molette (une entrée par cran), par
+    −15° / +15° et par R / +90° ;
+  - déplacement de la Baliste (position **et** statut « position définie »,
+    §16) ;
+  - ajout ou suppression d'une case ;
+  - trait de peinture du territoire ;
+  - changement de Taille.
+- **Annuler une pose ou une suppression** restaure aussi la sélection.
 - **Remise à zéro** : l'historique est vidé à l'ouverture de l'éditeur, au
-  chargement d'un fichier et à la sortie.
-- **Particularité** : l'annulation d'un déplacement peut modifier
+  chargement réussi d'un fichier, à la création d'une nouvelle carte et à la
+  sortie. **Enregistrer ne le vide pas.**
+- **État non enregistré** : annuler ou rétablir peut ramener exactement à la
+  carte enregistrée, qui redevient alors « enregistrée » (§14).
+- **Particularité** : annuler un déplacement au gizmo peut modifier
   l'orientation d'un décor jamais tourné, voir **KI-05**.
 
-## 11. Panneau de propriétés
+## 12. Panneau de propriétés
 
-- **Décor sélectionné** :
-  - type et modèle ;
-  - position, avec deux décimales ;
-  - emprise en cases ;
-  - rotation, toujours affichée entre 0 et 359° ;
-  - rappel « Ctrl + molette : ±15° • Maj : ±1° » sous la rotation ;
-  - boutons « Tourner 90° (R) » et « Supprimer (Suppr) ».
-- **Unité sélectionnée** : type, camp, position, bouton « Supprimer ». Pas de
-  bouton « Tourner ».
-- **Groupe d'unités** et **Baliste** : pas de panneau.
+Toujours affiché à droite (sauf replié, §2) ; son contenu suit la sélection.
 
-## 12. Caméra
+- **Aucune sélection** : « Sélectionnez un objet ou une unité sur la carte. »
+- **Décor** :
+  - nom (identifiant technique en infobulle) et type (« Décor » ou
+    « Structure décorative ») ;
+  - catégorie, taille en cases, collision (Bloquant / Traversable) ; une
+    structure décorative porte la mention « Aucun effet de jeu : simple
+    obstacle » ;
+  - position (deux décimales au plus) ;
+  - angle affiché, toujours entre 0 et 359° ;
+  - actions **−15°**, **+15°**, **+90° (R)** et **Supprimer (Suppr)**.
+- **Unité** (« Unité du scénario ») : camp, position, action Supprimer. Si
+  sa case appartient à un autre camp ou est neutre, une ligne « Territoire
+  actuel » le signale.
+- **Groupe** : nombre d'unités, composition par type, camps (et nombre
+  d'unités hors de leur territoire), action Supprimer.
+- **Baliste** (« Objectif gameplay ») : camp Joueur, position, rappel de la
+  règle de placement 3×3 en territoire joueur. Aucune action.
 
-Mêmes contrôles qu'en partie, avec deux différences dans l'éditeur.
+## 13. Caméra
+
+**Cadrage**
+
+- La caméra cadre le plateau dans l'**espace libre** entre la barre du haut,
+  la ligne d'état et les panneaux ouverts, jamais dans toute la fenêtre : le
+  plateau ne passe plus sous les panneaux.
+- **À l'ouverture, au chargement et pour une nouvelle carte**, toute la
+  carte est cadrée avec une petite marge, sans changer l'orientation ni
+  l'inclinaison.
+- **Espace** remet l'angle par défaut et recadre toute la carte dans
+  l'espace libre actuel.
+- **Repli d'un panneau ou redimensionnement de la fenêtre** : tant que la
+  caméra n'a pas été touchée, la carte est recadrée automatiquement. Après
+  un zoom, un déplacement ou une rotation, le zoom et le point au centre de
+  l'espace libre sont conservés.
+- **Changement de Taille** : pas de recadrage automatique ; Espace recadre.
+- **Limites de zoom** : une grande carte peut dépasser le dézoom maximal du
+  jeu pour être vue entière ; une petite carte reste limitée par le zoom
+  avant maximal et ne remplit pas tout l'espace.
+- **En sortant** de l'éditeur, la caméra du jeu retrouve exactement l'état
+  qu'elle avait avant l'ouverture.
+
+**Contrôles**
 
 | Contrôle | Effet |
 |---|---|
@@ -278,208 +425,257 @@ Mêmes contrôles qu'en partie, avec deux différences dans l'éditeur.
 | Molette | Zoom |
 | ← → / ↑ ↓ | Pivoter / incliner |
 | A / E | Zoom arrière / avant |
-| Espace | Réinitialiser la caméra |
+| Espace | Réinitialiser l'angle et recadrer la carte |
 
 Le geste est décidé au moment où le clic droit est enfoncé, jamais selon
 la distance parcourue par la souris :
 
-- **Clic droit seul** : ne bouge jamais la caméra, même si la souris glisse
-  un peu. C'est une action ponctuelle selon le contexte. Dans l'éditeur,
-  elle annule l'outil actif, sinon désélectionne. En partie, elle désarme un
-  parchemin, annule le placement d'un bâtiment, ou donne un ordre RTS aux
-  unités sélectionnées pendant la bataille.
+- **Clic droit seul** : ne bouge jamais la caméra. Dans l'éditeur, il
+  annule l'outil actif, sinon désélectionne.
 - **Maj + clic droit** : reste une rotation jusqu'au relâchement, même si
-  Maj est relâché en cours de geste. Il ne déclenche ni action ponctuelle ni
-  ordre, et ne désélectionne donc rien.
+  Maj est relâché en cours de geste.
 - **Clic gauche + clic droit** : déplace la caméra. Le geste du clic gauche
-  en cours (rectangle de sélection, etc.) est annulé, et aucun ordre ni
-  aucune sélection n'est produit.
-- **Bouton du milieu** (clic molette) : non utilisé.
+  en cours (rectangle de sélection, etc.) est annulé.
+- **Bouton du milieu** : non utilisé.
 
 Différences avec la partie :
 
-- **R** tourne le décor sélectionné au lieu de réinitialiser la caméra. Dans
-  l'éditeur, c'est **Espace** qui la réinitialise.
-- **Ctrl + molette** tourne le décor sélectionné au lieu de zoomer. Sans décor
-  sélectionné, la molette zoome normalement.
+- **R** tourne le décor sélectionné au lieu de réinitialiser la caméra ;
+  c'est **Espace** qui la réinitialise.
+- **Ctrl + molette** tourne le décor sélectionné au lieu de zoomer. Sans
+  décor sélectionné, la molette zoome normalement.
 
-## 13. Enregistrer et charger
+## 14. Enregistrer, charger, état non enregistré
+
+**Enregistrer et charger**
 
 - **Enregistrer** : télécharge un fichier `<nom de la carte>.json`. Il n'y a
   pas de serveur ; le fichier arrive dans les téléchargements du navigateur.
+  La carte devient « enregistrée » ; l'historique est conservé.
 - **Charger une carte** :
-  - ouvre un `.json` et **remplace** le brouillon en cours ;
-  - vide l'historique ;
-  - un fichier invalide affiche une alerte et le brouillon reste intact ;
+  - si la carte a des modifications non enregistrées, la confirmation est
+    demandée **avant** le choix du fichier ; refuser ne change rien ;
+  - annuler le choix du fichier ne change rien (la carte reste non
+    enregistrée si elle l'était) ;
+  - un fichier invalide affiche une alerte ; le brouillon et son état sont
+    conservés ;
+  - un chargement réussi remplace le brouillon, vide l'historique, recadre
+    la caméra, et la carte chargée devient la référence « enregistrée » ;
   - la validation est minimale : seule la présence des champs principaux est
     vérifiée.
+
+**État non enregistré**
+
+- **Référence** : le dernier état considéré comme enregistré, c'est-à-dire
+  la carte à l'ouverture de l'éditeur, après un chargement réussi ou après
+  le dernier Enregistrer. Une nouvelle carte n'a pas de référence : elle
+  reste non enregistrée jusqu'au premier Enregistrer.
+- **Règle** : la carte est non enregistrée quand son **export** diffère de
+  celui de la référence. L'ordre des cases et du territoire ne compte pas.
+  - Comptent : unités (pose, suppression, déplacement, camp), décors
+    (position, rotation), cases, Taille, territoire, Baliste.
+  - Ne comptent pas : sélection, caméra, recherche, catégories ouvertes,
+    outil actif, panneaux repliés, valeur tapée dans Taille sans Appliquer,
+    « Tester le scénario ».
+- **Annuler / rétablir** : revenir exactement à la référence rend la carte
+  « enregistrée » ; rétablir une modification la rend de nouveau non
+  enregistrée.
+- **Indicateur** : « • non enregistré » après le nom, dans la barre du haut.
+- **Confirmations** (dialogue natif du navigateur) avant de perdre des
+  modifications : **Retour au menu**, **Charger une carte**, **Nouvelle
+  carte**. Sans modification, aucune confirmation.
+- **Fermeture ou rechargement de l'onglet** : le navigateur affiche son
+  avertissement standard si la carte n'est pas enregistrée, dans l'éditeur
+  comme pendant un test.
+- **Limite** : la carte est marquée enregistrée dès que le téléchargement
+  est lancé ; l'éditeur ne peut pas savoir si le fichier a vraiment été
+  conservé.
 
 **Vue pratique du format `MapDef`**
 
 Ce résumé n'est pas une spécification exhaustive. Le format complet est
-défini dans `config/mapDef.ts` et `config/constants.ts` (`ObstacleDef`) ;
-voir aussi `ARCHITECTURE.md`.
+défini dans `config/mapDef.ts`, `config/territory.ts` et
+`config/constants.ts` (`ObstacleDef`) ; voir aussi `ARCHITECTURE.md`.
 
 | Champ | Contenu |
 |---|---|
-| `name`, `version` | Nom (sert de nom de fichier) et version |
+| `name`, `version` | Nom (sert de nom de fichier) et version (`1`) |
 | `width`, `height` | Taille de référence du plateau |
 | `cells` | Liste des cases présentes, avec leur type de terrain. Optionnel : absent = rectangle plein d'herbe |
 | `obstacles` | Décors : `kind` (rocher, arbre, prop, bâtiment), modèle, emprise `tilesX` × `tilesZ`, position `x` / `z` (ou ancien coin `cornerX` / `cornerZ`), `rotationY` optionnel |
-| `playerUnits`, `enemyUnits` | Unités : `unitId`, `x`, `z` |
-| `ballista` | Centre de la Baliste en coordonnées monde : `{ x, z }`. Optionnel : absent = repli historique (coin +X +Z, `computePlayerArrowOrigin`) |
+| `playerUnits`, `enemyUnits` | Unités du scénario de test : `unitId`, `x`, `z` |
+| `ballista` | Centre de la Baliste : `{ x, z }`. Optionnel : absent = repli historique (coin +X +Z) |
+| `territory` | Territoire : liste de `{ x, z, team }`, `team` valant `'player'` ou `'enemy'`, dans la convention de `cells` (coin entier de la case). Optionnel : absent = repli historique ; `[]` = territoire vide |
 
 - **Camp des unités** : ce n'est pas un champ. Il est porté par la liste
   (`playerUnits` ou `enemyUnits`) dans laquelle l'unité est enregistrée.
-- **`ballista`** : écrit **seulement** si la position de la Baliste a été
-  définie explicitement (déplacée dans l'éditeur, ou déjà présente dans la
-  carte chargée). Au chargement, il n'est conservé que si `x` et `z` sont des
-  nombres finis. Enregistrer puis recharger conserve la position.
+- **`ballista`** : écrit **seulement** si la position a été définie
+  explicitement (déplacée dans l'éditeur, ou déjà présente dans la carte
+  chargée). Au chargement, il n'est conservé que si `x` et `z` sont des
+  nombres finis.
+- **`territory`** : écrit **seulement** s'il est explicite (même vide). Au
+  chargement, il est conservé s'il s'agit d'un tableau ; les entrées mal
+  formées (coordonnées non entières, camp inconnu) sont ignorées avec un
+  avertissement en console.
 - **Non enregistrés** : les identifiants internes de l'éditeur.
 - **Compatibilité** : les anciennes cartes, sans `cells`, avec des coins de
-  grille ou sans `ballista`, se chargent toujours. Une carte sans `ballista`
-  rouverte puis réenregistrée sans déplacer la Baliste reste **sans** ce
-  champ.
+  grille, sans `ballista` ou sans `territory`, se chargent toujours. Rouvertes
+  puis réenregistrées sans toucher à la Baliste ni au territoire, elles
+  restent **sans** ces champs.
 
-## 14. Tester le scénario
+## 15. Tester le scénario
 
 - **Ce que fait le test** : il lance une **vraie bataille** sur la carte en
-  cours d'édition, avec les mêmes règles qu'en partie.
+  cours d'édition, avec ses unités (`playerUnits`, `enemyUnits`) et les
+  mêmes règles qu'en partie. Aucune confirmation n'est demandée.
 - **Baliste** : une **vraie** Baliste est créée, comme en partie. C'est un
   bâtiment de simulation avec ses PV (de base : le test n'applique aucune
-  amélioration de Forge),
-  sa collision (les unités ne la traversent pas) et sa destruction : HUD
+  amélioration de Forge), sa collision et sa destruction : HUD
   `[Q] BALISTE — DÉTRUITE`, tir Q bloqué, collision libérée.
   - **Position** : celle de la carte (`ballista`), sinon le repli historique.
-    Le modèle affiché, l'origine des tirs, le bâtiment et sa collision sont
-    tous exactement à cette position.
-  - Elle compte pour la survie du camp joueur : le test ne s'arrête pas à la
-    mort de la dernière unité alliée tant que la tour tient.
+    Le modèle, l'origine des tirs, le bâtiment et sa collision sont tous à
+    cette position.
+  - Elle compte pour la survie du camp joueur.
 - **Retour à l'éditeur** : automatique dès qu'un camp n'a plus de combattant,
-  ou avec **Échap**. Le brouillon est retrouvé intact, et la tour réapparaît
-  à sa position d'édition, même si elle a été détruite. Un deuxième test
-  repart avec une Baliste neuve.
+  ou avec **Échap**. Le brouillon est retrouvé intact : panneaux, cadrage,
+  sélection et état non enregistré inchangés. Le test ne devient jamais la
+  référence « enregistrée ». La tour réapparaît à sa position d'édition,
+  même si elle a été détruite.
 - **Ce que le test ne fait pas** :
   - il n'utilise ni l'or, ni l'armée, ni les bâtiments d'une run ;
   - il n'accorde aucune récompense de méta-progression ;
   - il ne crée **ni Mine ni Caserne**, voir **KI-07**.
 
-## 15. Bâtiments décoratifs, bâtiments gameplay et Baliste
+## 16. Structures décoratives, bâtiments gameplay et Baliste
 
-- **Bâtiments du catalogue** (KayKit bleu, rouge, neutres) : ce sont de
-  **simples obstacles**. Ils bloquent le passage et la ligne de tir, mais ne
-  peuvent être ni ciblés, ni détruits, ni produire quoi que ce soit.
-- **Mine et Caserne** (bâtiments gameplay) : elles n'existent qu'en partie,
-  achetées et posées par le joueur. On ne peut pas les placer depuis
+- **Structures décoratives** (catégorie du catalogue, bâtiments KayKit
+  bleus, rouges et neutres) : ce sont de **simples obstacles**. Ils bloquent
+  le passage et la ligne de tir, mais ne peuvent être ni ciblés, ni détruits,
+  ni produire quoi que ce soit. Leur teinte est purement visuelle.
+- **Mine, Caserne et Forge** (bâtiments gameplay) : elles n'existent qu'en
+  partie, achetées et posées par le joueur. On ne peut pas les placer depuis
   l'éditeur.
 
 **La Baliste**
 
-La tour de la Baliste est toujours présente dans l'éditeur, et sa position
-fait partie de la carte (`ballista`, §13).
+La tour de la Baliste est toujours présente dans l'éditeur, appartient au
+joueur, et sa position fait partie de la carte (`ballista`, §14).
 
 - **Position par défaut** : une carte sans `ballista` affiche la Baliste au
   repli historique (coin +X +Z). Tant qu'elle n'a pas été déplacée, elle suit
   ce coin si la taille du plateau change.
-- **Sélection** : clic gauche sur la tour. Elle est entourée d'un anneau à
-  la couleur de son camp (bleu, le joueur).
+- **Sélection** : clic gauche sur la tour. Elle est entourée d'un anneau
+  bleu, la couleur du joueur.
 - **Déplacement** : Baliste sélectionnée, puis clic au sol, pris en compte
   dès l'appui (un glisser ne trace pas de rectangle d'unités). Le centre est
-  calé sur la même **grille de 3×3 cases** que le placement obligatoire de la
-  tour en partie. Le modèle suit immédiatement : la position enregistrée et
-  la tour affichée sont toujours au même endroit.
-- **Déplacement refusé** (rien ne change, la Baliste reste sélectionnée) si,
-  dans l'empreinte réelle de la tour (carré de 2,4 cases, la même collision
-  qu'en bataille) :
-  - une case manque : la tour sortirait du plateau ou recouvrirait un trou ;
-  - un obstacle bloquant chevauche l'empreinte (un simple contact de bord est
-    accepté) ;
-  - le centre d'une unité est dans l'empreinte.
-- **Aucune restriction de moitié** : la Baliste peut être posée des deux côtés
-  du plateau ; cette règle dépendra du futur chantier de zone constructible.
-- **Gardes** : une fois la Baliste en place, aucune unité ne peut être posée
-  ni déplacée dans son empreinte, et aucune case sous elle ne peut être
-  supprimée. Les décors en placement libre peuvent encore la chevaucher.
+  calé sur la même **grille de 3×3 cases** que le placement de la tour en
+  partie.
+- **Déplacement refusé** (rien ne change, la Baliste reste sélectionnée) si :
+  - l'empreinte de placement de **3×3 cases** n'est pas **entièrement en
+    territoire joueur** ;
+  - dans l'empreinte réelle de la tour (carré de 2,4 cases, la collision de
+    bataille), une case manque (bord du plateau ou trou), un obstacle
+    bloquant chevauche (un simple contact de bord est accepté) ou le centre
+    d'une unité se trouve.
+- **Gardes** : aucune unité ne peut être posée ni déplacée dans son
+  empreinte, et aucune case sous elle ne peut être supprimée. Les décors en
+  placement libre peuvent encore la chevaucher.
 - **Suppr et R** : sans effet sur elle.
 - **Annuler / rétablir** : chaque déplacement est annulable ; Ctrl+Z et
   Ctrl+Y restaurent la position **et** le statut « position définie ». Une
   carte ramenée au repli ne réécrit donc pas le champ.
-- **Position invalide dans un fichier** (modifié à la main, par exemple) :
-  elle est remplacée par la position valide la plus proche sur la grille,
-  avec un avertissement en console. La recherche est déterministe. Si aucune
-  position valide n'existe, la position est conservée et un avertissement est
-  affiché. Le repli d'une carte sans champ n'est jamais déplacé
-  automatiquement.
+- **Baliste hors territoire** : une Baliste chargée (ou au repli) hors du
+  territoire joueur est **conservée** pour compatibilité. Elle n'est jamais
+  déplacée automatiquement à cause du territoire ; seul un nouveau
+  déplacement doit respecter la règle.
+- **Position invalide dans un fichier** (bord du plateau, trou, obstacle ou
+  unité) : elle est remplacée par la position valide la plus proche sur la
+  grille, avec un avertissement en console. Si aucune n'existe, elle est
+  conservée avec un avertissement. Le repli d'une carte sans champ n'est
+  jamais déplacé automatiquement.
 - **Partie réelle** : sans effet. Une run garde son **placement obligatoire**
-  de la tour en début de partie, indépendant de cette position.
+  de la tour en début de partie, indépendant de cette position. Une Baliste
+  placée automatiquement au cœur du territoire n'existe pas : c'est une
+  direction possible (`ROADMAP.md`).
 
-## 16. Cartes à trous
+## 17. Cartes à trous
 
 - Supprimer des cases crée des trous dans la carte.
 - **En bataille** (y compris « Tester le scénario »), un trou bloque comme un
   obstacle.
 - **Dans l'éditeur**, une unité ne peut pas être posée ni déplacée hors d'une
-  case existante, et la Baliste ne peut pas être déplacée au-dessus d'un trou.
-- Le placement du jeu réel ne tient pas compte des trous (**KI-02**). C'est
-  sans effet aujourd'hui : le jeu réel n'utilise pas de carte issue de
-  l'éditeur.
+  case existante, la Baliste ne peut pas être déplacée au-dessus d'un trou, et
+  un trou n'a pas de territoire.
+- Le placement du jeu réel ne teste pas directement les cases (**KI-02**).
 
-## 17. Limitations connues
+## 18. Limitations connues
 
 Détaillées dans `KNOWN_ISSUES.md` :
 
-- **KI-05** : l'annulation d'un déplacement peut réorienter un décor.
-- **KI-06** : R / « Tourner 90° » est hors historique et part de 0°.
+- **KI-05** : annuler un déplacement au gizmo peut réorienter un décor jamais
+  tourné.
 - **KI-07** : « Tester le scénario » ne crée ni Mine ni Caserne.
-- **KI-02** : le placement en jeu est insensible aux trous de cellules.
-- **KI-19** : des raccourcis clavier restent actifs pendant la saisie dans
-  un champ (par exemple Retour arrière dans le champ « Taille » avec un objet
-  sélectionné).
+- **KI-02** : le placement en jeu ne teste pas directement les cases.
 - **KI-20** : certaines règles ne testent que la **case centrale** d'un
-  obstacle (suppression d'une case, pose et déplacement d'unités). Un gros
-  rocher ne bloque donc que sa case centrale.
+  obstacle (suppression d'une case, pose et déplacement d'unités).
+- **KI-24** : après un clic, un bouton garde le focus ; Espace peut alors le
+  réactiver en plus de réinitialiser la caméra.
 
-Limites de l'aperçu de déplacement, sans conséquence sur le résultat :
+Limitations de l'éditeur, sans entrée dans `KNOWN_ISSUES.md` :
 
-- une silhouette rouge peut s'afficher hors du plateau, à la case visée ;
-- l'outil « poser une unité » garde son propre fantôme (case verte ou rouge
-  et modèle translucide), distinct de l'aperçu de déplacement.
+- **Nom de carte** non modifiable dans l'interface (§1).
+- **Taille** : réduire ne supprime rien (§3).
+- **Ctrl+molette** : une entrée d'historique par cran, donc plusieurs Ctrl+Z
+  pour annuler une rotation faite en plusieurs crans.
+- **Priorité de clic** : un petit décor traversable devant une unité ou sur
+  le sol peut capter le clic (§7).
+- **Territoire et expansion** : un territoire explicite est statique ; il ne
+  suit pas encore l'agrandissement de la carte en run (sans effet aujourd'hui,
+  aucune run ne charge de carte de l'éditeur, voir `CURRENT_STATE.md` §11).
+- **Aperçu de déplacement** : une silhouette rouge peut s'afficher hors du
+  plateau, à la case visée ; l'outil de pose d'unité garde son propre
+  fantôme.
 
-## 18. Pour les développeurs
+## 19. Pour les développeurs
 
 | Fichier | Rôle |
 |---|---|
-| `editor/editorState.ts` | État de l'éditeur et règles de validité (`canPlaceUnitAt`, avec les unités déplacées à ignorer, `canAddCell`, `canRemoveCell`, `canPlaceBallistaAt`) ; sélection d'unités (`selectUnits`, `toggleUnitSelection`, `selectedUnitIds`) ; déplacement et historique des unités (`moveUnits`, `setUnitStates`, `teamForZ`) ; position de la Baliste (`ballista`, `ballistaExplicit`, `moveBallista`) |
-| `config/mapDef.ts` | Format `MapDef` ; `resolveBallistaOrigin` (position de la Baliste ou repli), `snapBallistaOrigin` (grille de 3×3) |
-| `editor/editorScene.ts` | Meshes, fantômes des outils de pose, aperçus de cases, anneau de sélection des décors et de la Baliste et sa zone de saisie (couleur fixée par `main.ts` : dorée pour un décor, `teamColor` du camp pour la Baliste) |
-| `core/gridGroupMove.ts` | Calcul pur et déterministe du déplacement d'unités sur la grille, partagé avec la préparation |
-| `render/unitMovePreview.ts` | Aperçu de déplacement : empreintes vertes/rouges et silhouettes translucides réutilisées |
-| `render/unitSelectionRing.ts` | Anneau de sélection commun aux unités, à la couleur du camp |
-| `editor/editorUI.ts` | Barre d'outils, catalogue (`ASSET_GROUPS`), panneau de propriétés, aide |
+| `config/territory.ts` | Territoire pur : `TerritoryCell`, index (`buildTerritoryIndex`), repli (`resolveMapTerritory`, `deriveLegacyTerritory`), requêtes de case et d'empreinte |
+| `config/mapDef.ts` | Format `MapDef` (dont `territory?`) ; `resolveBallistaOrigin`, `snapBallistaOrigin` (grille de 3×3) |
+| `editor/editorState.ts` | État de l'éditeur et règles de validité (`canPlaceUnitAt`, `canAddCell`, `canRemoveCell`, `canPlaceBallistaAt`, `canMoveBallistaTo`) ; territoire (`territory`, `resolvedTerritory`, `territoryOwnerAt` avec index en cache, `paintTerritoryCell`) ; sélection et déplacement d'unités (`moveUnits`, `setUnitStates`) ; instantanés pour l'historique (`objectsSnapshot`, `mapShapeSnapshot`, `territorySnapshot`) ; Baliste (`ballista`, `ballistaExplicit`, `moveBallista`) |
+| `editor/editorScene.ts` | Meshes, fantômes des outils de pose, aperçus de cases, anneau de sélection des décors et de la Baliste |
+| `editor/editorUI.ts` | Barre du haut, colonne de gauche (outils, catalogue `DECOR_CATALOG`, recherche), panneau de propriétés, ligne d'état, panneaux repliables, mesure de l'espace libre (`getViewportInsets`) |
 | `editor/history.ts` | Pile de commandes annuler / rétablir |
-| `editor/mapSerializer.ts` | Export et import JSON |
-| `main.ts` | Orchestration et entrées : `enterEditor`, `handleEditorClick` et `pickEditorObjectAt`, sélection des unités (`resolveEditorPointerClick`, `selectEditorUnitsInRect`, `selectVisibleSameTypeEditorUnits`), déplacement (`editorUnitMoveProposal`, `applyEditorUnitMove`, `updateMovePreview`), `moveEditorBallista`, rotation (`tryStartRingRotate`, `rotateSelectedObstacleBy`), `TransformControls`, `testScenario`, `setupTestBattle` / `spawnBallistaBuilding` |
+| `editor/mapSerializer.ts` | Export et import JSON (`territory` et `ballista` écrits seulement s'ils sont explicites) |
+| `render/board.ts` | Zones de territoire rendues case par case (`createZonesGroup`), partagées avec le jeu |
+| `render/renderer.ts` | Caméra ; cadrage dans une zone partielle (`setViewportInsets`, `frameBox`) et sauvegarde de la vue |
+| `core/gridGroupMove.ts` | Calcul pur du déplacement d'unités sur la grille, partagé avec la préparation |
+| `main.ts` | Orchestration : `enterEditor`, `exitEditor`, clics et sélection, déplacement, rotation, `TransformControls`, historique (`pushEditorObjectsCommand`, `pushObstacleRotationCommand`, traits de territoire), état non enregistré (`editorCleanExport`, `isEditorDirty`, `confirmDiscardEditorDraft`), cadrage (`updateEditorViewport`, `frameEditorMap`), `testScenario` |
 
 Conventions actuelles :
 
-- **Meshes réutilisés** : lors des rafraîchissements, les meshes sont
-  préservés et réutilisés autant que possible via le cache par id. Certaines
-  fabriques de décors tirent leur apparence au hasard ; recréer un mesh
-  ferait changer l'objet à l'écran. Le mesh d'une unité est reconstruit
-  seulement quand son camp change.
+- **Meshes réutilisés** : les meshes sont conservés par id, y compris après
+  une suppression annulée. Certaines fabriques de décors tirent leur
+  apparence au hasard ; recréer un mesh ferait changer l'objet à l'écran. Le
+  mesh d'une unité est reconstruit seulement quand son camp change.
 - **Règle de validité unique** : l'aperçu vert/rouge et le clic utilisent la
-  même fonction de validité, jamais deux calculs séparés. Pour un
-  déplacement d'unités, l'aperçu et le clic passent aussi par le même plan
-  (`core/gridGroupMove.ts`).
-- **Historique** : une commande par **geste** (au relâchement, ou par cran de
-  molette), jamais une par frame.
+  même fonction de validité. Pour un déplacement d'unités, l'aperçu et le
+  clic passent aussi par le même plan (`core/gridGroupMove.ts`).
+- **Camp des unités** : toujours `territoryOwnerAt`, à la pose et au
+  déplacement ; jamais recalculé ailleurs.
+- **Historique** : une commande par **geste** (au relâchement, par cran de
+  molette ou par trait de pinceau), jamais une par image.
 - **Source de vérité de la rotation** : `rotationY`, dans l'état de l'éditeur
-  et dans le fichier enregistré.
-- **Ajouter un asset au catalogue** : une entrée dans `ASSET_GROUPS`
-  (`editor/editorUI.ts`), et le modèle correspondant dans
-  `render/assetLibrary.ts`.
+  et dans le fichier enregistré ; un décor sans `rotationY` garde son
+  orientation aléatoire.
+- **Ajouter un décor au catalogue** : une entrée dans le tableau d'assets
+  correspondant d'`editor/editorUI.ts` (rangé dans une catégorie de
+  `DECOR_CATALOG`), et le modèle dans `render/assetLibrary.ts`.
 
-## 19. Récapitulatif des contrôles
+## 20. Récapitulatif des contrôles
+
+Les raccourcis clavier sont **ignorés pendant la saisie dans un champ**
+(recherche, Taille, Paramètres). Seul Échap fait sortir du champ.
 
 **Souris**
 
@@ -489,30 +685,34 @@ Conventions actuelles :
 | Maj + clic sur une unité | Ajouter ou retirer de la sélection |
 | Glisser depuis le sol ou une unité | Rectangle de sélection d'unités (des deux camps), sauf Baliste sélectionnée |
 | Double-clic sur une unité | Sélectionner les unités visibles du même type et du même camp |
-| Survol du terrain (unités sélectionnées) | Aperçu du déplacement (empreintes vertes/rouges, silhouettes) |
-| Clic gauche au sol (unités sélectionnées) | Déplacer selon l'aperçu ; réussite : sélection vidée, refus : sélection conservée |
-| Clic gauche au sol (Baliste sélectionnée) | Déplacer la Baliste (grille de 3×3), dès l'appui |
-| Clic gauche (outil de pose actif) | Poser l'objet ou l'unité |
+| Survol du terrain (unités sélectionnées) | Aperçu du déplacement |
+| Clic gauche au sol (unités sélectionnées) | Déplacer selon l'aperçu |
+| Clic gauche au sol (Baliste sélectionnée) | Déplacer la Baliste (3×3 en territoire joueur), dès l'appui |
+| Clic gauche (outil de pose actif) | Poser l'unité ou le décor |
 | Clic gauche (outil de case actif) | Ajouter ou supprimer une case |
+| Clic ou glisser (outil Territoire actif) | Peindre les cases |
 | Glisser une flèche du gizmo | Déplacer le décor |
 | Glisser l'anneau jaune | Tourner le décor |
-| Clic droit seul | Annuler l'outil actif, sinon désélectionner (jamais de mouvement de caméra) |
+| Clic droit seul | Annuler l'outil actif, sinon désélectionner |
 | Maj + clic droit maintenu + glisser | Pivoter / incliner la caméra |
 | Clic gauche + clic droit maintenus + glisser | Déplacer la caméra |
 | Molette | Zoom |
 | Ctrl + molette | Tourner le décor de ±15° |
 | Ctrl + Maj + molette | Tourner le décor de ±1° |
+| Chevron d'un panneau | Replier / déplier le panneau |
 
 **Clavier**
 
 | Touche | Effet |
 |---|---|
+| V | Outil Sélection |
+| 1 / 2 / 3 | Territoire Joueur / Ennemi / Neutre (outil Territoire actif) |
 | R | +90° au décor sélectionné (sans effet sur la Baliste) |
 | Suppr / Retour arrière | Supprimer la sélection (sans effet sur la Baliste) |
-| Échap | Annuler l'outil actif, sinon désélectionner ; pendant un test, revenir à l'éditeur |
+| Échap | Revenir à l'outil Sélection, sinon désélectionner ; pendant un test, revenir à l'éditeur |
 | Ctrl+Z | Annuler |
 | Ctrl+Y / Ctrl+Maj+Z | Rétablir |
 | ← → / ↑ ↓ | Pivoter / incliner la caméra |
 | A / E | Zoom arrière / avant |
-| Espace | Réinitialiser la caméra |
+| Espace | Réinitialiser l'angle et recadrer la carte |
 | X | Vitesse ×2 (utile pendant un test) |

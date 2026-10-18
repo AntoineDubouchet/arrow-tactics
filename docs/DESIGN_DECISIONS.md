@@ -73,6 +73,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | E2 | Collision des décors : emprise rectangulaire, props traversables | Active |
 | E3 | Rotation des décors dans l'éditeur | Remplacée (W/E) / Active (anneau et Ctrl+molette) |
 | E4 | Agrandissement progressif de la carte | Active (comportement) / Ouverte (runs longues) |
+| E5 | Territoire par cases, couche séparée du terrain | Active (territoire statique) / Ouverte (territoire de run) |
 | F1 | Intégration audio mise en pause après expérimentation | Historique / Ouverte |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -368,7 +369,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     gameplay ;
   - un bâtiment décoratif n'est jamais ciblé.
 - **Sources** : archive (« Éditeur : correctif de placement + architecture
-  BUILDING ») ; `data/buildings.ts`, `sim/world.ts`, `EDITOR.md` §15.
+  BUILDING ») ; `data/buildings.ts`, `sim/world.ts`, `EDITOR.md` §16.
 
 ### D3 — Placement obligatoire de la tour en début de run
 
@@ -433,7 +434,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Aujourd'hui** :
   - Or de départ 15 (20 avec « Or de départ ») ; Forge 10, Mine 20,
     Caserne 25 ;
-  - coût d'une amélioration : `runUpgradeGoldCost(id, niveau)`, 2 / 4 / 8 / 16…
+  - coût d'une amélioration : `runUpgradeGoldCost(id, niveau)`, 1 / 2 / 4 / 8…
     en général, 25 / 50 / 100… pour la Mine et la Caserne
     (`RUN_UPGRADE_GOLD_COST_BASE_BY_ID`), qui accélèrent directement
     l'économie ou l'armée. Ces montants sont de l'**équilibrage provisoire**,
@@ -502,7 +503,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - ajouter Ctrl+molette (pas fin avec Maj) ;
   - conserver R / « Tourner 90° ».
 - **Raison connue** : l'ancien mode n'offrait plus de poignée utilisable.
-- **Aujourd'hui** : comportement décrit dans `EDITOR.md` §8.
+- **Aujourd'hui** : comportement décrit dans `EDITOR.md` §9. R / « +90° (R) »
+  partent désormais de l'orientation affichée et sont annulables, comme
+  l'anneau et Ctrl+molette.
 - **Sources** : `editor/`, `main.ts`, `EDITOR.md`.
 
 ### E4 — Agrandissement progressif de la carte
@@ -521,6 +524,61 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   base ; son rôle sur les runs longues reste ouvert.
 - **Sources** : archive (« Agrandissement progressif de la map ») ;
   `run/mapExpansion.ts`, `CURRENT_STATE.md` §11.
+
+### E5 — Territoire par cases, couche séparée du terrain
+
+- **Statut** : Active (territoire statique de la carte et éditeur) / Ouverte
+  (territoire dynamique de run).
+- **Contexte** : la zone de placement du joueur était un rectangle recalculé
+  à partir de la taille de la carte et de la profondeur de spawn, et le camp
+  d'une unité de l'éditeur dépendait de la moitié du plateau (`z ≥ 0`). Ces
+  deux règles divergeaient, et aucune ne pouvait décrire une carte
+  irrégulière ni un territoire qui s'étend.
+- **Décision** :
+  - le territoire est une **liste creuse de cases** avec un camp
+    (`MapDef.territory`), **séparée du terrain** (`cells`) et dans la même
+    convention de coordonnées ;
+  - une case **sans entrée est neutre** ; neutre n'est pas un troisième camp ;
+  - une carte **sans** territoire garde les **bandes historiques** en repli,
+    calculées à la volée ; `[]` est un territoire explicitement vide ;
+  - le repli n'est **jamais matérialisé** par un simple enregistrement ; il
+    l'est au premier vrai changement, puis la modification s'applique ;
+  - le même territoire sert au placement en jeu, au rendu des zones et au
+    camp des unités de l'éditeur ;
+  - dans l'éditeur, le camp d'une unité est fixé **à la pose et au
+    déplacement** par le territoire de sa case ; une case neutre est
+    interdite ; les unités et la Baliste déjà présentes sont **conservées**
+    telles quelles, même hors de leur territoire, jusqu'à leur prochain
+    déplacement ;
+  - la Baliste de l'éditeur appartient au joueur ; un déplacement exige une
+    empreinte 3×3 entièrement en territoire joueur.
+- **Raison connue** : retenue à l'audit du chantier Territory :
+  - même grille exacte que le placement, et vérification d'une emprise case
+    par case ;
+  - extension future par simple ajout de cases ;
+  - séparer le territoire du terrain évite de réécrire le terrain quand le
+    territoire change, et de devoir synthétiser des cellules pour une carte
+    qui n'en a pas ;
+  - le repli et la conservation des entités existantes gardent les anciennes
+    cartes valides sans les modifier en silence.
+- **Aujourd'hui** :
+  - appliqué au placement en préparation (unités, bâtiments, tour), au rendu
+    des zones et à l'éditeur ;
+  - une run ne charge que `DEFAULT_MAP`, sans territoire explicite : le
+    repli suit l'agrandissement A/B/C. Un territoire explicite est statique
+    et ne suit pas encore l'expansion ;
+  - **ouvert** : territoire propre à la run (`RunState.territory`), son
+    extension au fil des vagues, et une Baliste placée automatiquement au
+    cœur du territoire, qui remplacerait D3.
+- **À ne pas faire** :
+  - ne pas revenir à un camp déduit de la position (`z ≥ 0`) ;
+  - ne pas fusionner le territoire dans `cells` ;
+  - ne pas matérialiser le repli à l'enregistrement, ni changer en silence
+    le camp ou la position d'entités chargées.
+- **Sources** : `config/territory.ts`, `config/mapDef.ts`,
+  `editor/editorState.ts`, `editor/mapSerializer.ts`, `main.ts`
+  (`isValidPlacementTile`), `render/board.ts`, `EDITOR.md` §4,
+  `CURRENT_STATE.md` §11.
 
 ---
 

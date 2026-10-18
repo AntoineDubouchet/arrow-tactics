@@ -281,10 +281,10 @@ Détail du préchargement et de l'ordre de démarrage : voir `ARCHITECTURE.md`.
 | Décor (rocher, arbre, prop, bâtiment décoratif) | `ObstacleDef` (`config/constants.ts`) | `render/obstacleFactory.ts`, partagé par le plateau du jeu **et** l'éditeur | Posable |
 | Unités | `data/units.ts` | `buildUnit` (`render/unitMesh.ts`), partagé par le combat, l'aperçu de placement et l'éditeur | Posable |
 | Bâtiments gameplay (Mine, Caserne) | `data/buildings.ts` | Modèles KayKit `blue_mine` / `blue_barracks` + `BuildingView` | Non posables |
-| Baliste et tour | Instance unique | `render/ballista.ts` | Non posable, mais déplaçable (`EDITOR.md`, §15) |
+| Baliste et tour | Instance unique | `render/ballista.ts` | Non posable, mais déplaçable (`EDITOR.md`, §16) |
 
 Un bâtiment KayKit posé dans l'éditeur est un **simple obstacle**, même s'il
-utilise le même modèle que la Mine ou la Caserne (voir `EDITOR.md`, §15).
+utilise le même modèle que la Mine ou la Caserne (voir `EDITOR.md`, §16).
 
 ## 8. Sources et droits
 
@@ -321,8 +321,9 @@ Pratique actuelle, telle qu'elle se dégage du code :
      `public/models/kaykit/` (`.gltf` + `.bin`, à côté de la texture
      partagée) ;
   2. ajouter son nom à la liste correspondante de `render/assetLibrary.ts` ;
-  3. ajouter une entrée au catalogue `ASSET_GROUPS` de `editor/editorUI.ts`
-     (voir `EDITOR.md`).
+  3. ajouter une entrée au tableau d'assets correspondant de
+     `editor/editorUI.ts`, rangé dans une catégorie de `DECOR_CATALOG`
+     (voir `EDITOR.md` §6).
 - **Bâtiment** : copier les `.obj` / `.mtl` dans `public/models/buildings/`,
   puis déclarer la famille et ses pièces dans `TEAM_BUILDING_FAMILIES` ou
   `NEUTRAL_BUILDING_FAMILIES`. L'emprise en cases se déclare dans le

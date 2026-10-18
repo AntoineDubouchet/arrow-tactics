@@ -23,7 +23,7 @@ contient ni intentions de design ni décisions futures.
 8. Boutique de run
 9. Inventaire et parchemins de bataille
 10. Vagues ennemies
-11. Expansion de la carte
+11. Territoire et expansion de la carte
 12. Talents
 13. Méta-progression : points de talent
 14. Améliorations de Forge
@@ -62,11 +62,12 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
    - inventaire et bâtiments vides, aucune amélioration (`upgrades = {}`),
      vague 1.
 2. **Placement obligatoire de la tour**. Une bannière demande de placer la
-   tour dans la zone de spawn. Son empreinte de 3×3 cases doit tenir
-   entièrement dans la zone joueur. Échap est sans effet tant que la tour
-   n'est pas posée. La tour est validée au **relâchement** du clic gauche,
-   sur le plateau : si un clic droit s'ajoute avant le relâchement (geste
-   clic gauche + clic droit pour déplacer la caméra), rien n'est posé.
+   tour (« Placez votre tour dans votre zone de spawn. »). Son empreinte de
+   3×3 cases doit être entièrement en territoire joueur (§11). Échap est
+   sans effet tant que la tour n'est pas posée. La tour est validée au
+   **relâchement** du clic gauche, sur le plateau : si un clic droit
+   s'ajoute avant le relâchement (geste clic gauche + clic droit pour
+   déplacer la caméra), rien n'est posé.
 3. **Phase de placement**. La boutique s'ouvre automatiquement. Le joueur
    peut :
    - déplacer, sélectionner et vendre ses unités ;
@@ -100,7 +101,8 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
      disponibles pour une nouvelle tentative ;
    - glisser une unité ou un groupe sur « Vendre » le vend, comme avant.
 
-   Ce mécanisme est détaillé dans `EDITOR.md` §7.
+   Ce mécanisme est détaillé dans `EDITOR.md` §8. Les cases de destination
+   doivent appartenir au territoire joueur (§11).
 
    **Sélection des bâtiments et de la Baliste** :
    - un clic sur une Mine, une Caserne ou une Forge possédée la sélectionne ;
@@ -140,7 +142,7 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
    - **S** : Stop, les unités sélectionnées passent en Garde ;
    - **Q** : tir de la Baliste (voir §5) ;
    - caméra : Maj + clic droit pour pivoter, clic gauche + clic droit pour
-     déplacer, molette pour zoomer (détail dans `EDITOR.md`, §12).
+     déplacer, molette pour zoomer (détail dans `EDITOR.md`, §13).
 5. **Fin de bataille**, dès qu'un camp n'a plus de combattant (unités et
    bâtiments du joueur comptent tous les deux) :
    - **Victoire** : bonus d'or, étape d'expansion de la carte, écran de fin
@@ -266,7 +268,7 @@ effectives du tir), `sim/playerArrow.ts`, `main.ts`.
 - **Position** : choisie par le joueur en début de run, puis conservée pour
   toute la run. Dans l'éditeur et « Tester le scénario », c'est la position
   enregistrée dans la carte (`MapDef.ballista`), sinon le repli historique du
-  coin (§16, `EDITOR.md` §15) ; elle n'a aucun effet sur une run.
+  coin (§16, `EDITOR.md` §16) ; elle n'a aucun effet sur une run.
 - **Tir** : un appui sur **Q** tire un carreau en arc vers le point du sol
   sous le curseur, recalculé au moment de l'appui (la caméra a pu bouger
   depuis le dernier mouvement de souris).
@@ -316,8 +318,9 @@ Sources : `data/buildings.ts`, `run/mineUpgradeEffects.ts`,
 Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 
 - **Achat** : cliquer sur le bâtiment passe en mode placement. L'or n'est
-  payé qu'au clic de confirmation sur un emplacement valide de la zone
-  joueur ; Échap ou clic droit annule sans rien payer.
+  payé qu'au clic de confirmation sur un emplacement valide, dont toute
+  l'emprise est en territoire joueur ; Échap ou clic droit annule sans
+  rien payer.
 - **Rotation** : Ctrl+molette pendant le placement, par pas de 45°.
 - **Déplacement** : un bâtiment possédé se déplace gratuitement en le
   faisant glisser pendant le placement.
@@ -454,9 +457,24 @@ Fantassins et Archers :
     `UNIT_UPGRADES`.
 - **Formation** : mêlée devant, unités à distance derrière.
 
-## 11. Expansion de la carte
+## 11. Territoire et expansion de la carte
 
-Source : `run/mapExpansion.ts`.
+Sources : `config/territory.ts`, `run/mapExpansion.ts`, `main.ts`
+(`isValidPlacementTile`, `rebuildCurrentTerritoryIndex`).
+
+**Territoire**
+
+- Chaque case appartient au joueur, à l'ennemi, ou à personne (neutre).
+- En préparation, le **territoire joueur** est la zone de placement : unités,
+  bâtiments (toute l'emprise) et tour (toute l'empreinte 3×3) doivent y être.
+- Les zones bleue et rouge affichées sur le plateau sont ce même territoire,
+  case par case ; une case neutre n'a pas de zone.
+- Une carte peut définir son territoire (`MapDef.territory`). La carte de
+  départ ne le fait pas : son territoire est le **repli historique**, deux
+  bandes de 7 rangées (la zone de spawn) à l'arrière de chaque camp, le
+  centre neutre.
+
+**Expansion**
 
 - **Carte de départ** de chaque run : « vague1-20 » (18×26 cases, zone de
   spawn de 7 rangées par camp).
@@ -466,6 +484,9 @@ Source : `run/mapExpansion.ts`.
   - **B** : la carte s'élargit des deux côtés ;
   - **C** : le champ de bataille central s'agrandit. Le camp joueur reste
     fixe, le camp ennemi recule.
+- Le territoire de repli est recalculé à chaque étape : il suit l'expansion.
+  Un territoire **explicite** resterait statique et ne suivrait pas A, B ni
+  C ; aucune run n'en utilise aujourd'hui.
 - La carte repart de son état initial à chaque nouvelle run.
 
 ## 12. Talents
@@ -542,7 +563,7 @@ sauvegardés. Elles s'achètent en Or, uniquement depuis une Forge.
 - **PV max** : quand un achat augmente les PV max d'une unité déjà possédée,
   ses PV actuels augmentent du même écart (5/5 → 6/6, 3/5 → 4/6).
 - **Coût** (`runUpgradeGoldCost(id, niveau)`) : coût de départ × 2^niveau.
-  - Cas général : 2 / 4 / 8 / 16 / 32…
+  - Cas général : 1 / 2 / 4 / 8 / 16…
   - Mine et Caserne : 25 / 50 / 100 / 200… (`RUN_UPGRADE_GOLD_COST_BASE_BY_ID`),
     parce qu'elles accélèrent directement l'économie ou l'armée.
   - Aucun talent ne modifie ce coût.
@@ -588,13 +609,31 @@ méta-progression à zéro, après confirmation. Les réglages sont conservés.
 
 ## 16. Éditeur de maps
 
-Le détail d'usage relèvera de `EDITOR.md`. Il est accessible depuis le menu
-principal.
+Accessible depuis le menu principal ; le détail d'usage est dans
+`EDITOR.md`. Une run ne charge jamais une carte de l'éditeur : ses cartes
+servent à « Tester le scénario ».
+
+- **Interface** : barre du haut (Retour au menu, Nouvelle carte, Enregistrer,
+  Charger, Tester le scénario, nom de la carte et indicateur « non
+  enregistré »), colonne de gauche (Sélection, Carte, Territoire, Unités,
+  catalogue des décors avec recherche), panneau de propriétés à droite,
+  ligne d'état en bas. Les deux panneaux latéraux se replient ; la caméra
+  cadre le plateau dans l'espace libre restant.
+- **Territoire** : peint case par case (Joueur, Ennemi, Neutre) et
+  enregistré dans la carte. Une carte qui n'en définit pas utilise le repli
+  historique, matérialisé seulement au premier coup de pinceau.
+- **État non enregistré** : comparaison avec le dernier export enregistré ;
+  confirmation avant Retour au menu, Charger et Nouvelle carte ;
+  avertissement du navigateur à la fermeture de l'onglet.
+- **Historique** : annuler / rétablir couvre toutes les modifications de la
+  carte (poses, suppressions, déplacements, rotations, Baliste, cases,
+  territoire, Taille).
 
 - **Décors** : rochers, arbres, props et bâtiments décoratifs, en placement
   libre (position et rotation).
-- **Unités** : du bestiaire, alignées sur la grille. Leur camp est déduit de
-  la moitié du plateau où elles sont posées.
+- **Unités** : du bestiaire, alignées sur la grille. Leur camp est celui du
+  territoire de la case où elles sont posées ; une case neutre est
+  interdite.
   - **Sélection** : mêmes gestes qu'en préparation et en bataille (clic,
     Maj + clic, rectangle), pour les deux camps. Le double-clic prend les
     unités visibles du même type et du même camp. Décors et Baliste restent
@@ -605,13 +644,16 @@ principal.
     - Deux unités ne peuvent plus finir sur la même case.
     - Un déplacement de groupe est **une seule entrée** d'annuler /
       rétablir, qui restaure positions et camps.
-    - Le camp est recalculé à l'arrivée : franchir la ligne médiane fait
-      changer une unité de camp.
+    - Le camp est recalculé à l'arrivée selon le territoire : une unité
+      amenée en territoire adverse change de camp. Une unité déjà posée garde
+      son camp tant qu'elle n'est pas déplacée.
 - **Terrain** : ajout et suppression de cellules, taille du plateau
   modifiable.
 - **Baliste** : sélectionnable et déplaçable, calée sur une grille de 3×3
-  cases. Le déplacement est refusé si la tour sortirait du plateau ou
-  recouvrirait un trou, un obstacle bloquant ou une unité. Aucune unité ne
+  cases. Le déplacement est refusé si l'empreinte 3×3 n'est pas entièrement
+  en territoire joueur, ou si la tour sortirait du plateau ou recouvrirait un
+  trou, un obstacle bloquant ou une unité. Une Baliste chargée hors du
+  territoire joueur est conservée telle quelle. Aucune unité ne
   peut ensuite être posée ou déplacée dans son empreinte, ni aucune case
   supprimée sous elle ; Suppr et R sont sans effet sur elle.
   - Sélectionnée, elle est entourée d'un anneau à la couleur de son camp
@@ -625,8 +667,8 @@ principal.
     réenregistre sans déplacer la Baliste.
   - Annuler / rétablir restaure la position et ce statut ; enregistrer puis
     charger conserve la position.
-- **Outils** : annuler / rétablir ; enregistrer et charger une carte en
-  JSON.
+- **Outils** : annuler / rétablir ; nouvelle carte ; enregistrer et
+  charger une carte en JSON.
 - **« Tester le scénario »** : lance une vraie bataille sur la carte éditée,
   puis revient à l'éditeur.
   - La Baliste y est un **vrai bâtiment** (PV, collision, destruction, état
@@ -650,7 +692,9 @@ principal.
     clic le replie ;
   - les valeurs restent calculées comme avant, replié ou non ;
   - la boutique, les menus et la barre d'outils de l'éditeur le recouvrent.
-- **Touche X** : bascule la vitesse de jeu entre ×1 et ×2.
+- **Touche X** : bascule la vitesse de jeu entre ×1 et ×2. Son aide « X —
+  Vitesse fois 2 », en bas à gauche, est masquée dans l'éditeur (pas pendant
+  un test).
 - **Bouton « +1 point de talent (debug) »** dans l'écran des talents.
 - **Bouton « +100 or (debug) »** dans la boutique de run.
 
