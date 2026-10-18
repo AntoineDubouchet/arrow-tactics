@@ -1554,7 +1554,8 @@ img {
   top: -10px;
   z-index: 1;
   margin: -10px -10px 0;
-  padding: 10px 10px 4px;
+  /* A droite : place du chevron de repli (.editor-panel-toggle--left). */
+  padding: 10px 44px 4px 10px;
   background: rgb(22, 25, 30);
   border-bottom: 1px solid var(--edge);
 }
@@ -1636,8 +1637,62 @@ img {
 /* "Tester le scénario" : seule la ligne d'état reste affichée. */
 .editor-ui--testing .editor-toolbar,
 .editor-ui--testing .editor-asset-browser,
-.editor-ui--testing .editor-properties {
+.editor-ui--testing .editor-properties,
+.editor-ui--testing .editor-panel-toggle {
   display: none !important;
+}
+
+/* Panneaux repliables (E6) : le panneau replie est masque (il reste dans le
+   DOM) et son chevron se range contre le bord de la fenetre. */
+.editor-ui--left-collapsed .editor-asset-browser,
+.editor-ui--right-collapsed .editor-properties {
+  display: none;
+}
+
+/* Aide de debug du jeu (bas gauche) : masquee sous l'interface de
+   l'editeur, sinon elle depasse quand le catalogue est replie. */
+.editor-layout .debug-help {
+  display: none;
+}
+
+.editor-panel-toggle {
+  position: fixed;
+  top: calc(var(--editor-topbar-height) + 8px);
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--ink-dim);
+  background: rgb(22, 25, 30);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.editor-panel-toggle:hover,
+.editor-panel-toggle:focus-visible {
+  color: var(--ink);
+  border-color: var(--accent-gold);
+}
+
+.editor-panel-toggle--left {
+  left: calc(var(--editor-left-width) - 48px);
+}
+
+.editor-panel-toggle--right {
+  right: 26px;
+}
+
+.editor-ui--right-collapsed .editor-panel-toggle--right {
+  right: 8px;
+}
+
+.editor-ui--left-collapsed .editor-panel-toggle--left {
+  left: 8px;
 }
 
 /* Pendant le test, l'indication tient dans un cartouche en haut à gauche

@@ -26,6 +26,7 @@ import {
 import {
   BALLISTA_PLACEMENT_TILES,
   computeBallistaObstacle,
+  computeMapCellBounds,
   computePlayerArrowOrigin,
   DEFAULT_MAP,
   resolveBallistaOrigin,
@@ -67,7 +68,7 @@ import { buildCellGridLines, buildTerrainCellsView } from './render/terrainCells
 import { UnitMovePreview, type UnitMovePreviewItem } from './render/unitMovePreview';
 import { DEFAULT_LAUNCH_HEIGHT, PlayerArrowView, preloadPlayerArrowModel } from './render/playerArrowView';
 import { Projectiles } from './render/projectiles';
-import { Renderer } from './render/renderer';
+import { Renderer, type CameraViewState } from './render/renderer';
 import { buildUnit } from './render/unitMesh';
 import { UnitViews } from './render/unitViews';
 import { preloadMageModel } from './render/mageRig';
@@ -1953,6 +1954,7 @@ function resetEditorWithMap(map: MapDef): void {
   rebuildEditorBoard();
   editorUI.setMapSize(editorState.width, editorState.height);
   refreshEditorObjects();
+  frameEditorMap();
 }
 
 // Fermeture / rechargement de l'onglet avec un brouillon non enregistre
@@ -2414,6 +2416,45 @@ const editorUI = new EditorUI({
     applyEditorMapShape(after);
   },
   onTestScenario: () => testScenario(),
+  onLayoutChange: () => {
+    if (inEditorMode) updateEditorViewport();
+  },
+});
+
+// --- Cadrage de l'editeur (E6) ---
+// La camera de l'editeur cadre le plateau dans la zone laissee libre par les
+// barres et les panneaux (mesuree sur le DOM, voir EditorUI.getViewportInsets),
+// jamais dans toute la fenetre. Le jeu garde son propre cadrage : il est
+// sauvegarde a l'entree et restaure a la sortie de l'editeur.
+let cameraBeforeEditor: CameraViewState | null = null;
+
+/** Recalcule la zone libre : ouverture, repli d'un panneau, redimensionnement
+ *  de la fenetre, retour d'un test. Jamais pendant le test (UI masquee). */
+function updateEditorViewport(): void {
+  renderer.setViewportInsets(editorUI.getViewportInsets());
+}
+
+/** Cadre toute la carte de l'editeur dans la zone libre, sans changer
+ *  l'orientation ni l'inclinaison de la camera. */
+function frameEditorMap(): void {
+  if (!editorState) return;
+  const cells = editorState.cells;
+  const bounds = cells.length > 0
+    ? computeMapCellBounds(cells)
+    : { minX: -editorState.width / 2, maxX: editorState.width / 2, minZ: -editorState.height / 2, maxZ: editorState.height / 2 };
+  // height : marge pour les decors hauts (arbres) du fond de la carte.
+  renderer.frameBox({ ...bounds, height: 2 });
+}
+
+/** Espace dans l'editeur (et pendant son test) : angle par defaut, carte
+ *  entiere recadree dans la zone libre actuelle. */
+function resetEditorCamera(): void {
+  renderer.resetCamera();
+  frameEditorMap();
+}
+
+window.addEventListener('resize', () => {
+  if (inEditorMode) updateEditorViewport();
 });
 
 function clearEditorGhost(): void {
@@ -2564,6 +2605,7 @@ async function enterEditor(): Promise<void> {
   board.group.visible = false;
   editorBoardGroup.visible = true;
   editorUI.setVisible(true);
+  cameraBeforeEditor = renderer.getViewState();
 
   if (!editorAssets) editorAssets = await loadEnvironmentAssets();
   editorBaseMap = DEFAULT_MAP;
@@ -2573,6 +2615,8 @@ async function enterEditor(): Promise<void> {
   editorUI.setMapSize(editorState.width, editorState.height);
   refreshEditorObjects();
   markEditorClean();
+  updateEditorViewport();
+  frameEditorMap();
 }
 
 function exitEditor(): void {
@@ -2595,6 +2639,9 @@ function exitEditor(): void {
   editorSelectionRing.visible = false;
   editorUI.setVisible(false);
   editorUI.hideProperties();
+  renderer.setViewportInsets(null);
+  if (cameraBeforeEditor) renderer.setViewState(cameraBeforeEditor);
+  cameraBeforeEditor = null;
   board.group.visible = true;
   // Le modele de la Baliste suivait la position de l'editeur : retour a
   // celle du jeu.
@@ -2715,6 +2762,8 @@ function returnToEditorAfterTest(): void {
   editorGhostGroup.visible = true;
   editorUI.setTestMode(false);
   editorUI.setVisible(true);
+  // La fenetre a pu changer de taille pendant le test.
+  updateEditorViewport();
   // editorState n'a jamais ete touche pendant le test : on retrouve
   // exactement la configuration de depart, comme demande.
   refreshEditorObjects();
@@ -5813,8 +5862,10 @@ window.addEventListener('keydown', (event) => {
       // meme action que R hors editeur — Espace n'a aucun autre role dans le
       // jeu depuis le retrait de la pause au clavier (voir CLAUDE.md,
       // "Panneau de debug allege, pause a l'espace retiree"), donc pas de
-      // conflit a gerer meme en mode editeur.
-      renderer.resetCamera();
+      // conflit a gerer meme en mode editeur. Dans l'editeur (E6), la carte
+      // est recadree dans la zone libre.
+      if (inEditorMode || inTestMode) resetEditorCamera();
+      else renderer.resetCamera();
       break;
     case 'Delete':
     case 'Backspace':

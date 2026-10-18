@@ -2,6 +2,31 @@ import * as THREE from 'three';
 import { BOARD_H, BOARD_W, CAMERA, COLORS } from '../config/constants';
 import { clamp, degToRad } from '../core/math';
 
+/** Marges en pixels CSS entre les bords de la fenetre et la zone libre. */
+export interface ViewportInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/** Emprise au sol a cadrer, plus une hauteur pour les objets poses. */
+export interface FrameBox {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  height: number;
+}
+
+export interface CameraViewState {
+  yawDeg: number;
+  pitchDeg: number;
+  viewHeight: number;
+  targetX: number;
+  targetZ: number;
+}
+
 /**
  * Camera orthographique inclinee.
  *
@@ -23,6 +48,17 @@ export class Renderer {
 
   private readonly target = new THREE.Vector3(0, 0, 0);
   private readonly sun: THREE.DirectionalLight;
+
+  /** Zone d'affichage logique (editeur, E6) : marges en pixels CSS de la
+   *  fenetre, occupees par des panneaux. null = toute la fenetre (jeu). */
+  private viewportInsets: ViewportInsets | null = null;
+  /** Plafond de dezoom courant : celui du jeu, releve par frameBox quand une
+   *  carte d'editeur ne tient pas dans CAMERA.maxViewHeight. */
+  private maxViewHeight = CAMERA.maxViewHeight;
+  /** Emprise cadree par frameBox, recadree au changement de zone tant que
+   *  la camera n'a pas ete bougee a la main depuis. */
+  private framedBox: FrameBox | null = null;
+  private framed = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -99,21 +135,107 @@ export class Renderer {
   }
 
   adjustYaw(delta: number): void {
+    this.framed = false;
     this.yawDeg = (this.yawDeg + delta + 360) % 360;
     this.updateCamera();
   }
 
   adjustPitch(delta: number): void {
+    this.framed = false;
     this.pitchDeg = clamp(this.pitchDeg + delta, CAMERA.minPitchDeg, CAMERA.maxPitchDeg);
     this.updateCamera();
   }
 
   adjustZoom(delta: number): void {
-    this.viewHeight = clamp(this.viewHeight + delta, CAMERA.minViewHeight, CAMERA.maxViewHeight);
+    this.framed = false;
+    this.viewHeight = clamp(this.viewHeight + delta, CAMERA.minViewHeight, this.maxViewHeight);
+    this.updateCamera();
+  }
+
+  /** Etat complet de la vue, pour la restituer telle quelle (voir
+   *  setViewState) : l'editeur ne modifie pas le cadrage du jeu. */
+  getViewState(): CameraViewState {
+    return { yawDeg: this.yawDeg, pitchDeg: this.pitchDeg, viewHeight: this.viewHeight, targetX: this.target.x, targetZ: this.target.z };
+  }
+
+  setViewState(state: CameraViewState): void {
+    this.framed = false;
+    this.yawDeg = state.yawDeg;
+    this.pitchDeg = state.pitchDeg;
+    this.viewHeight = state.viewHeight;
+    this.target.set(state.targetX, 0, state.targetZ);
+    this.updateCamera();
+  }
+
+  /** Limite le cadrage a une partie de la fenetre (editeur) : le point vise
+   *  s'affiche au centre de cette zone et viewHeight y designe la hauteur de
+   *  monde visible. null revient a toute la fenetre (jeu), plafond de dezoom
+   *  du jeu compris. Le frustum couvre toujours tout le canvas : raycast et
+   *  projections restent exacts sans changement. */
+  setViewportInsets(insets: ViewportInsets | null): void {
+    this.viewportInsets = insets;
+    if (!insets) {
+      this.maxViewHeight = CAMERA.maxViewHeight;
+      this.viewHeight = Math.min(this.viewHeight, this.maxViewHeight);
+      this.framedBox = null;
+      this.framed = false;
+    }
+    if (this.framed && this.framedBox) this.frameBox(this.framedBox);
+    else this.updateCamera();
+  }
+
+  /**
+   * Cadre une emprise du monde dans la zone d'affichage, avec une marge en
+   * pixels, sans changer l'orientation ni l'inclinaison : seuls le point
+   * vise et le zoom sont calcules. L'emprise reste cadree au redimensionnement
+   * ou au changement de zone, jusqu'au prochain geste de camera.
+   */
+  frameBox(box: FrameBox, marginPx = 24): void {
+    this.target.set(0, 0, 0);
+    this.updateCamera();
+    this.camera.updateMatrixWorld();
+    const view = this.camera.matrixWorldInverse;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    const p = new THREE.Vector3();
+    for (const x of [box.minX, box.maxX]) {
+      for (const y of [0, box.height]) {
+        for (const z of [box.minZ, box.maxZ]) {
+          p.set(x, y, z).applyMatrix4(view);
+          minX = Math.min(minX, p.x);
+          maxX = Math.max(maxX, p.x);
+          minY = Math.min(minY, p.y);
+          maxY = Math.max(maxY, p.y);
+        }
+      }
+    }
+    const { width, height } = this.viewportSize();
+    const usableW = Math.max(width - 2 * marginPx, 1);
+    const usableH = Math.max(height - 2 * marginPx, 1);
+    const worldPerPixel = Math.max((maxX - minX) / usableW, (maxY - minY) / usableH, 1e-3);
+    const fitted = worldPerPixel * height;
+    this.maxViewHeight = Math.max(CAMERA.maxViewHeight, fitted);
+    this.viewHeight = clamp(fitted, CAMERA.minViewHeight, this.maxViewHeight);
+
+    // Point du sol qui s'affiche au centre de l'emprise : on part du centre
+    // en coordonnees camera et on glisse le long de l'axe de vue (sans effet
+    // a l'ecran en orthographique) jusqu'au plan y = 0.
+    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+    const forward = new THREE.Vector3();
+    this.camera.getWorldDirection(forward);
+    const center = right.multiplyScalar((minX + maxX) / 2).add(up.multiplyScalar((minY + maxY) / 2));
+    center.addScaledVector(forward, -center.y / forward.y);
+    this.target.set(center.x, 0, center.z);
+    this.framedBox = box;
+    this.framed = true;
     this.updateCamera();
   }
 
   resetCamera(): void {
+    this.framed = false;
     this.yawDeg = CAMERA.yawDeg;
     this.pitchDeg = CAMERA.pitchDeg;
     this.viewHeight = CAMERA.viewHeight;
@@ -138,7 +260,8 @@ export class Renderer {
    * poignee de plan comme un logiciel de CAO.
    */
   pan(dxPixels: number, dyPixels: number): void {
-    const scale = this.viewHeight / Math.max(window.innerHeight, 1);
+    this.framed = false;
+    const scale = this.viewHeight / Math.max(this.viewportSize().height, 1);
     const yaw = degToRad(this.yawDeg);
     // Vecteurs au sol du repere camera (voir derivation dans le commentaire
     // de classe) : right est perpendiculaire a la direction de vue projetee
@@ -153,19 +276,43 @@ export class Renderer {
     this.updateCamera();
   }
 
-  private updateCamera(): void {
-    const aspect = window.innerWidth / Math.max(window.innerHeight, 1);
-    const halfH = this.viewHeight / 2;
-    const halfW = halfH * aspect;
+  /** Dimensions en pixels de la zone d'affichage logique. */
+  private viewportSize(): { width: number; height: number } {
+    const i = this.viewportInsets;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (!i) return { width: w, height: h };
+    return { width: Math.max(w - i.left - i.right, 1), height: Math.max(h - i.top - i.bottom, 1) };
+  }
 
-    // Decalage vertical du cadrage (CAMERA.verticalFrameOffset) : ajoute a
-    // top ET bottom, donc le point vise (target) glisse plus BAS a l'ecran
-    // sans changer le zoom (top-bottom, donc la hauteur de monde visible,
-    // reste inchange) ni le point 3D regarde.
-    this.camera.left = -halfW;
-    this.camera.right = halfW;
-    this.camera.top = halfH + CAMERA.verticalFrameOffset;
-    this.camera.bottom = -halfH + CAMERA.verticalFrameOffset;
+  private updateCamera(): void {
+    const insets = this.viewportInsets;
+    if (insets) {
+      // Editeur : frustum sur tout le canvas, mais decentre pour que le point
+      // vise tombe au centre de la zone libre, a l'echelle de cette zone.
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const scale = this.viewHeight / this.viewportSize().height;
+      const centerX = insets.left + (w - insets.left - insets.right) / 2;
+      const centerY = insets.top + (h - insets.top - insets.bottom) / 2;
+      this.camera.left = -centerX * scale;
+      this.camera.right = (w - centerX) * scale;
+      this.camera.top = centerY * scale;
+      this.camera.bottom = -(h - centerY) * scale;
+    } else {
+      const aspect = window.innerWidth / Math.max(window.innerHeight, 1);
+      const halfH = this.viewHeight / 2;
+      const halfW = halfH * aspect;
+
+      // Decalage vertical du cadrage (CAMERA.verticalFrameOffset) : ajoute a
+      // top ET bottom, donc le point vise (target) glisse plus BAS a l'ecran
+      // sans changer le zoom (top-bottom, donc la hauteur de monde visible,
+      // reste inchange) ni le point 3D regarde.
+      this.camera.left = -halfW;
+      this.camera.right = halfW;
+      this.camera.top = halfH + CAMERA.verticalFrameOffset;
+      this.camera.bottom = -halfH + CAMERA.verticalFrameOffset;
+    }
     this.camera.near = 0.1;
     this.camera.far = 400;
 

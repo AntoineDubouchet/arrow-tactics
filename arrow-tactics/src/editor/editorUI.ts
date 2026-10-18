@@ -47,6 +47,9 @@ export interface EditorUIHandlers {
   /** Bouton "Tester le scénario" — lance une vraie bataille avec la
    *  configuration actuelle de l'éditeur (voir main.ts, testScenario). */
   onTestScenario: () => void;
+  /** Un panneau lateral vient d'etre replie ou deplie : la zone libre du
+   *  plateau a change (voir getViewportInsets). */
+  onLayoutChange: () => void;
 }
 
 interface AssetEntry {
@@ -657,6 +660,14 @@ export class EditorUI {
   private readonly mapTitle: HTMLElement;
   private readonly mapName: HTMLElement;
   private readonly mapDirty: HTMLElement;
+  // Elements qui bordent la zone libre du plateau (voir getViewportInsets).
+  private readonly toolbar: HTMLElement;
+  private readonly browser: HTMLElement;
+  private readonly statusBar: HTMLElement;
+  private readonly leftToggle: HTMLButtonElement;
+  private readonly rightToggle: HTMLButtonElement;
+  private leftCollapsed = false;
+  private rightCollapsed = false;
 
   // Boutons d'outils, pour la mise en surbrillance de l'outil actif (voir
   // syncTool) — l'etat de l'outil reste celui d'EditorState.tool.
@@ -686,6 +697,7 @@ export class EditorUI {
 
     const toolbar = document.createElement('div');
     toolbar.className = 'editor-toolbar';
+    this.toolbar = toolbar;
     const exitButton = document.createElement('button');
     exitButton.type = 'button';
     exitButton.className = 'editor-button';
@@ -749,6 +761,8 @@ export class EditorUI {
 
     const browser = document.createElement('div');
     browser.className = 'editor-asset-browser';
+    browser.id = 'editor-catalog-panel';
+    this.browser = browser;
 
     // Outil Selection : toujours visible (colle en haut de la colonne, meme
     // quand le catalogue defile). Echap et clic droit y ramenent aussi.
@@ -854,6 +868,7 @@ export class EditorUI {
     // (voir showProperties).
     this.propertiesPanel = document.createElement('div');
     this.propertiesPanel.className = 'editor-properties';
+    this.propertiesPanel.id = 'editor-properties-panel';
     const propertiesTitle = document.createElement('div');
     propertiesTitle.className = 'editor-properties-title';
     propertiesTitle.textContent = 'Propriétés';
@@ -871,12 +886,80 @@ export class EditorUI {
     this.statusLine = document.createElement('div');
     status.appendChild(this.statusLine);
     this.root.appendChild(status);
+    this.statusBar = status;
+
+    // Repli des panneaux lateraux (E6) : un chevron discret au bord
+    // interieur de chaque panneau, qui reste a l'ecran une fois le panneau
+    // replie. Le panneau reste dans le DOM (contenu et selection conserves).
+    this.leftToggle = this.panelToggle('editor-catalog-panel', 'editor-panel-toggle--left', () => this.setPanelCollapsed('left', !this.leftCollapsed));
+    this.rightToggle = this.panelToggle('editor-properties-panel', 'editor-panel-toggle--right', () => this.setPanelCollapsed('right', !this.rightCollapsed));
+    this.syncPanelToggles();
 
     document.body.appendChild(this.root);
   }
 
+  /** Replie ou deplie un panneau lateral ; le plateau recupere l'espace
+   *  (voir main.ts, onLayoutChange). */
+  setPanelCollapsed(side: 'left' | 'right', collapsed: boolean): void {
+    if (side === 'left') this.leftCollapsed = collapsed;
+    else this.rightCollapsed = collapsed;
+    this.syncPanelToggles();
+    this.handlers.onLayoutChange();
+  }
+
+  /** Marges (pixels CSS) entre les bords de la fenetre et la zone libre du
+   *  plateau, mesurees sur le DOM : barre du haut, ligne d'etat et panneaux
+   *  ouverts. A n'appeler que lorsque l'editeur est affiche. */
+  getViewportInsets(): { top: number; right: number; bottom: number; left: number } {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    return {
+      top: Math.max(this.toolbar.getBoundingClientRect().bottom, 0),
+      bottom: Math.max(h - this.statusBar.getBoundingClientRect().top, 0),
+      left: this.leftCollapsed ? 0 : Math.max(this.browser.getBoundingClientRect().right, 0),
+      right: this.rightCollapsed ? 0 : Math.max(w - this.propertiesPanel.getBoundingClientRect().left, 0),
+    };
+  }
+
+  private panelToggle(controls: string, modifier: string, onClick: () => void): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `editor-panel-toggle ${modifier}`;
+    button.setAttribute('aria-controls', controls);
+    button.addEventListener('click', (event) => {
+      onClick();
+      // Clic souris : le focus ne reste pas sur le chevron, sinon Espace
+      // (reinitialisation de la camera) le reactiverait aussitot. Au
+      // clavier (detail = 0), le focus reste pour enchainer.
+      if (event.detail > 0) button.blur();
+    });
+    this.root.appendChild(button);
+    return button;
+  }
+
+  private syncPanelToggles(): void {
+    this.root.classList.toggle('editor-ui--left-collapsed', this.leftCollapsed);
+    this.root.classList.toggle('editor-ui--right-collapsed', this.rightCollapsed);
+    const sync = (button: HTMLButtonElement, collapsed: boolean, panel: string, open: string, close: string) => {
+      button.textContent = collapsed ? open : close;
+      button.setAttribute('aria-expanded', String(!collapsed));
+      const label = `${collapsed ? 'Afficher' : 'Masquer'} ${panel}`;
+      button.title = label;
+      button.setAttribute('aria-label', label);
+    };
+    sync(this.leftToggle, this.leftCollapsed, 'le catalogue', '›', '‹');
+    sync(this.rightToggle, this.rightCollapsed, 'les propriétés', '‹', '›');
+  }
+
   setVisible(visible: boolean): void {
     this.root.style.display = visible ? '' : 'none';
+    this.syncBodyClass();
+  }
+
+  /** Interface complete de l'editeur affichee (hors test) : l'aide de debug
+   *  du jeu, en bas a gauche, ne depasse pas sous un panneau replie. */
+  private syncBodyClass(): void {
+    document.body.classList.toggle('editor-layout', this.root.style.display !== 'none' && !this.testMode);
   }
 
   /** Nom de la carte et etat "non enregistré" dans la barre du haut. */
@@ -948,6 +1031,7 @@ export class EditorUI {
   setTestMode(active: boolean): void {
     this.testMode = active;
     this.root.classList.toggle('editor-ui--testing', active);
+    this.syncBodyClass();
     if (active) this.statusLine.textContent = 'Test du scénario · Échap : revenir à l’éditeur';
   }
 
