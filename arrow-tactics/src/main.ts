@@ -54,7 +54,7 @@ import {
   createSelectionRingHitArea,
   TERRITORY_ERASE_PREVIEW_COLOR,
 } from './editor/editorScene';
-import { EditorUI } from './editor/editorUI';
+import { EditorUI, type PropertiesSubject } from './editor/editorUI';
 import { downloadMapDef, exportMapDef, loadMapDefFromFile } from './editor/mapSerializer';
 import { buildBallistaTowerPlatform, playBallistaShot, tickBallista } from './render/ballista';
 import { BattleSelection, isInScreenRect, pickEntityAtScreen, selectableUnitsInScreenRect, type ScreenRect } from './render/battleSelection';
@@ -2218,6 +2218,7 @@ const editorUI = new EditorUI({
     editorState?.rotateSelected(Math.PI / 2);
     refreshEditorObjects();
   },
+  onRotateBy: (degrees) => rotateSelectedObstacleBy(THREE.MathUtils.degToRad(degrees)),
   onDelete: () => {
     editorState?.deleteSelected();
     refreshEditorObjects();
@@ -2350,7 +2351,6 @@ function refreshEditorObjects(): void {
   repositionBallista(editorState.ballista);
 
   const selectedObstacle = editorState.selectedObstacle;
-  const selectedUnit = editorState.selectedUnit;
   const ballistaSelected = editorState.selection?.kind === 'ballista';
   editorSelectionRing.visible = selectedObstacle !== null || ballistaSelected;
   if (selectedObstacle) {
@@ -2358,18 +2358,14 @@ function refreshEditorObjects(): void {
     editorSelectionRing.position.set(center.x, 0.02, center.z);
     editorSelectionRing.scale.setScalar(Math.max(selectedObstacle.tilesX, selectedObstacle.tilesZ) * 0.7);
     editorSelectionRingMaterial.color.setHex(EDITOR_DECOR_RING_COLOR);
-    editorUI.showObstacleProperties(selectedObstacle);
-  } else if (selectedUnit) {
-    editorUI.showUnitProperties(selectedUnit);
   } else if (ballistaSelected) {
     // Meme convention d'echelle que les decors, sur l'empreinte reelle.
     editorSelectionRing.position.set(editorState.ballista.x, 0.02, editorState.ballista.z);
     editorSelectionRing.scale.setScalar(BALLISTA_TOWER_FOOTPRINT * 0.7);
     editorSelectionRingMaterial.color.setHex(teamColor(EDITOR_BALLISTA_OWNER));
-    editorUI.hideProperties();
-  } else {
-    editorUI.hideProperties();
   }
+  // Panneau de proprietes (toujours present) : decrit la selection courante.
+  editorUI.showProperties(editorPropertiesSubject(editorState));
 
   // TransformControls (2026-08-16, Part N de la demande) : attache
   // UNIQUEMENT a l'obstacle/decor selectionne — jamais a une unite, qui
@@ -2385,6 +2381,21 @@ function refreshEditorObjects(): void {
   // Outil actif et ligne d'etat de l'interface (surbrillance, aide).
   editorUI.syncTool(editorState.tool, editorState.selection);
   refreshMovePreview();
+}
+
+/** Selection courante telle que la decrit le panneau de proprietes : le
+ *  decor (avec son orientation reellement affichee), les unites (avec le
+ *  proprietaire actuel de leur case) ou la Baliste. */
+function editorPropertiesSubject(state: EditorState): PropertiesSubject {
+  const obstacle = state.selectedObstacle;
+  if (obstacle) return { kind: 'obstacle', obstacle, rotationRad: currentObstacleRotation(obstacle) };
+  const ids = state.selectedUnitIds;
+  if (ids.length > 0) {
+    const units = ids.map((id) => state.units.find((u) => u.id === id)).filter((u): u is NonNullable<typeof u> => u !== undefined);
+    return { kind: 'units', units: units.map((unit) => ({ unit, territory: state.territoryOwnerAt(unit.x, unit.z) })) };
+  }
+  if (state.selection?.kind === 'ballista') return { kind: 'ballista', x: state.ballista.x, z: state.ballista.z };
+  return { kind: 'none' };
 }
 
 async function enterEditor(): Promise<void> {

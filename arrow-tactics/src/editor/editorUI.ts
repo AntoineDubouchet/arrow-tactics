@@ -23,6 +23,9 @@ export interface EditorUIHandlers {
    *  (case neutre). Reste actif apres chaque trait, comme "Ajouter case". */
   onSelectTerritoryTool: (team: TerritoryTeam | null) => void;
   onRotate: () => void;
+  /** Rotation du decor selectionne de `degrees` (boutons −15° / +15° du
+   *  panneau) — meme operation que Ctrl+molette. */
+  onRotateBy: (degrees: number) => void;
   onDelete: () => void;
   onExit: () => void;
   /** Bouton "Enregistrer" de la barre d'outils (etape 3 du chantier
@@ -446,6 +449,153 @@ function presentAsset(asset: AssetEntry, section: CatalogSection, category: Cata
   };
 }
 
+/** Ce que le panneau de proprietes sait d'un decor : la presentation du
+ *  catalogue (meme nom, taille et collision) et sa categorie. */
+interface DecorInfo {
+  presentation: AssetPresentation;
+  category: string;
+  /** Structure decorative (modele KayKit bleu/rouge/neutre). */
+  structure: boolean;
+}
+
+/** Cle d'un decor : son type et son modele (ou son emprise pour un rocher),
+ *  commune aux gabarits du catalogue et aux obstacles poses ou charges. */
+function decorKey(o: Pick<ObstacleDef, 'kind' | 'treeModel' | 'propModel' | 'buildingModel' | 'tilesX' | 'tilesZ'>): string {
+  return `${o.kind}:${o.treeModel ?? o.propModel ?? o.buildingModel ?? `${o.tilesX}x${o.tilesZ}`}`;
+}
+
+/** Index des decors du catalogue, construit une fois depuis DECOR_CATALOG. */
+const DECOR_INFO = new Map<string, DecorInfo>();
+for (const category of DECOR_CATALOG) {
+  for (const section of category.sections) {
+    for (const asset of section.assets) {
+      DECOR_INFO.set(decorKey(asset.template), {
+        presentation: presentAsset(asset, section, category),
+        category: section.label ? `${category.label} · ${section.label}` : category.label,
+        structure: section.tint !== undefined,
+      });
+    }
+  }
+}
+
+/** Presentation d'un obstacle pose ; un modele absent du catalogue (carte
+ *  chargee) garde son identifiant comme nom. */
+function describeDecor(obstacle: ObstacleDef): DecorInfo {
+  const known = DECOR_INFO.get(decorKey(obstacle));
+  if (known) return known;
+  const id = obstacle.treeModel ?? obstacle.propModel ?? obstacle.buildingModel ?? obstacle.kind;
+  const blocking = isCollidableObstacle(obstacle);
+  return { presentation: { name: id, size: `${obstacle.tilesX}×${obstacle.tilesZ}`, blocking, search: '' }, category: 'Hors catalogue', structure: false };
+}
+
+/** Selection decrite par le panneau de proprietes (voir showProperties). */
+export type PropertiesSubject =
+  | { kind: 'none' }
+  /** `rotationRad` : orientation reellement affichee (voir main.ts,
+   *  currentObstacleRotation), pas seulement rotationY. */
+  | { kind: 'obstacle'; obstacle: EditorObstacle; rotationRad: number }
+  /** `territory` : proprietaire actuel de la case de chaque unite. */
+  | { kind: 'units'; units: { unit: EditorUnit; territory: TerritoryTeam | null }[] }
+  | { kind: 'ballista'; x: number; z: number };
+
+interface PropertiesView {
+  name: string;
+  kind: string;
+  /** Identifiant technique, en info-bulle seulement. */
+  technicalId?: string;
+  sections: { label: string; rows: [string, string][]; notes: string[] }[];
+  actions: ('rotate' | 'delete')[];
+}
+
+function teamName(team: TerritoryTeam | null): string {
+  return team === 'player' ? 'Joueur' : team === 'enemy' ? 'Ennemi' : 'Neutre';
+}
+
+/** Coordonnee lisible : au plus deux decimales, virgule decimale. */
+function formatCoord(value: number): string {
+  return String(Number(value.toFixed(2))).replace('.', ',');
+}
+
+/** Contenu du panneau pour une selection. */
+function describeProperties(subject: PropertiesSubject): PropertiesView {
+  const teamNote = 'Le camp est déterminé par le territoire lors de la pose ou du déplacement.';
+  switch (subject.kind) {
+    case 'none':
+      return { name: 'Aucune sélection', kind: '', sections: [{ label: '', rows: [], notes: ['Sélectionnez un objet ou une unité sur la carte.'] }], actions: [] };
+    case 'obstacle': {
+      const o = subject.obstacle;
+      const info = describeDecor(o);
+      const center = obstacleCenter(o);
+      // Toujours entre 0 et 359 (un arrondi de 359,6° donnerait sinon 360).
+      const degrees = ((Math.round((subject.rotationRad * 180) / Math.PI) % 360) + 360) % 360;
+      return {
+        name: info.presentation.name,
+        kind: info.structure ? 'Structure décorative' : 'Décor',
+        technicalId: o.treeModel ?? o.propModel ?? o.buildingModel ?? o.kind,
+        sections: [
+          {
+            label: info.structure ? 'Structure' : 'Décor',
+            rows: [
+              ['Catégorie', info.category],
+              ['Taille', info.presentation.size],
+              ['Collision', info.presentation.blocking ? 'Bloquant' : 'Traversable'],
+            ],
+            notes: info.structure ? ['Aucun effet de jeu : simple obstacle.'] : [],
+          },
+          { label: 'Position', rows: [['X', formatCoord(center.x)], ['Z', formatCoord(center.z)]], notes: [] },
+          { label: 'Rotation', rows: [['Angle', `${degrees}°`]], notes: [] },
+        ],
+        actions: ['rotate', 'delete'],
+      };
+    }
+    case 'units': {
+      const units = subject.units;
+      if (units.length === 1) {
+        const { unit, territory } = units[0]!;
+        const rows: [string, string][] = [['Camp', teamName(unit.team)]];
+        if (territory !== unit.team) rows.push(['Territoire actuel', teamName(territory)]);
+        return {
+          name: UNITS[unit.unitId]?.name ?? unit.unitId,
+          kind: 'Unité du scénario',
+          sections: [
+            { label: 'Camp', rows, notes: [teamNote] },
+            { label: 'Position', rows: [['X', formatCoord(unit.x)], ['Z', formatCoord(unit.z)]], notes: [] },
+          ],
+          actions: ['delete'],
+        };
+      }
+      const byType = new Map<string, number>();
+      for (const { unit } of units) byType.set(unit.unitId, (byType.get(unit.unitId) ?? 0) + 1);
+      const players = units.filter((u) => u.unit.team === 'player').length;
+      const enemies = units.length - players;
+      const campRows: [string, string][] =
+        players === 0 || enemies === 0 ? [['Camp', players > 0 ? 'Joueur' : 'Ennemi']] : [['Joueur', `${players}`], ['Ennemi', `${enemies}`]];
+      const misplaced = units.filter((u) => u.territory !== u.unit.team).length;
+      if (misplaced > 0) campRows.push(['Hors de leur territoire', `${misplaced}`]);
+      return {
+        name: `${units.length} unités sélectionnées`,
+        kind: 'Unités du scénario',
+        sections: [
+          { label: 'Composition', rows: [...byType].map(([id, n]) => [UNITS[id]?.name ?? id, `×${n}`] as [string, string]), notes: [] },
+          { label: 'Camp', rows: campRows, notes: [teamNote] },
+        ],
+        actions: ['delete'],
+      };
+    }
+    case 'ballista':
+      return {
+        name: 'Baliste',
+        kind: 'Objectif gameplay',
+        sections: [
+          { label: 'Camp', rows: [['Camp', 'Joueur']], notes: [] },
+          { label: 'Position', rows: [['X', formatCoord(subject.x)], ['Z', formatCoord(subject.z)]], notes: [] },
+          { label: 'Emprise', rows: [['Placement', '3×3']], notes: ['Placement : l’empreinte entière doit être en territoire joueur.'] },
+        ],
+        actions: [],
+      };
+  }
+}
+
 /** Etat d'affichage d'une categorie du catalogue (voir applyCatalogFilter). */
 interface CatalogCategoryView {
   category: CatalogCategory;
@@ -492,8 +642,10 @@ export class EditorUI {
   readonly root: HTMLElement;
   private readonly propertiesPanel: HTMLElement;
   private readonly propertiesBody: HTMLElement;
-  private readonly rotateButton: HTMLButtonElement;
-  private readonly deleteButton: HTMLButtonElement;
+  /** Contenu actuellement affiche par le panneau (evite de reconstruire le
+   *  DOM a chaque rafraichissement, par exemple pendant un glisser). */
+  private propertiesKey = '';
+  private readonly handlers: EditorUIHandlers;
   private readonly widthInput: HTMLInputElement;
   private readonly heightInput: HTMLInputElement;
   private readonly statusLine: HTMLElement;
@@ -519,6 +671,7 @@ export class EditorUI {
   private readonly catalogViews: CatalogCategoryView[] = [];
 
   constructor(handlers: EditorUIHandlers) {
+    this.handlers = handlers;
     this.root = document.createElement('div');
     this.root.className = 'editor-ui';
     this.root.style.display = 'none';
@@ -672,32 +825,19 @@ export class EditorUI {
     this.applyCatalogFilter();
     this.root.appendChild(browser);
 
+    // Proprietes (E3) : panneau toujours present, contenu selon la selection
+    // (voir showProperties).
     this.propertiesPanel = document.createElement('div');
     this.propertiesPanel.className = 'editor-properties';
-    this.propertiesPanel.style.display = 'none';
     const propertiesTitle = document.createElement('div');
     propertiesTitle.className = 'editor-properties-title';
-    propertiesTitle.textContent = 'Objet sélectionné';
+    propertiesTitle.textContent = 'Propriétés';
     this.propertiesPanel.appendChild(propertiesTitle);
     this.propertiesBody = document.createElement('div');
     this.propertiesBody.className = 'editor-properties-body';
     this.propertiesPanel.appendChild(this.propertiesBody);
-
-    this.rotateButton = document.createElement('button');
-    this.rotateButton.type = 'button';
-    this.rotateButton.className = 'editor-button';
-    this.rotateButton.textContent = 'Tourner 90° (R)';
-    this.rotateButton.addEventListener('click', handlers.onRotate);
-    this.propertiesPanel.appendChild(this.rotateButton);
-
-    this.deleteButton = document.createElement('button');
-    this.deleteButton.type = 'button';
-    this.deleteButton.className = 'editor-button editor-button--danger';
-    this.deleteButton.textContent = 'Supprimer (Suppr)';
-    this.deleteButton.addEventListener('click', handlers.onDelete);
-    this.propertiesPanel.appendChild(this.deleteButton);
-
     this.root.appendChild(this.propertiesPanel);
+    this.hideProperties();
 
     // Ligne d'etat CONTEXTUELLE : outil actif et gestes utiles (voir
     // syncTool), ou le test du scenario (voir setTestMode).
@@ -785,62 +925,99 @@ export class EditorUI {
     this.heightInput.value = String(height);
   }
 
-  showObstacleProperties(obstacle: EditorObstacle): void {
-    this.propertiesPanel.style.display = '';
-    this.rotateButton.style.display = '';
-    // Toujours affiche entre 0 et 359 (un arrondi de 359.6° donnerait sinon 360).
-    const rotationDeg = ((Math.round(((obstacle.rotationY ?? 0) * 180) / Math.PI) % 360) + 360) % 360;
-    this.propertiesBody.innerHTML = '';
-    const kindLabel =
-      obstacle.kind === 'tree' ? 'arbre' : obstacle.kind === 'prop' ? 'prop' : obstacle.kind === 'building' ? 'bâtiment' : 'rocher';
-    // Position CONTINUE (2026-08-16, placement libre — voir obstacleCenter) :
-    // toujours affichée via le centre résolu, jamais cornerX/cornerZ
-    // directement (undefined pour tout obstacle posé librement).
-    const center = obstacleCenter(obstacle);
-    const lines = [
-      `Type : ${kindLabel}`,
-      obstacle.treeModel ? `Modèle : ${obstacle.treeModel}` : null,
-      obstacle.propModel ? `Modèle : ${obstacle.propModel}` : null,
-      obstacle.buildingModel ? `Modèle : ${obstacle.buildingModel}` : null,
-      `Position : (${center.x.toFixed(2)}, ${center.z.toFixed(2)})`,
-      `Emprise : ${obstacle.tilesX}×${obstacle.tilesZ}`,
-      `Rotation : ${rotationDeg}°`,
-    ].filter((l): l is string => l !== null);
-    this.renderPropertyLines(lines);
-    // Rend la rotation a la molette decouvrable sans lire l'aide du bas
-    // (objets rotatifs uniquement : showUnitProperties ne l'affiche pas).
-    const hint = document.createElement('div');
-    hint.className = 'editor-properties-hint';
-    hint.textContent = 'Ctrl + molette : ±15° • Maj : ±1°';
-    this.propertiesBody.appendChild(hint);
-  }
+  /** Panneau de proprietes (E3) : toujours present, il decrit la selection
+   *  courante. Appele a chaque rafraichissement de l'editeur (voir main.ts,
+   *  refreshEditorObjects) ; le DOM n'est reconstruit que si le contenu
+   *  change. Les actions appellent les operations existantes de l'editeur. */
+  showProperties(subject: PropertiesSubject): void {
+    const view = describeProperties(subject);
+    const key = JSON.stringify(view);
+    if (key === this.propertiesKey) return;
+    this.propertiesKey = key;
+    const body = this.propertiesBody;
+    body.replaceChildren();
 
-  /** Panneau proprietes pour une unite selectionnee — pas de rotation
-   *  possible (les unites n'en ont pas), le bouton Tourner est masque. */
-  showUnitProperties(unit: EditorUnit): void {
-    this.propertiesPanel.style.display = '';
-    this.rotateButton.style.display = 'none';
-    this.propertiesBody.innerHTML = '';
-    const teamLabel = unit.team === 'player' ? 'bleu (joueur)' : 'rouge (ennemi)';
-    const def = UNITS[unit.unitId];
-    this.renderPropertyLines([
-      `Type : unité — ${def?.name ?? unit.unitId}`,
-      `Camp : ${teamLabel}`,
-      `Position : (${unit.x.toFixed(1)}, ${unit.z.toFixed(1)})`,
-    ]);
-  }
+    const name = document.createElement('div');
+    name.className = 'editor-prop-name';
+    name.textContent = view.name;
+    if (view.technicalId) name.title = view.technicalId;
+    body.appendChild(name);
+    if (view.kind) {
+      const kind = document.createElement('div');
+      kind.className = 'editor-prop-kind';
+      kind.textContent = view.kind;
+      body.appendChild(kind);
+    }
 
-  private renderPropertyLines(lines: string[]): void {
-    for (const line of lines) {
-      const p = document.createElement('div');
-      p.className = 'editor-properties-line';
-      p.textContent = line;
-      this.propertiesBody.appendChild(p);
+    for (const section of view.sections) {
+      const el = document.createElement('div');
+      el.className = 'editor-prop-section';
+      if (section.label) {
+        const label = document.createElement('div');
+        label.className = 'editor-prop-label';
+        label.textContent = section.label;
+        el.appendChild(label);
+      }
+      for (const [key, value] of section.rows) {
+        const row = document.createElement('div');
+        row.className = 'editor-prop-row';
+        const k = document.createElement('span');
+        k.className = 'editor-prop-key';
+        k.textContent = key;
+        const v = document.createElement('span');
+        v.className = 'editor-prop-value';
+        v.textContent = value;
+        v.title = value;
+        row.append(k, v);
+        el.appendChild(row);
+      }
+      for (const note of section.notes) {
+        const n = document.createElement('div');
+        n.className = 'editor-prop-note';
+        n.textContent = note;
+        el.appendChild(n);
+      }
+      body.appendChild(el);
+    }
+
+    if (view.actions.length > 0) {
+      const actions = document.createElement('div');
+      actions.className = 'editor-prop-section';
+      const label = document.createElement('div');
+      label.className = 'editor-prop-label';
+      label.textContent = 'Actions';
+      actions.appendChild(label);
+      if (view.actions.includes('rotate')) {
+        const row = document.createElement('div');
+        row.className = 'editor-prop-buttons';
+        row.append(
+          this.propertyButton('−15°', () => this.handlers.onRotateBy(-15)),
+          this.propertyButton('+15°', () => this.handlers.onRotateBy(15)),
+          this.propertyButton('+90° (R)', this.handlers.onRotate),
+        );
+        actions.appendChild(row);
+      }
+      if (view.actions.includes('delete')) {
+        const del = this.propertyButton('Supprimer (Suppr)', this.handlers.onDelete);
+        del.classList.add('editor-button--danger', 'editor-prop-delete');
+        actions.appendChild(del);
+      }
+      body.appendChild(actions);
     }
   }
 
+  /** Aucune selection (panneau toujours present). */
   hideProperties(): void {
-    this.propertiesPanel.style.display = 'none';
+    this.showProperties({ kind: 'none' });
+  }
+
+  private propertyButton(label: string, onClick: () => void): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'editor-button';
+    button.textContent = label;
+    button.addEventListener('click', onClick);
+    return button;
   }
 
   private groupHeader(label: string): HTMLElement {

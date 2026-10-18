@@ -1650,6 +1650,7 @@ img {
   bottom: var(--editor-bottombar-height);
   right: 0;
   width: var(--editor-right-width);
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 12px;
   background: var(--panel);
@@ -1670,17 +1671,78 @@ img {
   margin-bottom: 12px;
 }
 
-.editor-properties-line {
-  margin-bottom: 4px;
-  font-size: 12px;
-  line-height: 1.5;
+/* Fiche de la selection (E3) : nom, type, puis sections (petit libelle,
+   lignes cle / valeur, notes) separees par un trait leger. */
+.editor-prop-name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.editor-properties-hint {
+.editor-prop-kind {
   margin-top: 2px;
   font-size: 11px;
-  line-height: 1.4;
   color: var(--ink-dim);
+}
+
+.editor-prop-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--edge);
+}
+
+.editor-prop-label {
+  margin-bottom: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+}
+
+.editor-prop-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.editor-prop-key {
+  flex: 0 0 auto;
+  color: var(--ink-dim);
+}
+
+.editor-prop-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.editor-prop-note {
+  margin-top: 4px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+
+.editor-prop-buttons {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.editor-prop-buttons .editor-button {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 4px;
+  white-space: nowrap;
 }
 
 .editor-button {
