@@ -36,6 +36,11 @@ export interface EditorUIHandlers {
    *  validation restent dans mapSerializer.ts, l'UI ne fait que relayer le
    *  File choisi par Antoine. */
   onLoad: (file: File) => void;
+  /** Avant d'ouvrir le choix de fichier de "Charger une carte" : faux pour
+   *  ne rien ouvrir (brouillon non enregistre que l'utilisateur garde). */
+  onRequestLoad: () => boolean;
+  /** Bouton "Nouvelle carte" (la protection du brouillon est dans main.ts). */
+  onNewMap: () => void;
   /** Bouton "Appliquer" du controle de taille — largeur/hauteur en cases,
    *  deja validees comme des entiers positifs par l'UI (voir constructor). */
   onResizeMap: (width: number, height: number) => void;
@@ -649,6 +654,9 @@ export class EditorUI {
   private readonly widthInput: HTMLInputElement;
   private readonly heightInput: HTMLInputElement;
   private readonly statusLine: HTMLElement;
+  private readonly mapTitle: HTMLElement;
+  private readonly mapName: HTMLElement;
+  private readonly mapDirty: HTMLElement;
 
   // Boutons d'outils, pour la mise en surbrillance de l'outil actif (voir
   // syncTool) — l'etat de l'outil reste celui d'EditorState.tool.
@@ -685,6 +693,13 @@ export class EditorUI {
     exitButton.addEventListener('click', handlers.onExit);
     toolbar.appendChild(exitButton);
 
+    const newButton = document.createElement('button');
+    newButton.type = 'button';
+    newButton.className = 'editor-button';
+    newButton.textContent = 'Nouvelle carte';
+    newButton.addEventListener('click', handlers.onNewMap);
+    toolbar.appendChild(newButton);
+
     const saveButton = document.createElement('button');
     saveButton.type = 'button';
     saveButton.className = 'editor-button';
@@ -705,7 +720,9 @@ export class EditorUI {
       if (file) handlers.onLoad(file);
       loadInput.value = '';
     });
-    loadButton.addEventListener('click', () => loadInput.click());
+    loadButton.addEventListener('click', () => {
+      if (handlers.onRequestLoad()) loadInput.click();
+    });
     toolbar.appendChild(loadButton);
     toolbar.appendChild(loadInput);
 
@@ -718,7 +735,15 @@ export class EditorUI {
 
     const title = document.createElement('span');
     title.className = 'editor-toolbar-title editor-toolbar-title--main';
-    title.textContent = 'Éditeur de maps';
+    // Nom de la carte et etat "non enregistre" (voir setMapStatus).
+    this.mapName = document.createElement('span');
+    this.mapName.className = 'editor-map-name';
+    this.mapDirty = document.createElement('span');
+    this.mapDirty.className = 'editor-map-dirty';
+    this.mapDirty.textContent = ' • non enregistré';
+    this.mapDirty.hidden = true;
+    title.append('Éditeur de maps · ', this.mapName, this.mapDirty);
+    this.mapTitle = title;
     toolbar.appendChild(title);
     this.root.appendChild(toolbar);
 
@@ -852,6 +877,15 @@ export class EditorUI {
 
   setVisible(visible: boolean): void {
     this.root.style.display = visible ? '' : 'none';
+  }
+
+  /** Nom de la carte et etat "non enregistré" dans la barre du haut. */
+  setMapStatus(name: string, dirty: boolean): void {
+    if (this.mapName.textContent !== name) this.mapName.textContent = name;
+    if (this.mapDirty.hidden !== !dirty) this.mapDirty.hidden = !dirty;
+    const label = dirty ? `${name} — modifications non enregistrées` : `${name} — enregistrée`;
+    this.mapTitle.title = label;
+    this.mapTitle.setAttribute('aria-label', `Éditeur de maps · ${label}`);
   }
 
   /** Reflete l'outil actif (EditorState.tool) : surbrillance du bouton

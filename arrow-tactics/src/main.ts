@@ -1871,6 +1871,99 @@ let editorGhost: THREE.Object3D | null = null;
 // n'edite encore que les obstacles.
 let editorBaseMap: MapDef = DEFAULT_MAP;
 
+/** Brouillon de l'editeur "propre" (E5) : export canonique de la carte au
+ *  dernier etat ouvert, charge ou enregistre — null pour une carte jamais
+ *  enregistree (Nouvelle carte). La carte est "non enregistree" des que son
+ *  export actuel en differe : seule compte la donnee reellement sauvegardee
+ *  (pas la selection, la camera, l'outil, la recherche...), et un Ctrl+Z
+ *  qui revient a cet etat la rend propre de nouveau. */
+let editorCleanExport: string | null = null;
+
+/** Export de la carte en cours, cellules et territoire tries : deux etats
+ *  egaux ne different jamais par le seul ordre de ces listes (une case
+ *  supprimee puis restauree par Ctrl+Z revient a la fin de la liste). */
+function editorExportKey(): string | null {
+  if (!editorState) return null;
+  const map = exportMapDef(editorState, editorBaseMap);
+  const byZX = (a: { x: number; z: number }, b: { x: number; z: number }) => a.z - b.z || a.x - b.x;
+  return JSON.stringify({ ...map, cells: [...(map.cells ?? [])].sort(byZX), territory: map.territory ? [...map.territory].sort(byZX) : undefined });
+}
+
+function isEditorDirty(): boolean {
+  if (!editorState) return false;
+  return editorCleanExport === null || editorExportKey() !== editorCleanExport;
+}
+
+/** La carte en cours devient l'etat propre (ouverture, chargement,
+ *  enregistrement). */
+function markEditorClean(): void {
+  editorCleanExport = editorExportKey();
+  updateEditorMapStatus();
+}
+
+function updateEditorMapStatus(): void {
+  if (editorState) editorUI.setMapStatus(editorBaseMap.name, isEditorDirty());
+}
+
+/** Indicateur de la barre du haut recalcule une fois par image au plus
+ *  (les rafraichissements de l'editeur peuvent s'enchainer, par exemple
+ *  pendant un glisser). */
+let editorMapStatusPending = false;
+function scheduleEditorMapStatus(): void {
+  if (editorMapStatusPending) return;
+  editorMapStatusPending = true;
+  requestAnimationFrame(() => {
+    editorMapStatusPending = false;
+    updateEditorMapStatus();
+  });
+}
+
+/** Protection du brouillon, commune a Retour au menu, Charger une carte et
+ *  Nouvelle carte : vrai si l'action peut continuer (carte propre, ou
+ *  abandon confirme). `action` complete la question. */
+function confirmDiscardEditorDraft(action: string): boolean {
+  if (!isEditorDirty()) return true;
+  return window.confirm(`Des modifications ne sont pas enregistrées.
+${action} et les perdre ?`);
+}
+
+/** Carte vierge pour "Nouvelle carte" : taille de la carte de reference
+ *  (DEFAULT_MAP), aucune cellule explicite (rectangle d'herbe par
+ *  resolveMapCells), aucun objet, aucune unite, Baliste et territoire
+ *  absents (repli historique). */
+function createBlankEditorMap(): MapDef {
+  return { name: 'Nouvelle carte', version: 1, width: DEFAULT_MAP.width, height: DEFAULT_MAP.height, obstacles: [], playerUnits: [], enemyUnits: [] };
+}
+
+/** Remplace la carte de l'editeur (chargement, nouvelle carte) : etat,
+ *  maillages et historique repartent de zero. */
+function resetEditorWithMap(map: MapDef): void {
+  editorBaseMap = map;
+  ringRotateDrag = null;
+  editorState = new EditorState(map);
+  editorObjectsGroup.clear();
+  editorMeshes.clear();
+  retiredEditorMeshes.clear();
+  editorUnitsGroup.clear();
+  editorUnitMeshes.clear();
+  editorUnitMeshTeams.clear();
+  clearEditorGhost();
+  transformControls.detach();
+  editorHistory.clear();
+  rebuildEditorBoard();
+  editorUI.setMapSize(editorState.width, editorState.height);
+  refreshEditorObjects();
+}
+
+// Fermeture / rechargement de l'onglet avec un brouillon non enregistre
+// (editeur ou test du scenario) : avertissement standard du navigateur.
+window.addEventListener('beforeunload', (event) => {
+  if ((inEditorMode || inTestMode) && isEditorDirty()) {
+    event.preventDefault();
+    event.returnValue = '';
+  }
+});
+
 // Plateau visuel de la bataille de test ("Tester le scenario") — separe de
 // `board` (le plateau du jeu reel, jamais touche par un test) pour ne pas
 // avoir a le reconstruire a chaque aller-retour. Construit a l'entree du
@@ -1957,6 +2050,7 @@ function refreshEditorZones(): void {
   if (editorZonesGroup) editorBoardGroup.remove(editorZonesGroup);
   editorZonesGroup = createZonesGroup(editorState.resolvedTerritory());
   editorBoardGroup.add(editorZonesGroup);
+  scheduleEditorMapStatus();
 }
 
 // Anneau reutilise pour toute selection : construit une fois a rayon unite,
@@ -2275,28 +2369,22 @@ const editorUI = new EditorUI({
   onRotate: () => rotateSelectedObstacleBy(Math.PI / 2),
   onRotateBy: (degrees) => rotateSelectedObstacleBy(THREE.MathUtils.degToRad(degrees)),
   onDelete: () => deleteEditorSelection(),
-  onExit: () => exitEditor(),
+  onExit: () => {
+    if (confirmDiscardEditorDraft('Quitter l’éditeur')) exitEditor();
+  },
   onSave: () => {
     if (!editorState) return;
     downloadMapDef(exportMapDef(editorState, editorBaseMap));
+    // Enregistre : la carte actuelle devient l'etat propre. L'historique est
+    // conserve (annuler apres un enregistrement reste possible).
+    markEditorClean();
   },
+  onRequestLoad: () => confirmDiscardEditorDraft('Charger une autre carte'),
   onLoad: async (file) => {
     try {
       const map = await loadMapDefFromFile(file);
-      editorBaseMap = map;
-      ringRotateDrag = null;
-      editorState = new EditorState(map);
-      editorObjectsGroup.clear();
-      editorMeshes.clear();
-      editorUnitsGroup.clear();
-      editorUnitMeshes.clear();
-      editorUnitMeshTeams.clear();
-      clearEditorGhost();
-      transformControls.detach();
-      editorHistory.clear();
-      rebuildEditorBoard();
-      editorUI.setMapSize(editorState.width, editorState.height);
-      refreshEditorObjects();
+      resetEditorWithMap(map);
+      markEditorClean();
     } catch (err) {
       // Pas de systeme de notification dans l'UI de l'editeur pour l'instant
       // (voir CLAUDE.md, etapes 2-3) : une alerte navigateur suffit pour un
@@ -2304,6 +2392,13 @@ const editorUI = new EditorUI({
       // reste rare.
       alert(`Impossible de charger cette carte : ${err instanceof Error ? err.message : String(err)}`);
     }
+  },
+  onNewMap: () => {
+    if (!confirmDiscardEditorDraft('Créer une nouvelle carte')) return;
+    resetEditorWithMap(createBlankEditorMap());
+    // Jamais enregistree : non enregistree tant qu'elle ne l'a pas ete.
+    editorCleanExport = null;
+    updateEditorMapStatus();
   },
   onResizeMap: (width, height) => {
     if (!editorState) return;
@@ -2439,6 +2534,7 @@ function refreshEditorObjects(): void {
   }
   // Outil actif et ligne d'etat de l'interface (surbrillance, aide).
   editorUI.syncTool(editorState.tool, editorState.selection);
+  scheduleEditorMapStatus();
   refreshMovePreview();
 }
 
@@ -2476,12 +2572,14 @@ async function enterEditor(): Promise<void> {
   rebuildEditorBoard();
   editorUI.setMapSize(editorState.width, editorState.height);
   refreshEditorObjects();
+  markEditorClean();
 }
 
 function exitEditor(): void {
   inEditorMode = false;
   ringRotateDrag = null;
   editorState = null;
+  editorCleanExport = null;
   editorObjectsGroup.clear();
   editorMeshes.clear();
   retiredEditorMeshes.clear();

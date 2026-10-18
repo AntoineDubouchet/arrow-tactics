@@ -1335,6 +1335,15 @@ img {
   text-align: right;
 }
 
+/* Nom de la carte et etat "non enregistre" (E5). */
+.editor-map-name {
+  color: var(--ink);
+}
+
+.editor-map-dirty {
+  color: var(--accent-gold);
+}
+
 .editor-size-input {
   flex: 0 0 auto;
   width: 46px;
