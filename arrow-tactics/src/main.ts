@@ -5555,6 +5555,15 @@ const talentPointToast = new TalentPointToast();
 const unitUnlockToast = new UnitUnlockToast();
 
 window.addEventListener('keydown', (event) => {
+  // Saisie dans un champ (recherche du catalogue, Taille de l'editeur,
+  // Parametres) : aucun raccourci du jeu ni de l'editeur ne s'applique — la
+  // touche reste au champ (KI-19). Seul Echap fait sortir du champ, puis
+  // garde son role habituel (outil Selection, fermeture d'un ecran...).
+  if (isTypingInField(event.target)) {
+    if (event.key !== 'Escape') return;
+    (event.target as HTMLElement).blur();
+  }
+
   // Undo/Redo de l'editeur (2026-08-16, Part U) — Ctrl+Z / Ctrl+Y (et
   // Ctrl+Maj+Z, convention alternative courante), UNIQUEMENT en mode
   // editeur : pas de conflit possible avec le reste du jeu, qui n'a pas de

@@ -1,4 +1,4 @@
-import { obstacleCenter } from '../config/constants';
+import { isCollidableObstacle, obstacleCenter, type ObstacleDef } from '../config/constants';
 import type { TerrainType } from '../config/mapDef';
 import type { TerritoryTeam } from '../config/territory';
 import { UNITS } from '../data/units';
@@ -346,69 +346,120 @@ const NEUTRAL_BUILDING_ASSETS: AssetEntry[] = [
   building('Projectile de catapulte', 'neutral_catapult_projectile', 1, 1),
 ];
 
-interface AssetCategory {
-  label: string;
+/** Partie d'une categorie du catalogue : un des tableaux d'assets ci-dessus,
+ *  jamais une copie. */
+interface CatalogSection {
+  label?: string;
   assets: AssetEntry[];
+  /** Teinte d'une structure decorative, ajoutee a son nom affiche pour ne
+   *  jamais la confondre avec un batiment de jeu (Mine, Caserne, Forge
+   *  achetes en run). Presentation seulement. */
+  tint?: 'bleu' | 'rouge' | 'neutre';
 }
 
-interface AssetGroup {
+interface CatalogCategory {
   label: string;
-  categories: AssetCategory[];
+  /** Ouverte au premier affichage ; les autres sont repliees. */
+  open: boolean;
+  sections: CatalogSection[];
 }
 
 /**
- * Deux groupes plutot qu'une liste plate de categories (demande d'Antoine,
- * 2026-08-08) : « Obstacles » pour ce qui bloque deja le jeu comme prevu
- * (rochers, arbres — voir OBSTACLE_LOOKAHEAD, resolveObstacleCollisions),
- * « Décors » pour le reste (champignons, buissons, fleurs...). Purement une
- * question de RANGEMENT dans l'asset browser pour l'instant : un décor
- * occupe encore une case entiere et bloque pas/ligne de tir exactement comme
- * un obstacle (ObstacleDef ne distingue pas encore les deux cote simulation)
- * — Antoine a prevenu que d'autres changements sur cette partie du jeu
- * arrivent, a traiter separement le moment venu.
+ * Categories du catalogue des decors (E2). Rangement seulement : les donnees
+ * restent les tableaux ci-dessus, et la collision affichee (Bloquant /
+ * Traversable) vient de isCollidableObstacle, comme en jeu. Les
+ * « Structures décoratives » (modeles KayKit) sont des obstacles bloquants
+ * sans PV ni effet, jamais des batiments de jeu.
  */
-const ASSET_GROUPS: AssetGroup[] = [
+const DECOR_CATALOG: CatalogCategory[] = [
   {
     label: 'Obstacles',
-    categories: [
+    open: true,
+    sections: [
       { label: 'Rochers', assets: ROCK_ASSETS },
       { label: 'Arbres', assets: TREE_ASSETS },
     ],
   },
   {
-    label: 'Décors',
-    categories: [
+    label: 'Végétation',
+    open: false,
+    sections: [
+      { label: 'Buissons et plantes', assets: BUSH_ASSETS },
       { label: 'Champignons', assets: MUSHROOM_ASSETS },
-      { label: 'Buissons & plantes', assets: BUSH_ASSETS },
-      { label: 'Fleurs', assets: FLOWER_ASSETS },
-      { label: 'Bois (bûches, souches)', assets: WOOD_ASSETS },
-      { label: 'Divers', assets: MISC_DECOR_ASSETS },
     ],
   },
+  { label: 'Fleurs', open: false, sections: [{ assets: FLOWER_ASSETS }] },
+  { label: 'Bois', open: false, sections: [{ assets: WOOD_ASSETS }] },
+  { label: 'Accessoires', open: false, sections: [{ assets: KAYKIT_PROP_ASSETS }] },
+  { label: 'Nature', open: false, sections: [{ assets: KAYKIT_NATURE_ASSETS }] },
   {
-    // Groupe SEPARE (2026-08-14, demande d'Antoine) plutot que fondu dans
-    // « Décors » ci-dessus : la provenance (KayKit, pack a retravailler
-    // bientot) reste evidente d'un coup d'œil dans l'asset browser.
-    label: 'KayKit (médiéval)',
-    categories: [
-      { label: 'Nature', assets: KAYKIT_NATURE_ASSETS },
-      { label: 'Props', assets: KAYKIT_PROP_ASSETS },
+    label: 'Structures décoratives',
+    open: false,
+    sections: [
+      { label: 'Teinte bleue', assets: BLUE_BUILDING_ASSETS, tint: 'bleu' },
+      { label: 'Teinte rouge', assets: RED_BUILDING_ASSETS, tint: 'rouge' },
+      { label: 'Neutres', assets: NEUTRAL_BUILDING_ASSETS, tint: 'neutre' },
     ],
   },
-  {
-    // Groupe SEPARE de "KayKit (médiéval)" ci-dessus (2026-08-14, demande
-    // d'Antoine) : format .obj/.mtl different, echelle/emprise multi-cases
-    // et collision reelle (contrairement aux props/nature, traversables) —
-    // suffisamment distinct pour meriter son propre groupe plutot que de se
-    // fondre dans les categories existantes.
-    label: 'Bâtiments (KayKit)',
-    categories: [
-      { label: 'Bleu (joueur)', assets: BLUE_BUILDING_ASSETS },
-      { label: 'Rouge (adversaire)', assets: RED_BUILDING_ASSETS },
-      { label: 'Neutres', assets: NEUTRAL_BUILDING_ASSETS },
-    ],
-  },
+  { label: 'Divers', open: false, sections: [{ assets: MISC_DECOR_ASSETS }] },
 ];
+
+/** Minuscules sans accents, pour une recherche tolerante. */
+function normalizeSearch(text: string): string {
+  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+interface AssetPresentation {
+  /** Nom affiche (lisible, sans taille ni prefixe de pack). */
+  name: string;
+  /** Ligne secondaire : taille ou emprise, puis collision. */
+  size: string;
+  blocking: boolean;
+  /** Texte normalise ou chercher : nom, libelle d'origine, identifiant
+   *  technique, categorie et section. */
+  search: string;
+}
+
+/** Presentation d'une entree du catalogue, derivee de son libelle et de son
+ *  gabarit existants (aucune donnee modifiee). La taille deja ecrite dans
+ *  le libelle d'un prop ("(0.2 case)") passe sur la ligne secondaire ;
+ *  sinon c'est l'emprise en cases. */
+function presentAsset(asset: AssetEntry, section: CatalogSection, category: CatalogCategory): AssetPresentation {
+  const template = asset.template;
+  let name = asset.label;
+  let size = `${template.tilesX}×${template.tilesZ}`;
+  const caseSize = /\s*\(([\d.]+) case\)$/.exec(name);
+  if (caseSize) {
+    name = name.slice(0, caseSize.index);
+    size = `${caseSize[1]!.replace('.', ',')} case`;
+  }
+  name = name.replace(/^KayKit — /, '');
+  if (template.kind === 'rock') name = 'Rocher';
+  if (section.tint) name = `${name.replace(/ \((bleu|rouge)\)$/, '')} — décor ${section.tint}`;
+  const blocking = isCollidableObstacle(template as ObstacleDef);
+  const id = template.treeModel ?? template.propModel ?? template.buildingModel ?? template.kind;
+  return {
+    name,
+    size,
+    blocking,
+    search: normalizeSearch([name, asset.label, id, section.label ?? '', category.label].join(' ')),
+  };
+}
+
+/** Etat d'affichage d'une categorie du catalogue (voir applyCatalogFilter). */
+interface CatalogCategoryView {
+  category: CatalogCategory;
+  toggle: HTMLButtonElement;
+  count: HTMLElement;
+  body: HTMLElement;
+  total: number;
+  /** Ouverte hors recherche (bascule par l'utilisateur). */
+  open: boolean;
+  /** Ouverte pendant la recherche en cours (toutes le sont a chaque
+   *  nouvelle recherche ; l'utilisateur peut en replier une). */
+  openInSearch: boolean;
+  sections: { header: HTMLElement | null; entries: { button: HTMLButtonElement; search: string }[] }[];
+}
 
 interface UnitAssetEntry {
   label: string;
@@ -461,6 +512,11 @@ export class EditorUI {
   private territoryValue: TerritoryTeam | null = 'player';
   private activeButtons: HTMLButtonElement[] = [];
   private testMode = false;
+  /** Catalogue des decors : recherche et categories repliables (E2). Le
+   *  filtrage ne touche qu'au DOM du catalogue. */
+  private readonly searchInput: HTMLInputElement;
+  private readonly catalogEmpty: HTMLElement;
+  private readonly catalogViews: CatalogCategoryView[] = [];
 
   constructor(handlers: EditorUIHandlers) {
     this.root = document.createElement('div');
@@ -595,13 +651,25 @@ export class EditorUI {
     browser.appendChild(this.groupHeader('Unités'));
     browser.appendChild(this.categoryHeader('Bestiaire'));
     for (const unit of UNIT_ASSETS) browser.appendChild(this.unitAssetCard(unit, handlers.onSelectUnit));
-    for (const group of ASSET_GROUPS) {
-      browser.appendChild(this.groupHeader(group.label));
-      for (const category of group.categories) {
-        browser.appendChild(this.categoryHeader(category.label));
-        for (const asset of category.assets) browser.appendChild(this.assetCard(asset, handlers.onSelectTemplate));
-      }
-    }
+
+    // Decors (E2) : recherche + categories repliables.
+    browser.appendChild(this.groupHeader('Décors'));
+    this.searchInput = document.createElement('input');
+    this.searchInput.type = 'search';
+    this.searchInput.className = 'editor-search';
+    this.searchInput.placeholder = 'Rechercher un décor…';
+    this.searchInput.setAttribute('aria-label', 'Rechercher un décor');
+    this.searchInput.addEventListener('input', () => {
+      for (const view of this.catalogViews) view.openInSearch = true;
+      this.applyCatalogFilter();
+    });
+    browser.appendChild(this.searchInput);
+    for (const category of DECOR_CATALOG) browser.appendChild(this.catalogCategory(category, handlers.onSelectTemplate));
+    this.catalogEmpty = document.createElement('div');
+    this.catalogEmpty.className = 'editor-catalog-empty';
+    this.catalogEmpty.hidden = true;
+    browser.appendChild(this.catalogEmpty);
+    this.applyCatalogFilter();
     this.root.appendChild(browser);
 
     this.propertiesPanel = document.createElement('div');
@@ -789,13 +857,96 @@ export class EditorUI {
     return h;
   }
 
-  private assetCard(asset: AssetEntry, onSelect: (template: PlacementTemplate) => void): HTMLElement {
+  /** Categorie repliable du catalogue : en-tete (bascule) et contenu. */
+  private catalogCategory(category: CatalogCategory, onSelect: (template: PlacementTemplate) => void): HTMLElement {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'editor-catalog-category';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'editor-catalog-toggle';
+    const label = document.createElement('span');
+    label.className = 'editor-catalog-label';
+    label.textContent = category.label;
+    const count = document.createElement('span');
+    count.className = 'editor-catalog-count';
+    toggle.append(label, count);
+    const body = document.createElement('div');
+    body.className = 'editor-catalog-body';
+    const view: CatalogCategoryView = { category, toggle, count, body, total: 0, open: category.open, openInSearch: true, sections: [] };
+    for (const section of category.sections) {
+      const header = section.label ? this.categoryHeader(section.label) : null;
+      if (header) body.appendChild(header);
+      const entries = section.assets.map((asset) => {
+        const presentation = presentAsset(asset, section, category);
+        const button = this.assetCard(asset, presentation, onSelect);
+        body.appendChild(button);
+        return { button, search: presentation.search };
+      });
+      view.total += entries.length;
+      view.sections.push({ header, entries });
+    }
+    toggle.addEventListener('click', () => {
+      if (this.searchInput.value.trim()) view.openInSearch = !view.openInSearch;
+      else view.open = !view.open;
+      this.applyCatalogFilter();
+    });
+    this.catalogViews.push(view);
+    wrapper.append(toggle, body);
+    return wrapper;
+  }
+
+  /** Applique la recherche et l'etat replie/ouvert : sans recherche, chaque
+   *  categorie suit sa bascule ; avec une recherche, seules les entrees qui
+   *  correspondent restent, et les categories qui en contiennent s'ouvrent
+   *  (sans changer leur etat hors recherche). Tous les mots doivent figurer
+   *  dans le texte de l'entree. */
+  private applyCatalogFilter(): void {
+    const query = this.searchInput.value.trim();
+    const words = normalizeSearch(query).split(/\s+/).filter(Boolean);
+    let found = 0;
+    for (const view of this.catalogViews) {
+      let matches = 0;
+      for (const section of view.sections) {
+        let sectionMatches = 0;
+        for (const entry of section.entries) {
+          const match = words.every((w) => entry.search.includes(w));
+          entry.button.hidden = !match;
+          if (match) sectionMatches++;
+        }
+        if (section.header) section.header.hidden = sectionMatches === 0;
+        matches += sectionMatches;
+      }
+      found += matches;
+      const searching = words.length > 0;
+      const expanded = searching ? matches > 0 && view.openInSearch : view.open;
+      view.toggle.hidden = searching && matches === 0;
+      view.body.hidden = !expanded;
+      view.toggle.setAttribute('aria-expanded', String(expanded));
+      view.toggle.classList.toggle('is-open', expanded);
+      view.count.textContent = searching ? `${matches}` : `${view.total}`;
+    }
+    this.catalogEmpty.hidden = !(words.length > 0 && found === 0);
+    this.catalogEmpty.textContent = `Aucun décor ne correspond à « ${query} ».`;
+  }
+
+  private assetCard(asset: AssetEntry, presentation: AssetPresentation, onSelect: (template: PlacementTemplate) => void): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'editor-asset-card';
-    button.textContent = asset.label;
+    button.className = 'editor-asset-card editor-decor-card';
+    const name = document.createElement('span');
+    name.className = 'editor-asset-name';
+    name.textContent = presentation.name;
+    const meta = document.createElement('span');
+    meta.className = 'editor-asset-meta';
+    const badge = document.createElement('span');
+    badge.className = presentation.blocking ? 'editor-badge editor-badge--blocking' : 'editor-badge';
+    badge.textContent = presentation.blocking ? 'Bloquant' : 'Traversable';
+    meta.append(`${presentation.size} · `, badge);
+    button.append(name, meta);
+    button.title = presentation.name;
+    button.setAttribute('aria-label', `${presentation.name} — ${presentation.size} · ${badge.textContent}`);
     button.addEventListener('click', () => onSelect(asset.template));
-    this.assetCards.set(asset.template, { button, label: asset.label });
+    this.assetCards.set(asset.template, { button, label: `${presentation.name} (${presentation.size}, ${badge.textContent.toLowerCase()})` });
     return button;
   }
 
