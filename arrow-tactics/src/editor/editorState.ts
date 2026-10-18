@@ -108,6 +108,31 @@ export interface EditorUnitState {
   team: Team;
 }
 
+/** Etat des objets poses (decors, unites) et de la selection, pour annuler /
+ *  retablir une pose ou une suppression. Les tableaux sont copies mais les
+ *  objets sont les MEMES references : rejouer l'etat restaure exactement les
+ *  objets crees ou supprimes (camp, position, rotation, ordre), sans rien
+ *  recalculer — l'historique etant lineaire, chaque objet a deja retrouve
+ *  ses valeurs de l'epoque quand l'etat est restaure. */
+export interface EditorObjectsSnapshot {
+  obstacles: EditorObstacle[];
+  units: EditorUnit[];
+  selection: EditorSelection;
+}
+
+/** Ce que modifie le changement de taille (voir setSize), pour l'annuler. */
+export interface EditorMapShapeSnapshot {
+  width: number;
+  height: number;
+  cells: TerrainCellDef[];
+  ballista: { x: number; z: number };
+  ballistaExplicit: boolean;
+}
+
+function copySelection(selection: EditorSelection): EditorSelection {
+  return selection?.kind === 'unit-group' ? { kind: 'unit-group', ids: [...selection.ids] } : selection ? { ...selection } : null;
+}
+
 export class EditorState {
   obstacles: EditorObstacle[];
   units: EditorUnit[];
@@ -591,6 +616,13 @@ export class EditorState {
     o.rotationY = ((rotationY % fullTurn) + fullTurn) % fullTurn;
   }
 
+  /** Retire la rotation explicite d'un obstacle (annuler la premiere
+   *  rotation d'un decor qui n'en avait pas). */
+  clearObstacleRotation(id: number): void {
+    const o = this.obstacles.find((obstacle) => obstacle.id === id);
+    if (o) delete o.rotationY;
+  }
+
   /** Applique un deplacement d'unites deja valide (voir main.ts,
    *  planEditorUnitMove, meme calcul que l'apercu) et donne a chaque unite
    *  deplacee le camp de sa case d'arrivee (territoryOwnerAt) : une unite
@@ -624,10 +656,39 @@ export class EditorState {
     }
   }
 
-  rotateSelected(deltaRad: number): void {
-    const o = this.selectedObstacle;
-    if (!o) return;
-    o.rotationY = ((o.rotationY ?? 0) + deltaRad + Math.PI * 2) % (Math.PI * 2);
+  /** Voir EditorObjectsSnapshot. */
+  objectsSnapshot(): EditorObjectsSnapshot {
+    return { obstacles: [...this.obstacles], units: [...this.units], selection: copySelection(this.selection) };
+  }
+
+  /** Remet les objets et la selection exactement dans un etat capture par
+   *  objectsSnapshot (annuler / retablir). */
+  restoreObjects(snapshot: EditorObjectsSnapshot): void {
+    this.obstacles = [...snapshot.obstacles];
+    this.units = [...snapshot.units];
+    this.selection = copySelection(snapshot.selection);
+  }
+
+  /** Voir EditorMapShapeSnapshot. */
+  mapShapeSnapshot(): EditorMapShapeSnapshot {
+    return {
+      width: this.width,
+      height: this.height,
+      cells: this.cells.map((c) => ({ ...c })),
+      ballista: { ...this.ballista },
+      ballistaExplicit: this.ballistaExplicit,
+    };
+  }
+
+  /** Remet taille, cellules et Baliste dans un etat capture par
+   *  mapShapeSnapshot (annuler / retablir un changement de taille). */
+  restoreMapShape(snapshot: EditorMapShapeSnapshot): void {
+    this.width = snapshot.width;
+    this.height = snapshot.height;
+    this.cellMap = buildCellIndex(snapshot.cells.map((c) => ({ ...c })));
+    this.ballista = { ...snapshot.ballista };
+    this.ballistaExplicit = snapshot.ballistaExplicit;
+    this.invalidateTerritoryIndex();
   }
 
   deleteSelected(): void {

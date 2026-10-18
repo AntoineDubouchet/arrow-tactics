@@ -41,7 +41,7 @@ import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMov
 import { getBuilding } from './data/buildings';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
 import { getUnit, type UnitStats } from './data/units';
-import { EDITOR_BALLISTA_OWNER, EditorState } from './editor/editorState';
+import { EDITOR_BALLISTA_OWNER, EditorState, type EditorMapShapeSnapshot, type EditorObjectsSnapshot } from './editor/editorState';
 import { EditorHistory } from './editor/history';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
@@ -1888,6 +1888,11 @@ let mapBeforeTest: MapDef = DEFAULT_MAP;
 // plateau faisait "sauter" tous les arbres/rochers deja poses (bug remonte
 // par Antoine).
 const editorMeshes = new Map<number, THREE.Group>();
+/** Maillages des decors retires de la carte (suppression, pose annulee),
+ *  gardes pour etre reutilises si l'historique les remet : un decor sans
+ *  rotationY garde ainsi l'orientation aleatoire tiree a sa creation.
+ *  Vide en meme temps que editorMeshes (chargement, sortie de l'editeur). */
+const retiredEditorMeshes = new Map<number, THREE.Group>();
 
 // Meme principe pour les unites, plus une trace du dernier camp rendu par id :
 // une unite trainee de l'autre cote du plateau doit changer de couleur, ce
@@ -2070,6 +2075,9 @@ transformControls.addEventListener('mouseUp', () => {
 interface RingRotateDrag {
   id: number;
   startRotation: number;
+  /** rotationY du decor au debut du glisser (undefined : orientation
+   *  aleatoire jamais fixee), restauree telle quelle par l'annulation. */
+  startRotationY: number | undefined;
   startPointerAngle: number;
   currentRotation: number;
 }
@@ -2105,7 +2113,7 @@ function tryStartRingRotate(event: MouseEvent): boolean {
   const pointerAngle = pointerAngleAround(event, center.x, center.z);
   if (pointerAngle === null) return false;
   const startRotation = currentObstacleRotation(obstacle);
-  ringRotateDrag = { id: obstacle.id, startRotation, startPointerAngle: pointerAngle, currentRotation: startRotation };
+  ringRotateDrag = { id: obstacle.id, startRotation, startRotationY: obstacle.rotationY, startPointerAngle: pointerAngle, currentRotation: startRotation };
   return true;
 }
 
@@ -2128,13 +2136,23 @@ function endRingRotateDrag(): void {
   const drag = ringRotateDrag;
   ringRotateDrag = null;
   if (!drag || drag.currentRotation === drag.startRotation) return;
-  pushObstacleRotationCommand(drag.id, drag.startRotation, drag.currentRotation);
+  pushObstacleRotationCommand(drag.id, drag.startRotation, drag.startRotationY, drag.currentRotation);
 }
 
-function pushObstacleRotationCommand(id: number, from: number, to: number): void {
+/** Rotation deja appliquee : UNE entree d'historique. Annuler restaure
+ *  exactement l'etat d'avant — un decor qui n'avait pas de rotationY (angle
+ *  aleatoire tire a la creation de son mesh) la perd de nouveau, et son mesh
+ *  reprend l'angle affiche avant (`from`) : l'export redevient identique. */
+function pushObstacleRotationCommand(id: number, from: number, fromRotationY: number | undefined, to: number): void {
   editorHistory.push({
     undo: () => {
-      editorState?.setObstacleRotation(id, from);
+      if (fromRotationY === undefined) {
+        editorState?.clearObstacleRotation(id);
+        const mesh = editorMeshes.get(id);
+        if (mesh) mesh.rotation.y = from;
+      } else {
+        editorState?.setObstacleRotation(id, fromRotationY);
+      }
       refreshEditorObjects();
     },
     redo: () => {
@@ -2144,14 +2162,54 @@ function pushObstacleRotationCommand(id: number, from: number, to: number): void
   });
 }
 
+/** Pose ou suppression deja appliquee : UNE entree d'historique qui
+ *  restaure les objets et la selection d'avant / d'apres (voir
+ *  EditorState.objectsSnapshot) — memes objets, jamais une nouvelle pose. */
+function pushEditorObjectsCommand(before: EditorObjectsSnapshot, after: EditorObjectsSnapshot): void {
+  editorHistory.push({
+    undo: () => {
+      editorState?.restoreObjects(before);
+      refreshEditorObjects();
+    },
+    redo: () => {
+      editorState?.restoreObjects(after);
+      refreshEditorObjects();
+    },
+  });
+}
+
+/** Supprime la selection (decor, unite ou groupe) — Suppr, Retour arriere et
+ *  le bouton du panneau : une seule entree d'historique, meme pour un groupe ;
+ *  annuler restaure aussi la selection. */
+function deleteEditorSelection(): void {
+  if (!editorState) return;
+  const before = editorState.objectsSnapshot();
+  editorState.deleteSelected();
+  if (editorState.obstacles.length !== before.obstacles.length || editorState.units.length !== before.units.length) {
+    pushEditorObjectsCommand(before, editorState.objectsSnapshot());
+  }
+  refreshEditorObjects();
+}
+
+/** Applique un etat de taille (changement de taille, annuler, retablir). */
+function applyEditorMapShape(shape: EditorMapShapeSnapshot): void {
+  if (!editorState) return;
+  editorState.restoreMapShape(shape);
+  rebuildEditorBoard();
+  editorUI.setMapSize(editorState.width, editorState.height);
+  // Une Baliste jamais deplacee suit le coin du nouveau plateau.
+  refreshEditorObjects();
+}
+
 /** Ctrl+molette (±15°) / Ctrl+Maj+molette (±1°) sur le decor selectionne —
  *  une commande d'historique par cran. */
 function rotateSelectedObstacleBy(deltaRad: number): void {
   const obstacle = editorState?.selectedObstacle;
   if (!editorState || !obstacle) return;
   const from = currentObstacleRotation(obstacle);
+  const fromRotationY = obstacle.rotationY;
   editorState.setObstacleRotation(obstacle.id, from + deltaRad);
-  pushObstacleRotationCommand(obstacle.id, from, obstacle.rotationY ?? from);
+  pushObstacleRotationCommand(obstacle.id, from, fromRotationY, obstacle.rotationY ?? from);
   refreshEditorObjects();
 }
 
@@ -2214,15 +2272,9 @@ const editorUI = new EditorUI({
     clearEditorGhost();
     refreshEditorObjects();
   },
-  onRotate: () => {
-    editorState?.rotateSelected(Math.PI / 2);
-    refreshEditorObjects();
-  },
+  onRotate: () => rotateSelectedObstacleBy(Math.PI / 2),
   onRotateBy: (degrees) => rotateSelectedObstacleBy(THREE.MathUtils.degToRad(degrees)),
-  onDelete: () => {
-    editorState?.deleteSelected();
-    refreshEditorObjects();
-  },
+  onDelete: () => deleteEditorSelection(),
   onExit: () => exitEditor(),
   onSave: () => {
     if (!editorState) return;
@@ -2255,11 +2307,16 @@ const editorUI = new EditorUI({
   },
   onResizeMap: (width, height) => {
     if (!editorState) return;
+    const before = editorState.mapShapeSnapshot();
     editorState.setSize(width, height);
-    rebuildEditorBoard();
-    editorUI.setMapSize(editorState.width, editorState.height);
-    // Une Baliste jamais deplacee suit le coin du nouveau plateau.
-    refreshEditorObjects();
+    const after = editorState.mapShapeSnapshot();
+    // Historise exactement ce que fait setSize (taille, cases ajoutees,
+    // Baliste jamais deplacee qui suit le coin), seulement si quelque chose
+    // a change.
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      editorHistory.push({ undo: () => applyEditorMapShape(before), redo: () => applyEditorMapShape(after) });
+    }
+    applyEditorMapShape(after);
   },
   onTestScenario: () => testScenario(),
 });
@@ -2278,19 +2335,21 @@ function refreshEditorObjects(): void {
     if (liveIds.has(id)) continue;
     editorObjectsGroup.remove(mesh);
     editorMeshes.delete(id);
+    retiredEditorMeshes.set(id, mesh);
   }
 
   for (const o of editorState.obstacles) {
     const cached = editorMeshes.get(o.id);
     if (!cached) {
-      const mesh = buildObstacleView(o, editorAssets);
+      const mesh = retiredEditorMeshes.get(o.id) ?? buildObstacleView(o, editorAssets);
+      retiredEditorMeshes.delete(o.id);
       editorMeshes.set(o.id, mesh);
       editorObjectsGroup.add(mesh);
       continue;
     }
     // Objet deja construit : on retransforme le meme mesh (deplacement)
     // plutot que d'en reconstruire un, et on ne touche a la rotation que si
-    // elle a ete explicitement fixee (voir EditorState.rotateSelected) —
+    // elle a ete explicitement fixee (voir rotateSelectedObstacleBy) —
     // sinon on ecraserait l'orientation aleatoire tiree une seule fois a la
     // creation.
     const center = obstacleCenter(o);
@@ -2425,6 +2484,7 @@ function exitEditor(): void {
   editorState = null;
   editorObjectsGroup.clear();
   editorMeshes.clear();
+  retiredEditorMeshes.clear();
   editorUnitsGroup.clear();
   editorUnitMeshes.clear();
   editorUnitMeshTeams.clear();
@@ -2711,14 +2771,16 @@ function handleEditorClick(event: MouseEvent): void {
   if (editorState.tool.type === 'place-obstacle') {
     // Placement LIBRE : position exacte du clic, jamais arrondie a une case
     // (voir updateEditorGhost, meme regle pour l'apercu).
-    editorState.placeAt(groundHit.x, groundHit.z);
+    const before = editorState.objectsSnapshot();
+    if (editorState.placeAt(groundHit.x, groundHit.z)) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
     clearEditorGhost();
     refreshEditorObjects();
     return;
   }
 
   if (editorState.tool.type === 'place-unit') {
-    editorState.placeUnitAt(snapToTileCenter(groundHit.x), snapToTileCenter(groundHit.z));
+    const before = editorState.objectsSnapshot();
+    if (editorState.placeUnitAt(snapToTileCenter(groundHit.x), snapToTileCenter(groundHit.z))) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
     clearEditorGhost();
     refreshEditorObjects();
     return;
@@ -5643,8 +5705,7 @@ window.addEventListener('keydown', (event) => {
       // reinitialiser la camera (voir CLAUDE.md, conflit identifie des
       // l'etape 2) — la camera reste pilotable normalement par ailleurs.
       if (inEditorMode) {
-        editorState?.rotateSelected(Math.PI / 2);
-        refreshEditorObjects();
+        rotateSelectedObstacleBy(Math.PI / 2);
       } else {
         renderer.resetCamera();
       }
@@ -5659,10 +5720,7 @@ window.addEventListener('keydown', (event) => {
       break;
     case 'Delete':
     case 'Backspace':
-      if (inEditorMode) {
-        editorState?.deleteSelected();
-        refreshEditorObjects();
-      }
+      if (inEditorMode) deleteEditorSelection();
       break;
     case 'Escape':
       if (inTestMode) {
