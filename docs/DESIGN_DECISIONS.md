@@ -66,14 +66,15 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | C4 | Déblocage d'une unité en battant cet ennemi | Active |
 | D1 | Bâtiments gameplay achetés plutôt qu'accordés par un talent | Active |
 | D2 | Bâtiments gameplay et bâtiments décoratifs distincts | Active |
-| D3 | Placement obligatoire de la tour en début de run | Active |
+| D3 | Placement obligatoire de la tour en début de run | Remplacée (Baliste définie par la carte) |
 | D4 | Sauvegarde d'une run en cours | Ouverte |
 | D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Forge et Or) / Remplacée (Runes et améliorations permanentes) |
 | E1 | Manipulation directe pendant le placement | Active |
 | E2 | Collision des décors : emprise rectangulaire, props traversables | Active |
 | E3 | Rotation des décors dans l'éditeur | Remplacée (W/E) / Active (anneau et Ctrl+molette) |
 | E4 | Agrandissement progressif de la carte | Active (comportement) / Ouverte (runs longues) |
-| E5 | Territoire par cases, couche séparée du terrain | Active (territoire statique) / Ouverte (territoire de run) |
+| E5 | Territoire par cases, couche séparée du terrain | Active (territoire de la carte, suit l'expansion) / Ouverte (territoire de run) |
+| E6 | Aspect des décors fixé par leur position | Active |
 | F1 | Intégration audio mise en pause après expérimentation | Historique / Ouverte |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -373,19 +374,28 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### D3 — Placement obligatoire de la tour en début de run
 
-- **Statut** : Active.
+- **Statut** : Remplacée : la Baliste est désormais définie par la carte.
 - **Contexte** : la tour de la Baliste était fixée dans un coin du plateau.
-- **Décision** : au début de chaque run, le joueur doit placer la tour dans sa
-  zone avant toute autre action. Sa position est ensuite conservée pendant la
-  run.
+- **Décision d'origine** : au début de chaque run, le joueur devait placer la
+  tour dans sa zone avant toute autre action. Sa position était ensuite
+  conservée pendant la run.
 - **Raison connue** : **insuffisamment documentée** au-delà de la demande
   d'Antoine.
-- **Aujourd'hui** : appliqué dans le jeu réel. L'éditeur et « Tester le
-  scénario » utilisent la position de la carte (`MapDef.ballista`, réglable
-  dans l'éditeur), sinon une position de repli ; elle n'affecte jamais une
-  run.
+- **Remplacement** : avec l'arène officielle du Mode survie, Antoine a
+  décidé de supprimer ce placement manuel. La Baliste est créée directement
+  à la position définie par la carte (`MapDef.ballista`, (0.5, 13.5) pour
+  l'arène), qui devient le cœur initial de la base ; la préparation commence
+  aussitôt. La position n'est pas recalculée (pas de « centre » automatique
+  du territoire).
+- **Aujourd'hui** : le Mode survie, l'éditeur et « Tester le scénario »
+  utilisent tous la position de la carte, sinon le repli historique du coin.
+  Le choix de cette position se fait dans l'éditeur (règle 3×3 en
+  territoire joueur).
+- **À ne pas faire** : ne pas coder la position de la Baliste en dur dans le
+  jeu ; elle appartient à la carte.
 - **Sources** : archive (« Placement obligatoire de la tour ») ; `main.ts`
-  (`beginTowerPlacement`), `CURRENT_STATE.md`.
+  (`startNewRun`), `config/maps/survivalArena.ts`, `CURRENT_STATE.md` §2
+  et §5.
 
 ### D4 — Sauvegarde d'une run en cours
 
@@ -520,14 +530,17 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Raison connue** : pour l'étape centrale, Antoine préférait **translater**
   le camp ennemi plutôt qu'étirer la carte. La logique d'ensemble du cycle est
   **peu documentée**.
-- **Aujourd'hui** : appliqué au jeu réel uniquement. Une seule carte sert de
-  base ; son rôle sur les runs longues reste ouvert.
+- **Aujourd'hui** : appliqué au jeu réel uniquement, sur l'arène du Mode
+  survie, dont la forme (trous) et le territoire dessiné suivent chaque
+  étape. Le camp joueur fixe sur un plateau centré rend la bordure neutre
+  asymétrique au fil des étapes C (défaut connu, non résolu). Son rôle sur
+  les runs longues reste ouvert.
 - **Sources** : archive (« Agrandissement progressif de la map ») ;
   `run/mapExpansion.ts`, `CURRENT_STATE.md` §11.
 
 ### E5 — Territoire par cases, couche séparée du terrain
 
-- **Statut** : Active (territoire statique de la carte et éditeur) / Ouverte
+- **Statut** : Active (territoire de la carte et éditeur) / Ouverte
   (territoire dynamique de run).
 - **Contexte** : la zone de placement du joueur était un rectangle recalculé
   à partir de la taille de la carte et de la profondeur de spawn, et le camp
@@ -562,14 +575,16 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - le repli et la conservation des entités existantes gardent les anciennes
     cartes valides sans les modifier en silence.
 - **Aujourd'hui** :
-  - appliqué au placement en préparation (unités, bâtiments, tour), au rendu
-    des zones et à l'éditeur ;
-  - une run ne charge que `DEFAULT_MAP`, sans territoire explicite : le
-    repli suit l'agrandissement A/B/C. Un territoire explicite est statique
-    et ne suit pas encore l'expansion ;
-  - **ouvert** : territoire propre à la run (`RunState.territory`), son
-    extension au fil des vagues, et une Baliste placée automatiquement au
-    cœur du territoire, qui remplacerait D3.
+  - appliqué au placement en préparation (unités, bâtiments), au rendu des
+    zones et à l'éditeur ;
+  - le Mode survie utilise le territoire dessiné de son arène. Il suit
+    l'agrandissement A/B/C : la carte agrandie porte un territoire
+    transformé (A et B élargissent les zones en repoussant la bordure
+    neutre, C fait reculer la zone ennemie avec la partie ennemie). Une carte
+    sans territoire garde le repli par bandes ;
+  - les zones restent visibles en préparation et en bataille ;
+  - **ouvert** : territoire propre à la run (`RunState.territory`) et
+    croissance ou conquête réelle du territoire au fil des vagues.
 - **À ne pas faire** :
   - ne pas revenir à un camp déduit de la position (`z ≥ 0`) ;
   - ne pas fusionner le territoire dans `cells` ;
@@ -577,8 +592,30 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     le camp ou la position d'entités chargées.
 - **Sources** : `config/territory.ts`, `config/mapDef.ts`,
   `editor/editorState.ts`, `editor/mapSerializer.ts`, `main.ts`
-  (`isValidPlacementTile`), `render/board.ts`, `EDITOR.md` §4,
-  `CURRENT_STATE.md` §11.
+  (`isValidPlacementTile`), `render/board.ts`, `run/mapExpansion.ts`,
+  `EDITOR.md` §4, `CURRENT_STATE.md` §11.
+
+### E6 — Aspect des décors fixé par leur position
+
+- **Statut** : Active.
+- **Contexte** : un décor sans rotation enregistrée (la grande majorité)
+  tirait au hasard son orientation, la forme d'un rocher ou la hauteur d'un
+  arbre à chaque affichage. L'éditeur, « Tester le scénario » et le jeu ne
+  montraient donc pas la même chose, et l'arène changeait d'une session à
+  l'autre.
+- **Décision** (choisie par Antoine parmi trois options) : l'aspect d'un
+  décor est tiré d'une graine calculée à partir de sa position, de son type,
+  de son modèle et de sa taille. Une `rotationY` explicite reste
+  prioritaire.
+- **Conséquence acceptée** : déplacer un décor dans l'éditeur lui donne un
+  nouvel aspect ; pour fixer un angle, le tourner (il est alors enregistré).
+- **Aujourd'hui** : même aspect dans l'éditeur, « Tester le scénario », le
+  Mode survie et d'une session à l'autre ; l'agrandissement de la carte
+  fige la graine (`appearanceSeed`) des décors qu'il déplace.
+- **À ne pas faire** : ne pas réintroduire `Math.random` dans les fabriques
+  de décors.
+- **Sources** : `config/constants.ts` (`obstacleAppearanceSeed`),
+  `render/obstacleFactory.ts`, `run/mapExpansion.ts`, `EDITOR.md` §6.
 
 ---
 

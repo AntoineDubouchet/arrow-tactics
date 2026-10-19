@@ -7,11 +7,13 @@ le code fait foi.
 Pour l'organisation technique générale, voir `ARCHITECTURE.md` ; pour les bugs
 et limitations, `KNOWN_ISSUES.md`.
 
-**Portée des cartes de l'éditeur** : une run normale n'en charge aucune. Elle
-part toujours de la carte de campagne intégrée au code (`DEFAULT_MAP`, voir
-`CURRENT_STATE.md` §11). Une carte de l'éditeur sert à « Tester le
-scénario » (§15) ; ses unités (`playerUnits`, `enemyUnits`) ne définissent
-ni l'armée de départ ni les vagues d'une run.
+**Portée des cartes de l'éditeur** : une run ne charge aucune carte
+enregistrée depuis l'éditeur. Le Mode survie part de son arène officielle,
+exportée de l'éditeur puis intégrée au code (`SURVIVAL_BASE_MAP`, voir
+`CURRENT_STATE.md` §11) : il en utilise le terrain, les décors, le
+territoire et la position de la Baliste. Une carte de l'éditeur sert à
+« Tester le scénario » (§15) ; ses unités (`playerUnits`, `enemyUnits`) ne
+définissent ni l'armée de départ ni les vagues d'une run.
 
 ## Sommaire
 
@@ -41,8 +43,9 @@ ni l'armée de départ ni les vagues d'une run.
 ## 1. Ouvrir, quitter, nouvelle carte
 
 - **Ouvrir** : menu principal → **Éditeur de maps**. L'éditeur s'ouvre
-  toujours sur la **carte de campagne par défaut** (« vague1-20 »), avec un
-  historique vide. Cette carte est considérée comme enregistrée (§14).
+  toujours sur la **carte historique** « vague1-20 » (18 × 26,
+  `DEFAULT_MAP`), qui n'est plus celle du Mode survie, avec un historique
+  vide. Cette carte est considérée comme enregistrée (§14).
 - **Quitter** : **« ← Retour au menu »**. Si la carte a des modifications
   non enregistrées, une confirmation est demandée (§14).
 - **Nouvelle carte** (barre du haut) : remplace le brouillon par une carte
@@ -226,6 +229,12 @@ ouverte au départ) :
   alignement sur une case. Un fantôme semi-transparent le montre avant le
   clic. Après la pose, l'outil revient à Sélection et le décor posé est
   sélectionné.
+- **Aspect fixe** : l'aspect d'un décor (orientation s'il n'a pas de
+  `rotationY`, forme d'un rocher, hauteur d'un arbre) dépend de sa position.
+  Il est identique dans l'éditeur, dans « Tester le scénario », dans le Mode
+  survie et d'une session à l'autre. Déplacer un décor lui donne un nouvel
+  aspect, visible dès le relâchement ; une `rotationY` explicite (§9) reste
+  prioritaire.
 - **Collisions en bataille** : les décors traversables (fleurs, plantes,
   accessoires…) n'ont pas de collision ; rochers, arbres et structures
   bloquent le passage et la ligne de tir.
@@ -325,7 +334,8 @@ ouverte au départ) :
 | **R** ou bouton **« +90° (R) »** | +90° |
 
 - **Point de départ** : tous ces moyens partent de l'orientation **réellement
-  affichée**, y compris l'orientation aléatoire d'un décor jamais tourné.
+  affichée**, y compris celle, fixée par sa position, d'un décor jamais
+  tourné.
 - **Pas de saut** au passage 0° / 360°.
 - **Historique** : un glisser de l'anneau = une entrée ; chaque cran de
   molette = une entrée ; chaque appui sur R ou sur un bouton = une entrée.
@@ -368,8 +378,8 @@ ouverte au départ) :
   sortie. **Enregistrer ne le vide pas.**
 - **État non enregistré** : annuler ou rétablir peut ramener exactement à la
   carte enregistrée, qui redevient alors « enregistrée » (§14).
-- **Particularité** : annuler un déplacement au gizmo peut modifier
-  l'orientation d'un décor jamais tourné, voir **KI-05**.
+- **Déplacement au gizmo annulé** : le décor retrouve exactement sa position,
+  sa rotation (ou son absence de rotation) et son aspect d'origine.
 
 ## 12. Panneau de propriétés
 
@@ -568,8 +578,7 @@ joueur, et sa position fait partie de la carte (`ballista`, §14).
   bleu, la couleur du joueur.
 - **Déplacement** : Baliste sélectionnée, puis clic au sol, pris en compte
   dès l'appui (un glisser ne trace pas de rectangle d'unités). Le centre est
-  calé sur la même **grille de 3×3 cases** que le placement de la tour en
-  partie.
+  calé sur une **grille de 3×3 cases**.
 - **Déplacement refusé** (rien ne change, la Baliste reste sélectionnée) si :
   - l'empreinte de placement de **3×3 cases** n'est pas **entièrement en
     territoire joueur** ;
@@ -593,10 +602,11 @@ joueur, et sa position fait partie de la carte (`ballista`, §14).
   grille, avec un avertissement en console. Si aucune n'existe, elle est
   conservée avec un avertissement. Le repli d'une carte sans champ n'est
   jamais déplacé automatiquement.
-- **Partie réelle** : sans effet. Une run garde son **placement obligatoire**
-  de la tour en début de partie, indépendant de cette position. Une Baliste
-  placée automatiquement au cœur du territoire n'existe pas : c'est une
-  direction possible (`ROADMAP.md`).
+- **Position initiale en partie** : cette position est la position de départ
+  de la Baliste pour un mode qui utilise la carte. Le Mode survie crée sa
+  Baliste à la position de son arène, (0.5, 13.5), sans placement par le
+  joueur ; une carte enregistrée depuis l'éditeur n'est pas encore jouable
+  en run.
 
 ## 17. Cartes à trous
 
@@ -612,8 +622,6 @@ joueur, et sa position fait partie de la carte (`ballista`, §14).
 
 Détaillées dans `KNOWN_ISSUES.md` :
 
-- **KI-05** : annuler un déplacement au gizmo peut réorienter un décor jamais
-  tourné.
 - **KI-07** : « Tester le scénario » ne crée ni Mine ni Caserne.
 - **KI-02** : le placement en jeu ne teste pas directement les cases.
 - **KI-20** : certaines règles ne testent que la **case centrale** d'un
@@ -629,9 +637,10 @@ Limitations de l'éditeur, sans entrée dans `KNOWN_ISSUES.md` :
   pour annuler une rotation faite en plusieurs crans.
 - **Priorité de clic** : un petit décor traversable devant une unité ou sur
   le sol peut capter le clic (§7).
-- **Territoire et expansion** : un territoire explicite est statique ; il ne
-  suit pas encore l'agrandissement de la carte en run (sans effet aujourd'hui,
-  aucune run ne charge de carte de l'éditeur, voir `CURRENT_STATE.md` §11).
+- **Territoire et expansion** : en run, l'agrandissement A/B/C transforme le
+  territoire dessiné de l'arène (`CURRENT_STATE.md` §11) ; il n'y a pas
+  encore de territoire propre à la run, et l'étape C rend la bordure neutre
+  asymétrique (KI-25).
 - **Aperçu de déplacement** : une silhouette rouge peut s'afficher hors du
   plateau, à la case visée ; l'outil de pose d'unité garde son propre
   fantôme.
@@ -655,9 +664,9 @@ Limitations de l'éditeur, sans entrée dans `KNOWN_ISSUES.md` :
 Conventions actuelles :
 
 - **Meshes réutilisés** : les meshes sont conservés par id, y compris après
-  une suppression annulée. Certaines fabriques de décors tirent leur
-  apparence au hasard ; recréer un mesh ferait changer l'objet à l'écran. Le
-  mesh d'une unité est reconstruit seulement quand son camp change.
+  une suppression annulée. Le mesh d'un décor est reconstruit après un
+  déplacement au gizmo (et son annulation), pour montrer l'aspect lié à sa
+  nouvelle position ; celui d'une unité, seulement quand son camp change.
 - **Règle de validité unique** : l'aperçu vert/rouge et le clic utilisent la
   même fonction de validité. Pour un déplacement d'unités, l'aperçu et le
   clic passent aussi par le même plan (`core/gridGroupMove.ts`).
@@ -666,8 +675,8 @@ Conventions actuelles :
 - **Historique** : une commande par **geste** (au relâchement, par cran de
   molette ou par trait de pinceau), jamais une par image.
 - **Source de vérité de la rotation** : `rotationY`, dans l'état de l'éditeur
-  et dans le fichier enregistré ; un décor sans `rotationY` garde son
-  orientation aléatoire.
+  et dans le fichier enregistré ; sans `rotationY`, l'orientation vient de
+  la graine d'aspect (`obstacleAppearanceSeed`, `config/constants.ts`).
 - **Ajouter un décor au catalogue** : une entrée dans le tableau d'assets
   correspondant d'`editor/editorUI.ts` (rangé dans une catégorie de
   `DECOR_CATALOG`), et le modèle dans `render/assetLibrary.ts`.

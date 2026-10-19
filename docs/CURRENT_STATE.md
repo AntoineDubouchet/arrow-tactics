@@ -23,7 +23,7 @@ contient ni intentions de design ni décisions futures.
 8. Boutique de run
 9. Inventaire et parchemins de bataille
 10. Vagues ennemies
-11. Territoire et expansion de la carte
+11. Arène, territoire et expansion de la carte
 12. Talents
 13. Méta-progression : points de talent
 14. Améliorations de Forge
@@ -37,8 +37,9 @@ contient ni intentions de design ni décisions futures.
 
 ## 1. Résumé
 
-Roguelite tactique web en vue 3/4. Le joueur pose sa tour, place son armée,
-puis la bataille se déroule automatiquement. Il intervient avec la Baliste et
+Roguelite tactique web en vue 3/4. Le mode jouable, le **Mode survie**, se
+joue sur une arène fixe : le joueur place son armée et ses bâtiments, puis
+la bataille se déroule automatiquement. Il intervient avec la Baliste et
 des parchemins de bataille.
 
 - L'**Or** est la seule monnaie de la run. Il sert à recruter des unités,
@@ -52,22 +53,20 @@ des parchemins de bataille.
 
 ## 2. Déroulé d'une run
 
-Fonctions concernées dans `main.ts` : `startNewRun`, `beginTowerPlacement`,
-`startPlacement`, `onValidatePlacement`, fin de bataille dans la boucle de jeu.
+Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
+`onValidatePlacement`, fin de bataille dans la boucle de jeu.
 
-1. **Nouvelle run** (menu → Jouer, `createNewRun`) :
+1. **Nouvelle run** (menu → **Mode survie**, `createNewRun`) :
    - armée de départ : 1 Fantassin ;
    - or de départ : 15 (`STARTING_GOLD`), 20 avec le talent Or de départ
      (+5, `TALENT_STARTING_GOLD_BONUS`) ;
    - inventaire et bâtiments vides, aucune amélioration (`upgrades = {}`),
      vague 1.
-2. **Placement obligatoire de la tour**. Une bannière demande de placer la
-   tour (« Placez votre tour dans votre zone de spawn. »). Son empreinte de
-   3×3 cases doit être entièrement en territoire joueur (§11). Échap est
-   sans effet tant que la tour n'est pas posée. La tour est validée au
-   **relâchement** du clic gauche, sur le plateau : si un clic droit
-   s'ajoute avant le relâchement (geste clic gauche + clic droit pour
-   déplacer la caméra), rien n'est posé.
+2. **Démarrage direct**. La run part de l'arène officielle (§11) remise à
+   neuf. La Baliste est créée directement à la position définie par la
+   carte (`MapDef.ballista`, (0.5, 13.5) pour l'arène) : il n'y a plus de
+   placement manuel de la tour. La caméra reprend son angle par défaut et
+   cadre toute la carte, puis la préparation commence.
 3. **Phase de placement**. La boutique s'ouvre automatiquement. Le joueur
    peut :
    - déplacer, sélectionner et vendre ses unités ;
@@ -204,7 +203,7 @@ en bataille. Elle n'existe pas dans l'éditeur.
   couleur du camp.
 - **Visibilité** : masquée sans sélection, en pause, sous la boutique ou la
   Forge,
-  pendant le placement de la tour ou d'un bâtiment, pendant la transition de
+  pendant le placement d'un bâtiment, pendant la transition de
   fin de vague, dans les menus et dans l'éditeur.
 - **Mise à jour** : immédiate à chaque changement de sélection, sinon environ
   10 fois par seconde. Le DOM n'est reconstruit que si la forme de la fiche
@@ -265,10 +264,11 @@ effectives du tir), `sim/playerArrow.ts`, `main.ts`.
 
 - **Bâtiment** : 25 PV de base. La Baliste compte pour la survie du camp
   joueur. Une fois détruite, elle ne tire plus.
-- **Position** : choisie par le joueur en début de run, puis conservée pour
-  toute la run. Dans l'éditeur et « Tester le scénario », c'est la position
-  enregistrée dans la carte (`MapDef.ballista`), sinon le repli historique du
-  coin (§16, `EDITOR.md` §16) ; elle n'a aucun effet sur une run.
+- **Position** : celle de la carte (`MapDef.ballista`, sinon le repli
+  historique du coin), dans le Mode survie comme dans l'éditeur et « Tester
+  le scénario ». Pour l'arène du Mode survie : (0.5, 13.5). Elle reste fixe
+  pendant toute la run, agrandissements compris ; le joueur ne la place ni
+  ne la déplace (`EDITOR.md` §16 pour l'éditeur).
 - **Tir** : un appui sur **Q** tire un carreau en arc vers le point du sol
   sous le curseur, recalculé au moment de l'appui (la caméra a pu bouger
   depuis le dernier mouvement de souris).
@@ -457,36 +457,69 @@ Fantassins et Archers :
     `UNIT_UPGRADES`.
 - **Formation** : mêlée devant, unités à distance derrière.
 
-## 11. Territoire et expansion de la carte
+## 11. Arène, territoire et expansion de la carte
 
-Sources : `config/territory.ts`, `run/mapExpansion.ts`, `main.ts`
-(`isValidPlacementTile`, `rebuildCurrentTerritoryIndex`).
+Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
+`run/mapExpansion.ts`, `main.ts` (`startNewRun`, `isValidPlacementTile`,
+`rebuildCurrentTerritoryIndex`).
+
+**Arène du Mode survie**
+
+- Carte officielle `SURVIVAL_BASE_MAP`, fournie par Antoine depuis l'éditeur :
+  20 × 36 cases, dont 64 trous (le champ de bataille central est plus
+  étroit que les bases), 100 décors (24 arbres et 7 rochers bloquants, 69
+  props traversables).
+- Le Mode survie en lit le terrain (`cells`), les décors (`obstacles`), le
+  territoire dessiné (`territory`) et la position de la Baliste
+  (`ballista`). Il **ignore** `playerUnits` et `enemyUnits`, réservées au
+  scénario de test de l'éditeur : l'armée de départ et les vagues restent
+  celles du mode (§2, §10).
+- La carte officielle n'est jamais modifiée : chaque run repart d'elle, sans
+  bâtiment, destruction ni agrandissement d'une run précédente.
+- La carte historique « vague1-20 » (18 × 26, `DEFAULT_MAP`) n'est plus
+  utilisée en run ; elle reste la carte ouverte par défaut dans l'éditeur.
 
 **Territoire**
 
 - Chaque case appartient au joueur, à l'ennemi, ou à personne (neutre).
-- En préparation, le **territoire joueur** est la zone de placement : unités,
-  bâtiments (toute l'emprise) et tour (toute l'empreinte 3×3) doivent y être.
-- Les zones bleue et rouge affichées sur le plateau sont ce même territoire,
-  case par case ; une case neutre n'a pas de zone.
-- Une carte peut définir son territoire (`MapDef.territory`). La carte de
-  départ ne le fait pas : son territoire est le **repli historique**, deux
-  bandes de 7 rangées (la zone de spawn) à l'arrière de chaque camp, le
-  centre neutre.
+- En préparation, le **territoire joueur** est la zone de placement : unités
+  et bâtiments (toute l'emprise) doivent y être.
+- Arène : territoire dessiné, 144 cases par camp. Zone joueur : rangées
+  z 9 à 16, colonnes x −9 à 8 ; zone ennemie symétrique (z −17 à −10). Une
+  bordure neutre d'une case entoure chaque zone.
+- Une carte sans territoire utilise le **repli historique** : deux bandes de
+  7 rangées à l'arrière de chaque camp, le centre neutre.
+- **Affichage** : les zones bleue et rouge sont ce même territoire, case par
+  case (une case neutre n'a pas de zone). Elles restent visibles en
+  préparation, en bataille et pendant la transition de victoire, avec le
+  même filtre discret. Elles disparaissent au retour au menu ; « Tester le
+  scénario » ne les affiche pas.
 
 **Expansion**
 
-- **Carte de départ** de chaque run : « vague1-20 » (18×26 cases, zone de
-  spawn de 7 rangées par camp).
 - **Après chaque victoire**, la carte s'agrandit d'une étape, selon un cycle
-  A → B → C :
-  - **A** : les zones de spawn s'agrandissent vers l'arrière ;
-  - **B** : la carte s'élargit des deux côtés ;
-  - **C** : le champ de bataille central s'agrandit. Le camp joueur reste
-    fixe, le camp ennemi recule.
-- Le territoire de repli est recalculé à chaque étape : il suit l'expansion.
-  Un territoire **explicite** resterait statique et ne suivrait pas A, B ni
-  C ; aucune run n'en utilise aujourd'hui.
+  A → B → C. Avec le territoire dessiné de l'arène :
+  - **A** : une rangée de plus à l'arrière de chaque camp ; la bordure
+    neutre arrière recule d'une case et la zone reprend la rangée libérée ;
+  - **B** : une colonne de plus de chaque côté ; les zones s'élargissent de
+    même. Les encoches latérales de l'arène se creusent : le champ de
+    bataille central garde sa largeur ;
+  - **C** : le champ de bataille s'allonge de deux rangées. La zone joueur
+    (bâtiments, Baliste, décors compris) ne bouge pas ; la zone ennemie
+    recule de deux cases avec toute la partie ennemie.
+- Zone joueur de l'arène : 144 cases au départ, puis 162 (A), 180 (B),
+  180 (C).
+- Les trous et le terrain de la carte sont conservés à chaque étape ; aux
+  étapes A et B, aucun décor ne bouge.
+- Une carte sans territoire dessiné garde le comportement historique : bandes
+  recalculées à chaque étape.
+- **Défaut connu de l'étape C** : la carte reste centrée alors que le camp
+  joueur ne bouge pas. À chaque étape C, la bordure neutre derrière le joueur
+  s'épaissit d'une rangée, et celle derrière l'ennemi finit par disparaître
+  (la zone ennemie touche alors le bord). Rien n'est bloqué, mais la
+  bordure devient asymétrique. Non résolu.
+- Pas de territoire propre à la run : il n'y a ni `RunState.territory`, ni
+  croissance ou conquête réelle du territoire au fil des vagues.
 - La carte repart de son état initial à chaque nouvelle run.
 
 ## 12. Talents
@@ -597,7 +630,7 @@ Sources : `run/metaProgress.ts`, `run/userSettings.ts`.
 - réglages (clé séparée).
 
 **Non persistant** : toute la run en cours (or, armée, inventaire, bâtiments,
-améliorations de Forge, vague, position de la tour, état de la carte).
+améliorations de Forge, vague, état de la carte).
 Quitter ou recharger la page la fait perdre.
 
 Une ancienne sauvegarde contenant des Runes (`upgradeRunes`) ou des niveaux
@@ -610,8 +643,15 @@ méta-progression à zéro, après confirmation. Les réglages sont conservés.
 ## 16. Éditeur de maps
 
 Accessible depuis le menu principal ; le détail d'usage est dans
-`EDITOR.md`. Une run ne charge jamais une carte de l'éditeur : ses cartes
-servent à « Tester le scénario ».
+`EDITOR.md`. Une run ne charge aucune carte enregistrée depuis l'éditeur :
+ces cartes servent à « Tester le scénario ». L'arène du Mode survie est une
+carte exportée de l'éditeur puis intégrée au code (§11).
+
+- **Aspect des décors** : un même décor a le même aspect (orientation,
+  forme des rochers, hauteur des arbres) dans l'éditeur, dans « Tester le
+  scénario », dans le Mode survie et d'une session à l'autre. Sans
+  `rotationY`, son orientation dépend de sa position ; une `rotationY`
+  explicite reste prioritaire.
 
 - **Interface** : barre du haut (Retour au menu, Nouvelle carte, Enregistrer,
   Charger, Tester le scénario, nom de la carte et indicateur « non
@@ -717,8 +757,10 @@ de la documentation. L'historique des retraits relèvera de
 - **Boutique** : pas d'onglet « Soins » ni de bouton « Soigner une unité » ;
   le soin passe uniquement par le parchemin.
 - **Cartes** : pas de succession de cartes prédéfinies distinctes au fil des
-  vagues. La carte de départ est toujours la même ; seule l'expansion A/B/C
-  la modifie.
+  vagues, ni de choix de carte. Le Mode survie part toujours de la même
+  arène ; seule l'expansion A/B/C la modifie.
+- **Baliste** : plus de placement manuel de la tour en début de run ; sa
+  position vient de la carte (§5).
 - **Sauvegarde** : pas de sauvegarde d'une run en cours.
 - **Contrôles en bataille** : pas de mode Commandement / Baliste, et la
   touche B n'a plus de fonction. La Baliste ne tire plus au clic gauche,

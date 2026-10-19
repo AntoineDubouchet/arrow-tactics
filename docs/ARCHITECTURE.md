@@ -55,7 +55,7 @@ Le dépôt a deux niveaux :
 | Dossier | Rôle |
 |---|---|
 | `core/` | Boucle à pas fixe, petites maths, RNG à graine, calcul pur du déplacement d'unités sur la grille (`gridGroupMove.ts`) |
-| `config/` | Constantes de réglage, types `ObstacleDef`, format de map `MapDef`, territoire par cases (`territory.ts`) |
+| `config/` | Constantes de réglage, types `ObstacleDef`, format de map `MapDef`, territoire par cases (`territory.ts`), arène du Mode survie (`maps/survivalArena.ts`) |
 | `data/` | Définitions déclaratives : unités, bâtiments, objets, talents, capacités, upgrades (avec quelques lookups et calculs purs) |
 | `sim/` | Simulation de bataille |
 | `run/` | État d'une run, méta-progression, réglages, calcul des effets de talents/upgrades, statistiques effectives du joueur (`playerUnitStats.ts`, `ballistaStats.ts`), adaptateur de la fiche d'entité (`entityInfo.ts`), expansion de map |
@@ -300,15 +300,17 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - `main.ts` maintient `buildingViewsByEntityId` ;
   - la Baliste est un singleton au rendu dédié (`render/ballista.ts`).
 - **Run** : `RunState.buildings` (`OwnedBuilding`) conserve position,
-  rotation et PV entre les vagues. La position de la tour est stockée dans
-  `RunState.ballistaPosition`.
+  rotation et PV entre les vagues. La position de la Baliste,
+  `RunState.ballistaPosition`, est fixée au démarrage de la run depuis la
+  carte de départ (`resolveBallistaOrigin`, voir §10) ; elle ne change plus
+  ensuite.
 - **Bâtiments décoratifs** : dans l'éditeur et sur les cartes, ce sont de
   simples `ObstacleDef` `kind: 'building'`, jamais des entités.
 
 ## 10. État de run, méta-progression, réglages
 
 - **`RunState`** (`run/runState.ts`) : or, armée possédée, inventaire, vague,
-  bâtiments, position de la tour, état d'expansion de la carte, niveaux
+  bâtiments, position de la Baliste, état d'expansion de la carte, niveaux
   d'amélioration de la run (`upgrades`). En mémoire uniquement, **jamais
   sauvegardé**. `createNewRun` part de `upgrades = {}` ; `spendGold(run,
   montant)` est le débit centralisé (refus si montant invalide ou Or
@@ -405,9 +407,35 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     `shield`, champs de production).
   - Il convertit les PV et dégâts internes en points affichés
     (`HP_PER_PIP`) et formate les durées.
+- **Carte de départ du Mode survie** (`config/maps/survivalArena.ts`) :
+  `SURVIVAL_ARENA_MAP` est la transcription exacte de la carte exportée de
+  l'éditeur ; `SURVIVAL_BASE_MAP` en est la version jouée, sans unités de
+  scénario (`playerUnits`/`enemyUnits` vides), avec cases, décors,
+  territoire et `ballista`. `main.ts` part de `currentMap =
+  SURVIVAL_BASE_MAP` ; `startNewRun` fixe `currentRun.ballistaPosition`
+  depuis cette carte, remet la carte de départ si une run précédente l'avait
+  agrandie, cadre la caméra (`frameRunCamera`) puis lance la préparation.
+  `createInitialMapExpansionState` part de ses dimensions. `DEFAULT_MAP`
+  (`config/mapDef.ts`) ne sert plus qu'à l'éditeur. Aucune de ces cartes
+  n'est jamais mutée.
 - **Expansion de map** (`run/mapExpansion.ts`) : fonctions pures sur `MapDef`
   et un état d'expansion. `main.ts` les applique derrière l'écran de
   transition, après une victoire.
+  - Les frontières des camps (`expansionAnchors`) viennent du territoire
+    explicite s'il existe, sinon des bords du plateau et de `spawnDepth`
+    (comportement historique).
+  - Chaque nouvelle case reprend l'état (case ou trou, terrain, camp) de
+    l'ancienne case dont l'image par les déplacements de l'étape est la plus
+    proche (`expandCells`) : la forme de la carte et son territoire
+    explicite suivent l'agrandissement. A et B repoussent vers l'extérieur
+    ce qui est au-delà des zones, sans déplacer les objets ; C déplace
+    cases, territoire et objets par `centerExpansionZOffset` (camp joueur
+    fixe).
+  - Un objet déplacé reçoit une `appearanceSeed` figée, pour garder son
+    aspect (voir §11).
+  - Limite : le plateau reste centré alors que le camp joueur est fixe en C ;
+    la bordure neutre derrière le joueur s'épaissit et celle derrière
+    l'ennemi disparaît au fil des étapes C.
 - **Territoire** (`config/territory.ts`, module pur sans DOM ni Three.js) :
   - `TerritoryCell = { x, z, team: 'player' | 'enemy' }`, dans la
     convention de `MapDef.cells` (coin entier de la case). Une case sans
@@ -425,12 +453,11 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   construit depuis `currentMap` et `currentRun.mapExpansion.spawnDepth`,
   reconstruit par `rebuildCurrentTerritoryIndex` à chaque changement de l'un
   des deux (nouvelle run, expansion, test du scénario et retour), jamais par
-  image. `isValidPlacementTile` le lit pour unités, bâtiments et tour ; un
-  index périmé est détecté et reconstruit avec un avertissement. Un
-  territoire explicite ne suit pas encore l'expansion (pas de
-  `RunState.territory`) ; sans effet tant qu'une run ne charge que
-  `DEFAULT_MAP`, qui n'en a pas. La simulation ne connaît pas le
-  territoire.
+  image. `isValidPlacementTile` le lit pour unités et bâtiments ; un index
+  périmé est détecté et reconstruit avec un avertissement. Le territoire
+  explicite de l'arène est porté par `currentMap` et transformé par
+  l'expansion ; il n'existe pas de `RunState.territory` (territoire propre
+  à la run). La simulation ne connaît pas le territoire.
 
 ## 11. Rendu
 
@@ -445,6 +472,9 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - `getViewState` / `setViewState` : l'éditeur sauvegarde la vue du jeu à
     l'entrée et la restaure à la sortie. Sans marges, le calcul est celui du
     jeu.
+  - Au démarrage d'une run, `frameRunCamera` (`main.ts`) remet l'angle par
+    défaut puis appelle `frameBox` sur toute la carte de départ (sans
+    marges) : l'arène 20 × 36 dépasse le zoom par défaut.
 - **Unités** :
   - `render/unitViews.ts` crée une vue par entité, interpole sa position,
     joue les animations, le flash de dégâts et la mort ;
@@ -457,9 +487,22 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     instance par case et un `InstancedMesh` par camp, aux couleurs de
     `teamColor`. Partagé par le plateau du jeu (`createBoard`, même
     résolution que la validation du placement) et celui de l'éditeur.
+  - Visibilité sur le plateau du jeu : zones visibles en préparation, en
+    bataille et pendant la transition de victoire (seule la grille est
+    masquée en bataille) ; masquées au retour au menu. Le plateau de
+    « Tester le scénario » (`testBoard`) les masque.
 - **Décor** : `render/assetLibrary.ts` (chargement et cache des modèles
   glTF/OBJ/FBX) et `obstacleFactory.ts` (construction selon `kind`), partagés
   par le jeu et l'éditeur.
+  - Aspect déterministe : `buildObstacleMesh` crée un `Rng` (`core/rng.ts`)
+    à partir de `obstacleAppearanceSeed` (`config/constants.ts` :
+    `appearanceSeed` s'il est fixé, sinon hachage du type, du modèle, de la
+    taille et de la position du centre). Les fabriques (`rocks.ts`,
+    `trees.ts`, `props.ts`, `pickRandom`) tirent tout leur hasard de ce
+    générateur : orientation sans `rotationY`, composition des rochers,
+    hauteur et modèle des arbres. Une `rotationY` explicite reste
+    prioritaire. Le hasard purement cosmétique du plateau (débris au sol)
+    reste libre.
 - **VFX** : `render/vfx/` (`VfxManager`, `lightPool`, `orbitingSprites`,
   `radialBurst`, `vfxMaterials`) et les vues dédiées (`fireballView`,
   `iceNova`, `shadowProjectileView`, `healVfx`, `tauntVfx`, `telegraph`,
@@ -575,8 +618,11 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
 L'orchestration reste dans `main.ts` :
 
-- cache de meshes par id d'obstacle, jamais reconstruits, car certaines
-  fabriques tirent leur composition au hasard ;
+- cache de meshes par id d'obstacle, réutilisés tant que le décor ne bouge
+  pas ; après un déplacement au gizmo (et son annulation ou rétablissement),
+  le mesh est reconstruit (`rebuildEditorObstacleMesh`) pour montrer
+  l'aspect qu'aura le décor à sa nouvelle position. L'annulation remet
+  aussi l'absence de `rotationY` (`applyEditorObstacleTransform`) ;
 - `TransformControls` en translation seule ;
 - rotation par l'anneau de sélection, Ctrl+molette, boutons du panneau et R ;
 - historique : une commande par geste, par instantanés de l'état

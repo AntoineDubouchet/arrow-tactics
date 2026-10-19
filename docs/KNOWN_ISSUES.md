@@ -27,7 +27,6 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-02 | Placement en jeu sans test direct des cellules | Dette (atténuée) |
 | KI-03 | Bâtiment potentiellement inatteignable | À vérifier |
 | KI-04 | Contrat implicite « ordre de spawn = ordre de l'armée » | Dette |
-| KI-05 | L'undo d'un déplacement au gizmo peut réorienter un décor | Confirmé (lecture du code) |
 | KI-07 | « Tester le scénario » sans Mine ni Caserne | Dette |
 | KI-09 | Descriptions de talents aux valeurs codées en dur | Dette |
 | KI-10 | Commentaire inexact du bouton d'achat ×5 | Dette |
@@ -41,9 +40,10 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-22 | Assets suivis directement par Git, sans Git LFS | Dette |
 | KI-23 | Raycast sur un modèle animé avant son premier rendu | Dette |
 | KI-24 | Espace réactive le bouton qui a gardé le focus | Confirmé (éditeur) / À vérifier (jeu) |
+| KI-25 | Bordure neutre asymétrique après l'étape C de l'agrandissement | Confirmé (mesuré) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
-(c'est le cas de KI-06, KI-08, KI-14, KI-17, KI-18 et KI-19).
+(c'est le cas de KI-05, KI-06, KI-08, KI-14, KI-17, KI-18 et KI-19).
 
 Retirées lors de la refonte de l'éditeur, résolues côté code :
 
@@ -55,6 +55,14 @@ Retirées lors de la refonte de l'éditeur, résolues côté code :
   tête de l'écouteur `keydown` de `main.ts` (`isTypingInField`) ignore tous
   les raccourcis du jeu et de l'éditeur quand le focus est dans un champ ;
   seul Échap fait sortir du champ, puis garde son rôle habituel.
+
+Retirée avec l'arène du Mode survie, résolue côté code :
+
+- **KI-05** (l'annulation d'un déplacement au gizmo réorientait un décor) :
+  l'annulation et le rétablissement restaurent maintenant exactement la
+  rotation précédente, y compris son absence pour un décor jamais tourné, et
+  le décor retrouve son aspect d'origine (aspect fixé par la position,
+  `DESIGN_DECISIONS.md` E6). Aucun `rotationY = 0` n'est plus écrit.
 
 ---
 
@@ -96,7 +104,7 @@ Retirées lors de la refonte de l'éditeur, résolues côté code :
 
 - **Statut** : Dette, atténuée par le territoire.
 - **Risque** : `isValidPlacementTile` (`main.ts`) vérifie le placement des
-  unités, des bâtiments et de la tour. Il teste les obstacles et le
+  unités et des bâtiments. Il teste les obstacles et le
   **territoire** (la case doit appartenir au joueur), jamais `MapDef.cells`
   directement.
 - **Atténuation** : un trou n'a normalement pas de territoire, donc il est
@@ -108,12 +116,13 @@ Retirées lors de la refonte de l'éditeur, résolues côté code :
 - **Reste possible** : un `territory` explicite écrit à la main (ou issu d'un
   autre outil) peut couvrir une case absente ; le chargement ne le vérifie
   pas. On pourrait alors poser un élément au-dessus d'un vide.
-- **Impact actuel** : aucun. Une run ne charge que la carte de départ et son
-  expansion A/B/C, qui restent des rectangles pleins sans territoire
-  explicite. La simulation bloque déjà les trous (`computeVoidObstacles`,
-  `sim/world.ts`).
-- **Vérification** : pas faisable sans modification, car le jeu réel ne
-  charge pas encore de carte de l'éditeur.
+- **Impact actuel** : aucun constaté. L'arène du Mode survie a 64 trous et
+  un territoire dessiné, mais aucune case de territoire ne tombe sur un
+  trou, au départ comme après chaque étape A/B/C (l'agrandissement
+  transforme cases et territoire ensemble). La simulation bloque déjà les
+  trous (`computeVoidObstacles`, `sim/world.ts`).
+- **Vérification** : par script, comparer le territoire et les cases de la
+  carte courante après chaque étape d'agrandissement.
 - **Piste** : faire tenir compte des cellules à `isValidPlacementTile`
   (`buildCellIndex`, `config/mapDef.ts`), ou filtrer le territoire sur les
   cellules au chargement.
@@ -147,27 +156,23 @@ Retirées lors de la refonte de l'éditeur, résolues côté code :
   chaque modification de l'un des deux.
 - **Piste** : un identifiant explicite reliant `OwnedUnit` et entité.
 
+### KI-25 — Bordure neutre asymétrique après l'étape C de l'agrandissement
+
+- **Statut** : Confirmé (mesuré par script sur l'arène du Mode survie).
+- **Symptôme** : à chaque étape C, la bordure neutre derrière la zone joueur
+  s'épaissit d'une rangée, et celle derrière la zone ennemie disparaît dès
+  la première étape C (la zone ennemie touche alors le bord du plateau).
+- **Cause** : le plateau reste centré (il grandit d'une rangée à chaque
+  bout), alors que l'étape C garde le camp joueur fixe et recule le camp
+  ennemi de deux cases (`centerExpansionZOffset`, `run/mapExpansion.ts`).
+- **Impact actuel** : visuel. Aucun décor ne sort du plateau, la Baliste et
+  les bâtiments restent dans la zone joueur, et la zone joueur ne perd
+  aucune case.
+- **Piste** : une étape C qui ne recentre pas le plateau, ou qui décale les
+  deux camps symétriquement. C'est une décision de design (`DESIGN_DECISIONS.md`
+  E4 : camp joueur fixe).
+
 ## B. Éditeur de maps
-
-### KI-05 — L'undo d'un déplacement au gizmo peut réorienter un décor
-
-- **Statut** : Confirmé par lecture du code, non reproduit manuellement.
-- **Symptôme** : on déplace au gizmo un décor jamais tourné (sans
-  `rotationY`, orientation aléatoire d'origine), puis on fait Ctrl+Z. Le décor
-  revient à sa position, mais son orientation passe à 0°.
-- **Code concerné** :
-  - `main.ts`, écouteurs `mouseDown` / `mouseUp` de `TransformControls` : la
-    rotation est capturée comme `obstacle.rotationY ?? 0` ;
-  - les commandes `undo` / `redo` réécrivent cette valeur via
-    `EditorState.setObstacleTransform` ;
-  - `refreshEditorObjects` applique ensuite `rotation.y = 0`.
-- **Impact actuel** : saut visuel. Un `rotationY = 0` finit aussi dans la
-  carte enregistrée.
-- **Vérification** : poser un arbre ou un prop sans le tourner, le déplacer
-  avec les flèches, faire Ctrl+Z, puis comparer l'orientation.
-- **Piste** : capturer l'orientation réelle (`currentObstacleRotation`,
-  `main.ts`), ou faire en sorte que l'undo d'une translation ne restaure que
-  la position.
 
 ### KI-07 — « Tester le scénario » sans Mine ni Caserne
 

@@ -116,6 +116,25 @@ systèmes de progression.
 - **Reste hors de C5** : le territoire de run (M5), les limitations listées
   en T5.
 
+### C6 — Arène officielle du Mode survie — *Terminé*
+
+- **Résultat** :
+  - le mode jouable s'appelle **Mode survie** ; il part d'une arène fixe de
+    20 × 36 cases fournie par Antoine (`config/maps/survivalArena.ts`) :
+    terrain avec trous, décors, territoire dessiné et position de la
+    Baliste. Les unités de scénario de la carte sont ignorées ;
+  - plus de placement manuel de la tour : la Baliste est créée à
+    `MapDef.ballista` et la préparation commence directement
+    (`DESIGN_DECISIONS.md` D3, remplacée) ;
+  - l'agrandissement A/B/C conserve la forme de l'arène et fait suivre son
+    territoire dessiné ;
+  - les zones restent visibles en bataille ;
+  - aspect des décors identique dans l'éditeur et en jeu
+    (`DESIGN_DECISIONS.md` E6).
+- **Reste hors de C6** : bordure neutre asymétrique après l'étape C
+  (KI-25), territoire de run (M5), bibliothèque de cartes et choix de carte
+  ou de mode.
+
 ---
 
 ## 3. Moyen terme
@@ -180,21 +199,18 @@ buildcraft.
 
 ### M5 — Territoire de run (fief) — *Décision ouverte*
 
-- **Objectif** : un territoire propre à la run, qui s'étend au fil des
-  vagues, au lieu des bandes recalculées par l'agrandissement A/B/C.
-- **Pourquoi** : le territoire statique (C5) en pose la base ; un fief qui
-  grandit pourrait porter l'expansion de la carte et le placement des
-  bâtiments.
-- **Dépendances** : C5. Pour la Baliste, la décision D3
-  (`DESIGN_DECISIONS.md`).
+- **Objectif** : un territoire propre à la run, qui grandit ou se conquiert
+  au fil des vagues, au lieu de la transformation mécanique de l'arène par
+  l'agrandissement A/B/C.
+- **Pourquoi** : le territoire de la carte (C5) et son suivi de
+  l'agrandissement (C6) en posent la base ; un fief qui grandit pourrait
+  porter l'expansion de la carte et le placement des bâtiments.
+- **Dépendances** : C5, C6. La Baliste part déjà de la position définie
+  par la carte (D3 remplacée), cœur initial du fief.
 - **Décisions ouvertes** :
-  - `RunState.territory` et la règle d'extension ;
-  - devenir de l'expansion A/B/C (et de la translation du camp ennemi à
-    l'étape C) avec un territoire explicite ;
-  - Baliste placée automatiquement au cœur du territoire, qui remplacerait
-    le placement obligatoire (D3).
-- **Ce qui doit attendre** : tout chargement en run d'une carte de l'éditeur
-  à territoire explicite, tant que ce territoire ne suit pas l'expansion.
+  - `RunState.territory` et la règle de croissance ou de conquête ;
+  - devenir de l'agrandissement A/B/C, et de l'étape C (camp joueur fixe,
+    bordure asymétrique, KI-25).
 
 ---
 
@@ -287,7 +303,7 @@ Chantiers continus, menés au fil des besoins plutôt qu'en blocs isolés.
   `ui/screens.ts` ce que les chantiers touchent (boutique, placement,
   bâtiments). Jamais de refonte isolée sans besoin concret.
 - **T5 — Outils** :
-  - éditeur de maps : KI-05, KI-20, KI-24, test de scénario avec
+  - éditeur de maps : KI-20, KI-24, test de scénario avec
     bâtiments (KI-07), nom de carte modifiable, priorité de clic des petits
     décors traversables ;
   - lecture des résultats du harnais d'équilibrage ;
@@ -311,8 +327,8 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
 - **Sauvegarde d'une run en cours** : nécessaire ou non pour des runs longues.
 - **Évolution de la carte** : carte unique qui s'étend, succession de cartes,
   ou variété de terrains.
-- **Territoire de run** : forme de l'extension du fief, Baliste automatique
-  au cœur du territoire (remplacerait D3), voir M5.
+- **Territoire de run** : forme de la croissance ou de la conquête du fief,
+  voir M5.
 - **Économie de l'Or** : rythme de gain, coûts des bâtiments et des
   améliorations de Forge (barème actuel provisoire), plafonds éventuels.
 - **Nouveaux types de contenu** :
