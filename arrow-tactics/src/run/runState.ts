@@ -121,6 +121,10 @@ export interface OwnedBuilding {
    *  l'editeur — voir render/buildings.ts, createBuildingObstacle). Absente
    *  = 0 (compatibilite avec une sauvegarde/un format anterieur a ce champ). */
   rotationY?: number;
+  /** Niveau d'amelioration PROPRE a ce batiment (Mine, Caserne), interne :
+   *  0 = aucune amelioration, affiche « Niv. 1 ». Achete depuis sa fiche,
+   *  voir run/buildingUpgrades.ts. Absent = 0. */
+  level?: number;
 }
 
 export interface RunState {
@@ -529,6 +533,7 @@ export function applyBattleOutcome(run: RunState, entities: Entity[]): BattleOut
         // voir main.ts ownedBuildingObstacle) des la premiere bataille,
         // quelle que soit la rotation reellement choisie par le joueur.
         rotationY: run.buildings[i]!.rotationY,
+        level: run.buildings[i]!.level,
       });
     }
   }

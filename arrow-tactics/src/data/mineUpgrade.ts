@@ -1,27 +1,26 @@
-import type { UpgradeDefBase } from './unitUpgrades';
-
 /**
- * Amelioration permanente de la MINE (2026-08-14, demande d'Antoine).
- * Formule REVUE le meme jour (Antoine : le premier palier a milestone
- * rendait le bonus trop puissant) — remplacee par un bonus PUREMENT
- * LINEAIRE, sans palier : +0.2 or/seconde par achat, un point c'est tout.
- * Meme famille de systeme que data/ballistaUpgrade.ts (UpgradeDefBase) mais SANS le mecanisme de
- * palier tous les N achats — retire entierement plutot que mis a zero,
- * puisque ce n'est plus le design voulu. N'a d'effet reel que si le talent
- * "Le temps, c'est de l'argent" (voir data/talents.ts, temps_argent) est
- * deverrouille — la mine elle-meme n'existe pas sinon (voir main.ts) ; la
- * carte de la boutique d'amelioration reste MASQUEE tant que ce n'est pas
- * le cas (voir ui/screens.ts).
+ * Production de la MINE. Chaque Mine produit de l'or a intervalle fixe
+ * pendant une vraie bataille, un montant tire dans une tranche qui depend
+ * de SON niveau : l'amelioration est propre a chaque Mine (voir
+ * OwnedBuilding.level et run/buildingUpgrades.ts), elle n'est plus une
+ * amelioration globale de la Forge.
+ *
+ * Niveau affiche 1 (interne 0) : 3 a 7 or ; chaque amelioration decale la
+ * tranche de +2 / +2 (niveau 2 : 5 a 9, niveau 3 : 7 a 11...).
  */
-export interface MineUpgradeDef extends UpgradeDefBase {
-  id: 'mine';
-  /** +N or/seconde par achat — ADDITIF depuis la base
-   *  (MINE_BASE_GOLD_PER_SECOND, voir config/constants.ts), jamais
-   *  compose d'un niveau a l'autre, jamais de palier. */
-  goldPerSecondPerLevel: number;
+export interface MineProductionDef {
+  /** Secondes de bataille entre deux productions d'une meme Mine. */
+  intervalSeconds: number;
+  /** Bornes (incluses) de la tranche au niveau interne 0. */
+  baseMinGold: number;
+  baseMaxGold: number;
+  /** Decalage des deux bornes par amelioration. */
+  rangeStepPerLevel: number;
 }
 
-export const MINE_UPGRADE: MineUpgradeDef = {
-  id: 'mine',
-  goldPerSecondPerLevel: 0.2,
+export const MINE_PRODUCTION: MineProductionDef = {
+  intervalSeconds: 5,
+  baseMinGold: 3,
+  baseMaxGold: 7,
+  rangeStepPerLevel: 2,
 };

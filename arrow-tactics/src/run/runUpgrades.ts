@@ -1,8 +1,6 @@
 import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
-import { BARRACKS_UPGRADE } from '../data/barracksUpgrade';
 import { HEAL_SCROLL_UPGRADE } from '../data/healScrollUpgrade';
 import { ICE_NOVA_UPGRADE } from '../data/iceNovaUpgrade';
-import { MINE_UPGRADE } from '../data/mineUpgrade';
 import { SENTINEL_UPGRADE } from '../data/sentinelUpgrade';
 import { SHADOW_UPGRADE } from '../data/shadowUpgrade';
 import { UNIT_UPGRADES, type UpgradeDefBase } from '../data/unitUpgrades';
@@ -20,6 +18,12 @@ import { roundGold, spendGold, type RunState } from './runState';
  */
 export type RunUpgradeLevels = Record<string, number>;
 
+/** Niveau AFFICHE au joueur (fiches, Forge) : le niveau interne compte les
+ *  ameliorations achetees depuis 0, l'affichage commence a 1. */
+export function displayedUpgradeLevel(level: number): number {
+  return level + 1;
+}
+
 /** Niveau d'une amelioration, 0 si elle n'a jamais ete achetee. */
 export function runUpgradeLevel(levels: Readonly<RunUpgradeLevels>, id: string): number {
   return Object.prototype.hasOwnProperty.call(levels, id) ? (levels[id] ?? 0) : 0;
@@ -27,13 +31,12 @@ export function runUpgradeLevel(levels: Readonly<RunUpgradeLevels>, id: string):
 
 /** Amelioration de Forge propre a une entite du joueur, par id de
  *  definition (unite de data/units.ts ou batiment de data/buildings.ts).
- *  Absente = entite sans amelioration (Forge, par exemple). */
+ *  Absente = entite sans amelioration de Forge (Forge ; Mine et Caserne,
+ *  dont le niveau est propre a chaque batiment, voir run/buildingUpgrades.ts). */
 const ENTITY_UPGRADE_IDS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(Object.entries(UNIT_UPGRADES).map(([id, def]) => [def.unitId, id])),
   sentinel: SENTINEL_UPGRADE.id,
   ballista: BALLISTA_UPGRADE.id,
-  mine: MINE_UPGRADE.id,
-  barracks: BARRACKS_UPGRADE.id,
 };
 
 /** Niveau de run de l'amelioration d'une entite du joueur (le meme pour
@@ -66,8 +69,6 @@ const RUN_UPGRADE_DEFS: Readonly<Record<string, UpgradeDefBase>> = {
   ...UNIT_UPGRADES,
   [SENTINEL_UPGRADE.id]: SENTINEL_UPGRADE,
   [BALLISTA_UPGRADE.id]: BALLISTA_UPGRADE,
-  [MINE_UPGRADE.id]: MINE_UPGRADE,
-  [BARRACKS_UPGRADE.id]: BARRACKS_UPGRADE,
   [HEAL_SCROLL_UPGRADE.id]: HEAL_SCROLL_UPGRADE,
   [ICE_NOVA_UPGRADE.id]: ICE_NOVA_UPGRADE,
   [SHADOW_UPGRADE.id]: SHADOW_UPGRADE,
@@ -79,27 +80,16 @@ export function isRunUpgradeId(id: string): boolean {
 }
 
 /** Bareme PROVISOIRE, seul endroit a modifier pour le reequilibrer : cout
- *  du niveau 0 -> 1 (RUN_UPGRADE_GOLD_COST_BASE, ou sa valeur propre dans
- *  RUN_UPGRADE_GOLD_COST_BASE_BY_ID), puis x RUN_UPGRADE_GOLD_COST_GROWTH a
- *  chaque niveau : 1, 2, 4, 8, 16... pour la plupart des ameliorations. */
+ *  du niveau 0 -> 1 (RUN_UPGRADE_GOLD_COST_BASE), puis
+ *  x RUN_UPGRADE_GOLD_COST_GROWTH a chaque niveau : 1, 2, 4, 8, 16... Mine et
+ *  Caserne ont leur propre bareme par batiment (run/buildingUpgrades.ts). */
 export const RUN_UPGRADE_GOLD_COST_BASE = 1;
 export const RUN_UPGRADE_GOLD_COST_GROWTH = 2;
 
-/** Cout de depart propre a certaines ameliorations. Mine et Caserne : 25,
- *  50, 100... — elles accelerent directement l'economie ou la croissance de
- *  l'armee, leur investissement est donc nettement plus lourd. */
-const RUN_UPGRADE_GOLD_COST_BASE_BY_ID: Readonly<Record<string, number>> = {
-  [MINE_UPGRADE.id]: 25,
-  [BARRACKS_UPGRADE.id]: 25,
-};
-
 /** Cout en Or du niveau suivant de l'amelioration `id`, depuis le niveau
  *  `level` deja atteint. */
-export function runUpgradeGoldCost(id: string, level: number): number {
-  const base = Object.prototype.hasOwnProperty.call(RUN_UPGRADE_GOLD_COST_BASE_BY_ID, id)
-    ? RUN_UPGRADE_GOLD_COST_BASE_BY_ID[id]!
-    : RUN_UPGRADE_GOLD_COST_BASE;
-  return roundGold(base * RUN_UPGRADE_GOLD_COST_GROWTH ** level);
+export function runUpgradeGoldCost(_id: string, level: number): number {
+  return roundGold(RUN_UPGRADE_GOLD_COST_BASE * RUN_UPGRADE_GOLD_COST_GROWTH ** level);
 }
 
 /** Vrai si l'amelioration `id` peut etre achetee maintenant : id connu,

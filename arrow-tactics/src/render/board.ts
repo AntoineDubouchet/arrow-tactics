@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { COLORS, PLACEMENT_ROWS, TILE } from '../config/constants';
-import { resolveMapCells, type MapDef } from '../config/mapDef';
+import { cellKey, computeMapCellBounds, resolveMapCells, type MapDef, type TerrainCellDef } from '../config/mapDef';
 import { resolveMapTerritory, type TerritoryCell, type TerritoryTeam } from '../config/territory';
 import { loadEnvironmentAssets } from './assetLibrary';
 import { box } from './meshHelpers';
@@ -45,9 +45,6 @@ export interface Board {
 export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Board> {
   const group = new THREE.Group();
 
-  const halfW = (map.width * TILE) / 2;
-  const halfH = (map.height * TILE) / 2;
-
   // Terrain PAR CELLULE (2026-08-16, chantier map irreguliere, voir
   // CLAUDE.md) — remplace l'ancien bloc de sol unique. `resolveMapCells`
   // retombe sur un rectangle plein "herbe" pour toute map SANS `cells`
@@ -84,7 +81,7 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   }
   group.add(obstacles);
 
-  scatterDecoration(group, halfW, halfH);
+  scatterDecoration(group, cells);
 
   return { group, gridLines, zones, obstacles };
 }
@@ -175,14 +172,34 @@ const WOOD_DEBRIS_DENSITY = 7 / REFERENCE_AREA / 3;
  * totalement DIFFERENT (une texture appliquee au sol, pas des objets 3D
  * scatter) — non concernee par cette demande, laissee telle quelle.
  */
-function scatterDecoration(group: THREE.Group, halfW: number, halfH: number): void {
-  const area = halfW * 2 * (halfH * 2);
+/** Marge (cases) autour d'un debris : ses planches ne depassent jamais de
+ *  leur case vers une case absente. */
+const WOOD_DEBRIS_MARGIN = 0.6;
 
-  const woodDebrisCount = Math.round(area * WOOD_DEBRIS_DENSITY);
+/** Seme les debris UNIQUEMENT sur le terrain existant : un point est garde
+ *  si les cases sous lui et a WOOD_DEBRIS_MARGIN autour existent. Avant, le
+ *  tirage couvrait tout le rectangle `largeur x hauteur` (symetrique,
+ *  decale d'une demi-case sur une largeur impaire) sans regarder les cases :
+ *  sur une arene a trous, des planches flottaient au-dessus du vide. Nombre
+ *  proportionnel aux cases reelles ; quelques essais par debris au plus. */
+function scatterDecoration(group: THREE.Group, cells: TerrainCellDef[]): void {
+  if (cells.length === 0) return;
+  const present = new Set(cells.map((c) => cellKey(c.x, c.z)));
+  const bounds = computeMapCellBounds(cells);
+  const onTerrain = (x: number, z: number): boolean =>
+    [-WOOD_DEBRIS_MARGIN, WOOD_DEBRIS_MARGIN].every((dx) =>
+      [-WOOD_DEBRIS_MARGIN, WOOD_DEBRIS_MARGIN].every((dz) => present.has(cellKey(Math.floor(x + dx), Math.floor(z + dz)))),
+    );
+
+  const woodDebrisCount = Math.round(cells.length * TILE * TILE * WOOD_DEBRIS_DENSITY);
   for (let i = 0; i < woodDebrisCount; i++) {
-    const x = (Math.random() * 2 - 1) * (halfW - 0.6);
-    const z = (Math.random() * 2 - 1) * (halfH - 0.6);
-    group.add(createWoodDebris(x, z));
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const x = bounds.minX + WOOD_DEBRIS_MARGIN + Math.random() * (bounds.maxX - bounds.minX - 2 * WOOD_DEBRIS_MARGIN);
+      const z = bounds.minZ + WOOD_DEBRIS_MARGIN + Math.random() * (bounds.maxZ - bounds.minZ - 2 * WOOD_DEBRIS_MARGIN);
+      if (!onTerrain(x, z)) continue;
+      group.add(createWoodDebris(x, z));
+      break;
+    }
   }
 }
 

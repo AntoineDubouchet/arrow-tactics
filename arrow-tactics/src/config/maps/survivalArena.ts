@@ -2,8 +2,8 @@ import type { MapDef } from '../mapDef';
 
 /**
  * Arène officielle du Mode survie — donnée fournie par Antoine (fichier
- * « Map standart.json », exporté depuis l'éditeur de maps), transcrite telle
- * quelle : 20 × 36 cases, terrain, trous, décors, territoire, unités de
+ * « MapV2.json », exporté depuis l'éditeur de maps), transcrite telle
+ * quelle par script : 21 × 36 cases, terrain, trous, décors, territoire, unités de
  * scénario et position de la Baliste. Ne pas modifier à la main : réexporter
  * depuis l'éditeur puis retranscrire.
  *
@@ -12,7 +12,7 @@ import type { MapDef } from '../mapDef';
 export const SURVIVAL_ARENA_MAP: MapDef = {
   name: 'vague1-20',
   version: 1,
-  width: 20,
+  width: 21,
   height: 36,
   cells: [
     { x: -9, z: -13, terrain: 'grass' }, { x: -8, z: -13, terrain: 'grass' }, { x: -7, z: -13, terrain: 'grass' }, { x: -6, z: -13, terrain: 'grass' },
@@ -179,6 +179,15 @@ export const SURVIVAL_ARENA_MAP: MapDef = {
     { x: -1, z: 17, terrain: 'grass' }, { x: 0, z: 17, terrain: 'grass' }, { x: 1, z: 17, terrain: 'grass' }, { x: 2, z: 17, terrain: 'grass' },
     { x: 3, z: 17, terrain: 'grass' }, { x: 4, z: 17, terrain: 'grass' }, { x: 5, z: 17, terrain: 'grass' }, { x: 6, z: 17, terrain: 'grass' },
     { x: 7, z: 17, terrain: 'grass' }, { x: 8, z: 17, terrain: 'grass' }, { x: 9, z: 17, terrain: 'grass' }, { x: -9, z: -9, terrain: 'grass' },
+    { x: 10, z: -18, terrain: 'grass' }, { x: 10, z: -17, terrain: 'grass' }, { x: 10, z: -16, terrain: 'grass' }, { x: 10, z: -15, terrain: 'grass' },
+    { x: 10, z: -14, terrain: 'grass' }, { x: 10, z: -13, terrain: 'grass' }, { x: 10, z: -12, terrain: 'grass' }, { x: 10, z: -11, terrain: 'grass' },
+    { x: 10, z: -10, terrain: 'grass' }, { x: 10, z: -9, terrain: 'grass' }, { x: 8, z: -8, terrain: 'grass' }, { x: 8, z: -7, terrain: 'grass' },
+    { x: 8, z: -6, terrain: 'grass' }, { x: 8, z: -5, terrain: 'grass' }, { x: 8, z: -4, terrain: 'grass' }, { x: 8, z: -3, terrain: 'grass' },
+    { x: 8, z: -2, terrain: 'grass' }, { x: 8, z: -1, terrain: 'grass' }, { x: 8, z: 0, terrain: 'grass' }, { x: 8, z: 1, terrain: 'grass' },
+    { x: 8, z: 2, terrain: 'grass' }, { x: 8, z: 3, terrain: 'grass' }, { x: 8, z: 4, terrain: 'grass' }, { x: 8, z: 5, terrain: 'grass' },
+    { x: 8, z: 6, terrain: 'grass' }, { x: 8, z: 7, terrain: 'grass' }, { x: 10, z: 8, terrain: 'grass' }, { x: 10, z: 9, terrain: 'grass' },
+    { x: 10, z: 10, terrain: 'grass' }, { x: 10, z: 11, terrain: 'grass' }, { x: 10, z: 12, terrain: 'grass' }, { x: 10, z: 13, terrain: 'grass' },
+    { x: 10, z: 14, terrain: 'grass' }, { x: 10, z: 15, terrain: 'grass' }, { x: 10, z: 16, terrain: 'grass' }, { x: 10, z: 17, terrain: 'grass' },
   ],
   obstacles: [
     { kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: 'tree_pineDefaultA', cornerX: -4, cornerZ: -1 },
@@ -192,10 +201,10 @@ export const SURVIVAL_ARENA_MAP: MapDef = {
     { kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: 'tree_pineRoundF', cornerX: -7, cornerZ: -5 },
     { kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: 'tree_pineRoundD', cornerX: 2, cornerZ: 3, x: 6.020172668635361, z: 3.1478520468904776 },
     { kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: 'tree_pineRoundE', cornerX: 3, cornerZ: 3, x: 5.327096721483542, z: 3.450459837161631 },
-    { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'mushroom_tanTall', scale: 0.14, cornerX: -7, cornerZ: 4 },
+    { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'mushroom_tanTall', scale: 0.14, cornerX: -7, cornerZ: 4, x: -8.345341392242446, z: 9.555508466114489 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'mushroom_tan', scale: 0.22, cornerX: -5, cornerZ: -11, x: 2.9592132387544865, z: -16.022822559003316 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'mushroom_tanGroup', scale: 0.27, cornerX: 4, cornerZ: -12 },
-    { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'mushroom_tanGroup', scale: 0.27, cornerX: -1, cornerZ: 6 },
+    { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'mushroom_tanGroup', scale: 0.27, cornerX: -1, cornerZ: 6, x: -3.6310858656859466, z: 15.544551528081769 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bushLarge', scale: 0.37, cornerX: -2, cornerZ: 2 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bushLarge', scale: 0.37, cornerX: -4, cornerZ: 8 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bushLarge', scale: 0.37, cornerX: 1, cornerZ: -3 },
@@ -208,7 +217,7 @@ export const SURVIVAL_ARENA_MAP: MapDef = {
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_flatTall', scale: 0.27, cornerX: -7, cornerZ: 6 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bushSmall', scale: 0.38, cornerX: -7, cornerZ: -1 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'log_stackLarge', scale: 0.71, cornerX: 4, cornerZ: -3 },
-    { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'log', scale: 0.71, cornerX: 7, cornerZ: 5 },
+    { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'log', scale: 0.71, cornerX: 7, cornerZ: 5, x: 7.562069068774292, z: 5.522409012117066 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'log_large', scale: 1, cornerX: -3, cornerZ: -5, rotationY: 3.141592653589793 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'sign', scale: 0.3, cornerX: -5, cornerZ: 1 },
     { kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: -4, cornerZ: 2 },
@@ -257,8 +266,8 @@ export const SURVIVAL_ARENA_MAP: MapDef = {
     { kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: 'tree_pineTallC_detailed', cornerX: 5, cornerZ: -4 },
     { kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: 'tree_pineTallC_detailed', cornerX: -9, cornerZ: -12, x: 8.396273535827007, z: 9.67494242361893 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'stump_roundDetailed', scale: 0.37, cornerX: -6, cornerZ: 10 },
-    { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bush', scale: 0.4, cornerX: -2, cornerZ: 7 },
-    { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bush', scale: 0.4, cornerX: -5, cornerZ: 6 },
+    { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bush', scale: 0.4, cornerX: -2, cornerZ: 7, x: -6.1741003338476474, z: 14.961877003262842 },
+    { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bush', scale: 0.4, cornerX: -5, cornerZ: 6, x: 5.377975654734158, z: 15.545114464932453 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bush', scale: 0.4, cornerX: -7, cornerZ: -10 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bush', scale: 0.4, cornerX: -3, cornerZ: -11, x: -6.517035607561548, z: -15.017636564206356 },
     { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'plant_bush', scale: 0.4, cornerX: 2, cornerZ: -9 },
@@ -276,24 +285,19 @@ export const SURVIVAL_ARENA_MAP: MapDef = {
     { kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: 'tree_default', x: 3.4254918451374863, z: -16.673600706267777 },
     { kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: 'tree_default', x: 7.501124941157826, z: -17.74829142662368 },
     { kind: 'rock', tilesX: 2, tilesZ: 2, x: 6.914461095907868, z: -6.934519489950858, rotationY: 5.73227996531081 },
-    { kind: 'rock', tilesX: 3, tilesZ: 3, x: -8.865498261250693, z: -16.439623016551323, rotationY: 0.5522427256360265 },
-    { kind: 'rock', tilesX: 3, tilesZ: 3, x: 8.66416647536063, z: 16.3254765485091, rotationY: 5.148982949489334 },
-    { kind: 'rock', tilesX: 2, tilesZ: 2, x: 9.259311509129418, z: -17.471155686292065 },
+    { kind: 'rock', tilesX: 3, tilesZ: 3, x: -8.841312107324228, z: -16.970677655825995, rotationY: 4.071507279145202 },
+    { kind: 'rock', tilesX: 3, tilesZ: 3, x: 10.144310032768985, z: 16.643005213489317, rotationY: 3.0518470500363843 },
+    { kind: 'rock', tilesX: 2, tilesZ: 2, x: 10.055893468041447, z: -17.50743491718174 },
     { kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: 'tree_pineGroundB', x: 9.463184831128018, z: 12.871073537490403 },
     { kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: 'tree_pineGroundA', x: -9.513947245391293, z: 13.425029367111279 },
   ],
   playerUnits: [
-    { unitId: 'fantassin', x: -2.5, z: 6.5 },
-    { unitId: 'fantassin', x: -1.5, z: 6.5 },
-    { unitId: 'fantassin', x: -0.5, z: 6.5 },
-    { unitId: 'fantassin', x: 0.5, z: 6.5 },
-    { unitId: 'archer', x: -1.5, z: 7.5 },
-    { unitId: 'archer', x: 0.5, z: 7.5 },
+    { unitId: 'fantassin', x: 0.5, z: 10.5 },
   ],
   enemyUnits: [
-    { unitId: 'fantassin', x: 0, z: -6.5 },
+    { unitId: 'fantassin', x: 0.5, z: -14.5 },
   ],
-  ballista: { x: 0.5, z: 13.5 },
+  ballista: { x: 0.5, z: 15.5 },
   territory: [
     { x: -9, z: -13, team: 'enemy' }, { x: -8, z: -13, team: 'enemy' }, { x: -7, z: -13, team: 'enemy' }, { x: -6, z: -13, team: 'enemy' },
     { x: -5, z: -13, team: 'enemy' }, { x: -4, z: -13, team: 'enemy' }, { x: -3, z: -13, team: 'enemy' }, { x: -2, z: -13, team: 'enemy' },
@@ -367,6 +371,10 @@ export const SURVIVAL_ARENA_MAP: MapDef = {
     { x: 2, z: -17, team: 'enemy' }, { x: 1, z: -17, team: 'enemy' }, { x: 0, z: -17, team: 'enemy' }, { x: -1, z: -17, team: 'enemy' },
     { x: -2, z: -17, team: 'enemy' }, { x: -3, z: -17, team: 'enemy' }, { x: -4, z: -17, team: 'enemy' }, { x: -5, z: -17, team: 'enemy' },
     { x: -6, z: -17, team: 'enemy' }, { x: -7, z: -17, team: 'enemy' }, { x: -8, z: -17, team: 'enemy' }, { x: -9, z: -17, team: 'enemy' },
+    { x: 9, z: 16, team: 'player' }, { x: 9, z: 15, team: 'player' }, { x: 9, z: 14, team: 'player' }, { x: 9, z: 13, team: 'player' },
+    { x: 9, z: 12, team: 'player' }, { x: 9, z: 11, team: 'player' }, { x: 9, z: 10, team: 'player' }, { x: 9, z: 9, team: 'player' },
+    { x: 9, z: -10, team: 'enemy' }, { x: 9, z: -11, team: 'enemy' }, { x: 9, z: -12, team: 'enemy' }, { x: 9, z: -13, team: 'enemy' },
+    { x: 9, z: -14, team: 'enemy' }, { x: 9, z: -15, team: 'enemy' }, { x: 9, z: -16, team: 'enemy' }, { x: 9, z: -17, team: 'enemy' },
   ],
 };
 

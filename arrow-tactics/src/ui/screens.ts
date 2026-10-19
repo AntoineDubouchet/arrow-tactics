@@ -1,11 +1,9 @@
-import { HP_PER_PIP, MINE_BASE_GOLD_PER_SECOND } from '../config/constants';
+import { HP_PER_PIP } from '../config/constants';
 import { getHealEffectAmount, getItem } from '../data/items';
 import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
-import { BARRACKS_UPGRADE } from '../data/barracksUpgrade';
 import { getBuilding, listBuyableBuildingIds } from '../data/buildings';
 import { HEAL_SCROLL_UPGRADE } from '../data/healScrollUpgrade';
 import { ICE_NOVA_UPGRADE } from '../data/iceNovaUpgrade';
-import { MINE_UPGRADE } from '../data/mineUpgrade';
 import { SENTINEL_UPGRADE } from '../data/sentinelUpgrade';
 import { SHADOW_UPGRADE } from '../data/shadowUpgrade';
 import { getTalent, listDependents, listFounderTalents, TALENTS } from '../data/talents';
@@ -48,18 +46,8 @@ import {
   iceNovaNextPurchaseGrantsDamageBonus,
   iceNovaRemainingUntilDamageBonus,
 } from '../run/iceNovaUpgradeEffects';
-import {
-  effectiveMineGoldPerSecond,
-  mineGoldPerSecondBonus,
-  mineUpgradeLevel,
-} from '../run/mineUpgradeEffects';
-import {
-  barracksNextPurchaseGrantsIntervalMilestone,
-  barracksRemainingUntilIntervalMilestone,
-  barracksUpgradeLevel,
-  effectiveBarracksSpawnCount,
-  effectiveBarracksSpawnInterval,
-} from '../run/barracksUpgradeEffects';
+import { mineGoldRange, mineProductionIntervalSeconds } from '../run/mineUpgradeEffects';
+import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from '../run/barracksUpgradeEffects';
 import {
   computePlayerSentinelUpgradeEffects,
   sentinelNextPurchaseGrantsShieldBonus,
@@ -73,7 +61,7 @@ import {
   shadowUpgradeLevel,
 } from '../run/shadowUpgradeEffects';
 import { getEffectiveBuildingCost } from '../run/buildingUpgradeEffects';
-import { canPurchaseRunUpgrade, runUpgradeGoldCost, runUpgradeLevel, type RunUpgradeLevels } from '../run/runUpgrades';
+import { canPurchaseRunUpgrade, displayedUpgradeLevel, runUpgradeGoldCost, runUpgradeLevel } from '../run/runUpgrades';
 import type { AudioSettings } from '../run/userSettings';
 import { createCoinIcon } from './pixelIcon';
 import { createItemIcon } from './itemIcons';
@@ -160,39 +148,6 @@ interface IceNovaUpgradeCardRefs {
   nextUpgradeEl: HTMLElement;
   remainingDamageEl: HTMLElement;
   costEl: HTMLElement;
-}
-
-/** Refs de la carte "Mine" (2026-08-14) — voir buildMineUpgradeCard/
- *  refreshForge. TOUJOURS visible depuis le 2026-08-17 (la Mine
- *  est devenue un bâtiment achetable en boutique de RUN, plus liee a un
- *  talent — voir data/buildings.ts) : ameliorer une Mine que le joueur n'a
- *  pas encore achetee cette run reste valide (demande explicite d'Antoine,
- *  point 40 : "pas besoin d'avoir une Caserne posée au moment de l'achat de
- *  l'upgrade", meme principe applique a la Mine). */
-interface MineUpgradeCardRefs {
-  card: HTMLElement;
-  button: HTMLButtonElement;
-  levelEl: HTMLElement;
-  goldPerSecondEl: HTMLElement;
-  nextUpgradeEl: HTMLElement;
-  costEl: HTMLElement;
-}
-
-/** Refs de la carte "Caserne" (2026-08-17, REFONTE le meme jour — deux
- *  effets desormais combines, voir data/barracksUpgrade.ts) — voir
- *  buildBarracksUpgradeCard/refreshForge. TOUJOURS visible (meme
- *  principe que la Mine ci-dessus), plus de plafond/etat "MAX" (le bonus de
- *  nombre de Fantassins reste utile a tout niveau). */
-interface BarracksUpgradeCardRefs {
-  card: HTMLElement;
-  button: HTMLButtonElement;
-  levelEl: HTMLElement;
-  countEl: HTMLElement;
-  intervalEl: HTMLElement;
-  nextUpgradeEl: HTMLElement;
-  remainingIntervalEl: HTMLElement;
-  costEl: HTMLElement;
-  costGroup: HTMLElement;
 }
 
 /** Refs de la carte "Sentinelle" (2026-08-14) — voir buildSentinelUpgradeCard/
@@ -497,11 +452,6 @@ export class Screens {
   private readonly ballistaUpgradeCard: BallistaUpgradeCardRefs;
   private readonly healScrollUpgradeCard: HealScrollUpgradeCardRefs;
   private readonly iceNovaUpgradeCard: IceNovaUpgradeCardRefs;
-  /** Carte "Mine" (2026-08-14) — TOUJOURS visible depuis le 2026-08-17, voir
-   *  MineUpgradeCardRefs. */
-  private readonly mineUpgradeCard: MineUpgradeCardRefs;
-  /** Carte "Caserne" (2026-08-17) — voir BarracksUpgradeCardRefs. */
-  private readonly barracksUpgradeCard: BarracksUpgradeCardRefs;
   /** Carte "Sentinelle" (2026-08-14) — voir buildSentinelUpgradeCard. */
   private readonly sentinelUpgradeCard: SentinelUpgradeCardRefs;
   /** Carte "Soins excédentaires" (2026-08-15) — MASQUEE tant que le talent
@@ -800,8 +750,6 @@ export class Screens {
     this.healScrollUpgradeCard = healScrollCard.refs;
     const iceNovaCard = this.buildIceNovaUpgradeCard(handlers);
     this.iceNovaUpgradeCard = iceNovaCard.refs;
-    this.mineUpgradeCard = this.buildMineUpgradeCard(handlers);
-    this.barracksUpgradeCard = this.buildBarracksUpgradeCard(handlers);
     const sentinelCard = this.buildSentinelUpgradeCard(handlers);
     this.sentinelUpgradeCard = sentinelCard.refs;
     this.shadowUpgradeCard = this.buildShadowUpgradeCard(handlers);
@@ -809,8 +757,6 @@ export class Screens {
       ballistaCard.card,
       healScrollCard.card,
       iceNovaCard.card,
-      this.mineUpgradeCard.card,
-      this.barracksUpgradeCard.card,
       sentinelCard.card,
       this.shadowUpgradeCard.card,
     );
@@ -1142,7 +1088,7 @@ export class Screens {
       const priceEl = this.shopUnitPriceEls.get(buildingId);
       if (priceEl) priceEl.textContent = formatGold(cost);
       const description = this.shopBuildingDescriptions.get(buildingId);
-      if (description) description.textContent = this.describeBuildingShopItem(buildingId, run.upgrades, cost);
+      if (description) description.textContent = this.describeBuildingShopItem(buildingId, cost);
     }
 
     this.shopUndoLastPurchase.disabled = !canUndoLastPurchase;
@@ -1159,15 +1105,17 @@ export class Screens {
    *  ici. Generique par id pour le reste (pas un if/else code en dur a
    *  etendre a la main pour un futur bâtiment sans production/revenu —
    *  retombe sur juste la ligne de cout dans ce cas). */
-  private describeBuildingShopItem(buildingId: string, levels: RunUpgradeLevels, cost: number): string {
+  private describeBuildingShopItem(buildingId: string, cost: number): string {
     const costLine = `Coût : ${formatGold(cost)} Gold.`;
+    // Batiment neuf : niveau 1 (interne 0), ameliorable ensuite depuis sa fiche.
     if (buildingId === 'mine') {
-      return `${costLine} Génère ${effectiveMineGoldPerSecond(levels).toFixed(1)} Gold par seconde tant que la bataille est en cours.`;
+      const { min, max } = mineGoldRange(0);
+      return `${costLine} Produit ${min} à ${max} Gold toutes les ${mineProductionIntervalSeconds()} secondes pendant la bataille. S’améliore depuis sa fiche.`;
     }
     if (buildingId === 'barracks') {
-      const count = effectiveBarracksSpawnCount(levels);
+      const count = effectiveBarracksSpawnCount(0);
       const noun = count > 1 ? 'Fantassins' : 'Fantassin';
-      return `${costLine} Produit automatiquement ${count} ${noun} toutes les ${effectiveBarracksSpawnInterval(levels).toFixed(0)} secondes pendant la bataille.`;
+      return `${costLine} Produit automatiquement ${count} ${noun} toutes les ${effectiveBarracksSpawnInterval(0).toFixed(0)} secondes pendant la bataille. S’améliore depuis sa fiche.`;
     }
     if (buildingId === 'forge') {
       return `${costLine} Permettra d’améliorer l’armée.`;
@@ -1201,7 +1149,7 @@ export class Screens {
       const remaining = upgradeRemainingUntilAttackBonus(def, level);
       const grantsAttack = upgradeNextPurchaseGrantsAttackBonus(def, level);
 
-      refs.levelEl.textContent = `Niveau d’amélioration : ${level}`;
+      refs.levelEl.textContent = `Niveau d’amélioration : ${displayedUpgradeLevel(level)}`;
       refs.hpBonusEl.textContent = `PV : +${hpBonus}`;
       refs.attackBonusEl.textContent = `Attaque : +${attackBonus}`;
       refs.goldCostEl.textContent = `Coût en partie : ${effectivePlayerUnitCost(unitId)}`;
@@ -1228,7 +1176,7 @@ export class Screens {
       const grantsDamage = ballistaNextPurchaseGrantsDamageBonus(level);
       const refs = this.ballistaUpgradeCard;
 
-      refs.levelEl.textContent = `Niveau : ${level}`;
+      refs.levelEl.textContent = `Niveau : ${displayedUpgradeLevel(level)}`;
       refs.hpBonusEl.textContent = `PV bonus : +${hpBonus}`;
       refs.attackSpeedEl.textContent = `Vitesse d’attaque : +${attackSpeedPct} %`;
       refs.damageEl.textContent = `Dégâts bonus : +${damageBonus}`;
@@ -1258,7 +1206,7 @@ export class Screens {
       const refs = this.healScrollUpgradeCard;
       const baseHealDisplay = getHealEffectAmount('heal_scroll_minor') / HP_PER_PIP;
 
-      refs.levelEl.textContent = `Niveau : ${level}`;
+      refs.levelEl.textContent = `Niveau : ${displayedUpgradeLevel(level)}`;
       refs.healEl.textContent = `Soin : +${healBonus} HP (total ${baseHealDisplay + healBonus} HP)`;
       refs.secondaryCountEl.textContent = `Alliés secondaires : ${secondaryCount}`;
       refs.secondaryRatioEl.textContent = `Soin secondaire : ${Math.round(HEAL_SCROLL_UPGRADE.secondaryHealRatio * 100)} %`;
@@ -1286,7 +1234,7 @@ export class Screens {
       const grantsDamage = iceNovaNextPurchaseGrantsDamageBonus(effects.level);
       const refs = this.iceNovaUpgradeCard;
 
-      refs.levelEl.textContent = `Niveau : ${effects.level}`;
+      refs.levelEl.textContent = `Niveau : ${displayedUpgradeLevel(effects.level)}`;
       refs.rootDurationEl.textContent = `Immobilisation : ${effects.rootDuration.toFixed(1)} s`;
       refs.blizzardDurationEl.textContent = `Durée des dégâts (zone) : ${effects.blizzardDuration.toFixed(1)} s`;
       refs.damageEl.textContent = `Dégâts de tick : +${effects.damageBonusDisplay}`;
@@ -1303,60 +1251,6 @@ export class Screens {
       refs.button.disabled = !canPurchaseRunUpgrade(run, ICE_NOVA_UPGRADE.id);
     }
 
-    // Mine (2026-08-14) — voir run/mineUpgradeEffects.ts. TOUJOURS visible
-    // depuis le 2026-08-17 (la Mine est devenue un bâtiment achetable en
-    // boutique de RUN, plus liee a un talent — voir data/buildings.ts) :
-    // ameliorer une Mine pas encore achetee cette run reste valide (point 40
-    // de la demande, "pas besoin d'avoir une Caserne posée").
-    {
-      const refs = this.mineUpgradeCard;
-      const level = mineUpgradeLevel(levels);
-      const goldPerSecond = MINE_BASE_GOLD_PER_SECOND + mineGoldPerSecondBonus(level);
-      const nextCost = runUpgradeGoldCost(MINE_UPGRADE.id, level);
-
-      refs.levelEl.textContent = `Niveau : ${level}`;
-      refs.goldPerSecondEl.textContent = `Or/seconde : ${goldPerSecond.toFixed(1)}`;
-      refs.nextUpgradeEl.textContent = 'Prochaine amélioration : +0,2 or/seconde';
-      refs.costEl.textContent = formatGold(nextCost);
-      refs.button.disabled = !canPurchaseRunUpgrade(run, MINE_UPGRADE.id);
-    }
-
-    // Caserne (2026-08-17, REFONTE le meme jour — voir
-    // run/barracksUpgradeEffects.ts) : deux effets par niveau, TOUJOURS
-    // visible (meme principe que la Mine ci-dessus), plus de plafond/etat
-    // "MAX" (le bonus de nombre de Fantassins reste utile a tout niveau).
-    {
-      const refs = this.barracksUpgradeCard;
-      const level = barracksUpgradeLevel(levels);
-      const count = effectiveBarracksSpawnCount(levels);
-      const interval = effectiveBarracksSpawnInterval(levels);
-      const minInterval = getBuilding('barracks').spawner?.minIntervalSeconds ?? interval;
-      const remaining = barracksRemainingUntilIntervalMilestone(level);
-      const grantsInterval = barracksNextPurchaseGrantsIntervalMilestone(level);
-
-      refs.levelEl.textContent = `Niveau : ${level}`;
-      refs.countEl.textContent = `Fantassins par production : ${count}`;
-      refs.intervalEl.textContent = `Intervalle actuel : ${interval.toFixed(0)} s`;
-      // +1 Fantassin a CHAQUE achat ; -1s d'intervalle SEULEMENT si le
-      // PROCHAIN achat tombe sur un palier de 3 (meme convention que les
-      // autres cartes a palier — Baliste/Nova de glace/Sentinelle).
-      refs.nextUpgradeEl.textContent = grantsInterval
-        ? 'Prochaine amélioration : +1 Fantassin, -1 s d’intervalle'
-        : 'Prochaine amélioration : +1 Fantassin';
-      // Une fois le plancher d'intervalle atteint, un palier de reduction ne
-      // change plus rien (Math.max deja applique) — le dire honnetement
-      // plutot que de continuer a promettre une reduction qui n'aura plus
-      // d'effet (le bonus de NOMBRE, lui, reste toujours utile).
-      refs.remainingIntervalEl.textContent =
-        interval <= minInterval
-          ? `Intervalle déjà au minimum (${minInterval.toFixed(0)} s)`
-          : remaining === 1
-            ? 'Prochaine réduction d’intervalle : dans 1 amélioration'
-            : `Prochaine réduction d’intervalle : dans ${remaining} améliorations`;
-      refs.costEl.textContent = formatGold(runUpgradeGoldCost(BARRACKS_UPGRADE.id, level));
-      refs.button.disabled = !canPurchaseRunUpgrade(run, BARRACKS_UPGRADE.id);
-    }
-
     // Sentinelle (2026-08-14) — voir run/sentinelUpgradeEffects.ts. PAS de
     // ligne "Attaque" (contrairement aux cartes d'unite generiques) : cette
     // amelioration ne donne jamais d'attaque, seulement PV + Bouclier par
@@ -1368,7 +1262,7 @@ export class Screens {
       const grantsShield = sentinelNextPurchaseGrantsShieldBonus(effects.level);
       const refs = this.sentinelUpgradeCard;
 
-      refs.levelEl.textContent = `Niveau : ${effects.level}`;
+      refs.levelEl.textContent = `Niveau : ${displayedUpgradeLevel(effects.level)}`;
       refs.hpBonusEl.textContent = `PV : +${effects.hpBonusDisplay}`;
       refs.shieldPerEnemyEl.textContent = `Bouclier / ennemi provoqué : ${effects.effectiveShieldPerEnemyDisplay}`;
       // Palier de bouclier mis en avant si le PROCHAIN achat le declenche
@@ -1400,7 +1294,7 @@ export class Screens {
         const remaining = shadowRemainingUntilBonusProjectile(level);
         const grantsBonus = shadowNextPurchaseGrantsBonusProjectile(level);
 
-        refs.levelEl.textContent = `Niveau : ${level}`;
+        refs.levelEl.textContent = `Niveau : ${displayedUpgradeLevel(level)}`;
         refs.damageEl.textContent = `Dégâts par projectile : ${damage}`;
         refs.bonusCountEl.textContent = `Projectiles bonus par soin excédentaire : +${bonusCount}`;
         refs.nextUpgradeEl.textContent = grantsBonus
@@ -1618,96 +1512,6 @@ export class Screens {
     card.append(nameEl, levelEl, rootDurationEl, blizzardDurationEl, damageEl, nextUpgradeEl, remainingDamageEl, buyRow);
 
     return { card, refs: { button, levelEl, rootDurationEl, blizzardDurationEl, damageEl, nextUpgradeEl, remainingDamageEl, costEl } };
-  }
-
-  /** Carte "Mine" (2026-08-14, boutique d'amelioration) — or/seconde, shape
-   *  different de buildUnitUpgradeCard. MASQUEE (voir refreshForge)
-   *  tant que le talent "Le temps, c'est de l'argent" n'est pas debloque —
-   *  meme convention que l'ancien deblocage du Cavalier ("elle ne doit
-   *  afficher que ce qui est réellement achetable"). */
-  private buildMineUpgradeCard(handlers: ScreenHandlers): MineUpgradeCardRefs {
-    const card = document.createElement('div');
-    card.className = 'upgrade-card';
-
-    const nameEl = document.createElement('h3');
-    nameEl.className = 'upgrade-card-name';
-    nameEl.textContent = 'Mine';
-
-    const levelEl = document.createElement('p');
-    levelEl.className = 'upgrade-card-line';
-    const goldPerSecondEl = document.createElement('p');
-    goldPerSecondEl.className = 'upgrade-card-line';
-    const nextUpgradeEl = document.createElement('p');
-    nextUpgradeEl.className = 'upgrade-card-line upgrade-card-next';
-
-    const buyRow = document.createElement('div');
-    buyRow.className = 'upgrade-card-buy-row';
-    const costEl = document.createElement('span');
-    const costGroup = document.createElement('span');
-    costGroup.className = 'shop-item-price-group';
-    costGroup.append(costEl, createCoinIcon(14));
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'screen-button upgrade-card-button';
-    button.textContent = 'Améliorer';
-    button.addEventListener('mouseenter', () => this.uiSound.hover());
-    button.addEventListener('click', () => {
-      this.uiSound.click();
-      handlers.onPurchaseRunUpgrade(MINE_UPGRADE.id);
-    });
-    buyRow.append(costGroup, button);
-
-    card.append(nameEl, levelEl, goldPerSecondEl, nextUpgradeEl, buyRow);
-
-    return { card, button, levelEl, goldPerSecondEl, nextUpgradeEl, costEl };
-  }
-
-  /** Carte "Caserne" (2026-08-17, boutique d'amelioration — REFONTE le meme
-   *  jour, demande explicite d'Antoine : "l'amélioration augmente le nombre
-   *  de fantassin invoqué de 1... toutes les 3 amélioration réduit le délai
-   *  d'invocation de 1sec"). Deux effets par CHAQUE achat (nombre de
-   *  Fantassins, toujours) + un palier tous les 3 achats (intervalle) — plus
-   *  de plafond/etat "MAX" (voir CLAUDE.md, le bonus de nombre reste utile a
-   *  tout niveau). */
-  private buildBarracksUpgradeCard(handlers: ScreenHandlers): BarracksUpgradeCardRefs {
-    const card = document.createElement('div');
-    card.className = 'upgrade-card';
-
-    const nameEl = document.createElement('h3');
-    nameEl.className = 'upgrade-card-name';
-    nameEl.textContent = 'Caserne';
-
-    const levelEl = document.createElement('p');
-    levelEl.className = 'upgrade-card-line';
-    const countEl = document.createElement('p');
-    countEl.className = 'upgrade-card-line';
-    const intervalEl = document.createElement('p');
-    intervalEl.className = 'upgrade-card-line';
-    const nextUpgradeEl = document.createElement('p');
-    nextUpgradeEl.className = 'upgrade-card-line upgrade-card-next';
-    const remainingIntervalEl = document.createElement('p');
-    remainingIntervalEl.className = 'upgrade-card-line upgrade-card-dim';
-
-    const buyRow = document.createElement('div');
-    buyRow.className = 'upgrade-card-buy-row';
-    const costEl = document.createElement('span');
-    const costGroup = document.createElement('span');
-    costGroup.className = 'shop-item-price-group';
-    costGroup.append(costEl, createCoinIcon(14));
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'screen-button upgrade-card-button';
-    button.textContent = 'Améliorer';
-    button.addEventListener('mouseenter', () => this.uiSound.hover());
-    button.addEventListener('click', () => {
-      this.uiSound.click();
-      handlers.onPurchaseRunUpgrade(BARRACKS_UPGRADE.id);
-    });
-    buyRow.append(costGroup, button);
-
-    card.append(nameEl, levelEl, countEl, intervalEl, nextUpgradeEl, remainingIntervalEl, buyRow);
-
-    return { card, button, levelEl, countEl, intervalEl, nextUpgradeEl, remainingIntervalEl, costEl, costGroup };
   }
 
   /** Carte "Sentinelle" (2026-08-14, boutique d'amelioration) — PV + Bouclier

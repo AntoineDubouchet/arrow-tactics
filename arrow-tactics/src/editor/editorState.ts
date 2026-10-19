@@ -333,10 +333,11 @@ export class EditorState {
   }
 
   /** Vrai si la cellule existe ET peut être supprimée (Part AE, V1 :
-   *  "interdire la suppression tant qu'une unité ou un objet bloquant
-   *  occupe la cellule") — un prop traversable (voir isCollidableObstacle)
-   *  n'empêche jamais rien. Partagée entre `removeCell` (action réelle) et
-   *  l'aperçu vert/rouge de l'outil (Part AF), pour ne jamais diverger. */
+   *  "interdire la suppression tant qu'une unité ou un objet occupe la
+   *  cellule") : aucune unité et aucun décor — prop traversable compris —
+   *  n'a son centre dessus, sinon il resterait suspendu dans le vide.
+   *  Partagée entre `removeCell` (action réelle) et l'aperçu vert/rouge de
+   *  l'outil (Part AF), pour ne jamais diverger. */
   canRemoveCell(x: number, z: number): boolean {
     if (!this.cellMap.has(cellKey(x, z))) return false;
     // Case necessaire sous la Baliste.
@@ -346,11 +347,18 @@ export class EditorState {
     if (occupiedByUnit) return false;
 
     const occupiedByObstacle = this.obstacles.some((o) => {
-      if (!isCollidableObstacle(o)) return false;
       const center = obstacleCenter(o);
       return Math.floor(center.x) === x && Math.floor(center.z) === z;
     });
     return !occupiedByObstacle;
+  }
+
+  /** Vrai si un décor peut avoir son centre en (x, z) : la case sous son
+   *  centre existe — jamais hors du plateau ni au-dessus d'un trou. Source
+   *  unique de la pose (placeAt), du déplacement (moveSelected) et de
+   *  l'aperçu de pose. */
+  canPlaceObstacleAt(x: number, z: number): boolean {
+    return this.hasCellAt(Math.floor(x), Math.floor(z));
   }
 
   /** Supprime une cellule — voir canRemoveCell pour les conditions de refus.
@@ -528,6 +536,7 @@ export class EditorState {
    *  tampon continu (choix conservé depuis l'origine de l'éditeur). */
   placeAt(x: number, z: number): EditorObstacle | null {
     if (this.tool.type !== 'place-obstacle') return null;
+    if (!this.canPlaceObstacleAt(x, z)) return null;
     const obstacle: EditorObstacle = { ...this.tool.template, x, z, id: this.nextId++ };
     this.obstacles.push(obstacle);
     this.tool = { type: 'select' };
@@ -582,12 +591,14 @@ export class EditorState {
   }
 
   /** Déplace librement l'obstacle sélectionné (position continue, plus de
-   *  snap sur la grille — voir placeAt). */
-  moveSelected(x: number, z: number): void {
+   *  snap sur la grille — voir placeAt). Refusé (faux, position inchangée)
+   *  si son centre tomberait dans le vide, voir canPlaceObstacleAt. */
+  moveSelected(x: number, z: number): boolean {
     const o = this.selectedObstacle;
-    if (!o) return;
+    if (!o || !this.canPlaceObstacleAt(x, z)) return false;
     o.x = x;
     o.z = z;
+    return true;
   }
 
   /** Écrit directement position ET rotation d'un obstacle par id — utilisé

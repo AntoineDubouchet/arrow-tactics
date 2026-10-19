@@ -26,6 +26,7 @@ import {
 import {
   BALLISTA_PLACEMENT_TILES,
   computeBallistaObstacle,
+  cellKey,
   computeMapCellBounds,
   resolveMapCells,
   DEFAULT_MAP,
@@ -108,7 +109,9 @@ import {
 import { HEAL_SCROLL_UPGRADE } from './data/healScrollUpgrade';
 import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
 import { computePlayerIceNovaUpgradeEffects, effectiveIceNovaCost } from './run/iceNovaUpgradeEffects';
-import { effectiveMineGoldPerSecond } from './run/mineUpgradeEffects';
+import { mineProductionIntervalSeconds, rollMineGold } from './run/mineUpgradeEffects';
+import { ownedBuildingLevel, upgradeOwnedBuilding } from './run/buildingUpgrades';
+import { Rng } from './core/rng';
 import { getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './run/playerUnitStats';
 import { effectivePlayerArrowCooldown, effectivePlayerArrowDamage, effectivePlayerArrowSpeed, playerArrowBoltsPerVolley } from './run/ballistaStats';
@@ -467,8 +470,8 @@ function findHoveredOwnedBuilding(event: MouseEvent): number | null {
  */
 async function rebuildGameBoardVisuals(spawnDepth: number): Promise<void> {
   // Position de la Baliste de la run (currentRun.ballistaPosition, fixee au
-  // demarrage depuis la carte, voir startNewRun) ; hors run, celle de la
-  // carte. Jamais deplacee par l'expansion (camp joueur fixe).
+  // demarrage depuis la carte, voir startNewRun, puis reculee avec le camp
+  // joueur a chaque etape C) ; hors run, celle de la carte.
   playerArrowOrigin = currentRun.ballistaPosition ?? resolveBallistaOrigin(currentMap);
   ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
@@ -510,12 +513,15 @@ async function applyMapExpansionForCompletedWave(completedWave: number): Promise
   currentRun.mapExpansion = { ...result.state, lastExpandedWave: completedWave };
   rebuildCurrentTerritoryIndex();
 
-  // Batiments POSSEDES par le joueur (2026-08-17) : translates SEULEMENT par
+  // Batiments POSSEDES et Baliste de la run : translates SEULEMENT par
   // l'ETAPE C (offsetForZ vaut toujours 0 pour spawnBack/sides — voir
-  // run/mapExpansion.ts) — le camp joueur reste fixe par construction (tout
-  // bâtiment possede est deja dans la zone joueur), mais on applique la MEME
-  // fonction centralisee plutot que de supposer/exclure a la main.
+  // run/mapExpansion.ts), avec le camp joueur qui recule d'une case. MEME
+  // fonction centralisee que le terrain et les decors.
   for (const owned of currentRun.buildings) owned.z += result.offsetForZ(owned.z);
+  if (currentRun.ballistaPosition) {
+    const ballista = currentRun.ballistaPosition;
+    currentRun.ballistaPosition = { x: ballista.x, z: ballista.z + result.offsetForZ(ballista.z) };
+  }
 
   await rebuildGameBoardVisuals(currentRun.mapExpansion.spawnDepth);
 
@@ -596,19 +602,15 @@ const rewardedEnemyDeaths = new Set<number>();
  *  de la precedente. */
 const belowAutoHealThreshold = new Set<number>();
 
-/** Accumulateur d'or de la mine (talent "Le temps, c'est de l'argent",
- *  2026-08-14) — voir la boucle de jeu plus bas. Necessaire parce qu'un
- *  taux de 1 or/seconde, applique par pas de simulation FIXE (dt ~= 1/30s,
- *  voir SIM_STEP), ne represente que ~0.033 or par tick : un premier essai
- *  qui arrondissait directement `currentRun.gold` au dixieme le PLUS PROCHE
- *  a CHAQUE tick effacait cet increment a chaque fois (0.033 arrondi au
- *  dixieme = 0), empechant l'or de la mine de jamais s'accumuler — bug
- *  remonte par Antoine ("il ne s'affiche pas en direct"). Corrige en
- *  accumulant le montant BRUT ici, et en ne versant dans `currentRun.gold`
- *  que par paliers de 0.1 des qu'ils sont atteints (le reste, jamais perdu,
- *  reste dans l'accumulateur pour le tick suivant). Remis a 0 a chaque
- *  debut de bataille reelle (onValidatePlacement). */
-let mineIncomeAccumulator = 0;
+/** Production des Mines pendant une vraie bataille (voir la boucle de jeu) :
+ *  temps de bataille ecoule depuis la derniere production de chaque Mine,
+ *  par id d'entite. Vide a chaque world.clear() (memes sites que
+ *  rewardedEnemyDeaths). */
+const mineProductionTimers = new Map<number, number>();
+/** Tirage du montant de chaque production : RNG a graine, re-semee a chaque
+ *  debut de bataille reelle depuis la graine du World (deterministe), jamais
+ *  Math.random. */
+let mineGoldRng = new Rng(1);
 
 /** Fleche visuelle en attente de depart, retardee pour se caler sur le clip
  *  d'attaque riggé de l'Archer ("tir a l'arc", voir render/archerRig.ts) —
@@ -801,7 +803,7 @@ function setupTestBattle(): void {
   forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
-  mineIncomeAccumulator = 0;
+  mineProductionTimers.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
   combatOverlay.clear();
@@ -831,6 +833,58 @@ function setupTestBattle(): void {
   for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z);
   // Apres les unites, comme en vraie bataille (voir onValidatePlacement).
   spawnBallistaBuilding();
+  // Apres la Baliste : son empreinte compte dans le pas d'ouverture.
+  openBattleWithFormationStep();
+}
+
+/** Unites du joueur en Garde (commande `stop`, appliquee au prochain pas) :
+ *  elles restent sur place et ne reagissent qu'a un ennemi entrant dans leur
+ *  aggro, ou a un ordre. Les ennemis gardent leur avance autonome
+ *  (`assault`). Sans `entityIds`, toutes les unites vivantes du joueur. */
+function holdPlayerUnitsInGuard(entityIds?: readonly number[]): void {
+  const ids = entityIds ?? world.entities.filter((e) => e.alive && e.team === 'player' && !e.isBuilding).map((e) => e.id);
+  if (ids.length > 0) world.issueCommand({ kind: 'stop', entityIds: ids });
+}
+
+/** Unites ayant recu le pas d'ouverture de la bataille en cours : leur
+ *  ordre de deplacement n'affiche pas de retour visuel (ce n'est pas un ordre
+ *  du joueur). Vide au premier pas, ou les commandes sont appliquees. */
+const openingStepEntityIds = new Set<number>();
+
+/**
+ * Debut de bataille (vraie ou "Tester le scenario") : toute la formation du
+ * joueur avance d'exactement une case vers l'ennemi (forwardDir), offsets
+ * conserves, puis passe en Garde a l'arrivee (fin normale d'un ordre
+ * `move`). Une courte mise en mouvement, jamais une charge : aucune cible
+ * ennemie n'est assignee. Tout ou rien, pour ne jamais deformer la
+ * formation : si une seule case d'arrivee est invalide (hors terrain,
+ * obstacle bloquant — decor, batiment, Baliste — ou unite immobile), tout
+ * le groupe reste en place et passe directement en Garde. Un ordre `move`
+ * `exact` par unite vers SA case : un ordre de groupe redistribuerait les
+ * places, un ordre ordinaire s'arreterait a la tolerance du rayon.
+ * Les unites produites ensuite par une Caserne n'en font pas partie.
+ */
+function openBattleWithFormationStep(): void {
+  openingStepEntityIds.clear();
+  const group = world.entities.filter((e) => e.alive && e.team === 'player' && !e.isBuilding);
+  if (group.length === 0) return;
+  const dz = forwardDir('player') * TILE;
+  const groupIds = new Set(group.map((e) => e.id));
+  const cells = new Set(resolveMapCells(currentMap).map((c) => cellKey(c.x, c.z)));
+  const blockers = world.obstacles.filter(isCollidableObstacle).map(obstacleBounds);
+  const others = world.entities.filter((e) => e.alive && !e.isBuilding && !groupIds.has(e.id));
+  const canEndAt = (x: number, z: number): boolean =>
+    cells.has(cellKey(Math.floor(x), Math.floor(z))) &&
+    !blockers.some((b) => x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) &&
+    !others.some((e) => Math.floor(e.x) === Math.floor(x) && Math.floor(e.z) === Math.floor(z));
+  if (!group.every((e) => canEndAt(e.x, e.z + dz))) {
+    holdPlayerUnitsInGuard(group.map((e) => e.id));
+    return;
+  }
+  for (const e of group) {
+    openingStepEntityIds.add(e.id);
+    world.issueCommand({ kind: 'move', entityIds: [e.id], x: e.x, z: e.z + dz, exact: true });
+  }
 }
 
 // --- Phase de placement -----------------------------------------------
@@ -1404,7 +1458,8 @@ function onValidatePlacement(): void {
   forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
-  mineIncomeAccumulator = 0;
+  mineProductionTimers.clear();
+  mineGoldRng = new Rng((world.seed ^ 0x9e3779b9) >>> 0);
   pendingArrowSpawns.length = 0;
   unitViews.clear();
   combatOverlay.clear();
@@ -1470,8 +1525,8 @@ function onValidatePlacement(): void {
     // Intervalle/nombre de production EFFECTIFS (2026-08-17, amelioration
     // permanente de la Caserne) — undefined pour tout bâtiment sans spawner
     // (Mine), World.spawnBuilding retombe alors sur la base (sans effet).
-    const spawnIntervalOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnInterval(playerProgression().upgrades) : undefined;
-    const spawnCountOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnCount(playerProgression().upgrades) : undefined;
+    const spawnIntervalOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnInterval(ownedBuildingLevel(owned)) : undefined;
+    const spawnCountOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnCount(ownedBuildingLevel(owned)) : undefined;
     const entity = world.spawnBuilding(
       getBuilding(owned.buildingId),
       'player',
@@ -1486,11 +1541,15 @@ function onValidatePlacement(): void {
     const view = ownedBuildingViews[i]!.view;
     view.reset();
     buildingViewsByEntityId.set(entity.id, view);
+    ownedBuildingIndexByEntityId.set(entity.id, i);
   });
 
   // La Baliste est TOUJOURS presente (jamais achetee, contrairement a la
   // Mine/la Caserne ci-dessus).
   spawnBallistaBuilding();
+  // Apres les batiments et la Baliste : leurs empreintes comptent dans le
+  // pas d'ouverture de la formation.
+  openBattleWithFormationStep();
 
   loop.timeScale = 1;
 }
@@ -1530,9 +1589,24 @@ function spawnBallistaBuilding(): void {
  *  placement de tour d'une nouvelle run, ou l'editeur), pas seulement au
  *  lancement de la prochaine bataille. Visuel seulement : l'entite et sa
  *  collision ne sont recreees que par spawnBallistaBuilding. */
+/** Index dans currentRun.buildings de chaque batiment possede spawne pour la
+ *  bataille en cours, par id d'entite (meme ordre de spawn, voir
+ *  onValidatePlacement) : relie une Mine ou une Caserne de la bataille a son
+ *  niveau propre (OwnedBuilding.level). */
+const ownedBuildingIndexByEntityId = new Map<number, number>();
+
+/** Niveau propre d'un batiment possede de la bataille en cours, ou null
+ *  (Baliste, batiment hors run). */
+function battleOwnedBuildingLevel(entity: Entity): number | null {
+  const index = ownedBuildingIndexByEntityId.get(entity.id);
+  const owned = index !== undefined ? currentRun.buildings[index] : undefined;
+  return owned ? ownedBuildingLevel(owned) : null;
+}
+
 function forgetBattleBuildings(): void {
   ballistaEntityId = null;
   buildingViewsByEntityId.clear();
+  ownedBuildingIndexByEntityId.clear();
   enemyUnitLevels.clear();
   ballistaBuildingView.reset();
 }
@@ -1705,9 +1779,24 @@ function hasForge(): boolean {
 
 /** Action de la fiche d'entite (ui/entityInfoPanel.ts). */
 function onEntityInfoAction(id: EntityInfoAction['id']): void {
+  if (id === 'upgradeBuilding') {
+    upgradeSelectedBuilding();
+    return;
+  }
   if (id !== 'openForge') return;
   const selected = selectedBuildingIndex !== null ? currentRun.buildings[selectedBuildingIndex] : undefined;
   if (selected?.buildingId === 'forge') openForge();
+}
+
+/** "Ameliorer la mine / la caserne" depuis la fiche : preparation
+ *  uniquement, n'ameliore que le batiment selectionne. La fiche est relue
+ *  aussitot (niveau, production et prix suivants). */
+function upgradeSelectedBuilding(): void {
+  if (!inPlacementPhase || pauseMenuOpen || buildingPlacementMode || selectedBuildingIndex === null) return;
+  const goldBefore = currentRun.gold;
+  if (!upgradeOwnedBuilding(currentRun, selectedBuildingIndex)) return;
+  spawnCoinPopup(screens.shopGoldElement, -roundGold(goldBefore - currentRun.gold));
+  entityInfoSelectionKey = '';
 }
 
 /** Ouvre la boutique de la Forge : preparation uniquement, jamais en
@@ -2057,7 +2146,12 @@ transformControls.addEventListener('objectChange', () => {
   // implicite sur les poignees visibles). Le gizmo ne fait que deplacer : il
   // n'ecrit jamais rotationY.
   object.position.y = 0;
-  editorState.moveSelected(object.position.x, object.position.z);
+  // Centre au-dessus du vide : le decor reste a sa derniere position valide.
+  if (!editorState.moveSelected(object.position.x, object.position.z)) {
+    const center = obstacleCenter(obstacle);
+    object.position.x = center.x;
+    object.position.z = center.z;
+  }
   refreshEditorObjects();
 });
 
@@ -2670,7 +2764,7 @@ function returnToEditorAfterTest(): void {
   forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
-  mineIncomeAccumulator = 0;
+  mineProductionTimers.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
   combatOverlay.clear();
@@ -2758,7 +2852,12 @@ function updateEditorGhost(x: number, z: number): void {
     // Placement LIBRE (2026-08-16, demande d'Antoine — decors/props/rochers/
     // arbres/batiments, placementMode "free") : le fantome suit exactement
     // l'intersection raycaster -> terrain, aucun arrondi vers une case.
-    editorGhost = buildGhost(editorState.tool.template, x, z, editorAssets);
+    // Case sous le centre du decor : verte si la pose est possible, rouge
+    // au-dessus du vide (meme regle que le clic, canPlaceObstacleAt).
+    const combined = new THREE.Group();
+    combined.add(buildCellPreview(Math.floor(x), Math.floor(z), editorState.canPlaceObstacleAt(x, z)));
+    combined.add(buildGhost(editorState.tool.template, x, z, editorAssets));
+    editorGhost = combined;
     editorGhostGroup.add(editorGhost);
   } else if (editorState.tool.type === 'place-unit') {
     // Le camp du fantome est celui de la case survolee dans le territoire :
@@ -3447,7 +3546,7 @@ function currentEntityInfo(): EntityInfoViewModel | null {
       const inspected = world.getById(battleInspectedEntityId);
       if (!inspected) return null;
       if (inspected.id === ballistaEntityId) return battleBallistaInfo(inspected, currentBallistaStatus(), playerProgression());
-      return battleBuildingInfo(inspected, playerProgression());
+      return battleBuildingInfo(inspected, playerProgression(), battleOwnedBuildingLevel(inspected));
     }
     const aliveEntities = (ids: number[]): Entity[] => ids.map((id) => world.getById(id)).filter((e): e is Entity => e !== undefined && e.alive);
     // Ennemis inspectes (jamais dans battleSelection, donc jamais commandes) :
@@ -3467,7 +3566,7 @@ function currentEntityInfo(): EntityInfoViewModel | null {
   if (placementBallistaSelected) return placementBallistaInfo(playerProgression());
   if (selectedBuildingIndex !== null) {
     const owned = currentRun.buildings[selectedBuildingIndex];
-    return owned ? placementBuildingInfo(owned, playerProgression()) : null;
+    return owned ? placementBuildingInfo(owned, playerProgression(), currentRun.gold) : null;
   }
   const slots = selectedIndices.map((i) => placementSlots[i]).filter((slot): slot is PlacementSlot => slot !== undefined);
   if (slots.length === 0) return null;
@@ -4721,6 +4820,8 @@ const loop = new Loop(
     for (const result of world.commandResults) {
       if (result.command.kind === 'attack' && result.rejection === null) attackOrderFeedback.spawn(result.command.targetEntityId);
       if (result.command.kind !== 'move' || result.rejection !== null || !result.destinations) continue;
+      // Pas d'ouverture de la bataille : pas un ordre du joueur, aucun retour.
+      if (result.command.entityIds.length === 1 && openingStepEntityIds.delete(result.command.entityIds[0]!)) continue;
       const owner = result.acceptedEntityIds.map((id) => world.getById(id)).find((e) => e !== undefined);
       if (!owner) continue;
       moveOrderFeedback.spawn(result.command.x, result.command.z, result.destinations, owner.team);
@@ -4879,41 +4980,24 @@ const loop = new Loop(
       for (const id of event.hitIds) playHitFlash(id);
     }
 
-    // Mine (talent "Le temps, c'est de l'argent", 2026-08-14) : or genere en
-    // CONTINU tant qu'une bataille REELLE est en cours — jamais pendant
-    // "Tester le scenario" (inTestMode, sans lien avec une run reelle) meme
-    // si le talent est deverrouille. Accru dans le pas de simulation FIXE
-    // (dt), meme principe que le reste des systemes de jeu — pas le rendu a
-    // framerate variable. CORRECTIF (2026-08-14, bug remonte par Antoine :
-    // "il ne s'affiche pas en direct") : un premier essai arrondissait
-    // `currentRun.gold` au dixieme le PLUS PROCHE a CHAQUE tick, ce qui
-    // effacait systematiquement le petit increment reel (~0.033 or/tick a
-    // 1 or/seconde et 30Hz) avant qu'il n'ait jamais pu s'accumuler — l'or
-    // de la mine n'augmentait donc JAMAIS. Corrige via mineIncomeAccumulator
-    // (voir sa declaration) : le montant BRUT s'accumule d'abord, puis n'est
-    // verse dans currentRun.gold que par paliers de 0.1 des qu'ils sont
-    // atteints — jamais de perte, et le HUD (String(gold) brut) n'affiche
-    // jamais de bruit flottant puisque seuls des multiples exacts de 0.1
-    // sont ajoutes a currentRun.gold.
-    // 2026-08-17 (chantier "batiments achetables") : la Mine n'est plus
-    // liee a un talent — chaque Mine VIVANTE du joueur genere son propre
-    // revenu, additionne (2 Mines = 2x, comme demande explicitement par
-    // Antoine). Compte les vraies Entity plutot que RunState.buildings :
-    // une Mine detruite en bataille arrete immediatement de generer, sans
-    // attendre la fin de la vague (World.entities est deja la source de
-    // verite temps reel utilisee partout ailleurs dans ce fichier).
+    // Production des Mines : chaque Mine VIVANTE du joueur produit, toutes
+    // les mineProductionIntervalSeconds() de bataille, un montant tire dans
+    // la tranche de SON niveau (run/mineUpgradeEffects.ts), affiche
+    // au-dessus d'elle comme l'or d'un ennemi abattu. Jamais pendant "Tester
+    // le scenario" (sans lien avec une run reelle). Dans le pas FIXE (dt),
+    // comme le reste du jeu ; une Mine detruite s'arrete aussitot.
     if (inBattlePhase() && !inTestMode) {
-      let livingMineCount = 0;
       for (const e of world.entities) {
-        if (e.team === 'player' && e.alive && e.isBuilding && e.unitId === 'mine') livingMineCount++;
-      }
-      if (livingMineCount > 0) {
-        mineIncomeAccumulator += effectiveMineGoldPerSecond(playerProgression().upgrades) * livingMineCount * dt;
-        const wholeTenths = Math.floor(mineIncomeAccumulator * 10 + 1e-9);
-        if (wholeTenths > 0) {
-          currentRun.gold = roundGold(currentRun.gold + wholeTenths / 10);
-          mineIncomeAccumulator -= wholeTenths / 10;
+        if (e.team !== 'player' || !e.alive || !e.isBuilding || e.unitId !== 'mine') continue;
+        const elapsed = (mineProductionTimers.get(e.id) ?? 0) + dt;
+        if (elapsed < mineProductionIntervalSeconds()) {
+          mineProductionTimers.set(e.id, elapsed);
+          continue;
         }
+        mineProductionTimers.set(e.id, elapsed - mineProductionIntervalSeconds());
+        const amount = rollMineGold(battleOwnedBuildingLevel(e) ?? 0, () => mineGoldRng.next());
+        currentRun.gold = roundGold(currentRun.gold + amount);
+        combatOverlay.spawnGoldText(e.x, e.z, amount);
       }
     }
 
@@ -4934,6 +5018,9 @@ const loop = new Loop(
         event.team === 'player' ? playerUnitAbilityDamageBonus(event.unitId, playerProgression().upgrades) : enemyAbilityDamageBonus(event.unitId, currentRun.waveNumber),
       );
       if (event.team === 'enemy') rememberEnemyUnitLevel(spawned, currentRun.waveNumber);
+      // Fantassin de Caserne du joueur : en Garde des son apparition, comme
+      // le reste de l'armee en debut de bataille.
+      else holdPlayerUnitsInGuard([spawned.id]);
     }
 
     // Or en TEMPS REEL a chaque kill (2026-08-11, demande d'Antoine : "dès
@@ -5507,7 +5594,7 @@ function quitToMenu(): void {
   forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
-  mineIncomeAccumulator = 0;
+  mineProductionTimers.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
   combatOverlay.clear();

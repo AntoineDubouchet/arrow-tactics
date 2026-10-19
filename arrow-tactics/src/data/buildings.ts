@@ -138,20 +138,20 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     id: 'barracks',
     displayName: 'Caserne',
     maxHp: 25 * HP_PER_PIP,
-    // Un peu plus imposante que la Mine (meme footprint 2x2, mais un
-    // batiment "de combat" au sens du point 51 de la demande) — valeur
-    // choisie par Claude, coherente avec le reste (Mine 1.0, Baliste 1.2).
-    radius: 1.1,
+    // Empreinte 3x3 (demande d'Antoine) : rayon d'atteinte et hauteur de
+    // barre agrandis dans la meme proportion que le modele (x1,5, ajuste a
+    // l'empreinte par cloneScaledToFootprint). Ancien 2x2 : 1.1 / 1.8.
+    radius: 1.6,
     targetable: true,
     countsForDefeat: true,
-    hpBarHeight: 1.8,
+    hpBarHeight: 2.7,
     // Prix de base en Or (25 : plus cher que la Forge et la Mine, puisqu'elle
     // produit ensuite des unites sans autre depense ; 50 avant la refonte
     // economique autour de la Forge).
     cost: 25,
     buildingModel: 'blue_barracks',
-    footprintTilesX: 2,
-    footprintTilesZ: 2,
+    footprintTilesX: 3,
+    footprintTilesZ: 3,
     // REFONTE 2026-08-17 (meme jour, retour d'Antoine apres test) : base
     // 10s -> 5s ("il faut invoquer un fantassin toutes les 5 secondes"),
     // plancher 2s -> 1s ("ne peut pas descendre en dessous de 1 seconde") —

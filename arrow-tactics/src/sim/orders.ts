@@ -23,7 +23,9 @@ import type { Entity } from './entity';
  *  tard. */
 export type UnitOrder =
   | { type: 'assault' }
-  | { type: 'move'; x: number; z: number }
+  /** `exact` : arrivee au point pres (voir followMoveOrder), sans la
+   *  tolerance du rayon de l'unite d'un ordre de deplacement ordinaire. */
+  | { type: 'move'; x: number; z: number; exact?: boolean }
   /** `targetEntityId` designe n'importe quelle entite hostile : une unite
    *  aujourd'hui, un batiment ennemi plus tard, sans changer le modele. */
   | { type: 'attack'; targetEntityId: number }
@@ -32,7 +34,8 @@ export type UnitOrder =
 /** Commande envoyee par l'orchestration (voir World.issueCommand), appliquee
  *  au debut du prochain pas fixe. `stop` place les unites en Garde. */
 export type PlayerCommand =
-  | { kind: 'move'; entityIds: readonly number[]; x: number; z: number }
+  /** `exact` : voir UnitOrder (pas d'ouverture de la bataille, main.ts). */
+  | { kind: 'move'; entityIds: readonly number[]; x: number; z: number; exact?: boolean }
   | { kind: 'attack'; entityIds: readonly number[]; targetEntityId: number }
   | { kind: 'stop'; entityIds: readonly number[] };
 
@@ -272,7 +275,7 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
           result.rejection = 'invalid-destination';
           continue;
         }
-        order = { type: 'move', x: command.x, z: command.z };
+        order = command.exact ? { type: 'move', x: command.x, z: command.z, exact: true } : { type: 'move', x: command.x, z: command.z };
         break;
       case 'attack':
         if (!isValidAttackTarget(lookup(command.targetEntityId))) {

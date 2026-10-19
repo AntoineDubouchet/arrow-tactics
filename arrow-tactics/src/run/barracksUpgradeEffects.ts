@@ -1,25 +1,21 @@
 import { BARRACKS_UPGRADE } from '../data/barracksUpgrade';
 import { getBuilding } from '../data/buildings';
-import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Amelioration permanente de la CASERNE (2026-08-17, voir
  * data/barracksUpgrade.ts) — meme principe que run/ballistaUpgradeEffects.ts/
  * run/mineUpgradeEffects.ts : ce module sait ce qu'est un niveau
- * d'amelioration, main.ts ne recoit que des nombres deja calcules. Niveau
- * lu dans RunState.upgrades (cle BARRACKS_UPGRADE.id = 'barracks').
+ * d'amelioration, main.ts ne recoit que des nombres deja calcules. Le
+ * niveau (interne, 0 = aucune amelioration) est propre a CHAQUE Caserne
+ * (OwnedBuilding.level, voir run/buildingUpgrades.ts) : il n'est plus lu
+ * dans RunState.upgrades.
  */
-
-export function barracksUpgradeLevel(levels: RunUpgradeLevels): number {
-  return runUpgradeLevel(levels, BARRACKS_UPGRADE.id);
-}
 
 /** Nombre de Fantassins produits PAR PRODUCTION — base 1 + `level *
  *  countPerLevel` (voir data/barracksUpgrade.ts). Jamais plafonne : chaque
  *  achat reste utile, meme une fois le plancher d'intervalle atteint
  *  (voir effectiveBarracksSpawnInterval ci-dessous). */
-export function effectiveBarracksSpawnCount(levels: RunUpgradeLevels): number {
-  const level = barracksUpgradeLevel(levels);
+export function effectiveBarracksSpawnCount(level: number): number {
   return 1 + level * BARRACKS_UPGRADE.countPerLevel;
 }
 
@@ -36,10 +32,9 @@ export function effectiveBarracksSpawnCount(levels: RunUpgradeLevels): number {
  * devrait jamais arriver (garde-fou plutot qu'un repli silencieux sur une
  * valeur arbitraire).
  */
-export function effectiveBarracksSpawnInterval(levels: RunUpgradeLevels): number {
+export function effectiveBarracksSpawnInterval(level: number): number {
   const spawner = getBuilding('barracks').spawner;
   if (!spawner) throw new Error('La Caserne doit avoir une configuration spawner.');
-  const level = barracksUpgradeLevel(levels);
   const milestones = Math.floor(level / BARRACKS_UPGRADE.intervalEveryLevels);
   const reduced = spawner.baseIntervalSeconds - milestones * BARRACKS_UPGRADE.intervalReductionPerMilestone;
   return Math.max(spawner.minIntervalSeconds, reduced);

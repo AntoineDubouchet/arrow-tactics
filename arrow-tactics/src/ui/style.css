@@ -772,21 +772,25 @@ img {
 /* Fiche de l'entite selectionnee (voir ui/entityInfoPanel.ts) : en haut a
    gauche, en preparation comme en bataille (le debug est en haut a droite).
    Meme famille visuelle que le HUD de la Baliste ; le liseré gauche prend la
-   couleur du camp. Sous .screen-overlay (boutique, pause), qui la recouvre. */
+   couleur du camp. Sous .screen-overlay (boutique, pause), qui la recouvre.
+   Grand panneau (une selection doit se voir immediatement), mais hierarchie
+   typographique : titre tres visible (18 px), titres de section
+   intermediaires, stats et boutons a la taille du reste de l'interface
+   (13 px), avec un interligne aere. */
 .entity-info {
   position: fixed;
   left: 12px;
   top: 12px;
-  width: 236px;
-  padding: 8px 10px 9px;
-  font-size: 11px;
-  line-height: 1.45;
+  width: 354px;
+  padding: 12px 15px 14px;
+  font-size: 13px;
+  line-height: 1.6;
   letter-spacing: 0.02em;
   color: var(--ink);
   background: var(--panel);
   border: 1px solid var(--edge);
-  border-left: 3px solid var(--entity-team-color, var(--edge));
-  border-radius: 6px;
+  border-left: 5px solid var(--entity-team-color, var(--edge));
+  border-radius: 9px;
   pointer-events: none;
   user-select: none;
   backdrop-filter: blur(6px);
@@ -797,19 +801,19 @@ img {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: 12px;
+  margin-bottom: 6px;
 }
 
 .entity-info-title {
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .entity-info-team {
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--entity-team-color, var(--ink-dim));
 }
@@ -817,7 +821,7 @@ img {
 .entity-info-row {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
 }
 
 .entity-info-label {
@@ -831,29 +835,31 @@ img {
 }
 
 .entity-info-hp {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .entity-info-hp .health-bar-track {
-  margin-top: 2px;
+  height: 8px;
+  margin-top: 3px;
 }
 
 .entity-info-hp .shield-bar {
-  margin-top: 1px;
+  height: 3px;
+  margin-top: 2px;
 }
 
 .entity-info-composition {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .entity-info-section {
-  margin-top: 5px;
-  padding-top: 4px;
+  margin-top: 8px;
+  padding-top: 6px;
   border-top: 1px solid var(--edge);
 }
 
 .entity-info-section-title {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -861,8 +867,8 @@ img {
 }
 
 .entity-info-status {
-  margin-top: 5px;
-  padding-top: 4px;
+  margin-top: 8px;
+  padding-top: 6px;
   border-top: 1px solid var(--edge);
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -889,21 +895,24 @@ img {
 /* Actions de la fiche (ex. « Ouvrir la Forge ») : seuls elements cliquables
    du panneau, qui reste sinon en pointer-events: none. */
 .entity-info-actions {
-  margin-top: 6px;
-  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 9px;
+  padding-top: 9px;
   border-top: 1px solid var(--edge);
 }
 
 .entity-info-action {
   width: 100%;
-  padding: 6px 10px;
+  padding: 8px 12px;
   font: inherit;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--ink);
   background: rgba(231, 227, 216, 0.08);
   border: 1px solid var(--entity-team-color, var(--edge));
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   pointer-events: auto;
 }

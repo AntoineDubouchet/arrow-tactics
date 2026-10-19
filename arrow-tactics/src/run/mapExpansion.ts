@@ -243,16 +243,20 @@ export function createInitialMapExpansionState(baseMap: Pick<MapDef, 'width' | '
   };
 }
 
-/** Décale la coordonnée Z (monde) d'un objet selon la formule "camp joueur
- *  fixe" retenue pour l'ÉTAPE C (voir commentaire de classe) : rien ne bouge
- *  au-delà de `playerFrontZ` (zone joueur, cette EXACTE frontière comprise),
- *  -1 case dans l'ancien champ de bataille, -2 cases à partir de la zone
- *  ennemie (au-delà de `enemyFrontZ`, comprise) — fonction CENTRALISÉE
- *  unique, jamais un `z -= 2` disperse à plusieurs endroits. */
+/** Décale la coordonnée Z (monde) d'un objet pour l'ÉTAPE C, symétrique :
+ *  le camp joueur (au-delà de `playerFrontZ`, cette exacte frontière
+ *  comprise) recule d'une case vers +z, le camp ennemi (`enemyFrontZ` et
+ *  au-delà) d'une case vers -z, l'ancien champ de bataille ne bouge pas.
+ *  Le plateau, centré, grandit d'une rangée à chaque bout : chaque camp
+ *  garde sa bordure neutre (une case autour de sa zone sur l'arène). Ancienne
+ *  règle "camp joueur fixe" (0 / -1 / -2) : la bordure joueur s'épaississait
+ *  et la zone ennemie finissait rognée par le bord (KI-25). Fonction
+ *  CENTRALISÉE unique, aussi utilisée par main.ts pour les bâtiments et la
+ *  Baliste de la run (offsetForZ). */
 function centerExpansionZOffset(z: number, playerFrontZ: number, enemyFrontZ: number): number {
-  if (z >= playerFrontZ) return 0;
-  if (z > enemyFrontZ) return -TILE;
-  return -2 * TILE;
+  if (z >= playerFrontZ) return TILE;
+  if (z > enemyFrontZ) return 0;
+  return -TILE;
 }
 
 export interface MapExpansionResult {
@@ -306,13 +310,13 @@ export function applyMapExpansionStep(map: MapDef, state: MapExpansionState, ste
       };
     }
     case 'center': {
-      // Voir le commentaire de classe / centerExpansionZOffset : le camp
-      // JOUEUR reste fixe, l'ancien champ de bataille recule d'1 case, la
-      // zone ENNEMIE (et tout ce qu'elle contient, territoire compris) recule
-      // de 2 cases — frontières d'AVANT cette étape. Les deux nouvelles
-      // rangées reprennent le champ de bataille voisin.
+      // Voir centerExpansionZOffset : chaque camp (et tout ce qu'il contient,
+      // territoire compris) recule d'une case vers son bord, l'ancien champ
+      // de bataille reste en place — frontières d'AVANT cette étape. Les
+      // deux nouvelles rangées, contre chaque zone, reprennent le champ de
+      // bataille voisin (à égalité, la rangée restée en place est préférée).
       const offsetForZ = (z: number) => centerExpansionZOffset(z, anchors.playerFrontZ, anchors.enemyFrontZ);
-      const moveZ: AxisMove = { offset: offsetForZ, tiePriority: (offset) => (offset === -TILE ? 0 : 1) };
+      const moveZ: AxisMove = { offset: offsetForZ, tiePriority: (offset) => (offset === 0 ? 0 : 1) };
       const newState: MapExpansionState = { ...state, battlefieldRows: state.battlefieldRows + 2 };
       const width = newState.halfWidthTiles * 2;
       const height = 2 * newState.spawnDepth + newState.battlefieldRows;

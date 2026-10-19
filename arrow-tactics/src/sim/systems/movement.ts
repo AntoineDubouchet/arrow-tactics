@@ -743,8 +743,17 @@ function followMoveOrder(
   subDt: number,
   orderEvents: OrderEndEvent[],
 ): void {
-  const arrivalDist = Math.max(PATH_WAYPOINT_REACHED_DIST, e.stats.radius);
-  if (Math.hypot(order.x - e.x, order.z - e.z) <= arrivalDist) {
+  const remaining = Math.hypot(order.x - e.x, order.z - e.z);
+  if (order.exact) {
+    // Arrivee au point pres : le dernier pas pose l'unite sur sa destination
+    // au lieu de s'arreter a la tolerance du rayon (ou d'osciller autour).
+    if (remaining <= e.stats.moveSpeed * subDt) {
+      e.x = order.x;
+      e.z = order.z;
+      finishOrder(e, orderEvents, 'completed', 'arrived');
+      return;
+    }
+  } else if (remaining <= Math.max(PATH_WAYPOINT_REACHED_DIST, e.stats.radius)) {
     finishOrder(e, orderEvents, 'completed', 'arrived');
     return;
   }

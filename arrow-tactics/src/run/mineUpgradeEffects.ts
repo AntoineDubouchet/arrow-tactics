@@ -1,30 +1,26 @@
-import { MINE_BASE_GOLD_PER_SECOND } from '../config/constants';
-import { MINE_UPGRADE } from '../data/mineUpgrade';
-import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
+import { MINE_PRODUCTION } from '../data/mineUpgrade';
 
 /**
- * Amelioration permanente de la MINE (2026-08-14, voir data/mineUpgrade.ts)
- * — meme principe que run/ballistaUpgradeEffects.ts : ce module sait ce
- * qu'est un niveau d'amelioration, main.ts ne recoit que des nombres deja
- * calcules. Niveau lu dans RunState.upgrades, comme les autres
- * ameliorations (cle MINE_UPGRADE.id = 'mine'). Formule PUREMENT LINEAIRE,
- * sans palier (revu le 2026-08-14, voir data/mineUpgrade.ts).
+ * Production EFFECTIVE d'une Mine selon son niveau propre (voir
+ * data/mineUpgrade.ts) — ce module sait ce qu'est un niveau, main.ts ne
+ * recoit que des nombres deja calcules.
  */
 
-export function mineUpgradeLevel(levels: RunUpgradeLevels): number {
-  return runUpgradeLevel(levels, MINE_UPGRADE.id);
+/** Tranche d'or (bornes incluses) produite a chaque production par une Mine
+ *  de niveau interne `level` (0 = aucune amelioration). */
+export function mineGoldRange(level: number): { min: number; max: number } {
+  const step = level * MINE_PRODUCTION.rangeStepPerLevel;
+  return { min: MINE_PRODUCTION.baseMinGold + step, max: MINE_PRODUCTION.baseMaxGold + step };
 }
 
-/** Bonus d'or/seconde — ADDITIF depuis la base (level * goldPerSecondPerLevel),
- *  sans palier. */
-export function mineGoldPerSecondBonus(level: number): number {
-  return level * MINE_UPGRADE.goldPerSecondPerLevel;
+/** Montant d'une production, tire uniformement dans la tranche du niveau
+ *  avec `random` (dans [0, 1[, RNG a graine fournie par l'appelant). */
+export function rollMineGold(level: number, random: () => number): number {
+  const { min, max } = mineGoldRange(level);
+  return min + Math.floor(random() * (max - min + 1));
 }
 
-/** Or/seconde EFFECTIF genere par la mine — base
- *  (MINE_BASE_GOLD_PER_SECOND) + bonus permanent. Utilisee UNIQUEMENT si le
- *  talent "Le temps, c'est de l'argent" est deverrouille (voir main.ts) —
- *  ce module ne sait pas ce qu'est un talent, il calcule juste le montant. */
-export function effectiveMineGoldPerSecond(levels: RunUpgradeLevels): number {
-  return MINE_BASE_GOLD_PER_SECOND + mineGoldPerSecondBonus(mineUpgradeLevel(levels));
+/** Secondes de bataille entre deux productions. */
+export function mineProductionIntervalSeconds(): number {
+  return MINE_PRODUCTION.intervalSeconds;
 }

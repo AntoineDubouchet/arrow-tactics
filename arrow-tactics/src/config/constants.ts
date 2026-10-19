@@ -211,14 +211,6 @@ export const SENTINEL_INITIAL_TAUNT_LOCKOUT = 7.0;
 /** or_depart : bonus applique a STARTING_GOLD (5 depuis la passe
  *  economique d'avant playtest ; 3 auparavant). */
 export const TALENT_STARTING_GOLD_BONUS = 5;
-/** Or/seconde de base genere par une Mine VIVANTE (voir data/buildings.ts,
- *  run/mineUpgradeEffects.ts pour le bonus permanent additif) — 2026-08-14,
- *  demande explicite d'Antoine : "ce bâtiment génère 1 gold par seconde pour
- *  le joueur tant que la bataille est en cours". Reste GENERIQUE (2026-08-17,
- *  chantier "bâtiments achetables") : chaque Mine possedee genere ce montant
- *  independamment, plus liee a un talent — voir main.ts, la boucle de revenu
- *  passif. */
-export const MINE_BASE_GOLD_PER_SECOND = 1;
 /** tir_rapide : +60% de vitesse de tir = cooldown divise par (1 + ce taux).
  *  Monte de 50% a 60% (2026-08-10, demande d'Antoine). */
 export const TALENT_FIRE_RATE_BONUS = 0.6;

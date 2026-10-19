@@ -13,9 +13,10 @@ import {
 } from './ballistaStats';
 import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
 import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from './barracksUpgradeEffects';
-import { effectiveMineGoldPerSecond } from './mineUpgradeEffects';
+import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
+import { buildingUpgradeGoldCost, isUpgradableBuilding } from './buildingUpgrades';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
-import { entityRunUpgradeLevel, type PlayerProgression, type RunUpgradeLevels } from './runUpgrades';
+import { displayedUpgradeLevel, entityRunUpgradeLevel, type PlayerProgression, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Fiche d'entite : adaptateur PUR entre l'etat du jeu (emplacements de
@@ -54,7 +55,8 @@ export interface EntityInfoHp {
 /** Action proposee par la fiche (bouton). Donnee pure : main.ts recoit
  *  l'`id` au clic et decide de l'effet ; l'adaptateur ne connait pas le DOM. */
 export interface EntityInfoAction {
-  id: 'openForge';
+  /** `upgradeBuilding` : ameliore le batiment selectionne (Mine, Caserne). */
+  id: 'openForge' | 'upgradeBuilding';
   label: string;
   enabled: boolean;
   hint?: string;
@@ -109,7 +111,7 @@ function formatNumber(value: number): string {
 /** Titre suivi du niveau d'amelioration de run (« Fantassin — Niv. 3 ») ;
  *  inchange pour une entite sans amelioration (niveau null). */
 function titleWithLevel(title: string, level: number | null): string {
-  return level === null ? title : `${title} — Niv. ${level}`;
+  return level === null ? title : `${title} — Niv. ${displayedUpgradeLevel(level)}`;
 }
 
 /** Niveau a afficher pour une entite : seulement dans le camp du joueur
@@ -372,8 +374,13 @@ export function battleGroupInfo(
 
 // --- Mine et Caserne -------------------------------------------------------
 
-function mineRows(progress: PlayerProgression): EntityInfoRow[] {
-  return [{ label: 'Revenu', value: `${effectiveMineGoldPerSecond(progress.upgrades).toFixed(1)} or/s` }];
+/** Niveau interne propre au batiment (Mine, Caserne). */
+function mineRows(level: number): EntityInfoRow[] {
+  const { min, max } = mineGoldRange(level);
+  return [
+    { label: 'Production', value: `${min} à ${max} or` },
+    { label: 'Fréquence', value: `toutes les ${formatSeconds(mineProductionIntervalSeconds())}` },
+  ];
 }
 
 function barracksRows(unitId: string, intervalSeconds: number, count: number): EntityInfoRow[] {
@@ -384,27 +391,63 @@ function barracksRows(unitId: string, intervalSeconds: number, count: number): E
   ];
 }
 
-/** Bâtiment possede en preparation : PV persistants de la run, production
- *  effective (amelioration de la Caserne), revenu effectif (Mine). */
-export function placementBuildingInfo(owned: { buildingId: string; hp: number }, progress: PlayerProgression): BuildingInfo {
+/** Emprise au sol d'un batiment posable (Mine, Caserne, Forge), en cases. */
+function footprintRows(buildingId: string): EntityInfoRow[] {
+  const def = getBuilding(buildingId);
+  if (def.footprintTilesX === undefined || def.footprintTilesZ === undefined) return [];
+  return [{ label: 'Emprise', value: `${def.footprintTilesX} × ${def.footprintTilesZ} cases` }];
+}
+
+/** Lignes de production d'un batiment possede selon SON niveau. */
+function ownedBuildingRows(buildingId: string, level: number): EntityInfoRow[] {
+  const def = getBuilding(buildingId);
+  if (def.id === 'mine') return mineRows(level);
+  if (def.spawner) return barracksRows(def.spawner.unitId, effectiveBarracksSpawnInterval(level), effectiveBarracksSpawnCount(level));
+  return [];
+}
+
+/** Effet du prochain niveau, en une ligne (Mine, Caserne). */
+function nextLevelRow(buildingId: string, level: number): EntityInfoRow {
+  const label = `Niv. ${displayedUpgradeLevel(level + 1)}`;
+  if (buildingId === 'mine') {
+    const { min, max } = mineGoldRange(level + 1);
+    return { label, value: `${min} à ${max} or` };
+  }
+  const count = effectiveBarracksSpawnCount(level + 1);
+  return { label, value: `${count} unités / ${formatSeconds(effectiveBarracksSpawnInterval(level + 1))}` };
+}
+
+const UPGRADE_LABELS: Readonly<Record<string, string>> = { mine: 'Améliorer la mine', barracks: 'Améliorer la caserne' };
+
+/** Bâtiment possede en preparation : PV persistants de la run, niveau et
+ *  production PROPRES a ce batiment ; Mine et Caserne s'ameliorent ici
+ *  (`gold` : or disponible, pour activer le bouton), la Forge ouvre sa
+ *  boutique. Aucune action en bataille (battleBuildingInfo). */
+export function placementBuildingInfo(owned: { buildingId: string; hp: number; level?: number }, progress: PlayerProgression, gold: number): BuildingInfo {
   const def = getBuilding(owned.buildingId);
-  let rows: EntityInfoRow[] = [];
-  if (def.id === 'mine') rows = mineRows(progress);
-  else if (def.spawner) rows = barracksRows(def.spawner.unitId, effectiveBarracksSpawnInterval(progress.upgrades), effectiveBarracksSpawnCount(progress.upgrades));
-  // Forge : seul acces aux ameliorations de la run, en preparation
-  // uniquement (aucune action dans battleBuildingInfo).
-  const actions: EntityInfoAction[] | undefined = def.id === 'forge' ? [{ id: 'openForge', label: 'Ouvrir la Forge', enabled: true }] : undefined;
-  const title = titleWithLevel(def.displayName, playerLevel('player', progress.upgrades, def.id));
+  const upgradable = isUpgradableBuilding(def.id);
+  const level = owned.level ?? 0;
+  const rows = [...ownedBuildingRows(def.id, level), ...footprintRows(def.id)];
+  let actions: EntityInfoAction[] | undefined;
+  if (def.id === 'forge') actions = [{ id: 'openForge', label: 'Ouvrir la Forge', enabled: true }];
+  if (upgradable) {
+    rows.push(nextLevelRow(def.id, level));
+    const cost = buildingUpgradeGoldCost(level);
+    const enabled = gold >= cost;
+    actions = [{ id: 'upgradeBuilding', label: `${UPGRADE_LABELS[def.id] ?? 'Améliorer'} — ${formatNumber(cost)} or`, enabled, hint: enabled ? undefined : 'Or insuffisant' }];
+  }
+  const title = titleWithLevel(def.displayName, upgradable ? level : playerLevel('player', progress.upgrades, def.id));
   return { kind: 'building', buildingId: def.id, title, team: 'player', hp: hpOf(owned.hp, def.maxHp), rows, sections: [], status: null, actions };
 }
 
-/** Bâtiment en bataille : PV et production lus sur l'entite. Le revenu de
- *  la Mine n'est pas une donnee de simulation (verse par main.ts tant que la
- *  Mine est vivante) : il reste lu sur la progression. */
-export function battleBuildingInfo(entity: Entity, progress: PlayerProgression): BuildingInfo {
+/** Bâtiment en bataille : PV et production lus sur l'entite. `ownedLevel` :
+ *  niveau propre d'une Mine ou d'une Caserne possedee (null sinon) ; le
+ *  revenu de la Mine n'est pas une donnee de simulation (verse par main.ts
+ *  tant que la Mine est vivante), il se deduit de ce niveau. */
+export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, ownedLevel: number | null = null): BuildingInfo {
   const def = getBuilding(entity.unitId);
   let rows: EntityInfoRow[] = [];
-  if (def.id === 'mine') rows = mineRows(progress);
+  if (def.id === 'mine') rows = mineRows(ownedLevel ?? 0);
   else if (entity.spawnUnitId !== null && entity.spawnIntervalSeconds !== null) {
     rows = barracksRows(entity.spawnUnitId, entity.spawnIntervalSeconds, entity.spawnCount ?? 1);
     if (entity.spawnTimer !== null) {
@@ -413,7 +456,9 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression):
       rows.push({ label: 'Prochaine production', value: entity.spawnTimer > 0 ? formatRemaining(entity.spawnTimer) : 'En attente' });
     }
   }
-  const title = titleWithLevel(def.displayName, playerLevel(entity.team, progress.upgrades, def.id));
+  rows.push(...footprintRows(def.id));
+  const level = isUpgradableBuilding(def.id) ? ownedLevel : playerLevel(entity.team, progress.upgrades, def.id);
+  const title = titleWithLevel(def.displayName, level);
   return { kind: 'building', buildingId: def.id, title, team: entity.team, hp: hpOf(entity.hp, entity.stats.maxHp), rows, sections: [], status: null };
 }
 
