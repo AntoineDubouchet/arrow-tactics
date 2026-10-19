@@ -9,8 +9,6 @@ const PICK_MIN_RADIUS_PX = 18;
 /** Facteur applique au rayon projete de l'unite : la silhouette deborde
  *  largement de son rayon de collision au sol. */
 const PICK_RADIUS_FACTOR = 1.8;
-/** Taille de l'anneau de cible par rapport au rayon de l'entite visee. */
-const MARKER_RADIUS_FACTOR = 1.4;
 
 type ScreenProjector = (x: number, z: number) => { x: number; y: number };
 type RenderedPosition = (entityId: number) => { x: number; z: number } | null;
@@ -96,19 +94,14 @@ export function selectableUnitsInScreenRect(
  * Anneaux : une reserve d'objets crees a la demande, jamais detruits,
  * simplement masques quand ils ne servent plus. Sous chaque unite
  * selectionnee, l'anneau commun aux unites (render/unitSelectionRing.ts, a
- * la couleur de son camp) ; sous une cible d'ordre d'attaque, un clone du
- * modele fourni (geometrie et materiau partages).
+ * la couleur de son camp). La cible d'un ordre d'attaque n'a pas d'anneau
+ * persistant : seulement le bref retour de render/attackOrderFeedback.ts.
  */
 export class BattleSelection {
   /** A ajouter a la scene par l'appelant : contient tous les anneaux. */
   readonly group = new THREE.Group();
   private readonly selected = new Set<number>();
   private readonly rings: THREE.Mesh[] = [];
-  private readonly targetRings: THREE.Object3D[] = [];
-
-  /** `targetRingTemplate` : anneau de rayon 1 place sous la cible d'un ordre
-   *  d'attaque d'une unite selectionnee (une seule fois par cible). */
-  constructor(private readonly targetRingTemplate: THREE.Object3D) {}
 
   /** Ids selectionnes, dans l'ordre d'ajout. */
   get ids(): number[] {
@@ -143,7 +136,6 @@ export class BattleSelection {
    *  disparues (World vide) ou mortes, puis place un anneau sous la position
    *  rendue de chaque unite restante. */
   sync(lookup: (id: number) => Entity | undefined, renderedPosition: RenderedPosition): void {
-    const targetIds = new Set<number>();
     let used = 0;
     for (const id of this.selected) {
       const entity = lookup(id);
@@ -153,19 +145,8 @@ export class BattleSelection {
       }
       const pos = renderedPosition(entity.id) ?? { x: entity.x, z: entity.z };
       placeUnitSelectionRing(this.selectionRingAt(used++), entity.team, pos.x, pos.z, entity.stats.radius);
-      // Cible de l'ordre d'attaque en cours (lecture seule de l'etat de la
-      // simulation) : visible tant que l'ordre existe, y compris pendant une
-      // Provocation qui le suspend.
-      if (entity.order.type === 'attack') targetIds.add(entity.order.targetEntityId);
     }
     for (let i = used; i < this.rings.length; i++) this.rings[i]!.visible = false;
-
-    let usedTargets = 0;
-    for (const id of targetIds) {
-      const target = lookup(id);
-      if (target && target.alive) placeRing(this.targetRingAt(usedTargets++), target, renderedPosition);
-    }
-    for (let i = usedTargets; i < this.targetRings.length; i++) this.targetRings[i]!.visible = false;
   }
 
   private selectionRingAt(index: number): THREE.Mesh {
@@ -179,24 +160,7 @@ export class BattleSelection {
     return this.rings[index]!;
   }
 
-  private targetRingAt(index: number): THREE.Object3D {
-    while (this.targetRings.length <= index) {
-      const ring = this.targetRingTemplate.clone();
-      this.group.add(ring);
-      this.targetRings.push(ring);
-    }
-    return this.targetRings[index]!;
-  }
-
   private hideRings(): void {
     for (const ring of this.rings) ring.visible = false;
-    for (const ring of this.targetRings) ring.visible = false;
   }
-}
-
-function placeRing(ring: THREE.Object3D, entity: Entity, renderedPosition: RenderedPosition): void {
-  const pos = renderedPosition(entity.id) ?? { x: entity.x, z: entity.z };
-  ring.position.set(pos.x, 0.03, pos.z);
-  ring.scale.setScalar(entity.stats.radius * MARKER_RADIUS_FACTOR);
-  ring.visible = true;
 }

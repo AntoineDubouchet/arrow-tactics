@@ -159,6 +159,13 @@ export function enemyUpgradeLevelForWave(waveNumber: number): number {
   return Math.max(0, Math.floor(waveNumber / 2));
 }
 
+/** Niveau effectivement applique par computeEnemyUnitUpgradeEffects a une
+ *  unite ennemie apparue en vague `waveNumber`, ou null si son type n'a pas
+ *  d'amelioration definie (aucun bonus, donc aucun niveau a afficher). */
+export function enemyUnitUpgradeLevel(unitId: string, waveNumber: number): number | null {
+  return getUnitUpgradeDef(unitId) ? enemyUpgradeLevelForWave(waveNumber) : null;
+}
+
 export interface EnemyUnitUpgradeEffects {
   statOverrides: Partial<UnitStats>;
   abilityDamageBonus: number;

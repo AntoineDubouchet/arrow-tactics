@@ -8,7 +8,9 @@ import type { Team } from '../sim/entity';
  * celle d'un "etat selectionne" : une unite du joueur a un anneau bleu, une
  * unite ennemie un anneau rouge.
  *
- * Reserve aux unites selectionnees : la cible d'un ordre d'attaque, les
+ * Reserve aux unites selectionnees ou inspectees ; le retour d'ordre
+ * d'attaque (render/attackOrderFeedback.ts) en reprend exactement la
+ * geometrie et le placement (createAnimatedUnitRing, placeUnitRing). Les
  * parchemins, la Baliste, les decors et les apercus de placement ont leurs
  * propres indicateurs.
  */
@@ -22,8 +24,10 @@ const TEAM_COLORS: Record<Team, number> = {
 
 /** Taille de l'anneau par rapport au rayon de l'unite : un peu en dessous de
  *  l'empreinte reelle, pour que les anneaux d'un groupe dense (une unite par
- *  case) restent distincts au lieu de former un amas. Ancienne valeur : 1,4. */
-const RING_RADIUS_FACTOR = 0.9;
+ *  case) restent distincts au lieu de former un amas. Seule source de la
+ *  taille d'un anneau d'unite, quel que soit le camp. Anciennes valeurs :
+ *  1,4, 0,9 puis 0,85. */
+const RING_RADIUS_FACTOR = 0.765;
 /** Hauteur au-dessus du sol, pour eviter le scintillement avec le terrain. */
 const RING_HEIGHT = 0.03;
 
@@ -61,13 +65,31 @@ export function createUnitSelectionRing(team: Team): THREE.Mesh {
   return ring;
 }
 
+/** Anneau d'unite au materiau PROPRE (opacite animable sans toucher aux
+ *  autres anneaux), sinon identique a createUnitSelectionRing : meme
+ *  geometrie, a placer avec placeUnitRing. Le materiau est a liberer par
+ *  l'appelant s'il detruit l'anneau. */
+export function createAnimatedUnitRing(team: Team): THREE.Mesh {
+  const ring = new THREE.Mesh(ringGeometry, ringMaterial(team).clone());
+  ring.rotation.x = -Math.PI / 2;
+  ring.raycast = () => {};
+  return ring;
+}
+
+/** Position, hauteur et taille d'un anneau d'unite pose dans la scene
+ *  (coordonnees monde), sous une unite de rayon `unitRadius` au point
+ *  (x, z) : seule regle de taille, partagee par tous les anneaux d'unite. */
+export function placeUnitRing(ring: THREE.Mesh, x: number, z: number, unitRadius: number): void {
+  ring.position.set(x, RING_HEIGHT, z);
+  ring.scale.setScalar(unitRadius * RING_RADIUS_FACTOR);
+  ring.visible = true;
+}
+
 /** Place un anneau directement dans la scene (coordonnees monde), sous une
  *  unite de rayon `unitRadius` au point (x, z). */
 export function placeUnitSelectionRing(ring: THREE.Mesh, team: Team, x: number, z: number, unitRadius: number): void {
   ring.material = ringMaterial(team);
-  ring.position.set(x, RING_HEIGHT, z);
-  ring.scale.setScalar(unitRadius * RING_RADIUS_FACTOR);
-  ring.visible = true;
+  placeUnitRing(ring, x, z, unitRadius);
 }
 
 /** Ajoute un anneau en ENFANT du modele d'une unite posee au sol. Les modeles

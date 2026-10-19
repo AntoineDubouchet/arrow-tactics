@@ -280,7 +280,10 @@ export function placementUnitInfo(slot: { unitId: string; hp: number }, progress
 
 /** Unite seule en bataille : tout vient de l'entite, deja effective, sauf
  *  le niveau d'amelioration, lu dans les niveaux de la run (`levels`). */
-export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, levels: Readonly<RunUpgradeLevels>): UnitInfo {
+/** `enemyLevel` : niveau de vague memorise au spawn d'une unite ennemie
+ *  (main.ts), null quand il n'existe pas (Tester le scenario, type sans
+ *  amelioration). Ignore pour une unite du joueur. */
+export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, levels: Readonly<RunUpgradeLevels>, enemyLevel: number | null = null): UnitInfo {
   return buildUnitInfo({
     unitId: entity.unitId,
     team: entity.team,
@@ -294,7 +297,7 @@ export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, lev
       shield: entity.shield,
       battleElapsedSeconds,
     },
-    upgradeLevel: playerLevel(entity.team, levels, entity.unitId),
+    upgradeLevel: entity.team === 'enemy' ? enemyLevel : playerLevel(entity.team, levels, entity.unitId),
   });
 }
 
@@ -306,7 +309,9 @@ interface GroupMember {
   maxHp: number;
 }
 
-function buildGroupInfo(members: GroupMember[], team: Team, levels: Readonly<RunUpgradeLevels>): GroupInfo {
+/** `enemyLevel` : niveau commun a tout un groupe ennemi, null s'il n'existe
+ *  pas ou differe entre les membres (voir battleGroupInfo). */
+function buildGroupInfo(members: GroupMember[], team: Team, levels: Readonly<RunUpgradeLevels>, enemyLevel: number | null = null): GroupInfo {
   const counts = new Map<string, number>();
   let hp = 0;
   let maxHp = 0;
@@ -324,7 +329,7 @@ function buildGroupInfo(members: GroupMember[], team: Team, levels: Readonly<Run
     .map(([unitId, count]) => `${count} ${plural(count, getUnit(unitId).name)}`);
   // Un seul type : un seul niveau de run, rappele sur la ligne de composition.
   const onlyType = counts.size === 1 ? [...counts.keys()][0]! : null;
-  const level = onlyType ? playerLevel(team, levels, onlyType) : null;
+  const level = onlyType ? (team === 'enemy' ? enemyLevel : playerLevel(team, levels, onlyType)) : null;
   if (level !== null) composition[0] = titleWithLevel(composition[0]!, level);
   return {
     kind: 'group',
@@ -347,12 +352,21 @@ export function placementGroupInfo(slots: readonly { unitId: string; hp: number 
 }
 
 /** `entities` : unites encore vivantes de la selection (les mortes en sont
- *  deja retirees par BattleSelection.sync). */
-export function battleGroupInfo(entities: readonly Entity[], levels: Readonly<RunUpgradeLevels>): GroupInfo {
+ *  deja retirees par BattleSelection.sync). `enemyLevelOf` : niveau
+ *  memorise de chaque ennemi (voir battleUnitInfo) ; un niveau n'est
+ *  affiche que s'il est le meme pour tout le groupe. */
+export function battleGroupInfo(
+  entities: readonly Entity[],
+  levels: Readonly<RunUpgradeLevels>,
+  enemyLevelOf: (entity: Entity) => number | null = () => null,
+): GroupInfo {
+  const memberLevels = new Set(entities.map(enemyLevelOf));
+  const sharedEnemyLevel = memberLevels.size === 1 && entities[0] ? enemyLevelOf(entities[0]) : null;
   return buildGroupInfo(
     entities.map((e) => ({ unitId: e.unitId, hp: e.hp, maxHp: e.stats.maxHp })),
     entities[0]?.team ?? 'player',
     levels,
+    sharedEnemyLevel,
   );
 }
 

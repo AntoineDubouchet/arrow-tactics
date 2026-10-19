@@ -81,6 +81,7 @@ import { FireballView } from './render/fireballView';
 import { IceNovaView } from './render/iceNova';
 import { HealVfxView } from './render/healVfx';
 import { MoveOrderFeedback } from './render/moveOrderFeedback';
+import { AttackOrderFeedback } from './render/attackOrderFeedback';
 import { RecyclageAuraView } from './render/recyclageAura';
 import { TauntVfxView } from './render/tauntVfx';
 import { ShadowProjectileView } from './render/shadowProjectileView';
@@ -102,6 +103,7 @@ import {
   computeEnemyUnitUpgradeEffects,
   effectivePlayerUnitCost,
   effectivePlayerUnitMaxHp,
+  enemyUnitUpgradeLevel,
 } from './run/unitUpgradeEffects';
 import { HEAL_SCROLL_UPGRADE } from './data/healScrollUpgrade';
 import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
@@ -152,7 +154,7 @@ import { WaveIndicator } from './ui/waveIndicator';
 import { BallistaIndicator, type BallistaStatus } from './ui/ballistaIndicator';
 import { EntityInfoPanel } from './ui/entityInfoPanel';
 import { GoldHud } from './ui/goldHud';
-import { CombatOverlay } from './ui/combatOverlay';
+import { CombatOverlay, type PlacementBuildingHpSubject } from './ui/combatOverlay';
 import { spawnCoinPopup } from './ui/coinPopup';
 import { DebugPanel } from './ui/debug';
 import { InventoryBar } from './ui/inventoryBar';
@@ -181,13 +183,14 @@ const buildingRotationHint = new BuildingRotationHint();
 const ballistaIndicator = new BallistaIndicator();
 const entityInfoPanel = new EntityInfoPanel((id) => onEntityInfoAction(id));
 // Les unites selectionnees ont l'anneau commun (render/unitSelectionRing.ts).
-// Modele de l'anneau rouge sous la cible d'un ordre d'attaque d'une unite
-// selectionnee, jamais ajoute a la scene : BattleSelection le clone
-// (geometrie et materiau partages).
-const battleOrderTargetMarker = createEditorSelectionRing(1);
-(battleOrderTargetMarker.material as THREE.MeshBasicMaterial).color.set(COLORS.enemyZone);
-const battleSelection = new BattleSelection(battleOrderTargetMarker);
+const battleSelection = new BattleSelection();
 renderer.scene.add(battleSelection.group);
+// Unites ENNEMIES inspectees (clic ou rectangle sans allie) : meme mecanique
+// d'ids et d'anneaux que la selection, mais une instance a part, jamais lue
+// par un ordre RTS (clic droit, S, groupe : tous lisent battleSelection).
+// Jamais active en meme temps que battleSelection.
+const battleEnemyInspection = new BattleSelection();
+renderer.scene.add(battleEnemyInspection.group);
 const goldHud = new GoldHud();
 const telegraphView = new TelegraphView();
 const fireballView = new FireballView();
@@ -196,6 +199,9 @@ const healVfxView = new HealVfxView();
 // Retour visuel des ordres de deplacement acceptes (voir le consommateur de
 // world.commandResults dans onStep).
 const moveOrderFeedback = new MoveOrderFeedback();
+// Ordre d'attaque accepte : anneau d'unite commun qui clignote brievement
+// sous la cible (meme taille que la selection et l'inspection).
+const attackOrderFeedback = new AttackOrderFeedback();
 const recyclageAuraView = new RecyclageAuraView();
 const tauntVfxView = new TauntVfxView();
 const shadowProjectileView = new ShadowProjectileView();
@@ -245,6 +251,7 @@ renderer.scene.add(fireballView.group);
 renderer.scene.add(iceNovaView.group);
 renderer.scene.add(healVfxView.group);
 renderer.scene.add(moveOrderFeedback.group);
+renderer.scene.add(attackOrderFeedback.group);
 renderer.scene.add(recyclageAuraView.group);
 renderer.scene.add(tauntVfxView.group);
 renderer.scene.add(shadowProjectileView.group);
@@ -687,6 +694,18 @@ function enemyStatOverrides(unitId: string, waveNumber: number): Partial<UnitSta
 
 function enemyAbilityDamageBonus(unitId: string, waveNumber: number): number {
   return computeEnemyUnitUpgradeEffects(unitId, waveNumber).abilityDamageBonus;
+}
+
+/** Niveau de vague applique a chaque unite ennemie de la bataille en cours,
+ *  par id d'entite, pour la fiche d'inspection (l'Entity ne le porte pas).
+ *  Rempli aux memes spawns que enemyStatOverrides, donc jamais en "Tester le
+ *  scenario" ; absent pour un type sans amelioration. Vide a chaque
+ *  world.clear() (forgetBattleBuildings). */
+const enemyUnitLevels = new Map<number, number>();
+
+function rememberEnemyUnitLevel(entity: Entity, waveNumber: number): void {
+  const level = enemyUnitUpgradeLevel(entity.unitId, waveNumber);
+  if (level !== null) enemyUnitLevels.set(entity.id, level);
 }
 
 // --- Economie / progression de run (chantier en cours — voir CLAUDE.md) -
@@ -1422,7 +1441,7 @@ function onValidatePlacement(): void {
     );
   }
   for (const pos of computeEnemyWavePlacements(currentRun.waveNumber, currentMap)) {
-    world.spawn(
+    const enemy = world.spawn(
       pos.unitId,
       'enemy',
       pos.x,
@@ -1431,6 +1450,7 @@ function onValidatePlacement(): void {
       enemyStatOverrides(pos.unitId, currentRun.waveNumber),
       enemyAbilityDamageBonus(pos.unitId, currentRun.waveNumber),
     );
+    rememberEnemyUnitLevel(enemy, currentRun.waveNumber);
   }
 
   // Batiments POSSEDES par le joueur (2026-08-17, Mine/Caserne achetables —
@@ -1503,7 +1523,8 @@ function spawnBallistaBuilding(): void {
 /** A appeler a chaque `world.clear()` : les ids d'entites repartent de 1
  *  dans la bataille suivante, donc aucune reference a un batiment de la
  *  bataille videe ne doit survivre (l'ancien id de la Baliste ou d'une Mine
- *  pourrait designer une tout autre entite du test suivant). Remet aussi le
+ *  pourrait designer une tout autre entite du test suivant), ni aucun niveau
+ *  d'ennemi memorise (enemyUnitLevels). Remet aussi le
  *  visuel de la Baliste dans son etat normal : detruite pendant la bataille
  *  videe, elle doit reapparaitre des la preparation suivante (ou le
  *  placement de tour d'une nouvelle run, ou l'editeur), pas seulement au
@@ -1512,6 +1533,7 @@ function spawnBallistaBuilding(): void {
 function forgetBattleBuildings(): void {
   ballistaEntityId = null;
   buildingViewsByEntityId.clear();
+  enemyUnitLevels.clear();
   ballistaBuildingView.reset();
 }
 
@@ -3422,16 +3444,23 @@ function isEntityInfoContextActive(): boolean {
 function currentEntityInfo(): EntityInfoViewModel | null {
   if (inBattlePhase()) {
     if (battleInspectedEntityId !== null) {
-      const building = world.getById(battleInspectedEntityId);
-      if (!building) return null;
-      if (building.id === ballistaEntityId) return battleBallistaInfo(building, currentBallistaStatus(), playerProgression());
-      return battleBuildingInfo(building, playerProgression());
+      const inspected = world.getById(battleInspectedEntityId);
+      if (!inspected) return null;
+      if (inspected.id === ballistaEntityId) return battleBallistaInfo(inspected, currentBallistaStatus(), playerProgression());
+      return battleBuildingInfo(inspected, playerProgression());
     }
-    const units: Entity[] = [];
-    for (const id of battleSelection.ids) {
-      const entity = world.getById(id);
-      if (entity && entity.alive) units.push(entity);
+    const aliveEntities = (ids: number[]): Entity[] => ids.map((id) => world.getById(id)).filter((e): e is Entity => e !== undefined && e.alive);
+    // Ennemis inspectes (jamais dans battleSelection, donc jamais commandes) :
+    // memes fiches qu'une selection alliee, stats de simulation, niveau
+    // memorise au spawn.
+    const enemies = aliveEntities(battleEnemyInspection.ids);
+    if (enemies.length > 0) {
+      const enemyLevelOf = (e: Entity): number | null => enemyUnitLevels.get(e.id) ?? null;
+      return enemies.length === 1
+        ? battleUnitInfo(enemies[0]!, world.time, playerProgression().upgrades, enemyLevelOf(enemies[0]!))
+        : battleGroupInfo(enemies, playerProgression().upgrades, enemyLevelOf);
     }
+    const units = aliveEntities(battleSelection.ids);
     if (units.length === 0) return null;
     return units.length === 1 ? battleUnitInfo(units[0]!, world.time, playerProgression().upgrades) : battleGroupInfo(units, playerProgression().upgrades);
   }
@@ -3458,7 +3487,7 @@ function updateEntityInfoPanel(now: number): void {
     return;
   }
   const key = inBattlePhase()
-    ? `b:${battleSelection.ids.join(',')}:${battleInspectedEntityId}`
+    ? `b:${battleSelection.ids.join(',')}:${battleEnemyInspection.ids.join(',')}:${battleInspectedEntityId}`
     : `p:${selectedIndices.join(',')}:${selectedBuildingIndex}:${placementBallistaSelected}`;
   if (key === entityInfoSelectionKey && now - entityInfoLastRefresh < ENTITY_INFO_REFRESH_MS) return;
   entityInfoSelectionKey = key;
@@ -3492,8 +3521,10 @@ let lastBattleUnitClickTime = 0;
 /** Clic gauche (sans glisser) en bataille. Sans Shift : l'unite
  *  alliee vivante sous le curseur devient l'unique selection, un clic
  *  ailleurs (terrain, ennemi, batiment) vide la selection, un double-clic
- *  selectionne les unites visibles du meme type. Avec Shift : ajoute ou
- *  retire l'unite, ne change rien ailleurs. Aucun ordre n'est transmis. */
+ *  selectionne les unites visibles du meme type. Une unite ennemie ou un
+ *  bâtiment allie cliques sont inspectes (bascule), jamais selectionnes.
+ *  Avec Shift : ajoute ou retire l'unite, ne change rien ailleurs. Aucun
+ *  ordre n'est transmis. */
 function resolveBattleSelectionClick(event: MouseEvent): void {
   const picked = pickEntityAtScreen(world.entities, event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
   // Une unite cliquee garde la priorite sur un bâtiment proche (la Baliste
@@ -3504,49 +3535,87 @@ function resolveBattleSelectionClick(event: MouseEvent): void {
   if (event.shiftKey) {
     if (unit) {
       battleSelection.toggle(unit.id);
+      battleEnemyInspection.clear();
       battleInspectedEntityId = null;
     }
     lastBattleUnitClickId = null;
     return;
   }
   if (!unit) {
-    battleSelection.clear();
     lastBattleUnitClickId = null;
-    // Bâtiment allie ou Baliste sous le curseur : inspection seule, meme
-    // bascule qu'en preparation (un second clic la retire).
+    // Unite ennemie sous le curseur : inspection seule ; un second clic sur
+    // l'ennemi deja seul inspecte la retire.
+    const enemyUnit = pickedUnit !== null && pickedUnit.team !== 'player' && !pickedUnit.isBuilding ? pickedUnit : null;
+    if (enemyUnit) {
+      const alreadyAlone = battleEnemyInspection.size === 1 && battleEnemyInspection.has(enemyUnit.id);
+      setBattleEnemyInspection(alreadyAlone ? [] : [enemyUnit.id]);
+      return;
+    }
+    // Bâtiment allie ou Baliste : meme bascule qu'en preparation.
     const building = pickBattleInspectableBuilding(event, picked);
-    battleInspectedEntityId = building !== null && building.id !== battleInspectedEntityId ? building.id : null;
+    const next = building !== null && building.id !== battleInspectedEntityId ? building.id : null;
+    setBattleSelection([]);
+    battleInspectedEntityId = next;
     return;
   }
-  battleInspectedEntityId = null;
 
   const now = performance.now();
   if (unit.id === lastBattleUnitClickId && now - lastBattleUnitClickTime < DOUBLE_CLICK_WINDOW_MS) {
     lastBattleUnitClickId = null;
     // Unites du meme type visibles a l'ecran : le viewport sert de rectangle.
     const visible = selectableUnitsInScreenRect(world.entities, canvas.getBoundingClientRect(), worldToScreen, (id) => unitViews.getPosition(id));
-    battleSelection.set(visible.filter((e) => e.unitId === unit.unitId).map((e) => e.id));
+    setBattleSelection(visible.filter((e) => e.unitId === unit.unitId).map((e) => e.id));
     return;
   }
   lastBattleUnitClickId = unit.id;
   lastBattleUnitClickTime = now;
-  battleSelection.set([unit.id]);
+  setBattleSelection([unit.id]);
 }
 
-/** Rectangle de selection relache en bataille : remplace la
- *  selection par les unites alliees vivantes encadrees a l'ecran. */
+/** Rectangle de selection relache en bataille. Priorite au joueur, quel
+ *  que soit l'ordre des entites : s'il encadre au moins une unite alliee,
+ *  il selectionne toutes les unites alliees encadrees et ignore les
+ *  ennemis ; sinon il inspecte tous les ennemis encadres ; vide, il
+ *  efface tout. */
 function selectBattleUnitsInRect(rect: ScreenRect): void {
-  const inside = selectableUnitsInScreenRect(world.entities, rect, worldToScreen, (id) => unitViews.getPosition(id));
-  battleSelection.set(inside.map((e) => e.id));
+  const renderedPosition = (e: Entity): { x: number; z: number } => unitViews.getPosition(e.id) ?? { x: e.x, z: e.z };
+  const players = selectableUnitsInScreenRect(world.entities, rect, worldToScreen, (id) => unitViews.getPosition(id));
+  if (players.length > 0) {
+    setBattleSelection(players.map((e) => e.id));
+    return;
+  }
+  const enemies = world.entities.filter((e) => {
+    if (!e.alive || e.isBuilding || e.team === 'player') return false;
+    const pos = renderedPosition(e);
+    return isInScreenRect(worldToScreen(pos.x, pos.z), rect);
+  });
+  if (enemies.length > 0) setBattleEnemyInspection(enemies.map((e) => e.id));
+  else setBattleSelection([]);
+}
+
+/** Remplace toute selection et toute inspection de bataille par la
+ *  selection commandable des unites alliees `entityIds` (vide : plus rien). */
+function setBattleSelection(entityIds: Iterable<number>): void {
+  battleSelection.set(entityIds);
+  battleEnemyInspection.clear();
+  battleInspectedEntityId = null;
+}
+
+/** Remplace toute selection et toute inspection de bataille par
+ *  l'inspection des unites ennemies `entityIds` : jamais commandable. */
+function setBattleEnemyInspection(entityIds: Iterable<number>): void {
+  battleEnemyInspection.set(entityIds);
+  battleSelection.clear();
   battleInspectedEntityId = null;
 }
 
 /** Bâtiment allie (Mine, Caserne) ou Baliste inspecte en bataille : sa fiche
  *  est affichee, mais il n'entre jamais dans battleSelection, donc dans
- *  aucun ordre RTS (clic droit, S). Exclusif avec la selection d'unites.
- *  Id d'entite de la bataille en cours : abandonne hors bataille (les ids
- *  repartent de 1 apres world.clear()) et a la destruction d'une Mine ou
- *  d'une Caserne, voir syncBattleInspection. */
+ *  aucun ordre RTS (clic droit, S). Exclusif avec la selection d'unites et
+ *  l'inspection d'ennemis (battleEnemyInspection). Id d'entite de la
+ *  bataille en cours : abandonne quand l'entite disparait (world.clear())
+ *  et a la destruction d'une Mine ou d'une Caserne, voir
+ *  syncBattleInspection. */
 let battleInspectedEntityId: number | null = null;
 let battleInspectionRing: THREE.Mesh | null = null;
 let battleInspectionRingEntityId: number | null = null;
@@ -3567,14 +3636,15 @@ function pickBattleInspectableBuilding(event: MouseEvent, picked: Entity | null)
   return null;
 }
 
-/** A chaque image : abandonne une inspection devenue invalide (hors
- *  bataille, entite disparue, Mine ou Caserne detruite — la Baliste detruite
- *  reste inspectable, son etat DÉTRUITE etant deja celui du HUD) et place
- *  l'anneau d'inspection, meme taille et meme couleur qu'en preparation
- *  (updateBuildingSelectionRing). */
+/** A chaque image : abandonne une inspection devenue invalide (entite
+ *  disparue apres world.clear(), Mine ou Caserne detruite — la Baliste
+ *  detruite reste inspectable, son etat DÉTRUITE etant deja celui du HUD) et
+ *  place l'anneau d'inspection, meme taille et meme couleur qu'en
+ *  preparation (updateBuildingSelectionRing). L'inspection survit a la
+ *  transition de fin de vague, comme la barre de PV qui en depend. */
 function syncBattleInspection(): void {
   if (battleInspectedEntityId !== null) {
-    const entity = inBattlePhase() ? world.getById(battleInspectedEntityId) : undefined;
+    const entity = world.getById(battleInspectedEntityId);
     if (!entity || (!entity.alive && entity.id !== ballistaEntityId)) battleInspectedEntityId = null;
   }
   if (battleInspectionRingEntityId === battleInspectedEntityId) return;
@@ -3600,8 +3670,7 @@ function syncBattleInspection(): void {
  *  selection, aucun ordre au clic droit en attente, Q relache, visee
  *  recalculee sous le curseur. */
 function resetBattleControls(): void {
-  battleSelection.clear();
-  battleInspectedEntityId = null;
+  setBattleSelection([]);
   cancelCommandDrag();
   lastBattleUnitClickId = null;
   pendingRightClickOrder = false;
@@ -4646,11 +4715,11 @@ let lastRealTime = performance.now();
 const loop = new Loop(
   (dt) => {
     world.step(dt);
-    // Ordres de deplacement acceptes pendant CE pas : commandResults est
-    // remplace a chaque pas (plusieurs pas peuvent s'enchainer par image),
-    // il est donc lu ici et jamais depuis le rendu. Un ordre refuse n'affiche
-    // rien ; l'attaque garde son anneau rouge (BattleSelection).
+    // Ordres acceptes pendant CE pas : commandResults est remplace a chaque
+    // pas (plusieurs pas peuvent s'enchainer par image), il est donc lu ici
+    // et jamais depuis le rendu. Un ordre refuse n'affiche rien.
     for (const result of world.commandResults) {
+      if (result.command.kind === 'attack' && result.rejection === null) attackOrderFeedback.spawn(result.command.targetEntityId);
       if (result.command.kind !== 'move' || result.rejection !== null || !result.destinations) continue;
       const owner = result.acceptedEntityIds.map((id) => world.getById(id)).find((e) => e !== undefined);
       if (!owner) continue;
@@ -4855,7 +4924,7 @@ const loop = new Loop(
     // permanentes/talents qu'un Fantassin achete normalement, jamais un
     // "BarracksFootman" special).
     for (const event of world.barracksSpawnEvents) {
-      world.spawn(
+      const spawned = world.spawn(
         event.unitId,
         event.team,
         event.x,
@@ -4864,6 +4933,7 @@ const loop = new Loop(
         event.team === 'player' ? playerUnitStatOverrides(event.unitId, playerProgression()) : enemyStatOverrides(event.unitId, currentRun.waveNumber),
         event.team === 'player' ? playerUnitAbilityDamageBonus(event.unitId, playerProgression().upgrades) : enemyAbilityDamageBonus(event.unitId, currentRun.waveNumber),
       );
+      if (event.team === 'enemy') rememberEnemyUnitLevel(spawned, currentRun.waveNumber);
     }
 
     // Or en TEMPS REEL a chaque kill (2026-08-11, demande d'Antoine : "dès
@@ -5127,10 +5197,14 @@ const loop = new Loop(
     // rendue de ce frame. Hors bataille en cours, aucune selection ne survit
     // (fin de vague, placement, menu, editeur). Une entite morte ou disparue
     // apres world.clear() est abandonnee par sync() lui-meme.
-    if (inBattlePhase()) battleSelection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id));
+    // Synchronisees aussi pendant la transition de fin de vague : une unite
+    // tuee au dernier pas quitte la selection ou l'inspection, avec son
+    // anneau, au lieu de rester figee jusqu'a la preparation.
+    battleSelection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id));
+    battleEnemyInspection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id));
     // L'apercu de deplacement n'existe qu'en preparation et dans l'editeur.
     if (!inPlacementPhase && !inEditorMode) unitMovePreview.hide();
-    else battleSelection.clear();
+    else setBattleSelection([]);
     ballistaIndicator.update(inBattlePhase() && !pauseMenuOpen, currentBallistaStatus(), battleSelection.size);
     syncBattleInspection();
     updateEntityInfoPanel(now);
@@ -5190,6 +5264,7 @@ const loop = new Loop(
     // VFX du parchemin de soin (2026-08-14) — voir render/healVfx.ts.
     healVfxView.sync(realDt);
     moveOrderFeedback.sync(realDt);
+    attackOrderFeedback.sync(realDt, (id) => world.getById(id), (id) => unitViews.getPosition(id));
     // VFX de Provocation (Sentinelle, 2026-08-14) — voir render/tauntVfx.ts.
     // Meme resolution de position que les cristaux de givre ci-dessus, pour
     // que l'indicateur au-dessus d'une unite provoquee la suive meme si
@@ -5211,7 +5286,13 @@ const loop = new Loop(
     // voir syncBuildings juste en dessous, qui prend radius/hpBarHeight
     // directement depuis BuildingDef. Reutilise nonBuildingEntities (deja
     // filtre plus haut pour UnitViews.sync), pas un second filtre.
-    combatOverlay.sync(nonBuildingEntities, (e) => unitViews.getPosition(e.id) ?? { x: e.x, z: e.z });
+    // Regle unique des barres de PV (unites, bâtiments, Baliste, deux camps) :
+    // visible si l'entite est blessee (condition dynamique, rien a memoriser)
+    // ou selectionnee / inspectee. Les morts sont deja masquees par
+    // l'overlay ; selection et inspection sont nettoyees plus haut.
+    const isHealthBarShown = (e: Entity): boolean =>
+      e.hp < e.stats.maxHp || battleSelection.has(e.id) || battleEnemyInspection.has(e.id) || e.id === battleInspectedEntityId;
+    combatOverlay.sync(nonBuildingEntities, (e) => unitViews.getPosition(e.id) ?? { x: e.x, z: e.z }, isHealthBarShown);
     // Batiments gameplay (2026-08-17, generalise depuis l'ancien couple
     // Mine/Baliste code en dur) : un seul point de dispatch sur
     // buildingViewsByEntityId, quel que soit le nombre reel de Mines/
@@ -5235,16 +5316,36 @@ const loop = new Loop(
         view.tick(realDt);
         if (!entity.alive) view.playDestroy();
       }
-      combatOverlay.syncBuildings(buildings, (e) => ({ x: e.x, z: e.z }));
+      combatOverlay.syncBuildings(buildings, (e) => ({ x: e.x, z: e.z }), isHealthBarShown);
     }
     // Barres de PV pendant le placement (demande d'Antoine, 2026-08-09) : le
     // joueur doit voir l'etat de sante de son armee avant de valider, pas
-    // seulement pendant la bataille.
+    // seulement pendant la bataille. Meme regle qu'en bataille : blesse, ou
+    // selectionne (unites, bâtiments possedes, Baliste).
     if (inPlacementPhase) {
+      const upgrades = playerProgression().upgrades;
+      const selectedSlots = new Set(selectedIndices);
       const placedSlots = placementSlots.filter(
-        (s): s is PlacementSlot & { x: number; z: number } => s.x !== null && s.z !== null,
+        (s, i): s is PlacementSlot & { x: number; z: number } =>
+          s.x !== null && s.z !== null && (selectedSlots.has(i) || s.hp < effectivePlayerUnitMaxHp(s.unitId, upgrades)),
       );
-      combatOverlay.syncPlacement(placedSlots, (unitId) => effectivePlayerUnitMaxHp(unitId, playerProgression().upgrades));
+      const shownBuildings: PlacementBuildingHpSubject[] = [];
+      currentRun.buildings.forEach((owned, i) => {
+        // Bâtiment en cours de deplacement : son modele suit le curseur, sa
+        // position enregistree n'est plus la bonne.
+        if (buildingPlacementMode?.movingIndex === i) return;
+        const def = getBuilding(owned.buildingId);
+        if (i !== selectedBuildingIndex && owned.hp >= def.maxHp) return;
+        shownBuildings.push({ x: owned.x, z: owned.z, hp: owned.hp, maxHp: def.maxHp, radius: def.radius, hpBarHeight: def.hpBarHeight });
+      });
+      // La Baliste repart toujours a pleins PV (spawnBallistaBuilding) :
+      // en preparation, sa barre n'apparait que si elle est selectionnee.
+      if (placementBallistaSelected) {
+        const def = getBuilding('ballista');
+        const maxHp = effectiveBallistaMaxHp(upgrades);
+        shownBuildings.push({ x: playerArrowOrigin.x, z: playerArrowOrigin.z, hp: maxHp, maxHp, radius: def.radius, hpBarHeight: def.hpBarHeight });
+      }
+      combatOverlay.syncPlacement(placedSlots, (unitId) => effectivePlayerUnitMaxHp(unitId, upgrades), shownBuildings);
       // Aura de particules du talent "Recyclage" (2026-08-14) — voir
       // render/recyclageAura.ts. `key` = index REEL dans placementSlots (pas
       // dans placedSlots, filtre a part) pour rester stable avec le reste du

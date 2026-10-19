@@ -4,8 +4,8 @@ import { teamColor } from './unitSelectionRing';
 
 /**
  * Retour visuel d'un ordre de deplacement accepte en bataille, a la couleur
- * du camp qui l'a donne (l'attaque garde son propre anneau rouge, voir
- * BattleSelection) :
+ * du camp qui l'a donne (l'attaque a son propre retour, voir
+ * render/attackOrderFeedback.ts) :
  *  - une pulsation au point vise : anneau fin qui s'agrandit en s'estompant ;
  *  - pour un groupe, une petite pastille pleine sous chaque destination
  *    reellement attribuee. Pleine plutot qu'un anneau, pour ne jamais se

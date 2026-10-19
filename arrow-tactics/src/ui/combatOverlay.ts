@@ -11,10 +11,16 @@ import {
 } from '../config/constants';
 import { getUnit } from '../data/units';
 import type { Renderer } from '../render/renderer';
-import type { Entity } from '../sim/entity';
+import { teamColor } from '../render/unitSelectionRing';
+import type { Entity, Team } from '../sim/entity';
 
 /** Position monde (x, z) a utiliser pour ancrer la barre au-dessus d'une unite. */
 export type PositionResolver = (entity: Entity) => { x: number; z: number };
+
+/** Vrai si la barre de cette entite doit etre affichee (main.ts : entite
+ *  selectionnee, inspectee ou blessee). Les autres barres restent creees,
+ *  masquees. */
+export type HealthBarFilter = (entity: Entity) => boolean;
 
 /** Un seul emplacement DOM par barre de PV — voir createBar. Regroupe les
  *  references dont sync()/syncPlacement() ont besoin a CHAQUE frame, pour ne
@@ -32,6 +38,17 @@ export interface PlacementHpSubject {
   x: number;
   z: number;
   hp: number;
+}
+
+/** Bâtiment (Mine, Caserne, Forge, Baliste) en phase de placement : aucune
+ *  Entity non plus, l'appelant fournit PV, plafond et gabarit de BuildingDef. */
+export interface PlacementBuildingHpSubject {
+  x: number;
+  z: number;
+  hp: number;
+  maxHp: number;
+  radius: number;
+  hpBarHeight: number;
 }
 
 /**
@@ -77,7 +94,7 @@ export class CombatOverlay {
    * UnitViews.getPosition) et non recalculee a partir de prevX/x : sinon la
    * barre se detache du modele a chaque attaque, quand il avance puis recule.
    */
-  sync(entities: Entity[], resolvePosition: PositionResolver): void {
+  sync(entities: Entity[], resolvePosition: PositionResolver, isShown: HealthBarFilter = () => true): void {
     // Correctif de performance (2026-08-10, "gros souci de performance
     // d'affichage" remonte par Antoine des la vague 5, ~28 ennemis + armee) :
     // project() lisait canvas.clientWidth/clientHeight a CHAQUE entite, DANS
@@ -94,13 +111,13 @@ export class CombatOverlay {
     for (const entity of entities) {
       let refs = this.healthBars.get(entity.id);
 
-      if (!entity.alive) {
+      if (!entity.alive || !isShown(entity)) {
         if (refs) refs.bar.style.display = 'none';
         continue;
       }
 
       if (!refs) {
-        refs = this.createBar(entity.stats.maxHp, entity.stats.radius);
+        refs = this.createBar(entity.stats.maxHp, entity.stats.radius, entity.team);
         this.healthBars.set(entity.id, refs);
         this.root.appendChild(refs.bar);
       }
@@ -138,18 +155,18 @@ export class CombatOverlay {
    * `radius`/`hpBarHeight` viennent directement de BuildingDef, fournis par
    * l'appelant (main.ts).
    */
-  syncBuildings(buildings: { entity: Entity; radius: number; hpBarHeight: number }[], resolvePosition: PositionResolver): void {
+  syncBuildings(buildings: { entity: Entity; radius: number; hpBarHeight: number }[], resolvePosition: PositionResolver, isShown: HealthBarFilter = () => true): void {
     this.refreshCanvasSize();
     for (const { entity, radius, hpBarHeight } of buildings) {
       let refs = this.healthBars.get(entity.id);
 
-      if (!entity.alive) {
+      if (!entity.alive || !isShown(entity)) {
         if (refs) refs.bar.style.display = 'none';
         continue;
       }
 
       if (!refs) {
-        refs = this.createBar(entity.stats.maxHp, radius);
+        refs = this.createBar(entity.stats.maxHp, radius, entity.team);
         this.healthBars.set(entity.id, refs);
         this.root.appendChild(refs.bar);
       }
@@ -176,8 +193,14 @@ export class CombatOverlay {
    *  (voir run/unitUpgradeEffects.ts) — ce module ne connait pas ce systeme,
    *  il recoit juste le nombre deja calcule par l'appelant (main.ts), meme
    *  principe que `resolvePosition` ci-dessus. Repli sur le maxHp de BASE
-   *  (`getUnit(unitId).stats.maxHp`) si omis. */
-  syncPlacement(slots: PlacementHpSubject[], resolveMaxHp: (unitId: string) => number = (id) => getUnit(id).stats.maxHp): void {
+   *  (`getUnit(unitId).stats.maxHp`) si omis. `buildings` : bâtiments du
+   *  joueur a afficher, reconstruits de la meme facon. L'appelant ne passe
+   *  que les sujets dont la barre doit etre visible. */
+  syncPlacement(
+    slots: PlacementHpSubject[],
+    resolveMaxHp: (unitId: string) => number = (id) => getUnit(id).stats.maxHp,
+    buildings: PlacementBuildingHpSubject[] = [],
+  ): void {
     this.refreshCanvasSize();
     for (const bar of this.placementPipBars) bar.remove();
     this.placementPipBars.length = 0;
@@ -190,10 +213,21 @@ export class CombatOverlay {
 
       // Pas de Shield pendant le placement (aucune Entity n'existe encore,
       // voir PlacementHpSubject — le Shield ne peut exister qu'en bataille).
-      const { bar, fillEl } = this.createBar(maxHp, getUnit(slot.unitId).stats.radius);
+      const { bar, fillEl } = this.createBar(maxHp, getUnit(slot.unitId).stats.radius, 'player');
       bar.style.left = `${screen.x}px`;
       bar.style.top = `${screen.y}px`;
       this.updateFill(fillEl, slot.hp, maxHp);
+      this.root.appendChild(bar);
+      this.placementPipBars.push(bar);
+    }
+
+    for (const building of buildings) {
+      const screen = this.project(building.x, building.hpBarHeight, building.z);
+      if (!screen) continue;
+      const { bar, fillEl } = this.createBar(building.maxHp, building.radius, 'player');
+      bar.style.left = `${screen.x}px`;
+      bar.style.top = `${screen.y}px`;
+      this.updateFill(fillEl, building.hp, building.maxHp);
       this.root.appendChild(bar);
       this.placementPipBars.push(bar);
     }
@@ -274,7 +308,7 @@ export class CombatOverlay {
    *  config/constants.ts pour le detail du calibrage). `maxHp` ne sert plus
    *  qu'a decider du nombre de SEGMENTS decoratifs (voir plus bas), jamais
    *  de la largeur. */
-  private createBar(maxHp: number, radius: number): HealthBarRefs {
+  private createBar(maxHp: number, radius: number, team: Team): HealthBarRefs {
     const bar = document.createElement('div');
     bar.className = 'health-bar';
 
@@ -285,6 +319,9 @@ export class CombatOverlay {
     track.className = 'health-bar-track';
     const fillEl = document.createElement('div');
     fillEl.className = 'health-bar-fill';
+    // Couleur = camp (source commune des anneaux et de la fiche), longueur =
+    // PV restants : jamais de teinte selon la sante.
+    fillEl.style.background = `#${teamColor(team).toString(16).padStart(6, '0')}`;
     track.appendChild(fillEl);
 
     // Segments decoratifs (2026-08-14, demande explicite : "un petit trait
