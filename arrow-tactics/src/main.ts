@@ -34,7 +34,7 @@ import {
   type MapDef,
   type MapUnitPlacement,
 } from './config/mapDef';
-import { SURVIVAL_BASE_MAP } from './config/maps/survivalArena';
+import { SURVIVAL_ARENA_MAP, SURVIVAL_BASE_MAP } from './config/maps/survivalArena';
 import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type TerritoryCell, type TerritoryIndex } from './config/territory';
 import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapExpansion';
 import { Loop } from './core/loop';
@@ -43,7 +43,7 @@ import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMov
 import { getBuilding } from './data/buildings';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
 import { getUnit, type UnitStats } from './data/units';
-import { EDITOR_BALLISTA_OWNER, EditorState, type EditorMapShapeSnapshot, type EditorObjectsSnapshot } from './editor/editorState';
+import { EDITOR_BALLISTA_OWNER, EditorState, type EditorMapShapeSnapshot, type EditorObjectsSnapshot, type EditorTool } from './editor/editorState';
 import { EditorHistory } from './editor/history';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
@@ -1749,12 +1749,13 @@ let inTestMode = false;
 let editorState: EditorState | null = null;
 let editorAssets: EnvironmentAssets | null = null;
 let editorGhost: THREE.Object3D | null = null;
-// Map d'origine de la session d'edition en cours : DEFAULT_MAP par defaut,
+// Map d'origine de la session d'edition en cours : l'arene officielle du Mode
+// survie complete (SURVIVAL_ARENA_MAP, unites de scenario comprises) par defaut,
 // remplacee par le fichier charge via "Charger une carte" (voir onLoad) —
 // c'est elle qui fournit la taille/les unites de depart au moment
 // d'exporter (voir mapSerializer.ts, exportMapDef), puisque l'editeur
 // n'edite encore que les obstacles.
-let editorBaseMap: MapDef = DEFAULT_MAP;
+let editorBaseMap: MapDef = SURVIVAL_ARENA_MAP;
 
 /** Brouillon de l'editeur "propre" (E5) : export canonique de la carte au
  *  dernier etat ouvert, charge ou enregistre — null pour une carte jamais
@@ -1912,6 +1913,20 @@ renderer.scene.add(editorBoardGroup);
  *  assez rare pour rester simple). */
 function rebuildEditorBoard(): void {
   if (!editorState) return;
+  // Les dalles et la grille sont reconstruites a chaque changement de case
+  // (y compris pendant un trait de pinceau) : leurs geometries et materiaux
+  // sont liberes. Les textures du sol sont partagees (render/textures.ts) et
+  // les zones utilisent des ressources partagees : jamais liberees ici.
+  for (const child of editorBoardGroup.children) {
+    if (child === editorZonesGroup) continue;
+    child.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.geometry) return;
+      mesh.geometry.dispose();
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) material?.dispose();
+    });
+  }
   editorBoardGroup.clear();
   // Terrain PAR CELLULE (2026-08-16, chantier map irreguliere) : reflete
   // exactement editorState.cells, y compris les trous crees via l'outil
@@ -2518,7 +2533,10 @@ async function enterEditor(): Promise<void> {
   cameraBeforeEditor = renderer.getViewState();
 
   if (!editorAssets) editorAssets = await loadEnvironmentAssets();
-  editorBaseMap = DEFAULT_MAP;
+  // Ouverture sur l'arene officielle complete (terrain, decors, territoire,
+  // unites de scenario, Baliste) ; DEFAULT_MAP ne sert plus qu'aux
+  // dimensions de "Nouvelle carte".
+  editorBaseMap = SURVIVAL_ARENA_MAP;
   editorState = new EditorState(editorBaseMap);
   editorHistory.clear();
   rebuildEditorBoard();
@@ -2767,57 +2785,115 @@ function updateEditorGhost(x: number, z: number): void {
   }
 }
 
-/** Trait de pinceau de territoire en cours (bouton gauche maintenu) : tout
- *  le trait forme UNE entree d'historique, creee au relachement s'il a
- *  change quelque chose. `before` : etat du territoire a l'appui. */
-let territoryStroke: { before: TerritoryCell[] | undefined; changed: boolean; lastKey: string | null } | null = null;
+/** Trait de pinceau en cours (bouton gauche maintenu) des outils
+ *  repetables sur les cases : peindre le territoire, ajouter ou supprimer
+ *  une case. Chaque case survolee est traitee au plus une fois ; tout le
+ *  trait forme UNE entree d'historique, creee au relachement s'il a change
+ *  quelque chose. `before` : territoire (et forme de la carte pour les
+ *  outils de case) a l'appui. */
+type BrushTool = 'paint-territory' | 'add-cell' | 'remove-cell';
+interface BrushStroke {
+  tool: BrushTool;
+  visited: Set<string>;
+  changed: boolean;
+  beforeTerritory: TerritoryCell[] | undefined;
+  beforeShape: EditorMapShapeSnapshot | null;
+}
+let brushStroke: BrushStroke | null = null;
 
-/** Peint la case sous (x, z) avec le pinceau actif — une seule fois par
- *  case pendant un meme trait. */
-function paintTerritoryAt(x: number, z: number): void {
-  if (!editorState || !territoryStroke || editorState.tool.type !== 'paint-territory') return;
+function isBrushTool(type: EditorTool['type']): type is BrushTool {
+  return type === 'paint-territory' || type === 'add-cell' || type === 'remove-cell';
+}
+
+/** Commence un trait avec l'outil actif (appui gauche au sol). */
+function startBrushStroke(tool: BrushTool): void {
+  if (!editorState) return;
+  brushStroke = {
+    tool,
+    visited: new Set(),
+    changed: false,
+    beforeTerritory: editorState.territorySnapshot(),
+    beforeShape: tool === 'paint-territory' ? null : editorState.mapShapeSnapshot(),
+  };
+}
+
+/** Applique l'outil du trait a la case sous (x, z), une seule fois par case
+ *  pendant le trait. Le plateau n'est reconstruit que si la case change
+ *  reellement. */
+function brushAt(x: number, z: number): void {
+  const stroke = brushStroke;
+  if (!editorState || !stroke || editorState.tool.type !== stroke.tool) return;
   const cellX = Math.floor(x);
   const cellZ = Math.floor(z);
   const key = `${cellX},${cellZ}`;
-  if (key === territoryStroke.lastKey) return;
-  territoryStroke.lastKey = key;
-  if (editorState.paintTerritoryCell(cellX, cellZ, editorState.tool.team)) {
-    territoryStroke.changed = true;
-    refreshEditorZones();
+  if (stroke.visited.has(key)) return;
+  stroke.visited.add(key);
+  const tool = editorState.tool;
+  if (tool.type === 'paint-territory') {
+    if (editorState.paintTerritoryCell(cellX, cellZ, tool.team)) {
+      stroke.changed = true;
+      refreshEditorZones();
+    }
+    return;
   }
+  // Memes regles qu'un clic isole (addCell / removeCell, qui retire aussi le
+  // territoire explicite de la case supprimee).
+  const changed = tool.type === 'add-cell' ? editorState.addCell(cellX, cellZ, tool.terrain) : editorState.removeCell(cellX, cellZ);
+  if (!changed) return;
+  stroke.changed = true;
+  rebuildEditorBoard();
+  updateEditorGhost(x, z);
 }
 
-/** Termine le trait en cours : une entree d'historique s'il a change le
- *  territoire (annuler revient a l'etat d'avant le trait, y compris
- *  "aucun territoire explicite" pour une ancienne map). */
-function endTerritoryStroke(): void {
-  const stroke = territoryStroke;
-  territoryStroke = null;
+/** Termine le trait en cours : une entree d'historique s'il a change quelque
+ *  chose. Annuler revient exactement a l'etat d'avant le trait (cases et
+ *  territoire, y compris "aucun territoire explicite" pour une ancienne
+ *  map) ; retablir rejoue le trait entier. */
+function endBrushStroke(): void {
+  const stroke = brushStroke;
+  brushStroke = null;
   if (!editorState || !stroke?.changed) return;
-  const before = stroke.before;
-  const after = editorState.territorySnapshot();
+  const beforeTerritory = stroke.beforeTerritory;
+  const afterTerritory = editorState.territorySnapshot();
+  const beforeShape = stroke.beforeShape;
+  if (!beforeShape) {
+    editorHistory.push({
+      undo: () => {
+        editorState?.restoreTerritory(beforeTerritory);
+        refreshEditorZones();
+      },
+      redo: () => {
+        editorState?.restoreTerritory(afterTerritory);
+        refreshEditorZones();
+      },
+    });
+    return;
+  }
+  const afterShape = editorState.mapShapeSnapshot();
   editorHistory.push({
     undo: () => {
-      editorState?.restoreTerritory(before);
-      refreshEditorZones();
+      editorState?.restoreMapShape(beforeShape);
+      editorState?.restoreTerritory(beforeTerritory);
+      rebuildEditorBoard();
     },
     redo: () => {
-      editorState?.restoreTerritory(after);
-      refreshEditorZones();
+      editorState?.restoreMapShape(afterShape);
+      editorState?.restoreTerritory(afterTerritory);
+      rebuildEditorBoard();
     },
   });
 }
 
 window.addEventListener('mousemove', (event) => {
-  if (!territoryStroke || !inEditorMode) return;
+  if (!brushStroke || !inEditorMode) return;
   setRaycasterFromEvent(event);
-  if (raycaster.ray.intersectPlane(groundPlane, groundHit)) paintTerritoryAt(groundHit.x, groundHit.z);
+  if (raycaster.ray.intersectPlane(groundPlane, groundHit)) brushAt(groundHit.x, groundHit.z);
 });
 window.addEventListener('mouseup', (event) => {
-  if (event.button === 0 && territoryStroke) endTerritoryStroke();
+  if (event.button === 0 && brushStroke) endBrushStroke();
 });
 window.addEventListener('blur', () => {
-  if (territoryStroke) endTerritoryStroke();
+  if (brushStroke) endBrushStroke();
 });
 
 function handleEditorClick(event: MouseEvent): void {
@@ -2843,61 +2919,13 @@ function handleEditorClick(event: MouseEvent): void {
     return;
   }
 
-  if (editorState.tool.type === 'add-cell') {
-    // Outil REPETABLE (Part Y : "puis autre clic -> une autre cellule") :
-    // contrairement au placement d'obstacle/unite, ne revient JAMAIS a
-    // l'outil selection tout seul — reste actif pour poser plusieurs cases
-    // de suite, jusqu'a ce qu'Antoine choisisse autre chose (Echap, un autre
-    // outil, clic droit).
-    const cellX = Math.floor(groundHit.x);
-    const cellZ = Math.floor(groundHit.z);
-    const terrain = editorState.tool.terrain;
-    if (editorState.addCell(cellX, cellZ, terrain)) {
-      editorHistory.push({
-        undo: () => {
-          editorState?.removeCell(cellX, cellZ);
-          rebuildEditorBoard();
-        },
-        redo: () => {
-          editorState?.addCell(cellX, cellZ, terrain);
-          rebuildEditorBoard();
-        },
-      });
-      rebuildEditorBoard();
-    }
-    updateEditorGhost(groundHit.x, groundHit.z);
-    return;
-  }
-
-  if (editorState.tool.type === 'paint-territory') {
-    // Outil REPETABLE comme "Ajouter case" : l'appui commence un trait, le
-    // glisser peint les cases survolees, le relachement le termine.
-    territoryStroke = { before: editorState.territorySnapshot(), changed: false, lastKey: null };
-    paintTerritoryAt(groundHit.x, groundHit.z);
-    return;
-  }
-
-  if (editorState.tool.type === 'remove-cell') {
-    const cellX = Math.floor(groundHit.x);
-    const cellZ = Math.floor(groundHit.z);
-    const removed = editorState.cells.find((c) => c.x === cellX && c.z === cellZ);
-    // La case emporte son territoire explicite (voir EditorState.removeCell) :
-    // annuler le restaure aussi.
-    const territoryBefore = editorState.territorySnapshot();
-    if (removed && editorState.removeCell(cellX, cellZ)) {
-      editorHistory.push({
-        undo: () => {
-          editorState?.addCell(removed.x, removed.z, removed.terrain);
-          editorState?.restoreTerritory(territoryBefore);
-          rebuildEditorBoard();
-        },
-        redo: () => {
-          editorState?.removeCell(removed.x, removed.z);
-          rebuildEditorBoard();
-        },
-      });
-      rebuildEditorBoard();
-    }
+  // Outils REPETABLES (+ Case, - Case, Territoire) : ne reviennent jamais
+  // seuls a l'outil Selection. L'appui commence un trait, le glisser traite
+  // les cases survolees, le relachement le termine (un seul Ctrl+Z).
+  if (isBrushTool(editorState.tool.type)) {
+    if (brushStroke) endBrushStroke();
+    startBrushStroke(editorState.tool.type);
+    brushAt(groundHit.x, groundHit.z);
     updateEditorGhost(groundHit.x, groundHit.z);
     return;
   }
@@ -5710,7 +5738,7 @@ window.addEventListener('keydown', (event) => {
   if (inEditorMode && (event.ctrlKey || event.metaKey) && !event.altKey) {
     // Un trait de territoire en cours est d'abord enregistre : annuler /
     // retablir agit toujours sur un historique complet.
-    if (territoryStroke) endTerritoryStroke();
+    if (brushStroke) endBrushStroke();
     if (event.key === 'z' || event.key === 'Z') {
       event.preventDefault();
       if (event.shiftKey) editorHistory.redo();

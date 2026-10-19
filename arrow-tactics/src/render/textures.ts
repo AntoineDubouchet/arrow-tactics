@@ -12,22 +12,26 @@ import * as THREE from 'three';
  * CLAUDE.md (Stack) — la regle "aucun asset graphique" ne s'appliquait de
  * toute facon deja plus a ces elements-la.
  *
- * Chaque appel charge une instance FRAICHE (jamais un clone d'une texture
- * partagee) : cloner une THREE.Texture chargee par reseau AVANT la fin de
- * son chargement ne propage pas l'image une fois arrivee (piege connu de
- * Three.js — `clone()` copie la reference `.image` au moment de l'appel,
- * pas les mises a jour futures declenchees par le callback de chargement) —
- * plus simple et plus sur de relancer un chargement independant a chaque
- * fois. Le cache HTTP du navigateur rend les appels suivants quasi
- * gratuits ; ces fonctions ne sont de toute facon appelees qu'a la
- * construction d'un plateau (jeu ou editeur), jamais dans une boucle
- * chaude.
+ * Une SEULE instance par texture, chargee au premier appel puis partagee
+ * par tous les plateaux (jeu, editeur, test) — jamais un clone : cloner une
+ * THREE.Texture chargee par reseau AVANT la fin de son chargement ne
+ * propage pas l'image une fois arrivee (piege connu de Three.js). Partager
+ * la meme instance n'a pas ce probleme : l'image arrivee profite a tous les
+ * materiaux. Un nouveau chargement a chaque appel rendait le sol NOIR le
+ * temps du decodage de l'image (flash a chaque ajout/suppression de case
+ * dans l'editeur, qui reconstruit le terrain). Ne jamais liberer ces
+ * textures (dispose) : elles sont partagees.
  */
 
 const TEX_DIR = '/textures/ground';
 
+const groundTextures = new Map<string, THREE.Texture>();
+
 function loadGroundTexture(name: string): THREE.Texture {
+  const cached = groundTextures.get(name);
+  if (cached) return cached;
   const texture = new THREE.TextureLoader().load(`${TEX_DIR}/${name}`);
+  groundTextures.set(name, texture);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.colorSpace = THREE.SRGBColorSpace;
