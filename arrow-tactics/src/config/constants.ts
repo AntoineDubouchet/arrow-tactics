@@ -433,8 +433,32 @@ export interface ObstacleDef {
   /** Orientation forcee (radians, autour de l'axe vertical) au lieu du
    *  tirage aleatoire habituel — utilisee par l'editeur de maps pour que la
    *  rotation choisie par Antoine survive au lieu d'etre re-tiree au hasard
-   *  a chaque rendu. Si absent, comportement inchange (rotation aleatoire). */
+   *  a chaque rendu. Si absent, orientation fixee par la graine d'aspect
+   *  (voir obstacleAppearanceSeed). */
   rotationY?: number;
+  /** Graine d'aspect figée (orientation sans rotationY, forme d'un rocher,
+   *  hauteur d'un arbre). Absente : dérivée de la position, voir
+   *  obstacleAppearanceSeed. Écrite par l'agrandissement de la carte quand
+   *  il déplace un décor, pour qu'il garde le même aspect. */
+  appearanceSeed?: number;
+}
+
+/** Graine de l'aspect d'un décor : `appearanceSeed` s'il est fixé, sinon un
+ *  hachage de son type, de son modèle, de sa taille et de la position de son
+ *  centre. Le même décor a donc toujours le même aspect, dans l'éditeur comme
+ *  en jeu ; déplacé dans l'éditeur, il en change. La rotation n'entre pas
+ *  dans le calcul. */
+export function obstacleAppearanceSeed(o: ObstacleDef): number {
+  if (o.appearanceSeed !== undefined) return o.appearanceSeed >>> 0;
+  const center = obstacleCenter(o);
+  const key = [o.kind, o.treeModel ?? '', o.propModel ?? '', o.buildingModel ?? '', o.tilesX, o.tilesZ, o.scale ?? 1, Math.round(center.x * 1000), Math.round(center.z * 1000)].join('|');
+  // FNV-1a 32 bits.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
 }
 
 /** Un `prop` (champignon, buisson, fleur, buche, panneau...) est purement

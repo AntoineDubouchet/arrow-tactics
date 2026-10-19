@@ -18,7 +18,7 @@ import { cloneScaledTo, pickRandom, type EnvironmentAssets } from './assetLibrar
  * designe parfois un arbre par son apparence et veut le meme ailleurs,
  * plutot que de laisser le hasard decider).
  */
-export function createTreeObstacle(def: ObstacleDef, assets: EnvironmentAssets): THREE.Group {
+export function createTreeObstacle(def: ObstacleDef, assets: EnvironmentAssets, random: () => number): THREE.Group {
   const width = def.tilesX * TILE;
   const depth = def.tilesZ * TILE;
   const { x: centerX, z: centerZ } = obstacleCenter(def);
@@ -28,14 +28,14 @@ export function createTreeObstacle(def: ObstacleDef, assets: EnvironmentAssets):
   // l'arbre lisait un peu chetif a cote du rocher. `def.scale` multiplie ce
   // resultat pour varier deliberement la stature d'un arbre precis, au-dela
   // de la petite variation aleatoire deja presente ici.
-  const targetHeight = (1.6 + footprint * 0.4 + Math.random() * 0.4) * 1.2 * (def.scale ?? 1);
+  const targetHeight = (1.6 + footprint * 0.4 + random() * 0.4) * 1.2 * (def.scale ?? 1);
 
-  const prototype = def.treeModel ? assets.treesByName[def.treeModel] ?? pickRandom(assets.trees) : pickRandom(assets.trees);
+  const prototype = def.treeModel ? assets.treesByName[def.treeModel] ?? pickRandom(assets.trees, random) : pickRandom(assets.trees, random);
   const tree = cloneScaledTo(prototype, targetHeight, 'height');
   // Rotation forcee si fournie (voir ObstacleDef.rotationY, utilisee par
   // l'editeur de maps pour que la rotation choisie par Antoine survive),
-  // sinon comportement inchange (aleatoire a chaque rendu).
-  tree.rotation.y = def.rotationY ?? Math.random() * Math.PI * 2;
+  // sinon tiree par `random` (graine d'aspect, voir obstacleFactory.ts).
+  tree.rotation.y = def.rotationY ?? random() * Math.PI * 2;
   tree.position.x += centerX;
   tree.position.z += centerZ;
 

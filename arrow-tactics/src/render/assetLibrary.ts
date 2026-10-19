@@ -543,8 +543,8 @@ export function loadEnvironmentAssets(): Promise<EnvironmentAssets> {
   return cachedAssets;
 }
 
-export function pickRandom<T>(items: T[]): T {
-  return items[Math.floor(Math.random() * items.length)]!;
+export function pickRandom<T>(items: T[], random: () => number = Math.random): T {
+  return items[Math.floor(random() * items.length)]!;
 }
 
 /**

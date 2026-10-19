@@ -27,13 +27,14 @@ import {
   BALLISTA_PLACEMENT_TILES,
   computeBallistaObstacle,
   computeMapCellBounds,
-  computePlayerArrowOrigin,
+  resolveMapCells,
   DEFAULT_MAP,
   resolveBallistaOrigin,
   snapBallistaOrigin,
   type MapDef,
   type MapUnitPlacement,
 } from './config/mapDef';
+import { SURVIVAL_BASE_MAP } from './config/maps/survivalArena';
 import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type TerritoryCell, type TerritoryIndex } from './config/territory';
 import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapExpansion';
 import { Loop } from './core/loop';
@@ -147,7 +148,6 @@ import type { ArrowShotSpec } from './sim/playerArrow';
 import { World } from './sim/world';
 import { initAudio, persistAudioSettings } from './audio';
 import { BuildingRotationHint } from './ui/buildingRotationHint';
-import { TowerPlacementBanner } from './ui/towerPlacementBanner';
 import { WaveIndicator } from './ui/waveIndicator';
 import { BallistaIndicator, type BallistaStatus } from './ui/ballistaIndicator';
 import { EntityInfoPanel } from './ui/entityInfoPanel';
@@ -173,7 +173,6 @@ const projectiles = new Projectiles();
 const playerArrowView = new PlayerArrowView();
 const waveIndicator = new WaveIndicator();
 const buildingRotationHint = new BuildingRotationHint();
-const towerPlacementBanner = new TowerPlacementBanner();
 
 // Pendant la bataille, le joueur est toujours en controle RTS : clic gauche
 // pour selectionner, clic droit pour ordonner. La Baliste tire avec Q (voir
@@ -208,9 +207,11 @@ const vfxManager = new VfxManager(fireballView, shadowProjectileView);
 // soit directement chargeable ici sans rien changer d'autre. `let` (pas
 // `const`) depuis "Tester le scenario" (voir testScenario) : le temps du
 // test, currentMap devient temporairement la map en cours d'edition, puis
-// revient a DEFAULT_MAP au retour dans l'editeur — le flux normal (menu ->
-// Jouer) ne doit jamais voir la map de test.
-let currentMap = DEFAULT_MAP;
+// revient a la map d'avant le test au retour dans l'editeur — le Mode survie
+// ne doit jamais voir la map de test. Carte de depart du Mode survie :
+// SURVIVAL_BASE_MAP (config/maps/survivalArena.ts), jamais mutee (l'expansion
+// produit de nouvelles MapDef).
+let currentMap: MapDef = SURVIVAL_BASE_MAP;
 world.setMap(currentMap);
 
 // Chargement asynchrone : les rochers/arbres viennent de vrais modeles .glb
@@ -248,13 +249,12 @@ renderer.scene.add(recyclageAuraView.group);
 renderer.scene.add(tauntVfxView.group);
 renderer.scene.add(shadowProjectileView.group);
 
-// Baliste du joueur : postee au coin du plateau d'ou part la fleche (voir
-// computePlayerArrowOrigin — calculee depuis la taille REELLE de currentMap,
-// pas une coordonnee fixe, pour rester dans le coin si la map est agrandie),
-// orientee vers le centre du plateau. Meme convention de cap que le reste du
+// Baliste du joueur : a la position definie par la carte (MapDef.ballista,
+// voir resolveBallistaOrigin — sinon repli historique du coin), orientee vers
+// le centre du plateau. Meme convention de cap que le reste du
 // rendu (voir UnitViews.computeFacing) : l'unite locale -Z est "l'avant" de
 // la baliste.
-let playerArrowOrigin = computePlayerArrowOrigin(currentMap);
+let playerArrowOrigin = resolveBallistaOrigin(currentMap);
 // Essai "baliste sur tour" (2026-08-14, demande d'Antoine — voir
 // render/ballista.ts, buildBallistaTowerPlatform) : la baliste est posee au
 // sommet d'une tour KayKit agrandie plutot que directement au sol.
@@ -284,132 +284,6 @@ function repositionBallista(origin: { x: number; z: number } = playerArrowOrigin
   ballistaPlatform.position.set(origin.x, 0, origin.z);
   ballista.rotation.y = Math.atan2(origin.x, origin.z);
 }
-
-/**
- * Placement OBLIGATOIRE de la tour/Baliste au tout début d'une run
- * (2026-08-18, demande explicite d'Antoine : "la PREMIÈRE CHOSE à faire...
- * doit être PLACER SA TOUR" — remplace l'ancienne position FIXE dans le
- * coin, voir CLAUDE.md). Reprend les mêmes primitives que le placement d'un
- * bâtiment acheté (case verte/rouge, `isValidPlacementTile`) — jamais
- * `buildingPlacementMode`/`requestPlaceBuilding` directement, dont la
- * sémantique suppose soit un ACHAT (jamais le cas ici, la tour n'a pas de
- * cout) soit un OwnedBuilding déjà existant à déplacer (la Baliste n'en est
- * jamais un, voir RunState.ballistaPosition).
- *
- * Actif UNIQUEMENT dans la fenêtre étroite entre startNewRun() et la
- * confirmation d'un emplacement valide : `inPlacementPhase` reste FALSE
- * pendant tout ce temps, donc rien du flow normal (unités, boutique,
- * "Prêt pour la bataille") n'est même accessible — bloque naturellement
- * toute progression tant que la tour n'est pas posée (demande explicite,
- * point 19), sans garde supplémentaire à écrire ailleurs.
- */
-let towerPlacementActive = false;
-
-/** Empreinte de placement en cases ENTIÈRES — BALLISTA_TOWER_FOOTPRINT (2.4)
- *  est une taille CONTINUE pensée pour la collision fine (voir
- *  computeBallistaObstacle), arrondie au-dessus ici pour un alignement de
- *  grille cohérent avec le reste du placement (Mine/Caserne, toujours des
- *  cases entières). */
-const TOWER_PLACEMENT_FOOTPRINT_TILES = Math.ceil(BALLISTA_TOWER_FOOTPRINT);
-
-function beginTowerPlacement(): void {
-  // BUG CORRIGE (2026-08-18, trouve en testant en direct) : startPlacement()
-  // masquait deja l'ecran actif (screens.hideAll()) comme SA toute premiere
-  // action — en l'appelant desormais APRES la confirmation de la tour au
-  // lieu d'AU DEMARRAGE, plus rien ne fermait jamais le menu principal (ou
-  // l'ecran de fin de vague) en entrant dans cette phase : son overlay HTML
-  // plein ecran restait au-dessus du canvas et interceptait tous les clics,
-  // rendant le placement de la tour impossible a valider.
-  screens.hideAll();
-  towerPlacementActive = true;
-  towerPlacementBanner.setVisible(true);
-  board.gridLines.visible = true;
-  board.zones.visible = true;
-  waveIndicator.update(currentRun.waveNumber);
-  waveIndicator.setVisible(true);
-}
-
-/** Valide si TOUTES les cases qu'occuperait la tour sont valides — réutilise
- *  isValidPlacementTile telle quelle (mêmes règles qu'un bâtiment acheté :
- *  zone du joueur, aucun obstacle/bâtiment/unité déjà présent). Aucun
- *  `excludeBuildingIndex` : la tour n'est jamais dans currentRun.buildings. */
-function isTowerPlacementValid(cornerX: number, cornerZ: number): boolean {
-  return buildingFootprintCells(cornerX, cornerZ, TOWER_PLACEMENT_FOOTPRINT_TILES, TOWER_PLACEMENT_FOOTPRINT_TILES).every((c) =>
-    isValidPlacementTile(c.x, c.z, []),
-  );
-}
-
-/** Fait suivre le curseur par l'aperçu de cases (vert/rouge) ET par le VRAI
- *  modèle de la tour (pas un fantôme cloné semi-transparent — la plateforme
- *  n'a pas d'équivalent dans le catalogue buildGhost/buildObstacleMesh, voir
- *  render/ballista.ts ; le joueur voit ainsi directement sa vraie tour se
- *  déplacer, à pleine opacité). */
-function updateTowerPlacementGhost(x: number, z: number): void {
-  if (!towerPlacementActive) return;
-  const { cornerX, cornerZ } = computeBuildingFootprintCorner(x, z, TOWER_PLACEMENT_FOOTPRINT_TILES, TOWER_PLACEMENT_FOOTPRINT_TILES);
-  const valid = isTowerPlacementValid(cornerX, cornerZ);
-  buildingPlacementGroup.clear();
-  for (let dz = 0; dz < TOWER_PLACEMENT_FOOTPRINT_TILES; dz++) {
-    for (let dx = 0; dx < TOWER_PLACEMENT_FOOTPRINT_TILES; dx++) buildingPlacementGroup.add(buildCellPreview(cornerX + dx, cornerZ + dz, valid));
-  }
-  const previewX = cornerX + TOWER_PLACEMENT_FOOTPRINT_TILES / 2;
-  const previewZ = cornerZ + TOWER_PLACEMENT_FOOTPRINT_TILES / 2;
-  ballistaPlatform.position.set(previewX, 0, previewZ);
-  ballista.rotation.y = Math.atan2(previewX, previewZ);
-}
-
-/** Valide le placement sur la case survolée — no-op silencieux si invalide
- *  (même convention que confirmBuildingPlacement/un clic de placement
- *  d'unité qui échoue) : le joueur reste dans l'état "tour à placer" tant
- *  qu'il n'a pas cliqué sur une case valide, jamais de bâtiment perdu ni
- *  d'état cassé (demande explicite, points 19/28). */
-function confirmTowerPlacement(event: MouseEvent): void {
-  if (!towerPlacementActive) return;
-  setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
-  const { cornerX, cornerZ } = computeBuildingFootprintCorner(groundHit.x, groundHit.z, TOWER_PLACEMENT_FOOTPRINT_TILES, TOWER_PLACEMENT_FOOTPRINT_TILES);
-  if (!isTowerPlacementValid(cornerX, cornerZ)) return;
-
-  const x = cornerX + TOWER_PLACEMENT_FOOTPRINT_TILES / 2;
-  const z = cornerZ + TOWER_PLACEMENT_FOOTPRINT_TILES / 2;
-  currentRun.ballistaPosition = { x, z };
-  playerArrowOrigin = { x, z };
-  ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
-  repositionBallista();
-
-  towerPlacementActive = false;
-  towerPlacementBanner.setVisible(false);
-  buildingPlacementGroup.clear();
-
-  // Flow normal (demande explicite, point 23 : "valider le placement ->
-  // créer la tour -> ensuite passer au flow normal de préparation").
-  startPlacement();
-}
-
-/** Clic gauche de placement de la tour, en attente de son relachement : la
- *  tour n'est posee qu'au relachement, pour qu'un clic droit ajoute entre-
- *  temps (pan gauche + droit, voir cancelLeftPointerGestures) annule le
- *  placement au lieu de poser la tour par accident. */
-let towerPlacementClickPending = false;
-
-canvas.addEventListener('mousedown', (event) => {
-  if (event.button !== 0 || !towerPlacementActive || leftClickReservedForCamera(event)) return;
-  towerPlacementClickPending = true;
-});
-
-window.addEventListener('mouseup', (event) => {
-  if (event.button !== 0 || !towerPlacementClickPending) return;
-  towerPlacementClickPending = false;
-  // Relache sur une interface HTML plutot que sur le plateau : aucun placement.
-  if (event.target === canvas) confirmTowerPlacement(event);
-});
-
-window.addEventListener('mousemove', (event) => {
-  if (!towerPlacementActive) return;
-  setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
-  updateTowerPlacementGhost(groundHit.x, groundHit.z);
-});
 
 repositionBallista();
 renderer.scene.add(ballistaPlatform);
@@ -442,7 +316,7 @@ renderer.scene.add(ballistaPlatform);
 // tour est reellement placee par le joueur (voir confirmTowerPlacement) ou
 // que la map s'agrandit — valeur de repli ici (avant meme qu'un run existe)
 // sans consequence, voir computeBallistaObstacle.
-let ballistaObstacleDef: ObstacleDef = computeBallistaObstacle(computePlayerArrowOrigin(currentMap));
+let ballistaObstacleDef: ObstacleDef = computeBallistaObstacle(playerArrowOrigin);
 // Groupe dedie aux debris de destruction (voir render/buildingView.ts) —
 // meme convention que les autres vues VFX du jeu (fireballView.group, etc.).
 const buildingVfxGroup = new THREE.Group();
@@ -505,12 +379,6 @@ function ownedBuildingObstacle(owned: OwnedBuilding): ObstacleDef {
  *  regarde). */
 function activeBuildingObstacles(excludeBuildingIndex?: number): ObstacleDef[] {
   const owned = currentRun.buildings.filter((_, i) => i !== excludeBuildingIndex);
-  // Pendant le placement OBLIGATOIRE de la tour (2026-08-18, voir
-  // towerPlacementActive), `ballistaObstacleDef` pointe encore vers une
-  // position de REPLI (voir rebuildGameBoardVisuals) — aucune vraie tour
-  // n'existe encore a cet endroit, l'exclure evite un faux blocage qui
-  // rendrait UNE case invalide sans raison reelle.
-  if (towerPlacementActive) return owned.map(ownedBuildingObstacle);
   return [...owned.map(ownedBuildingObstacle), ballistaObstacleDef];
 }
 
@@ -582,7 +450,7 @@ function findHoveredOwnedBuilding(event: MouseEvent): number | null {
  * Reconstruit le plateau visuel REEL (sol/grille/zones/obstacles) et
  * repositionne la Baliste, a partir de `currentMap`/`spawnDepth` ACTUELS
  * (2026-08-18) — factorise entre applyMapExpansionForCompletedWave
- * (agrandissement en cours de run) et resetGameBoardToDefaultMap (retour a
+ * (agrandissement en cours de run) et resetGameBoardToSurvivalMap (retour a
  * la carte de depart pour une run neuve, voir startNewRun) : les deux
  * situations impliquent exactement la meme reconstruction. N'appelle
  * JAMAIS world.setMap()/refreshOwnedBuildingViews() elle-meme — les
@@ -591,14 +459,10 @@ function findHoveredOwnedBuilding(event: MouseEvent): number | null {
  * seulement pour une vraie expansion, jamais pour un reset).
  */
 async function rebuildGameBoardVisuals(spawnDepth: number): Promise<void> {
-  // Position REELLE de la tour (2026-08-18, placement libre au debut de run —
-  // voir currentRun.ballistaPosition) si elle a deja ete choisie par le
-  // joueur, sinon repli sur l'ancienne formule de coin fixe — ce repli ne
-  // sert que juste AVANT que le joueur ne place sa tour (resetGameBoardToDefaultMap,
-  // appelee par startNewRun avant beginTowerPlacement) ; une fois la tour
-  // placee, ce meme appel (depuis applyMapExpansionForCompletedWave)
-  // preserve desormais sa VRAIE position au lieu de la faire sauter au coin.
-  playerArrowOrigin = currentRun.ballistaPosition ?? computePlayerArrowOrigin(currentMap);
+  // Position de la Baliste de la run (currentRun.ballistaPosition, fixee au
+  // demarrage depuis la carte, voir startNewRun) ; hors run, celle de la
+  // carte. Jamais deplacee par l'expansion (camp joueur fixe).
+  playerArrowOrigin = currentRun.ballistaPosition ?? resolveBallistaOrigin(currentMap);
   ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
 
@@ -676,8 +540,8 @@ async function applyMapExpansionForCompletedWave(completedWave: number): Promise
  * taille agrandie, desynchronises de `currentRun.mapExpansion` (repartie a
  * zero).
  */
-async function resetGameBoardToDefaultMap(): Promise<void> {
-  currentMap = DEFAULT_MAP;
+async function resetGameBoardToSurvivalMap(): Promise<void> {
+  currentMap = SURVIVAL_BASE_MAP;
   rebuildCurrentTerritoryIndex();
   await rebuildGameBoardVisuals(currentRun.mapExpansion.spawnDepth);
   world.setMap(currentMap);
@@ -1732,36 +1596,53 @@ function resetRunPlacementState(): void {
   refreshOwnedBuildingViews();
 }
 
-/** Clic sur "Jouer" au menu principal : demarre une run TOUTE NEUVE (or et
+/** Clic sur "Mode survie" au menu principal : demarre une run TOUTE NEUVE (or et
  *  armee reinitialises, voir createNewRun) avant d'entrer en placement —
  *  contrairement a "Continuer" depuis la boutique, qui reutilise la run en
  *  cours pour passer a la vague suivante (voir startPlacement seul). */
 function startNewRun(): void {
   currentRun = createFreshRun();
+  // Baliste native (Mode survie) : creee directement a la position definie
+  // par la carte officielle (MapDef.ballista), sans placement par le joueur.
+  currentRun.ballistaPosition = resolveBallistaOrigin(SURVIVAL_BASE_MAP);
   rebuildCurrentTerritoryIndex();
   resetRunPlacementState();
   // Une run PRECEDENTE peut avoir agrandi le plateau (2026-08-18, voir
   // applyMapExpansionForCompletedWave) — currentMap est un module partage
   // entre runs, currentRun.mapExpansion vient de repartir de zero ci-dessus
   // mais currentMap/le rendu ne le savent pas encore : resynchronise AVANT
-  // de commencer le placement obligatoire de la tour (jamais en parallele —
-  // beginTowerPlacement() lirait sinon un plateau perime le temps de la
-  // reconstruction async). Reste synchrone (`() => void`, signature exigee
-  // par ScreenHandlers.onPlay) : le cas courant (aucune expansion a defaire)
-  // demarre immediatement, seul le cas rare (retour d'une run avancee)
-  // attend la reconstruction avant de le faire.
-  //
-  // Placement OBLIGATOIRE de la tour (2026-08-18, demande explicite
-  // d'Antoine : "la première chose à faire... doit être PLACER SA TOUR") —
-  // remplace l'ancien appel direct a startPlacement() : currentRun.ballistaPosition
-  // est TOUJOURS null ici (createNewRun ci-dessus), beginTowerPlacement()
-  // appelle elle-meme startPlacement() une fois la tour reellement posee
-  // (voir confirmTowerPlacement).
-  if (currentMap === DEFAULT_MAP) {
-    beginTowerPlacement();
+  // la preparation (jamais en parallele — startPlacement() lirait sinon un
+  // plateau perime le temps de la reconstruction async). Reste synchrone
+  // (`() => void`, signature exigee par ScreenHandlers.onPlay) : le cas
+  // courant (carte de depart deja en place) demarre immediatement, seul le
+  // retour d'une run agrandie attend la reconstruction. Plus de placement de
+  // la tour : la preparation commence directement.
+  if (currentMap === SURVIVAL_BASE_MAP) {
+    applyRunBallistaPosition();
+    frameRunCamera();
+    startPlacement();
   } else {
-    void resetGameBoardToDefaultMap().then(beginTowerPlacement);
+    void resetGameBoardToSurvivalMap().then(() => {
+      frameRunCamera();
+      startPlacement();
+    });
   }
+}
+
+/** Cadrage initial d'une run : angle par defaut, carte de depart entiere a
+ *  l'ecran (l'arene du Mode survie, 20 × 36, depasse le zoom par defaut).
+ *  Les gestes et Espace gardent ensuite leur comportement habituel. */
+function frameRunCamera(): void {
+  renderer.resetCamera();
+  renderer.frameBox({ ...computeMapCellBounds(resolveMapCells(currentMap)), height: 2 });
+}
+
+/** Place la Baliste (modele, origine des tirs, collision) a la position de
+ *  la run en cours, sans reconstruire le plateau. */
+function applyRunBallistaPosition(): void {
+  playerArrowOrigin = currentRun.ballistaPosition ?? resolveBallistaOrigin(currentMap);
+  ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
+  repositionBallista();
 }
 
 /**
@@ -1813,7 +1694,7 @@ function onEntityInfoAction(id: EntityInfoAction['id']): void {
  *  ("Vendre"/"Boutique", "Pret pour la bataille"), comme le menu pause. La
  *  selection de la Forge est conservee : sa fiche revient a la fermeture. */
 function openForge(): void {
-  if (!inPlacementPhase || towerPlacementActive || pauseMenuOpen || buildingPlacementMode || !hasForge()) return;
+  if (!inPlacementPhase || pauseMenuOpen || buildingPlacementMode || !hasForge()) return;
   disarmItem();
   sellZone.setVisible(false);
   placementPanel.hide();
@@ -1977,7 +1858,7 @@ let testBoard: Board | null = null;
 /** Map REELLE active juste avant "Tester le scenario" (voir testScenario),
  *  restauree au retour : le plateau visuel du jeu (`board`, masque mais
  *  jamais reconstruit pendant le test) a ete construit pour elle. */
-let mapBeforeTest: MapDef = DEFAULT_MAP;
+let mapBeforeTest: MapDef = SURVIVAL_BASE_MAP;
 
 // Mesh par id d'obstacle deja construit, pour eviter de rappeler
 // createRock/createTreeObstacle (qui tirent leur composition/orientation au
@@ -2114,7 +1995,9 @@ let transformDragging = false;
 /** Transform capture au dernier 'mouseDown' du gizmo — sert a construire UNE
  *  SEULE commande d'annulation au relachement (Part U : "pendant un drag de
  *  2 secondes, ne cree pas 300 entrees Undo"), jamais une par 'objectChange'. */
-let transformDragStart: { id: number; x: number; z: number; rotationY: number } | null = null;
+/** `rotationY` absent = decor jamais tourne (orientation fixee par sa graine
+ *  d'aspect) : l'annulation remet cette absence, jamais un 0 (KI-05). */
+let transformDragStart: { id: number; x: number; z: number; rotationY: number | undefined } | null = null;
 
 transformControls.addEventListener('dragging-changed', (event) => {
   transformDragging = Boolean(event.value);
@@ -2124,7 +2007,7 @@ transformControls.addEventListener('mouseDown', () => {
   const obstacle = editorState?.selectedObstacle;
   if (!obstacle) return;
   const center = obstacleCenter(obstacle);
-  transformDragStart = { id: obstacle.id, x: center.x, z: center.z, rotationY: obstacle.rotationY ?? 0 };
+  transformDragStart = { id: obstacle.id, x: center.x, z: center.z, rotationY: obstacle.rotationY };
 });
 
 transformControls.addEventListener('objectChange', () => {
@@ -2147,22 +2030,46 @@ transformControls.addEventListener('mouseUp', () => {
   const obstacle = editorState?.selectedObstacle;
   if (!start || !editorState || !obstacle || obstacle.id !== start.id) return;
 
-  const end = { id: obstacle.id, x: obstacle.x ?? start.x, z: obstacle.z ?? start.z, rotationY: obstacle.rotationY ?? 0 };
+  const end = { id: obstacle.id, x: obstacle.x ?? start.x, z: obstacle.z ?? start.z, rotationY: obstacle.rotationY };
   // Rien n'a reellement bouge (un simple clic sur une poignee sans glisser) :
   // ne pousse aucune commande vide dans l'historique.
   if (end.x === start.x && end.z === start.z && end.rotationY === start.rotationY) return;
 
   editorHistory.push({
     undo: () => {
-      editorState?.setObstacleTransform(start.id, start.x, start.z, start.rotationY);
+      applyEditorObstacleTransform(start);
+      rebuildEditorObstacleMesh(start.id);
       refreshEditorObjects();
     },
     redo: () => {
-      editorState?.setObstacleTransform(end.id, end.x, end.z, end.rotationY);
+      applyEditorObstacleTransform(end);
+      rebuildEditorObstacleMesh(end.id);
       refreshEditorObjects();
     },
   });
+  rebuildEditorObstacleMesh(end.id);
+  refreshEditorObjects();
 });
+
+/** Position et rotation d'un decor pour annuler / retablir un deplacement :
+ *  une rotation absente reste absente. */
+function applyEditorObstacleTransform(t: { id: number; x: number; z: number; rotationY: number | undefined }): void {
+  if (!editorState) return;
+  editorState.setObstacleTransform(t.id, t.x, t.z, t.rotationY ?? 0);
+  if (t.rotationY === undefined) editorState.clearObstacleRotation(t.id);
+}
+
+/** L'aspect d'un decor depend de sa position (obstacleAppearanceSeed) : apres
+ *  un deplacement, son mesh est reconstruit au prochain rafraichissement pour
+ *  montrer exactement l'aspect qu'il aura en jeu. */
+function rebuildEditorObstacleMesh(id: number): void {
+  const mesh = editorMeshes.get(id);
+  if (mesh) {
+    editorObjectsGroup.remove(mesh);
+    editorMeshes.delete(id);
+  }
+  retiredEditorMeshes.delete(id);
+}
 
 /**
  * Rotation d'un decor par l'anneau de selection : clic gauche maintenu sur
@@ -2739,14 +2646,14 @@ function returnToEditorAfterTest(): void {
 
   // La partie REELLE (menu -> Jouer) ne doit jamais heriter de la map de
   // test : on revient a la map active AVANT le test, comme si le test
-  // n'avait pas eu lieu. Pas DEFAULT_MAP : apres une run agrandie, le
+  // n'avait pas eu lieu. Pas SURVIVAL_BASE_MAP : apres une run agrandie, le
   // plateau visuel resterait a la taille agrandie, et startNewRun (qui ne
-  // reinitialise le plateau que si currentMap !== DEFAULT_MAP) ne le
+  // reinitialise le plateau que si currentMap !== SURVIVAL_BASE_MAP) ne le
   // reconstruirait jamais.
   currentMap = mapBeforeTest;
   rebuildCurrentTerritoryIndex();
   world.setMap(currentMap);
-  playerArrowOrigin = computePlayerArrowOrigin(currentMap);
+  playerArrowOrigin = resolveBallistaOrigin(currentMap);
   ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
   refreshOwnedBuildingViews();
@@ -3478,7 +3385,7 @@ function currentBallistaStatus(): BallistaStatus {
 function isEntityInfoContextActive(): boolean {
   if (inEditorMode || pauseMenuOpen) return false;
   if (inBattlePhase()) return true;
-  return inPlacementPhase && !towerPlacementActive && buildingPlacementMode === null && !screens.isShopOpen() && !screens.isForgeOpen();
+  return inPlacementPhase && buildingPlacementMode === null && !screens.isShopOpen() && !screens.isForgeOpen();
 }
 
 /** Modele de la fiche pour la selection courante, ou null sans selection.
@@ -4547,7 +4454,7 @@ function placementDragProposal(drag: UnitDragState, event: MouseEvent): UnitMove
  *  cet endroit ne deplacerait rien (aucune selection, curseur sur une unite
  *  ou un batiment qu'un clic selectionnerait, autre geste prioritaire). */
 function placementHoverMoveProposal(event: MouseEvent): UnitMoveProposal | null {
-  if (!inPlacementPhase || buildingPlacementMode || armedItemIndex !== null || towerPlacementActive || groundDrag?.dragging) return null;
+  if (!inPlacementPhase || buildingPlacementMode || armedItemIndex !== null || groundDrag?.dragging) return null;
   // Au-dessus de "Vendre", le relachement vendrait : aucun apercu de
   // deplacement (la zone laisse passer les evenements jusqu'au canvas).
   if (unitDrag) return unitDrag.dragging && !sellZone.isPointOver(event.clientX, event.clientY) ? placementDragProposal(unitDrag, event) : null;
@@ -5901,12 +5808,6 @@ window.addEventListener('keydown', (event) => {
         closeForge();
       } else if (armedItemIndex !== null) {
         disarmItem();
-      } else if (towerPlacementActive) {
-        // Placement OBLIGATOIRE de la tour (2026-08-18, demande explicite,
-        // points 19/28) : Echap ne fait RIEN de plus que consommer la
-        // touche — pas d'annulation possible (rien à restaurer, aucune
-        // tour n'existe encore), pas de progression, le joueur reste dans
-        // l'état "tour à placer" jusqu'à un clic sur une case valide.
       } else if (buildingPlacementMode || buildingClickCandidate) {
         // Mode placement d'un BATIMENT achete (2026-08-17, point 10 de la
         // demande : "Escape ou clic droit -> annule le placement, aucun
@@ -6007,13 +5908,11 @@ function leftClickReservedForCamera(event: MouseEvent): boolean {
   return cameraDrag !== null || (event.buttons & 2) !== 0;
 }
 
-/** Abandonne net tout geste du clic gauche en cours (clic de placement de la
- *  tour, rectangle de selection en placement ou en bataille, glisser
- *  d'unite) : un autre bouton qui s'ajoute ne doit jamais laisser le cadre de
- *  selection ou le fantome de vente suivre le curseur en parallele, ni poser
- *  la tour au relachement. */
+/** Abandonne net tout geste du clic gauche en cours (rectangle de selection
+ *  en placement ou en bataille, glisser d'unite) : un autre bouton qui
+ *  s'ajoute ne doit jamais laisser le cadre de selection ou le fantome de
+ *  vente suivre le curseur en parallele. */
 function cancelLeftPointerGestures(): void {
-  towerPlacementClickPending = false;
   if (groundDrag) {
     selectionBox.hide();
     groundDrag = null;
@@ -6227,7 +6126,6 @@ window.addEventListener('blur', () => {
   fireKeyHeld = false;
   pendingRightClickOrder = false;
   cameraDrag = null;
-  towerPlacementClickPending = false;
   cancelCommandDrag();
   cancelEditorPointer();
   buildingClickCandidate = null;

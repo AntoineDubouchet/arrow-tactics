@@ -15,12 +15,12 @@ const FOOTPRINT_INSET = 0.92;
  * `cloneScaledTo` a deja recentre `mesh` sur (0,0) et pose son pied a y=0 :
  * on ajoute simplement le decalage voulu par-dessus.
  */
-function placeBeside(mesh: THREE.Group, anchor: THREE.Group, angle: number, dist: number, halfW: number, halfD: number): void {
+function placeBeside(mesh: THREE.Group, anchor: THREE.Group, angle: number, dist: number, halfW: number, halfD: number, random: () => number): void {
   const x = clamp(anchor.position.x + Math.cos(angle) * dist, -halfW, halfW);
   const z = clamp(anchor.position.z + Math.sin(angle) * dist, -halfD, halfD);
   mesh.position.x += x;
   mesh.position.z += z;
-  mesh.rotation.y = Math.random() * Math.PI * 2;
+  mesh.rotation.y = random() * Math.PI * 2;
 }
 
 /** Petites pierres eparpillees au pied du rocher, comme sur la photo de
@@ -28,20 +28,20 @@ function placeBeside(mesh: THREE.Group, anchor: THREE.Group, angle: number, dist
  *  legerement de l'emprise (meme logique que la cime d'un arbre, voir
  *  createTreeObstacle) — purement decoratives, elles ne bloquent rien de
  *  plus que ce que le rocher bloque deja. */
-function scatterBaseStones(rock: THREE.Group, width: number, depth: number, debrisModels: THREE.Group[]): void {
-  const count = 2 + Math.floor(Math.random() * 4);
+function scatterBaseStones(rock: THREE.Group, width: number, depth: number, debrisModels: THREE.Group[], random: () => number): void {
+  const count = 2 + Math.floor(random() * 4);
   const halfW = width / 2;
   const halfD = depth / 2;
 
   for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const ringDist = Math.max(halfW, halfD) * (0.85 + Math.random() * 0.35);
-    const size = 0.25 + Math.random() * 0.3;
+    const angle = random() * Math.PI * 2;
+    const ringDist = Math.max(halfW, halfD) * (0.85 + random() * 0.35);
+    const size = 0.25 + random() * 0.3;
 
-    const stone = cloneScaledTo(pickRandom(debrisModels), size, 'width');
+    const stone = cloneScaledTo(pickRandom(debrisModels, random), size, 'width');
     stone.position.x += Math.cos(angle) * ringDist;
     stone.position.z += Math.sin(angle) * ringDist;
-    stone.rotation.y = Math.random() * Math.PI * 2;
+    stone.rotation.y = random() * Math.PI * 2;
     rock.add(stone);
   }
 }
@@ -74,7 +74,7 @@ function scatterBaseStones(rock: THREE.Group, width: number, depth: number, debr
  * contraintes ; les petites pierres au pied peuvent deborder legerement,
  * purement decoratif.
  */
-export function createRock(def: ObstacleDef, assets: EnvironmentAssets): THREE.Group {
+export function createRock(def: ObstacleDef, assets: EnvironmentAssets, random: () => number): THREE.Group {
   const rock = new THREE.Group();
   const width = def.tilesX * TILE;
   const depth = def.tilesZ * TILE;
@@ -83,43 +83,43 @@ export function createRock(def: ObstacleDef, assets: EnvironmentAssets): THREE.G
   const halfInsetW = (width * FOOTPRINT_INSET) / 2;
   const halfInsetD = (depth * FOOTPRINT_INSET) / 2;
 
-  const mainSize = minSide * (0.7 + Math.random() * 0.1);
-  const main = cloneScaledTo(pickRandom(assets.rockTallMasses), mainSize, 'width');
-  main.position.x += clamp((Math.random() - 0.5) * (halfInsetW * 2 - mainSize), -halfInsetW, halfInsetW);
-  main.position.z += clamp((Math.random() - 0.5) * (halfInsetD * 2 - mainSize), -halfInsetD, halfInsetD);
-  main.rotation.y = Math.random() * Math.PI * 2;
+  const mainSize = minSide * (0.7 + random() * 0.1);
+  const main = cloneScaledTo(pickRandom(assets.rockTallMasses, random), mainSize, 'width');
+  main.position.x += clamp((random() - 0.5) * (halfInsetW * 2 - mainSize), -halfInsetW, halfInsetW);
+  main.position.z += clamp((random() - 0.5) * (halfInsetD * 2 - mainSize), -halfInsetD, halfInsetD);
+  main.rotation.y = random() * Math.PI * 2;
   rock.add(main);
 
   // Secondaire : puise dans le pool "haut" une fois sur deux pour renforcer
   // la presence verticale globale (demande d'Antoine), sinon dans le pool
   // complet ou les dalles plates pour garder un peu de variete de silhouette.
-  const secondarySize = mainSize * (0.4 + Math.random() * 0.15);
-  const secondaryRoll = Math.random();
+  const secondarySize = mainSize * (0.4 + random() * 0.15);
+  const secondaryRoll = random();
   const secondaryPrototype =
     secondaryRoll < 0.4
-      ? pickRandom(assets.rockTallMasses)
+      ? pickRandom(assets.rockTallMasses, random)
       : secondaryRoll < 0.7
-        ? pickRandom(assets.rockMasses)
-        : pickRandom(assets.rockFlatAccents);
+        ? pickRandom(assets.rockMasses, random)
+        : pickRandom(assets.rockFlatAccents, random);
   const secondary = cloneScaledTo(secondaryPrototype, secondarySize, 'width');
-  const angle1 = Math.random() * Math.PI * 2;
+  const angle1 = random() * Math.PI * 2;
   // Distance choisie pour un leger chevauchement (les deux masses se
   // touchent/fusionnent), plutot que d'etre simplement posees cote a cote
   // sans contact visuel.
   const dist1 = (mainSize + secondarySize) * 0.32;
-  placeBeside(secondary, main, angle1, dist1, halfInsetW, halfInsetD);
+  placeBeside(secondary, main, angle1, dist1, halfInsetW, halfInsetD, random);
   rock.add(secondary);
 
-  if (Math.random() < 0.5) {
-    const tertiarySize = mainSize * (0.22 + Math.random() * 0.13);
-    const tertiary = cloneScaledTo(pickRandom(assets.rockMasses), tertiarySize, 'width');
-    const angle2 = angle1 + Math.PI * (0.6 + Math.random() * 0.8);
+  if (random() < 0.5) {
+    const tertiarySize = mainSize * (0.22 + random() * 0.13);
+    const tertiary = cloneScaledTo(pickRandom(assets.rockMasses, random), tertiarySize, 'width');
+    const angle2 = angle1 + Math.PI * (0.6 + random() * 0.8);
     const dist2 = (mainSize + tertiarySize) * 0.32;
-    placeBeside(tertiary, main, angle2, dist2, halfInsetW, halfInsetD);
+    placeBeside(tertiary, main, angle2, dist2, halfInsetW, halfInsetD, random);
     rock.add(tertiary);
   }
 
-  scatterBaseStones(rock, width, depth, assets.rockDebris);
+  scatterBaseStones(rock, width, depth, assets.rockDebris, random);
 
   // Rotation d'ensemble optionnelle (voir ObstacleDef.rotationY) : tourne
   // tout le cluster compose (main+secondaire+tertiaire+debris) autour de son

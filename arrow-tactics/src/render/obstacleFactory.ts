@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import type { ObstacleDef } from '../config/constants';
+import { obstacleAppearanceSeed, type ObstacleDef } from '../config/constants';
+import { Rng } from '../core/rng';
 import type { EnvironmentAssets } from './assetLibrary';
 import { createBuildingObstacle } from './buildings';
 import { createPropObstacle } from './props';
@@ -15,13 +16,18 @@ import { createTreeObstacle } from './trees';
  * l'UI de l'un ou l'autre cote).
  */
 export function buildObstacleMesh(def: ObstacleDef, assets: EnvironmentAssets): THREE.Group {
+  // Aspect deterministe (orientation sans rotationY, forme d'un rocher,
+  // hauteur et modele d'un arbre) : meme decor = meme aspect, dans l'editeur
+  // comme en jeu (voir obstacleAppearanceSeed).
+  const rng = new Rng(obstacleAppearanceSeed(def));
+  const random = () => rng.next();
   switch (def.kind) {
     case 'tree':
-      return createTreeObstacle(def, assets);
+      return createTreeObstacle(def, assets, random);
     case 'prop':
-      return createPropObstacle(def, assets);
+      return createPropObstacle(def, assets, random);
     case 'rock':
-      return createRock(def, assets);
+      return createRock(def, assets, random);
     case 'building':
       return createBuildingObstacle(def, assets);
   }

@@ -10,7 +10,7 @@ import { cloneScaledTo, type EnvironmentAssets } from './assetLibrary';
  * plupart de ces modeles sont plus larges/bas que hauts, un calage sur la
  * hauteur les ferait deborder de leur case.
  */
-export function createPropObstacle(def: ObstacleDef, assets: EnvironmentAssets): THREE.Group {
+export function createPropObstacle(def: ObstacleDef, assets: EnvironmentAssets, random: () => number): THREE.Group {
   const width = def.tilesX * TILE;
   const depth = def.tilesZ * TILE;
   const { x: centerX, z: centerZ } = obstacleCenter(def);
@@ -20,7 +20,7 @@ export function createPropObstacle(def: ObstacleDef, assets: EnvironmentAssets):
   if (!prototype) throw new Error(`Prop inconnu : ${def.propModel}`);
 
   const prop = cloneScaledTo(prototype, footprint, 'width');
-  prop.rotation.y = def.rotationY ?? Math.random() * Math.PI * 2;
+  prop.rotation.y = def.rotationY ?? random() * Math.PI * 2;
   prop.position.x += centerX;
   prop.position.z += centerZ;
   return prop;

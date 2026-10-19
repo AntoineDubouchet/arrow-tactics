@@ -193,31 +193,6 @@ img {
   z-index: 20;
 }
 
-/* Instruction BLOQUANTE de debut de run (2026-08-18, placement obligatoire
- * de la tour) — nettement plus prominente que le simple rappel discret
- * ci-dessus : centree en haut de l'ecran, teinte doree (coherente avec le
- * halo de survol des boutons, --accent-gold) pour signaler une action
- * requise plutot qu'un rappel optionnel. */
-.tower-placement-banner {
-  position: fixed;
-  top: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 12px 28px;
-  background: var(--panel);
-  border: 1px solid var(--accent-gold);
-  box-shadow: 0 0 16px rgba(232, 193, 92, 0.35);
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--accent-gold);
-  pointer-events: none;
-  user-select: none;
-  backdrop-filter: blur(6px);
-  z-index: 20;
-}
-
 .combat-overlay {
   position: fixed;
   inset: 0;

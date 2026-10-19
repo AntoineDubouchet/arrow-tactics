@@ -10,7 +10,7 @@ import { getUnit } from '../data/units';
 import type { Entity } from '../sim/entity';
 import { createInitialMapExpansionState, type MapExpansionState } from './mapExpansion';
 import type { RunUpgradeLevels } from './runUpgrades';
-import { DEFAULT_MAP } from '../config/mapDef';
+import { SURVIVAL_BASE_MAP } from '../config/maps/survivalArena';
 
 /**
  * Arrondit au dixieme le plus proche — SOURCE UNIQUE utilisee par TOUTE
@@ -267,7 +267,8 @@ export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = get
     inventory: [],
     buildings: [],
     waveNumber: 1,
-    mapExpansion: createInitialMapExpansionState(DEFAULT_MAP),
+    // Compteurs d'expansion de la carte de depart du Mode survie.
+    mapExpansion: createInitialMapExpansionState(SURVIVAL_BASE_MAP),
     ballistaPosition: null,
     upgrades: { ...upgrades },
   };

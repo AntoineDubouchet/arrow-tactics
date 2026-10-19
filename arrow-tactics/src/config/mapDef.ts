@@ -303,6 +303,10 @@ function buildDefaultMap(): MapDef {
   };
 }
 
+/** Carte historique « vague1-20 » (18 × 26) : carte ouverte par defaut dans
+ * l'editeur et reference de taille de « Nouvelle carte ». Le Mode survie ne
+ * l'utilise plus : sa carte de depart est SURVIVAL_BASE_MAP
+ * (config/maps/survivalArena.ts). */
 export const DEFAULT_MAP: MapDef = buildDefaultMap();
 
 /**
