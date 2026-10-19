@@ -466,14 +466,13 @@ async function rebuildGameBoardVisuals(spawnDepth: number): Promise<void> {
   ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
 
-  // gridLines/zones masques par defaut : startPlacement() (qui s'execute
-  // juste apres, une fois le joueur sorti de l'ecran de fin de vague/la
-  // boutique OU d'un retour au menu) les rend visibles inconditionnellement
-  // de toute facon — pas besoin de reproduire un etat de visibilite ici.
+  // Grille masquee par defaut : startPlacement() (qui s'execute juste apres,
+  // une fois le joueur sorti de l'ecran de fin de vague/la boutique) la rend
+  // visible. Les zones de territoire restent affichees sans interruption,
+  // en preparation comme en bataille : le nouveau plateau les montre deja.
   renderer.scene.remove(board.group);
   board = await createBoard(currentMap, spawnDepth);
   board.gridLines.visible = false;
-  board.zones.visible = false;
   renderer.scene.add(board.group);
 }
 
@@ -1378,8 +1377,9 @@ function onValidatePlacement(): void {
   clearSelection();
   playerPreview.clear();
   enemyPreview.clear();
+  // La grille disparait en bataille ; les zones de territoire restent
+  // affichees (meme filtre discret qu'en preparation).
   board.gridLines.visible = false;
-  board.zones.visible = false;
 
   world.clear();
   forgetBattleBuildings();
