@@ -43,14 +43,17 @@ définissent ni l'armée de départ ni les vagues d'une run.
 ## 1. Ouvrir, quitter, nouvelle carte
 
 - **Ouvrir** : menu principal → **Éditeur de maps**. L'éditeur s'ouvre
-  toujours sur la **carte historique** « vague1-20 » (18 × 26,
-  `DEFAULT_MAP`), qui n'est plus celle du Mode survie, avec un historique
-  vide. Cette carte est considérée comme enregistrée (§14).
+  toujours sur l'**arène officielle du Mode survie** (`SURVIVAL_ARENA_MAP`,
+  20 × 36) au complet : terrain, décors, territoire, unités de scénario et
+  Baliste. C'est une copie de travail : l'arène du jeu n'est jamais
+  modifiée. L'historique est vide et la carte est considérée comme
+  enregistrée (§14) : pas d'indicateur « non enregistré » à l'ouverture.
 - **Quitter** : **« ← Retour au menu »**. Si la carte a des modifications
   non enregistrées, une confirmation est demandée (§14).
 - **Nouvelle carte** (barre du haut) : remplace le brouillon par une carte
   vierge, après confirmation si le brouillon n'est pas enregistré :
-  - 18×26 cases, rectangle plein de cases d'herbe ;
+  - 18×26 cases (dimensions de l'ancienne carte « vague1-20 »,
+    `DEFAULT_MAP`), rectangle plein de cases d'herbe ;
   - aucun obstacle, aucune unité ;
   - pas de position de Baliste explicite (repli du coin, §16) ;
   - pas de territoire explicite : le territoire affiché est le repli
@@ -115,9 +118,15 @@ définissent ni l'armée de départ ni les vagues d'une run.
 
 - Outils : **+ Case (Herbe)**, **+ Case (Terre)**, **− Supprimer case**.
 - Ce sont des outils **répétables** : ils restent actifs jusqu'à Échap, un
-  clic droit ou le choix d'un autre outil. Chaque case ajoutée ou supprimée
-  est une entrée d'historique.
-- Un aperçu vert ou rouge indique sous le curseur si l'action est possible.
+  clic droit ou le choix d'un autre outil.
+- Ce sont des **pinceaux**, comme « Peindre le territoire » : un clic traite
+  une case ; clic maintenu et glisser traite chaque case survolée, une seule
+  fois par trait. Une case déjà présente n'est pas ajoutée deux fois.
+- **Historique** : un trait complet (de l'appui au relâchement) est **une
+  seule entrée** ; Ctrl+Z l'annule entièrement et Ctrl+Y le rétablit
+  entièrement.
+- Un aperçu vert ou rouge indique sous le curseur si l'action est possible,
+  y compris pendant le glisser.
 - **Ajout** : refusé si une case existe déjà à cet endroit. Une case ajoutée
   est neutre si le territoire est explicite ; avec le repli historique, les
   bandes sont recalculées sur les cases présentes (§4).
@@ -369,7 +378,7 @@ ouverte au départ) :
     −15° / +15° et par R / +90° ;
   - déplacement de la Baliste (position **et** statut « position définie »,
     §16) ;
-  - ajout ou suppression d'une case ;
+  - trait d'ajout ou de suppression de cases (cases et territoire) ;
   - trait de peinture du territoire ;
   - changement de Taille.
 - **Annuler une pose ou une suppression** restaure aussi la sélection.
@@ -698,7 +707,7 @@ Les raccourcis clavier sont **ignorés pendant la saisie dans un champ**
 | Clic gauche au sol (unités sélectionnées) | Déplacer selon l'aperçu |
 | Clic gauche au sol (Baliste sélectionnée) | Déplacer la Baliste (3×3 en territoire joueur), dès l'appui |
 | Clic gauche (outil de pose actif) | Poser l'unité ou le décor |
-| Clic gauche (outil de case actif) | Ajouter ou supprimer une case |
+| Clic ou glisser (outil de case actif) | Ajouter ou supprimer les cases survolées |
 | Clic ou glisser (outil Territoire actif) | Peindre les cases |
 | Glisser une flèche du gizmo | Déplacer le décor |
 | Glisser l'anneau jaune | Tourner le décor |

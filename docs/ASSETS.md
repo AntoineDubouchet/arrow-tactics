@@ -199,7 +199,8 @@ Détail du préchargement et de l'ordre de démarrage : voir `ARCHITECTURE.md`.
 - **Baliste** : instance unique, construite par `buildBallistaTowerPlatform`
   après `loadEnvironmentAssets`. Elle n'est jamais clonée.
 - **Textures VFX** : cache partagé par nom de fichier (`loadVfxTexture`).
-- **Textures du sol** : une instance neuve à chaque construction de plateau.
+- **Textures du sol** : une instance par fichier, chargée une fois puis
+  partagée par tous les plateaux (`render/textures.ts`) ; jamais libérée.
 
 ## 6. Conventions d'import et de rendu
 
@@ -354,7 +355,8 @@ Pratique actuelle, telle qu'elle se dégage du code :
 | Un clip venant d'un autre fichier ne bouge rien | Noms d'os différents | Noms identiques, ou réécriture des pistes (Baliste) |
 | Texture KayKit introuvable | `.gltf` et texture dans des dossiers différents | Texture copiée à côté des `.gltf` |
 | Couleurs délavées ou trop sombres | Espace couleur incorrect | `SRGBColorSpace` sur les textures de couleur uniquement |
-| Texture vide après un clone | Texture clonée avant la fin de son chargement | Une instance neuve par chargement (sol) ou un cache par nom (VFX) |
+| Texture vide après un clone | Texture clonée avant la fin de son chargement | Jamais de clone : une instance partagée par fichier (sol, VFX) |
+| Sol noir un instant à chaque reconstruction du plateau | Texture du sol rechargée à chaque construction | Instance partagée chargée une seule fois (`render/textures.ts`) |
 | Rocher en « totem », décor qui change au hasard | Mauvais modèles dans un pool aléatoire | Pools restreints, modèles mesurés |
 | Modèle déformé | Échelle non uniforme | Toujours `setScalar` |
 | Clip d'animation qui « téléporte » en boucle | Déplacement intégré au clip (root motion) | Préférer un clip de marche sur place |

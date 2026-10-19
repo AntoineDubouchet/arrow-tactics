@@ -477,7 +477,9 @@ Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
 - La carte officielle n'est jamais modifiée : chaque run repart d'elle, sans
   bâtiment, destruction ni agrandissement d'une run précédente.
 - La carte historique « vague1-20 » (18 × 26, `DEFAULT_MAP`) n'est plus
-  utilisée en run ; elle reste la carte ouverte par défaut dans l'éditeur.
+  utilisée en run ni à l'ouverture de l'éditeur, qui affiche l'arène
+  complète (unités de scénario comprises, `SURVIVAL_ARENA_MAP`) ; elle ne
+  fournit plus que les dimensions de « Nouvelle carte ».
 
 **Territoire**
 
@@ -687,8 +689,9 @@ carte exportée de l'éditeur puis intégrée au code (§11).
     - Le camp est recalculé à l'arrivée selon le territoire : une unité
       amenée en territoire adverse change de camp. Une unité déjà posée garde
       son camp tant qu'elle n'est pas déplacée.
-- **Terrain** : ajout et suppression de cellules, taille du plateau
-  modifiable.
+- **Terrain** : ajout et suppression de cellules au pinceau (clic maintenu
+  et glisser ; un trait = une seule entrée d'annuler / rétablir, territoire
+  des cases supprimées compris), taille du plateau modifiable.
 - **Baliste** : sélectionnable et déplaçable, calée sur une grille de 3×3
   cases. Le déplacement est refusé si l'empreinte 3×3 n'est pas entièrement
   en territoire joueur, ou si la tour sortirait du plateau ou recouvrirait un

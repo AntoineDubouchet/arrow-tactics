@@ -415,9 +415,11 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   SURVIVAL_BASE_MAP` ; `startNewRun` fixe `currentRun.ballistaPosition`
   depuis cette carte, remet la carte de départ si une run précédente l'avait
   agrandie, cadre la caméra (`frameRunCamera`) puis lance la préparation.
-  `createInitialMapExpansionState` part de ses dimensions. `DEFAULT_MAP`
-  (`config/mapDef.ts`) ne sert plus qu'à l'éditeur. Aucune de ces cartes
-  n'est jamais mutée.
+  `createInitialMapExpansionState` part de ses dimensions. L'éditeur s'ouvre
+  sur `SURVIVAL_ARENA_MAP` (`enterEditor`, copie de travail dans
+  `EditorState`). `DEFAULT_MAP` (`config/mapDef.ts`) ne fournit plus que les
+  dimensions de « Nouvelle carte » (et le paramètre par défaut, inutilisé, du
+  constructeur d'`EditorState`). Aucune de ces cartes n'est jamais mutée.
 - **Expansion de map** (`run/mapExpansion.ts`) : fonctions pures sur `MapDef`
   et un état d'expansion. `main.ts` les applique derrière l'écran de
   transition, après une victoire.
@@ -483,6 +485,13 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - attaques procédurales : `proceduralAttackAnimator.ts`, `proceduralSwing.ts`.
 - **Plateau** : `render/board.ts` (sol, grille, zones), `terrainCells.ts`
   (un `InstancedMesh` par type de terrain), `textures.ts`.
+  - Textures du sol : une seule instance par texture, chargée au premier
+    appel puis partagée par tous les plateaux, jamais libérée. Un nouveau
+    chargement à chaque reconstruction rendait le sol noir le temps du
+    décodage (flash à chaque case ajoutée ou supprimée dans l'éditeur).
+    `rebuildEditorBoard` (`main.ts`) libère les géométries et matériaux des
+    anciennes dalles et de l'ancienne grille, pas les textures ni les
+    ressources partagées des zones.
   - Zones : `createZonesGroup(cells)` rend un territoire déjà résolu, une
     instance par case et un `InstancedMesh` par camp, aux couleurs de
     `teamColor`. Partagé par le plateau du jeu (`createBoard`, même
@@ -626,8 +635,14 @@ L'orchestration reste dans `main.ts` :
 - `TransformControls` en translation seule ;
 - rotation par l'anneau de sélection, Ctrl+molette, boutons du panneau et R ;
 - historique : une commande par geste, par instantanés de l'état
-  (`pushEditorObjectsCommand`, `pushObstacleRotationCommand`, traits de
-  territoire, `applyEditorMapShape` pour la Taille) ;
+  (`pushEditorObjectsCommand`, `pushObstacleRotationCommand`,
+  `applyEditorMapShape` pour la Taille) ;
+- pinceaux (Territoire, + Case, − Case) : un seul mécanisme de trait
+  (`startBrushStroke`, `brushAt`, `endBrushStroke`). Chaque case survolée est
+  traitée une fois par trait, le plateau n'est reconstruit que si une case
+  change, et le relâchement crée une seule commande d'historique
+  (instantanés `territorySnapshot`, plus `mapShapeSnapshot` pour les
+  cases) ;
 - camp des unités : `EditorState.territoryOwnerAt` à la pose et au
   déplacement ; une case neutre est refusée par `canPlaceUnitAt` ;
 - état non enregistré : `editorCleanExport` mémorise l'export (JSON, cases
