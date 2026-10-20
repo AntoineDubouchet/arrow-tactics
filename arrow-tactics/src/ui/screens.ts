@@ -82,6 +82,20 @@ export type ScreenName =
 
 export type WaveResult = 'victoire' | 'defaite';
 
+/** Donnees du bilan de manche (voir run/battleSummary.ts). */
+export interface WaveSummaryView {
+  defeated: readonly { label: string; value: number }[];
+  goldEarned: number;
+}
+
+/** Rythme du bilan de fin de vague (ms) : le titre seul d'abord, puis une
+ *  ligne d'ennemis vaincus apres l'autre, l'or gagne en dernier, et enfin
+ *  le bouton pour continuer. */
+const WAVE_SUMMARY_FIRST_LINE_MS = 650;
+const WAVE_SUMMARY_LINE_STEP_MS = 420;
+const WAVE_SUMMARY_GOLD_EXTRA_MS = 250;
+const WAVE_SUMMARY_BUTTON_EXTRA_MS = 450;
+
 /** Un curseur de volume construit par `Screens.sliderControl` — `row` est
  *  l'element a inserer dans le panneau, `input`/`valueLabel` sont retenus a
  *  part pour que `refreshSettings` puisse les remettre a jour sans tout
@@ -401,6 +415,12 @@ export class Screens {
   private readonly talentTooltipDesc: HTMLElement;
   private readonly waveComplete: HTMLElement;
   private readonly waveCompleteTitle: HTMLElement;
+  private readonly waveCompleteSubtitle: HTMLElement;
+  private readonly waveSummaryList: HTMLElement;
+  private readonly waveCompleteButton: HTMLElement;
+  /** Minuteries du bilan en cours d'apparition, annulees a chaque nouvel
+   *  affichage. */
+  private waveSummaryTimers: number[] = [];
   private readonly shop: HTMLElement;
   private readonly shopGold: HTMLElement;
   /** Nombre d'or affiché dans shopGold — élément dédié pour ne pas écraser
@@ -573,9 +593,18 @@ export class Screens {
     ]);
 
     this.waveCompleteTitle = this.title('');
+    this.waveCompleteTitle.classList.add('wave-complete-title');
+    this.waveCompleteSubtitle = this.paragraph('');
+    this.waveCompleteSubtitle.classList.add('wave-complete-subtitle');
+    this.waveSummaryList = document.createElement('div');
+    this.waveSummaryList.className = 'wave-summary';
+    this.waveCompleteButton = this.button('Continuer', handlers.onContinueAfterWave);
+    this.waveCompleteButton.classList.add('wave-summary-reveal');
     this.waveComplete = this.overlay('wave-complete', [
       this.waveCompleteTitle,
-      this.button('Continuer', handlers.onContinueAfterWave),
+      this.waveCompleteSubtitle,
+      this.waveSummaryList,
+      this.waveCompleteButton,
     ]);
 
     // Boutique par onglets (2026-08-11, demande d'Antoine : "classer les
@@ -875,10 +904,47 @@ export class Screens {
   /** `waveNumber` : la vague qui vient d'etre JOUEE (pas la suivante) —
    *  voir main.ts, waveBeingFought (capture avant l'increment de
    *  applyBattleOutcome). */
-  showWaveComplete(waveNumber: number, result: WaveResult): void {
-    this.waveCompleteTitle.textContent =
-      result === 'victoire' ? `Vague ${waveNumber} terminée — Victoire` : `Vague ${waveNumber} terminée — Défaite`;
+  showWaveComplete(waveNumber: number, result: WaveResult, summary: WaveSummaryView): void {
+    for (const timer of this.waveSummaryTimers) window.clearTimeout(timer);
+    this.waveSummaryTimers = [];
+
+    this.waveCompleteTitle.textContent = result === 'victoire' ? 'Victoire' : 'Défaite';
+    this.waveCompleteSubtitle.textContent = `Vague ${waveNumber} terminée`;
+
+    // Bilan : une ligne par type d'ennemi vaincu, puis l'or gagne. Toutes les
+    // lignes existent des l'ouverture (hauteur stable) mais restent
+    // invisibles ; elles apparaissent une a une.
+    this.waveSummaryList.replaceChildren();
+    const lines = summary.defeated.map((line) => this.waveSummaryLine(line.label, String(line.value), false));
+    const goldLine = this.waveSummaryLine('Or gagné cette manche', formatGold(summary.goldEarned), true);
+    this.waveSummaryList.append(...lines, goldLine);
+    this.waveCompleteButton.classList.remove('wave-summary-reveal--shown');
+
+    const reveal = (el: HTMLElement, delay: number) => {
+      this.waveSummaryTimers.push(window.setTimeout(() => el.classList.add('wave-summary-reveal--shown'), delay));
+    };
+    lines.forEach((el, i) => reveal(el, WAVE_SUMMARY_FIRST_LINE_MS + i * WAVE_SUMMARY_LINE_STEP_MS));
+    const goldDelay = WAVE_SUMMARY_FIRST_LINE_MS + lines.length * WAVE_SUMMARY_LINE_STEP_MS + WAVE_SUMMARY_GOLD_EXTRA_MS;
+    reveal(goldLine, goldDelay);
+    reveal(this.waveCompleteButton, goldDelay + WAVE_SUMMARY_BUTTON_EXTRA_MS);
+
     this.show('waveComplete');
+  }
+
+  /** Ligne du bilan (libelle a gauche, valeur a droite), invisible jusqu'a
+   *  son tour (classe wave-summary-reveal--shown). */
+  private waveSummaryLine(label: string, value: string, gold: boolean): HTMLElement {
+    const row = document.createElement('div');
+    row.className = gold ? 'wave-summary-line wave-summary-line--gold wave-summary-reveal' : 'wave-summary-line wave-summary-reveal';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'wave-summary-label';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('span');
+    valueEl.className = 'wave-summary-value';
+    valueEl.textContent = value;
+    if (gold) valueEl.append(' ', createCoinIcon(14));
+    row.append(labelEl, valueEl);
+    return row;
   }
 
   /** Toute l'armée du joueur est tombée (demande d'Antoine, 2026-08-09) : la

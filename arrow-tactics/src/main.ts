@@ -111,6 +111,7 @@ import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
 import { computePlayerIceNovaUpgradeEffects, effectiveIceNovaCost } from './run/iceNovaUpgradeEffects';
 import { mineProductionIntervalSeconds, rollMineGold } from './run/mineUpgradeEffects';
 import { ownedBuildingLevel, upgradeOwnedBuilding } from './run/buildingUpgrades';
+import { createBattleSummary, defeatedLines, recordEnemyDefeated, recordGoldEarned } from './run/battleSummary';
 import { Rng } from './core/rng';
 import { getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './run/playerUnitStats';
@@ -587,6 +588,12 @@ let battleOver = false;
  *  arriere), donc ce n'est pas necessaire pour l'exactitude, seulement pour
  *  eviter une croissance non bornee sur une longue session. */
 const rewardedEnemyDeaths = new Set<number>();
+
+/** Bilan de la manche en cours (run/battleSummary.ts) : ennemis vaincus par
+ *  type et or GAGNE pendant la manche (morts ennemies, productions des
+ *  Mines, bonus de victoire), affiche sur l'ecran de fin de vague. Remis a
+ *  zero au lancement de chaque vraie bataille (onValidatePlacement). */
+let battleSummary = createBattleSummary();
 
 /** Ids d'entites JOUEUR actuellement EN DESSOUS du seuil "Aux petits
  *  oignons" (voir AUTO_HEAL_TRIGGER_RATIO) — 2026-08-15, demande explicite
@@ -1460,6 +1467,7 @@ function onValidatePlacement(): void {
   belowAutoHealThreshold.clear();
   mineProductionTimers.clear();
   mineGoldRng = new Rng((world.seed ^ 0x9e3779b9) >>> 0);
+  battleSummary = createBattleSummary();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
   combatOverlay.clear();
@@ -4998,6 +5006,7 @@ const loop = new Loop(
         const amount = rollMineGold(battleOwnedBuildingLevel(e) ?? 0, () => mineGoldRng.next());
         currentRun.gold = roundGold(currentRun.gold + amount);
         combatOverlay.spawnGoldText(e.x, e.z, amount);
+        recordGoldEarned(battleSummary, amount);
       }
     }
 
@@ -5037,6 +5046,8 @@ const loop = new Loop(
         rewardedEnemyDeaths.add(e.id);
         const amount = awardKillGold(currentRun, e.unitId, computeTalentEconomyHooks(metaProgress));
         combatOverlay.spawnGoldText(e.x, e.z, amount);
+        recordEnemyDefeated(battleSummary, e.unitId);
+        recordGoldEarned(battleSummary, amount);
 
         // Deblocage generique des unites (2026-08-15, demande d'Antoine,
         // remplace l'ancien deblocage du Mage a la vague 8) : une unite
@@ -5109,6 +5120,8 @@ const loop = new Loop(
             const waveBeingFought = currentRun.waveNumber;
             const outcome = applyBattleOutcome(currentRun, world.entities);
             lastBattleGoldEarned = outcome.goldEarned;
+            // Bonus de victoire : fait partie de l'or gagne par la manche.
+            recordGoldEarned(battleSummary, outcome.goldEarned);
 
 
             // Le deblocage du Mage/de la Sentinelle cote JOUEUR ne depend
@@ -5211,7 +5224,7 @@ const loop = new Loop(
               await applyMapExpansionForCompletedWave(waveBeingFought);
               talentPointToast.show(metaProgress.talentPoints - talentPointsBefore);
               const result: WaveResult = playerAlive > 0 ? 'victoire' : 'defaite';
-              screens.showWaveComplete(waveBeingFought, result);
+              screens.showWaveComplete(waveBeingFought, result, { defeated: defeatedLines(battleSummary), goldEarned: battleSummary.goldEarned });
             }
           });
         }

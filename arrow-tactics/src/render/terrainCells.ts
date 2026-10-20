@@ -29,7 +29,12 @@ import { createDirtTexture, createGrassTexture } from './textures';
  * fois vu en jeu.
  */
 
-const CELL_THICKNESS = 0.3;
+/** Epaisseur visuelle d'une dalle de terrain (0,3 avant, x1,5 pour un
+ *  plateau plus massif vu de cote). La dalle est posee SOUS y = 0 (voir
+ *  buildInstancedLayer) : seule sa face inferieure descend, la surface
+ *  jouee (unites, decors, grille, zones) ne bouge pas. Purement visuel,
+ *  jamais lu par la simulation. */
+const CELL_THICKNESS = 0.45;
 
 export interface TerrainCellsView {
   group: THREE.Group;

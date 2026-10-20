@@ -282,7 +282,8 @@ export class CombatOverlay {
     if (!screen) return;
 
     const el = document.createElement('div');
-    el.className = className;
+    // Base commune (position, animation, contour de lisibilite) + variante.
+    el.className = `floating-text ${className}`;
     el.textContent = text;
     el.style.left = `${screen.x}px`;
     el.style.top = `${screen.y}px`;

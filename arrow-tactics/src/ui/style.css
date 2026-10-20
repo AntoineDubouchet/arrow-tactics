@@ -266,17 +266,32 @@ img {
   box-shadow: 0 0 2px rgba(143, 208, 255, 0.7);
 }
 
-.miss-text {
+/* Textes flottants du combat (ui/combatOverlay.ts, spawnFloatingText) :
+   base commune — position, montee + fondu, et un contour sombre doux qui
+   detache le texte de n'importe quel decor (herbe claire, rochers, unites).
+   Chaque variante ne fixe que sa taille et sa teinte. */
+.floating-text {
   position: absolute;
   transform: translate(-50%, -100%);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--ink-dim);
-  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.95),
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 6px rgba(0, 0, 0, 0.55);
   animation-name: miss-float;
   animation-timing-function: ease-out;
   animation-fill-mode: forwards;
+}
+
+/* « Raté » / « Esquivé » : teinte propre, claire et chaude (jamais une
+   couleur de camp), plus grande et plus lumineuse qu'avant (gris atténué). */
+.miss-text {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #f4ecd6;
+  text-transform: uppercase;
 }
 
 @keyframes miss-float {
@@ -291,15 +306,10 @@ img {
 }
 
 .heal-text {
-  position: absolute;
-  transform: translate(-50%, -100%);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: #63e04a;
-  animation-name: miss-float;
-  animation-timing-function: ease-out;
-  animation-fill-mode: forwards;
 }
 
 /* Cible SECONDAIRE d'un soin en chaine (2026-08-13, boutique d'amelioration
@@ -353,6 +363,98 @@ img {
   font-weight: 600;
   letter-spacing: 0.03em;
   text-align: center;
+}
+
+/* --- Bilan de fin de vague (ui/screens.ts, showWaveComplete) ---
+   VICTOIRE apparait d'abord, seul et bien visible ; les lignes du bilan
+   arrivent ensuite une a une (classe --shown posee par minuterie), l'or
+   gagne en dernier, puis le bouton. */
+.wave-complete-title {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-gold);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+
+.screen-wave-complete.screen-overlay--visible .wave-complete-title {
+  animation: wave-title-in 420ms ease-out both;
+}
+
+@keyframes wave-title-in {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.wave-complete-subtitle {
+  margin: -4px 0 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--ink-dim);
+}
+
+.wave-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 280px;
+  margin: 6px 0 4px;
+}
+
+.wave-summary-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24px;
+  font-size: 15px;
+}
+
+.wave-summary-label {
+  color: var(--ink-dim);
+}
+
+.wave-summary-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.wave-summary-line--gold {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--edge);
+  font-size: 16px;
+}
+
+.wave-summary-line--gold .wave-summary-label,
+.wave-summary-line--gold .wave-summary-value {
+  color: var(--accent-gold);
+}
+
+.wave-summary-reveal {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition:
+    opacity 260ms ease-out,
+    transform 260ms ease-out;
+}
+
+/* inherit (jamais auto) : un ecran masque desactive ses clics, ses lignes
+   revelees ne doivent pas les reactiver par-dessus le menu. */
+.wave-summary-reveal.wave-summary-reveal--shown {
+  opacity: 1;
+  pointer-events: inherit;
+  transform: none;
 }
 
 .screen-text {
@@ -1039,16 +1141,17 @@ img {
    tuee (2026-08-11, demande d'Antoine) — meme fabrique que miss-text/
    heal-text (voir combatOverlay.ts, spawnFloatingText), teinte doree comme
    coin-popup--gain. */
+/* « +N or » (ennemi abattu, production d'une Mine) : or vif et sature,
+   contour sombre commun plus un leger halo chaud, sans effet neon. */
 .gold-text {
-  position: absolute;
-  transform: translate(-50%, -100%);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 800;
   letter-spacing: 0.03em;
-  color: #e8c15c;
-  animation-name: miss-float;
-  animation-timing-function: ease-out;
-  animation-fill-mode: forwards;
+  color: #ffd23f;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.95),
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 7px rgba(255, 196, 40, 0.45);
 }
 
 /* --- Inventaire (chantier inventaire, 2026-08-09) --- */

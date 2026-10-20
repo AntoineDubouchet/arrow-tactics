@@ -641,8 +641,10 @@ export const NEUTRAL_STUCK_CHECK_DURATION = 6.0;
 export const NEUTRAL_STUCK_PROGRESS_THRESHOLD = 1.0;
 
 // --- Combat ---
-/** Duree d'affichage du texte "rate" au-dessus d'une unite qui esquive. */
-export const MISS_TEXT_DURATION = 0.6;
+/** Duree d'affichage (s) de TOUS les textes flottants du combat (« raté »,
+ *  « esquivé », soins, « +N or ») : montee + fondu, puis retrait du DOM.
+ *  0,6 avant, allongee d'environ un tiers pour laisser le temps de lire. */
+export const MISS_TEXT_DURATION = 0.8;
 /** Duree de la chute en arriere d'une unite a sa mort (bascule sur le dos),
  *  AVANT le fondu — demande d'Antoine (2026-08-08) : "tomber en arriere puis
  *  disparaitre en fondu", valable pour toutes les unites (fantassin, archer). */
