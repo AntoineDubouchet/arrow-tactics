@@ -75,6 +75,7 @@ import { buildUnit } from './render/unitMesh';
 import { UnitViews } from './render/unitViews';
 import { preloadMageModel } from './render/mageRig';
 import { preloadFantassinModel } from './render/fantassinRig';
+import { preloadFantassinV2Model } from './render/fantassinV2Rig';
 import { preloadArcherModel } from './render/archerRig';
 import { preloadSentinelModel } from './render/sentinelRig';
 import { TelegraphView } from './render/telegraph';
@@ -238,10 +239,15 @@ world.setMap(currentMap);
 // la map, voir run/mapExpansion.ts) — le tout premier plateau charge ici
 // reste toujours a la taille de DEPART (aucune run n'existe encore a ce
 // stade du chargement du module).
+const footmanParam = new URLSearchParams(location.search).get('footman');
 let [board] = await Promise.all([
   createBoard(currentMap),
   preloadMageModel(),
   preloadFantassinModel(),
+  // Footman V2 par defaut ; `?footman=v1` revient explicitement a l'ancien
+  // Fantassin. Ne rejette jamais (repli V1 si un asset manque, voir
+  // fantassinV2Rig.ts).
+  footmanParam === 'v1' ? Promise.resolve() : preloadFantassinV2Model(),
   preloadArcherModel(),
   preloadSentinelModel(),
   preloadPlayerArrowModel(),

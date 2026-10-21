@@ -1,3 +1,5 @@
 node_modules
 dist
 .DS_Store
+# Exports Meshy bruts (lourds), sources locales de tools/footman-v2/
+.source-assets/

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { getUnit } from '../data/units';
 import { buildArcherModel } from './archerRig';
 import { buildFantassinModel } from './fantassinRig';
+import { buildFantassinV2Model, isFantassinV2Ready } from './fantassinV2Rig';
 import { buildMageModel } from './mageRig';
 import { buildSentinelModel } from './sentinelRig';
 import type { Team } from '../sim/entity';
@@ -35,7 +36,9 @@ import type { Team } from '../sim/entity';
  * render/fantassinRig.ts pour le detail, decision explicite d'Antoine).
  */
 export function buildFantassin(team: Team): THREE.Group {
-  return buildFantassinModel(team);
+  // Prototype Footman V2 (`?footman=v2`, voir fantassinV2Rig.ts) : jamais
+  // pret sans le parametre ou si son chargement a echoue -> V1.
+  return isFantassinV2Ready() ? buildFantassinV2Model(team) : buildFantassinModel(team);
 }
 
 /**

@@ -265,10 +265,17 @@ export class UnitViews {
       // qu'un `fadeOut` : Antoine demande une coupure nette, pas un
       // enchainement progressif qui laisserait les jambes bouger encore
       // brievement.
+      // Exception : une vue qui declare `riggedAttackFadeSeconds` (Footman
+      // V2, voir fantassinV2Rig.ts) enchaine par un court fondu croise.
+      const fade = view?.userData['riggedAttackFadeSeconds'] as number | undefined;
       const previous = this.riggedActionState.get(entityId);
-      if (previous && previous !== 'attack') actions[previous]?.stop();
+      if (previous && previous !== 'attack') {
+        if (fade) actions[previous]?.fadeOut(fade);
+        else actions[previous]?.stop();
+      }
 
-      actions['attack'].reset().play();
+      if (fade) actions['attack'].reset().fadeIn(fade).play();
+      else actions['attack'].reset().play();
       this.riggedActionState.set(entityId, 'attack');
       anchored = true;
     }
