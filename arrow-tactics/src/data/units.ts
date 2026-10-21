@@ -102,7 +102,8 @@ export interface UnitDef {
   playerUnlockMode?: 'starter' | 'defeatEnemy';
   /** Capacites speciales de l'unite (voir data/abilities.ts) — absent ou
    *  tableau vide pour une unite qui n'en a aucune (fantassin, archer).
-   *  Premiere vraie capacite generique : la Charge du Cavalier leger. */
+   *  La Charge (data/abilities.ts) n'est portee par aucune unite depuis le
+   *  retrait du Cavalier leger. */
   abilities?: AbilityDef[];
   /** Emprise au placement (voir main.ts, getFootprintTiles/isValidPlacementForUnit)
    *  — absent = 1x1 comme toutes les unites jusqu'ici. Seul `tilesZ` est
@@ -233,14 +234,14 @@ export const UNITS: Record<string, UnitDef> = {
       // bas pour l'attaque PRINCIPALE, la Boule de feu) — utilise le meme
       // profil que combatSystem (mono-cible, classique), volontairement
       // mauvais ("le Mage ne doit PAS devenir competent au corps a corps") :
-      // 1 degat affiche (10 interne, meme convention que le Cavalier),
+      // 1 degat affiche (10 interne, comme pour toutes les unites),
       // cadence lente, taux de rate eleve. Valeurs de detail (cooldown,
       // missChance) non donnees par Antoine, choisies par Claude pour
       // rendre ce repli clairement mediocre sans etre totalement inutile.
       damage: 10,
       attackRange: 0.95,
       aggroRange: 10,
-      // Plus lent que le Cavalier (3.5) et legerement en retrait de l'archer
+      // Legerement en retrait de l'archer
       // (2.0)/fantassin (2.2) — "légèrement moins mobile", valeur choisie
       // par Claude apres comparaison explicite des vitesses existantes,
       // comme demande.
@@ -290,10 +291,10 @@ export const UNITS: Record<string, UnitDef> = {
         castTime: 0.6,
         // "relativement lent, beaucoup plus gros qu'une fleche" — pas donnee
         // precisement par Antoine, choisie par Claude : plus lent que la
-        // fleche du joueur (PLAYER_ARROW_SPEED = 9) pour un temps de vol
+        // carreau de la Baliste (PLAYER_ARROW_SPEED = 13,5) pour un temps de vol
         // nettement lisible sur toute la plage 2-6 cases (~0.33 a 1s).
         projectileSpeed: 6,
-        // 4 degats affiches = 40 internes (meme convention que PV/Cavalier)
+        // 4 degats affiches = 40 internes (meme convention que les PV)
         // — PAR CIBLE touchee dans le rayon, pas reparti entre elles.
         damage: 40,
         // 1 -> 2 (2026-08-11, retour d'Antoine apres premier test reel :

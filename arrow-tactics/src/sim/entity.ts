@@ -304,7 +304,7 @@ export interface Entity {
    *  Cavaliers sans toucher a sim/systems/barracksSystem.ts. */
   spawnUnitId: string | null;
   /** Nombre d'unites produites PAR PRODUCTION REUSSIE (2026-08-17, refonte
-   *  de l'amelioration permanente de la Caserne — voir
+   *  de l'amelioration de la Caserne — voir
    *  run/barracksUpgradeEffects.ts, effectiveBarracksSpawnCount) — fige au
    *  moment du spawn du batiment (World.spawnBuilding), meme convention que
    *  spawnIntervalSeconds. `null` pour toute entite qui ne produit rien. */

@@ -1594,7 +1594,7 @@ function spawnBallistaBuilding(): void {
  *  d'ennemi memorise (enemyUnitLevels). Remet aussi le
  *  visuel de la Baliste dans son etat normal : detruite pendant la bataille
  *  videe, elle doit reapparaitre des la preparation suivante (ou le
- *  placement de tour d'une nouvelle run, ou l'editeur), pas seulement au
+ *  depart d'une nouvelle run, ou l'editeur), pas seulement au
  *  lancement de la prochaine bataille. Visuel seulement : l'entite et sa
  *  collision ne sont recreees que par spawnBallistaBuilding. */
 /** Index dans currentRun.buildings de chaque batiment possede spawne pour la
@@ -1679,7 +1679,7 @@ function startPlacement(): void {
 }
 
 /** Remet a zero l'etat de placement/occupation qui vit hors de RunState, pour
- *  qu'une nouvelle run (et d'abord le placement de la tour, qui passe par
+ *  qu'une nouvelle run (sa premiere preparation passe par
  *  isValidPlacementTile) n'herite d'aucune case occupee par la run
  *  precedente. A appeler apres `currentRun = createNewRun(...)` :
  *  refreshOwnedBuildingViews reconstruit depuis la nouvelle run. */
@@ -1734,7 +1734,7 @@ function startNewRun(): void {
 }
 
 /** Cadrage initial d'une run : angle par defaut, carte de depart entiere a
- *  l'ecran (l'arene du Mode survie, 20 × 36, depasse le zoom par defaut).
+ *  l'ecran (l'arene du Mode survie, 21 × 36, depasse le zoom par defaut).
  *  Les gestes et Espace gardent ensuite leur comportement habituel. */
 function frameRunCamera(): void {
   renderer.resetCamera();
@@ -1871,9 +1871,8 @@ let editorGhost: THREE.Object3D | null = null;
 // Map d'origine de la session d'edition en cours : l'arene officielle du Mode
 // survie complete (SURVIVAL_ARENA_MAP, unites de scenario comprises) par defaut,
 // remplacee par le fichier charge via "Charger une carte" (voir onLoad) —
-// c'est elle qui fournit la taille/les unites de depart au moment
-// d'exporter (voir mapSerializer.ts, exportMapDef), puisque l'editeur
-// n'edite encore que les obstacles.
+// c'est elle qui fournit le nom et la version au moment d'exporter (voir
+// mapSerializer.ts, exportMapDef) ; tout le reste vient de l'EditorState.
 let editorBaseMap: MapDef = SURVIVAL_ARENA_MAP;
 
 /** Brouillon de l'editeur "propre" (E5) : export canonique de la carte au
@@ -3537,8 +3536,8 @@ function currentBallistaStatus(): BallistaStatus {
 
 /** Fiche d'entite (ui/entityInfoPanel.ts) : visible seulement pendant la
  *  preparation et la bataille, hors editeur, menus, pause, boutique (qui la
- *  recouvre), placement de la tour ou d'un bâtiment et transition de fin de
- *  vague (inBattlePhase est faux des que battleOver). */
+ *  recouvre), placement d'un bâtiment et transition de fin de vague
+ *  (inBattlePhase est faux des que battleOver). */
 function isEntityInfoContextActive(): boolean {
   if (inEditorMode || pauseMenuOpen) return false;
   if (inBattlePhase()) return true;
@@ -4254,7 +4253,7 @@ function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: numb
   // depuis le 2026-08-14 (voir config/constants.ts, isCollidableObstacle) —
   // une unite peut desormais etre deplacee librement sur un champignon/une
   // fleur/un buisson decoratif, demande explicite d'Antoine.
-  // La mine (talent "Le temps, c'est de l'argent") ET la plateforme Baliste
+  // Les batiments possedes (Mine, Caserne, Forge) ET la plateforme Baliste
   // (2026-08-16, TOUJOURS presente — voir activeBuildingObstacles) sont
   // fusionnees ici aussi : sans ca, une unite pourrait se retrouver placee
   // visuellement DANS un batiment gameplay pendant le placement, puis
@@ -6168,7 +6167,7 @@ canvas.addEventListener('mousedown', (event) => {
 
   // Clic gauche deja enfonce (`event.buttons`, masque des boutons
   // ACTUELLEMENT enfonces) : pan. Le geste gauche en cours (rectangle de
-  // selection, glisser d'unite, placement de la tour) est abandonne d'abord
+  // selection, glisser d'unite) est abandonne d'abord
   // (2026-08-11, bug remonte par Antoine : "si je clique gauche en premier
   // puis droit... la grille de multi selection apparait") ; aucune action
   // ponctuelle du clic droit.

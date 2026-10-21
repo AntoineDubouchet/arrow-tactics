@@ -13,7 +13,7 @@ import {
 
 /**
  * Sons de combat "premiere vague" (2026-08-12) — Fantassin (epee), Archer
- * (arc/fleche), mort generique. Le catalogue complet (Cavalier, Mage,
+ * (arc/fleche), mort generique. Le catalogue complet (Mage, Sentinelle,
  * vagues/victoire/defaite, ambiance) reste a faire dans une passe separee
  * (voir CLAUDE.md) — periemetre volontairement limite ici pour livrer un
  * moteur audio TESTABLE plutot qu'un enorme lot d'un coup.

@@ -10,8 +10,7 @@ import type { UpgradeDefBase } from './unitUpgrades';
  * supprime par un reset des talents (voir main.ts, resetTalentPoints), mais
  * son effet redevient nul tant que le talent n'est pas re-debloque (voir
  * run/shadowUpgradeEffects.ts). La carte de la boutique d'amelioration reste
- * MASQUEE tant que le talent n'est pas debloque (voir ui/screens.ts), meme
- * convention que la Mine pour "Le temps, c'est de l'argent".
+ * MASQUEE tant que le talent n'est pas debloque (voir ui/screens.ts).
  */
 export interface ShadowUpgradeDef extends UpgradeDefBase {
   id: 'soins_excedentaires';

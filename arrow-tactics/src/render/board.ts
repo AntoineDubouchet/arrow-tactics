@@ -28,9 +28,10 @@ export interface Board {
 }
 
 /**
- * Le plateau est genere par le code (sol, grille, zones, decor leger) —
- * seuls les rochers et les arbres viennent de vrais modeles .glb (Kenney
- * Nature Kit, CC0, voir assetLibrary.ts) : deux tentatives de geometrie
+ * Le plateau est genere par le code (dalles de terrain, grille, zones,
+ * debris de bois) ; les decors (rochers, arbres, props, structures) viennent
+ * de vrais modeles (Kenney Nature Kit, KayKit, voir assetLibrary.ts) : pour
+ * les rochers, deux tentatives de geometrie
  * procedurale (boites empilees, puis masses facettees par deplacement
  * aleatoire de sommets) ont ete jugees insatisfaisantes, la seconde
  * produisant du bruit geometrique plutot qu'une masse rocheuse lisible.
@@ -156,9 +157,9 @@ const WOOD_DEBRIS_DENSITY = 7 / REFERENCE_AREA / 3;
 
 /**
  * Debris de bois : seul decor generique restant genere par le code (les
- * arbres/rochers/props, eux, sont des obstacles a part entiere venant de
- * vrais modeles .glb, voir OBSTACLES et createTreeObstacle) — jamais
- * enregistres dans OBSTACLES, donc jamais de collision avec les unites.
+ * arbres/rochers/props, eux, sont des obstacles de la carte venant de vrais
+ * modeles, voir render/obstacleFactory.ts) — jamais dans MapDef.obstacles,
+ * donc jamais de collision avec les unites.
  *
  * Touffes d'herbe/buissons/cailloux en boites RETIRES ENTIEREMENT le
  * 2026-08-14 (demande explicite d'Antoine : "au tout debut du developpement

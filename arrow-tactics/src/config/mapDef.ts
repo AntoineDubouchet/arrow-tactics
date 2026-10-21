@@ -264,8 +264,8 @@ const CAMPAIGN_OBSTACLES: ObstacleDef[] = [
  * PLACEMENT_ROWS, valables sans changement ici puisque la largeur/hauteur
  * de cette carte est identique, 18x26). Rappel : ces deux tableaux ne
  * pilotent plus le jeu REEL (qui calcule sa propre formation/composition,
- * voir main.ts) — seulement l'editeur et setupTestBattle() (raccourci de
- * dev).
+ * voir main.ts) — seulement l'editeur et « Tester le scenario », si cette
+ * carte y est chargee.
  */
 function buildDefaultMap(): MapDef {
   const halfH = (BOARD_H * TILE) / 2;
@@ -303,10 +303,10 @@ function buildDefaultMap(): MapDef {
   };
 }
 
-/** Carte historique « vague1-20 » (18 × 26) : carte ouverte par defaut dans
- * l'editeur et reference de taille de « Nouvelle carte ». Le Mode survie ne
- * l'utilise plus : sa carte de depart est SURVIVAL_BASE_MAP
- * (config/maps/survivalArena.ts). */
+/** Carte historique « vague1-20 » (18 × 26) : ne sert plus que de reference
+ * de taille a « Nouvelle carte » (et de valeur par defaut d'EditorState).
+ * Le Mode survie part de SURVIVAL_BASE_MAP et l'editeur s'ouvre sur
+ * SURVIVAL_ARENA_MAP (config/maps/survivalArena.ts). */
 export const DEFAULT_MAP: MapDef = buildDefaultMap();
 
 /**
@@ -325,22 +325,19 @@ export function computePlayerArrowOrigin(map: Pick<MapDef, 'width' | 'height'>):
 
 /** Position de la Baliste d'une map : celle posee dans l'editeur
  *  (MapDef.ballista) si presente, sinon le repli historique du coin
- *  (computePlayerArrowOrigin). SOURCE UNIQUE pour l'editeur et "Tester le
- *  scenario" — jamais utilisee par une vraie run, qui a son propre
- *  placement obligatoire de la tour. */
+ *  (computePlayerArrowOrigin). SOURCE UNIQUE pour l'editeur, "Tester le
+ *  scenario" et le depart d'une run du Mode survie (startNewRun, sur
+ *  SURVIVAL_BASE_MAP) : le joueur ne place plus la tour. */
 export function resolveBallistaOrigin(map: Pick<MapDef, 'width' | 'height' | 'ballista'>): { x: number; z: number } {
   return map.ballista ? { x: map.ballista.x, z: map.ballista.z } : computePlayerArrowOrigin(map);
 }
 
-/** Cote, en cases ENTIERES, de la grille de placement de la Baliste — la
- *  meme que le placement obligatoire de la tour en vraie run (main.ts,
- *  TOWER_PLACEMENT_FOOTPRINT_TILES) : BALLISTA_TOWER_FOOTPRINT (2,4) arrondi
- *  au-dessus, soit 3×3. */
+/** Cote, en cases ENTIERES, de la grille de placement de la Baliste dans
+ *  l'editeur : BALLISTA_TOWER_FOOTPRINT (2,4) arrondi au-dessus, soit 3×3. */
 export const BALLISTA_PLACEMENT_TILES = Math.ceil(BALLISTA_TOWER_FOOTPRINT);
 
 /** Centre de la Baliste cale sur la grille 3×3 la plus proche du point
- *  (x, z) — meme regle que le placement de la tour en vraie run (coin
- *  arrondi, centre = coin + 1,5). */
+ *  (x, z) (coin arrondi, centre = coin + 1,5). */
 export function snapBallistaOrigin(x: number, z: number): { x: number; z: number } {
   const half = BALLISTA_PLACEMENT_TILES / 2;
   return { x: Math.round(x - half) + half, z: Math.round(z - half) + half };

@@ -9,7 +9,7 @@ import { HP_PER_PIP } from '../config/constants';
  * drapeaux qui pilotent son rôle dans la partie.
  *
  * Distinct des bâtiments DÉCORATIFS KayKit (voir editor/editorUI.ts,
- * ASSET_GROUPS "Bâtiments (KayKit)") : ceux-là restent de purs `ObstacleDef`
+ * DECOR_CATALOG, catégorie « Structures décoratives ») : ceux-là restent de purs `ObstacleDef`
  * (kind:'building') posés dans l'éditeur — jamais spawnés comme Entity,
  * jamais dans ce fichier. La distinction "gameplay vs décoratif" n'est donc
  * pas un champ à cocher sur un objet générique : c'est simplement le fait

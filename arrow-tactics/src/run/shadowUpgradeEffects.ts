@@ -6,9 +6,8 @@ import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
  * Amelioration permanente du talent "Soins excédentaires" (2026-08-15, voir
  * data/shadowUpgrade.ts) — meme principe que run/mineUpgradeEffects.ts : ce
  * module sait ce qu'est un niveau d'amelioration, main.ts ne recoit que des
- * nombres deja calcules. Ne verifie PAS lui-meme si le talent est deverrouille
- * (comme effectiveMineGoldPerSecond ne verifie pas "Le temps, c'est de
- * l'argent") — c'est a l'APPELANT (main.ts, triggerShadowProjectiles) de
+ * nombres deja calcules. Ne verifie PAS lui-meme si le talent est
+ * deverrouille — c'est a l'APPELANT (main.ts, triggerShadowProjectiles) de
  * gater l'appel entier sur isTalentUnlocked : le niveau achete ici reste
  * intact meme si le talent est ensuite retire par un reset, mais ne produit
  * plus aucun effet tant qu'il n'est pas re-debloque, SANS code special —

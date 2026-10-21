@@ -1,9 +1,9 @@
 import type { UpgradeDefBase } from './unitUpgrades';
 
 /**
- * Amelioration permanente de la CASERNE (2026-08-17, demande d'Antoine) —
- * meme famille de systeme que data/ballistaUpgrade.ts/data/mineUpgrade.ts
- * (UpgradeDefBase).
+ * Formule d'amelioration de la CASERNE (2026-08-17, demande d'Antoine). Le
+ * niveau est propre a CHAQUE Caserne et s'achete depuis sa fiche (voir
+ * run/buildingUpgrades.ts) ; ce n'est plus une amelioration de la Forge.
  *
  * REFONTE le meme jour (retour d'Antoine apres un premier test) : deux
  * effets desormais combines par niveau, plutot qu'un seul levier

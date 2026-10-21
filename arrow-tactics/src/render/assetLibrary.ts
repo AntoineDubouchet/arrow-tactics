@@ -235,7 +235,8 @@ const PROP_MODELS = [
 
 /**
  * Premiere selection dans le pack KayKit "Medieval Hexagon Pack" (2026-08-14,
- * CC0, kaylousberg.com — voir License.txt copie avec les fichiers). Traites
+ * CC0, kaylousberg.com ; licence non archivee dans le depot, voir
+ * docs/KNOWN_ISSUES.md KI-21). Traites
  * comme des props GENERIQUES (kind: 'prop', mis a l'echelle sur leur largeur
  * comme les props Kenney, voir render/props.ts) plutot que d'etendre les
  * systemes 'rock'/'tree' existants (composition en grappe, tirage aleatoire

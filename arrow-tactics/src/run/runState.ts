@@ -143,14 +143,13 @@ export interface RunState {
    *  run/mapExpansion.ts. Repart toujours de zero avec une nouvelle run,
    *  comme l'or/l'armee/l'inventaire. */
   mapExpansion: MapExpansionState;
-  /** Position CHOISIE PAR LE JOUEUR de la tour/Baliste (2026-08-18, "la
-   *  première chose à faire... doit être PLACER SA TOUR") — `null`
-   *  UNIQUEMENT pour une run toute neuve, jamais reinitialise ensuite (la
-   *  tour garde sa position pour TOUTE la duree de la run, comme l'or/
-   *  l'armee). Remplace l'ancienne position FIXE (coin du plateau, voir
-   *  config/mapDef.ts computePlayerArrowOrigin — reste utilisee comme repli
-   *  pour l'editeur de maps/"Tester le scenario", sans lien avec une run
-   *  reelle). Note volontaire : la Baliste reste un SINGLETON hors de
+  /** Position de la tour/Baliste pour la run : fixee au depart depuis la
+   *  carte (MapDef.ballista de SURVIVAL_BASE_MAP, voir startNewRun) — le
+   *  joueur ne la place pas —, puis reculee avec le camp joueur a chaque
+   *  etape C de l'agrandissement (main.ts, applyMapExpansionForCompletedWave).
+   *  `null` seulement avant ce depart. Le repli du coin
+   *  (config/mapDef.ts, computePlayerArrowOrigin) ne sert qu'a une carte
+   *  sans `ballista`. Note volontaire : la Baliste reste un SINGLETON hors de
    *  `buildings` (voir OwnedBuilding) — seule sa POSITION est desormais
    *  stockee ici, ses PV/son cycle de vie de bataille restent geres
    *  exactement comme avant (jamais un OwnedBuilding, voir main.ts). */

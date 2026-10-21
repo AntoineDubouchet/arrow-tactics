@@ -9,8 +9,9 @@ import { cellKey, computeMapCellBounds, resolveMapCells, type MapDef } from './m
  * entiers signés désignant le COIN bas-gauche d'une case d'1×1, qui couvre
  * `[x, x+1) × [z, z+1)`. Une case absente du territoire est NEUTRE.
  *
- * Utilisé par la validation du placement en jeu (main.ts) ; ni l'éditeur
- * ni le rendu ne l'utilisent encore.
+ * Utilisé par la validation du placement en jeu (main.ts), par l'éditeur
+ * (camp des unités, pinceau de territoire) et par le rendu des zones
+ * (render/board.ts).
  */
 
 /** Camp propriétaire d'une case. Littéral volontairement local plutôt

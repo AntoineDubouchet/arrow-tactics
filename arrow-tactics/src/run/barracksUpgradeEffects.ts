@@ -2,7 +2,7 @@ import { BARRACKS_UPGRADE } from '../data/barracksUpgrade';
 import { getBuilding } from '../data/buildings';
 
 /**
- * Amelioration permanente de la CASERNE (2026-08-17, voir
+ * Effets de l'amelioration de la CASERNE (2026-08-17, voir
  * data/barracksUpgrade.ts) — meme principe que run/ballistaUpgradeEffects.ts/
  * run/mineUpgradeEffects.ts : ce module sait ce qu'est un niveau
  * d'amelioration, main.ts ne recoit que des nombres deja calcules. Le
