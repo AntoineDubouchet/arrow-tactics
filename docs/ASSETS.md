@@ -236,6 +236,20 @@ Détail du préchargement et de l'ordre de démarrage : voir `ARCHITECTURE.md`.
 - **Flèche** : rotation de π posée sur le clone, à l'intérieur d'un groupe
   parent.
 - **Baliste** : aucune correction ; l'axe de tir est déduit du squelette.
+- **Bâtiments** (gameplay et décoratifs, `createBuildingObstacle`,
+  `render/buildings.ts`) : le modèle recentré est placé dans un groupe
+  d'orientation, lui-même dans une racine posée au **centre exact de
+  l'emprise**. La rotation enregistrée (`rotationY`) est appliquée à la
+  racine : un bâtiment tourne autour du centre de son emprise, jamais autour
+  de l'origine de son fichier.
+  - Une correction **native par modèle** (`BUILDING_MODEL_ROTATION_OFFSET`)
+    est appliquée au groupe d'orientation, sans changer l'angle enregistré
+    ni la collision. `blue_mine` : +45°, pour qu'à 0° l'entrée de la Mine
+    fasse face à la caméra par défaut (lacet 45°), dans le jeu comme dans
+    l'éditeur.
+- **Arbres et props** : la rotation s'applique encore au modèle recentré
+  lui-même, donc autour de l'origine de son fichier (`KNOWN_ISSUES.md`,
+  KI-26).
 
 ### Échelle
 
@@ -281,7 +295,7 @@ Détail du préchargement et de l'ordre de démarrage : voir `ARCHITECTURE.md`.
 |---|---|---|---|
 | Décor (rocher, arbre, prop, bâtiment décoratif) | `ObstacleDef` (`config/constants.ts`) | `render/obstacleFactory.ts`, partagé par le plateau du jeu **et** l'éditeur | Posable |
 | Unités | `data/units.ts` | `buildUnit` (`render/unitMesh.ts`), partagé par le combat, l'aperçu de placement et l'éditeur | Posable |
-| Bâtiments gameplay (Mine, Caserne) | `data/buildings.ts` | Modèles KayKit `blue_mine` / `blue_barracks` + `BuildingView` | Non posables |
+| Bâtiments gameplay (Mine 2×2, Caserne 3×3, Forge 2×2) | `data/buildings.ts` | Modèles KayKit `blue_mine` / `blue_barracks` / `blue_blacksmith` + `BuildingView` | Non posables |
 | Baliste et tour | Instance unique | `render/ballista.ts` | Non posable, mais déplaçable (`EDITOR.md`, §16) |
 
 Un bâtiment KayKit posé dans l'éditeur est un **simple obstacle**, même s'il

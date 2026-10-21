@@ -60,6 +60,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | B2 | PV et dégâts stockés ×10, affichés en pips | Active |
 | B3 | La case comme unité de mesure | Active |
 | B4 | Identité du combat automatique | Historique (intention d'origine) / Ouverte (évolution) |
+| B5 | Début de bataille défensif pour le joueur | Active |
 | C1 | Grand arbre de talents abandonné | Remplacée |
 | C2 | Exclusivités dans l'arbre de talents | Remplacée (fondateurs) / Active (talents frères) |
 | C3 | Attribution des points de talent | Active (forme actuelle) / Remplacée (formes antérieures) |
@@ -68,11 +69,12 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | D2 | Bâtiments gameplay et bâtiments décoratifs distincts | Active |
 | D3 | Placement obligatoire de la tour en début de run | Remplacée (Baliste définie par la carte) |
 | D4 | Sauvegarde d'une run en cours | Ouverte |
-| D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Forge et Or) / Remplacée (Runes et améliorations permanentes) |
+| D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Forge et Or) / Remplacée (Runes, améliorations permanentes, amélioration globale de la Mine et de la Caserne) |
+| D6 | Améliorations de la Mine et de la Caserne propres à chaque bâtiment | Active |
 | E1 | Manipulation directe pendant le placement | Active |
 | E2 | Collision des décors : emprise rectangulaire, props traversables | Active |
 | E3 | Rotation des décors dans l'éditeur | Remplacée (W/E) / Active (anneau et Ctrl+molette) |
-| E4 | Agrandissement progressif de la carte | Active (comportement) / Ouverte (runs longues) |
+| E4 | Agrandissement progressif de la carte | Active (cycle A/B/C, étape C symétrique) / Remplacée (camp joueur fixe à l'étape C) / Ouverte (runs longues) |
 | E5 | Territoire par cases, couche séparée du terrain | Active (territoire de la carte, suit l'expansion) / Ouverte (territoire de run) |
 | E6 | Aspect des décors fixé par leur position | Active |
 | F1 | Intégration audio mise en pause après expérimentation | Historique / Ouverte |
@@ -235,13 +237,35 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Raison connue** : qu'une ligne de front se forme d'elle-même ; l'effet
   « blob » était assumé.
 - **Aujourd'hui** :
-  - ce comportement est toujours celui du jeu (`CURRENT_STATE.md`) ;
+  - ce comportement reste celui des ennemis ; le camp du joueur, lui,
+    commence la bataille en Garde et n'avance plus de lui-même (B5) ;
   - le pathfinding en grille a été ajouté depuis pour contourner les
     obstacles ;
   - il n'a pas été reconfirmé récemment comme principe immuable :
     `GAME_DESIGN.md` le décrit comme l'identité actuelle.
 - **Sources** : archive (« Comportement des unités », « Séparation entre
   corps ») ; `sim/systems/`, `GAME_DESIGN.md` §11 et §15.
+
+### B5 — Début de bataille défensif pour le joueur
+
+- **Statut** : Active.
+- **Contexte** : au lancement de la bataille, les unités du joueur
+  avançaient d'elles-mêmes vers l'ennemi, comme lui.
+- **Décision** (demande d'Antoine) :
+  - les ennemis avancent toujours ; les unités du joueur sont en défense :
+    elles attendent qu'un ennemi entre dans leur aggro, ou un ordre ;
+  - pour ne pas paraître figée, la formation fait d'abord un pas d'ouverture
+    d'exactement une case vers l'ennemi, offsets conservés, puis passe en
+    Garde. Ce n'est pas une charge : aucune cible ennemie n'est assignée ;
+  - ce pas est tout ou rien : si une seule case d'arrivée est invalide, tout
+    le groupe reste en place et passe directement en Garde, plutôt que de
+    déformer la formation ;
+  - les Fantassins produits ensuite par une Caserne passent directement en
+    Garde, sans ce pas.
+- **Aujourd'hui** : appliqué aux vraies batailles et à « Tester le
+  scénario » (`CURRENT_STATE.md` §2).
+- **Sources** : `main.ts` (`openBattleWithFormationStep`,
+  `holdPlayerUnitsInGuard`), `sim/orders.ts`.
 
 ---
 
@@ -383,10 +407,11 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   d'Antoine.
 - **Remplacement** : avec l'arène officielle du Mode survie, Antoine a
   décidé de supprimer ce placement manuel. La Baliste est créée directement
-  à la position définie par la carte (`MapDef.ballista`, (0.5, 13.5) pour
-  l'arène), qui devient le cœur initial de la base ; la préparation commence
-  aussitôt. La position n'est pas recalculée (pas de « centre » automatique
-  du territoire).
+  à la position définie par la carte (`MapDef.ballista`, (0.5, 15.5) pour
+  l'arène actuelle), qui devient le cœur initial de la base ; la préparation
+  commence aussitôt. La position n'est pas recalculée (pas de « centre »
+  automatique du territoire) ; elle recule seulement d'une case avec le camp
+  joueur à chaque étape C de l'agrandissement (E4).
 - **Aujourd'hui** : le Mode survie, l'éditeur et « Tester le scénario »
   utilisent tous la position de la carte, sinon le repli historique du coin.
   Le choix de cette position se fait dans l'éditeur (règle 3×3 en
@@ -436,6 +461,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - « Maître de la forge », qui ne réduisait que le coût en Runes, est retiré
     de l'arbre ; ses points sont remboursés au chargement des anciennes
     sauvegardes.
+- **Évolution** : la Mine et la Caserne ne s'améliorent plus à la Forge,
+  mais chacune depuis sa propre fiche (D6).
 - **Raison connue** : créer une vraie tension économique pendant la run —
   investir dans une amélioration **ou** acheter des unités et des bâtiments
   pour survivre — et séparer clairement les rôles : talents pour la
@@ -444,11 +471,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Aujourd'hui** :
   - Or de départ 15 (20 avec « Or de départ ») ; Forge 10, Mine 20,
     Caserne 25 ;
-  - coût d'une amélioration : `runUpgradeGoldCost(id, niveau)`, 1 / 2 / 4 / 8…
-    en général, 25 / 50 / 100… pour la Mine et la Caserne
-    (`RUN_UPGRADE_GOLD_COST_BASE_BY_ID`), qui accélèrent directement
-    l'économie ou l'armée. Ces montants sont de l'**équilibrage provisoire**,
-    pas une décision ;
+  - la Forge améliore les unités (Fantassin, Archer, Mage, Sentinelle), la
+    Baliste et les parchemins (soin, Nova de glace, Soins excédentaires),
+    au coût `runUpgradeGoldCost` : 1 / 2 / 4 / 8… Ces montants sont de
+    l'**équilibrage provisoire**, pas une décision ;
   - `MetaProgress` ne contient plus que la progression permanente ; les clés
     `upgradeRunes` / `unitUpgrades` des anciennes sauvegardes sont ignorées.
 - **À ne pas faire** :
@@ -456,9 +482,32 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     améliorations de statistiques hors de la run ;
   - ne pas faire dépendre la puissance des améliorations du nombre de Forges ;
   - ne pas réintroduire de surcoût lié au niveau d'amélioration.
+- **Direction (intention, non actée)** : à terme, la Forge ne devrait plus
+  améliorer que les unités ; la place des améliorations de la Baliste et des
+  parchemins reste à décider.
 - **Sources** : `run/runUpgrades.ts`, `run/runState.ts`, `run/metaProgress.ts`
   (`REMOVED_TALENT_REFUNDS`), `data/buildings.ts`, `main.ts` (`openForge`,
   `purchaseForgeUpgrade`), `CURRENT_STATE.md` §6, §7 et §14.
+
+### D6 — Améliorations de la Mine et de la Caserne propres à chaque bâtiment
+
+- **Statut** : Active.
+- **Contexte** : la Mine et la Caserne s'amélioraient à la Forge, d'un
+  niveau global partagé par tous les exemplaires.
+- **Décision** (demande d'Antoine) :
+  - chaque Mine et chaque Caserne a son **propre niveau**, acheté depuis sa
+    fiche (« Améliorer la mine », « Améliorer la caserne »), en préparation ;
+  - deux bâtiments du même type peuvent avoir des niveaux différents ;
+  - le prix reprend l'ancien barème, compté par bâtiment : 25 / 50 / 100…
+- **Raison connue** : les bâtiments doivent porter leur propre logique de
+  fiche et d'amélioration ; la Forge doit tendre vers les améliorations
+  d'unités (D5).
+- **Aujourd'hui** : Mine : 3 à 7 or toutes les 5 s au niveau 1, +2 / +2 par
+  niveau ; Caserne : +1 Fantassin par production à chaque niveau, −1 s
+  d'intervalle tous les 3 niveaux. Ces valeurs sont de l'équilibrage, pas
+  une décision.
+- **Sources** : `run/buildingUpgrades.ts`, `run/mineUpgradeEffects.ts`,
+  `run/barracksUpgradeEffects.ts`, `CURRENT_STATE.md` §6.
 
 ---
 
@@ -526,15 +575,20 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Décision** :
   - la carte s'agrandit après chaque vague gagnée, selon un cycle de trois
     étapes (profondeur des zones de spawn, largeur, champ de bataille) ;
-  - le camp du joueur reste fixe quand le centre s'élargit.
-- **Raison connue** : pour l'étape centrale, Antoine préférait **translater**
-  le camp ennemi plutôt qu'étirer la carte. La logique d'ensemble du cycle est
-  **peu documentée**.
+  - à l'étape C (champ de bataille), **chaque camp recule d'une case** vers
+    son bord, avec tout ce qu'il contient (territoire, décors, bâtiments,
+    Baliste) ; les deux nouvelles rangées vont au champ de bataille.
+- **Remplacé** : la règle d'origine gardait le camp joueur fixe et reculait le
+  camp ennemi de deux cases (Antoine préférait alors translater le camp
+  ennemi plutôt qu'étirer la carte). Sur un plateau centré, elle épaississait
+  la bordure derrière le joueur et rognait la zone ennemie (ancien KI-25).
+  Antoine a choisi l'étape C symétrique.
+- **Raison connue** : garder une bordure neutre d'une case autour de chaque
+  zone de camp, et deux camps de même taille, à toutes les étapes. La logique
+  d'ensemble du cycle reste **peu documentée**.
 - **Aujourd'hui** : appliqué au jeu réel uniquement, sur l'arène du Mode
   survie, dont la forme (trous) et le territoire dessiné suivent chaque
-  étape. Le camp joueur fixe sur un plateau centré rend la bordure neutre
-  asymétrique au fil des étapes C (défaut connu, non résolu). Son rôle sur
-  les runs longues reste ouvert.
+  étape. Son rôle sur les runs longues reste ouvert.
 - **Sources** : archive (« Agrandissement progressif de la map ») ;
   `run/mapExpansion.ts`, `CURRENT_STATE.md` §11.
 

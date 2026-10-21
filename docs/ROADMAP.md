@@ -119,21 +119,22 @@ systèmes de progression.
 ### C6 — Arène officielle du Mode survie — *Terminé*
 
 - **Résultat** :
-  - le mode jouable s'appelle **Mode survie** ; il part d'une arène fixe de
-    20 × 36 cases fournie par Antoine (`config/maps/survivalArena.ts`) :
-    terrain avec trous, décors, territoire dessiné et position de la
-    Baliste. Les unités de scénario de la carte sont ignorées ;
+  - le mode jouable s'appelle **Mode survie** ; il part d'une arène fixe
+    fournie par Antoine (`config/maps/survivalArena.ts`, aujourd'hui
+    « MapV2 », 21 × 36) : terrain avec trous, décors, territoire dessiné et
+    position de la Baliste. Les unités de scénario de la carte sont
+    ignorées ;
   - plus de placement manuel de la tour : la Baliste est créée à
     `MapDef.ballista` et la préparation commence directement
     (`DESIGN_DECISIONS.md` D3, remplacée) ;
   - l'agrandissement A/B/C conserve la forme de l'arène et fait suivre son
-    territoire dessiné ;
+    territoire dessiné ; l'étape C est symétrique et garde une bordure
+    neutre d'une case autour de chaque zone (`DESIGN_DECISIONS.md` E4) ;
   - les zones restent visibles en bataille ;
   - aspect des décors identique dans l'éditeur et en jeu
     (`DESIGN_DECISIONS.md` E6).
-- **Reste hors de C6** : bordure neutre asymétrique après l'étape C
-  (KI-25), territoire de run (M5), bibliothèque de cartes et choix de carte
-  ou de mode.
+- **Reste hors de C6** : territoire de run (M5), bibliothèque de cartes et
+  choix de carte ou de mode.
 
 ---
 
@@ -209,8 +210,8 @@ buildcraft.
   par la carte (D3 remplacée), cœur initial du fief.
 - **Décisions ouvertes** :
   - `RunState.territory` et la règle de croissance ou de conquête ;
-  - devenir de l'agrandissement A/B/C, et de l'étape C (camp joueur fixe,
-    bordure asymétrique, KI-25).
+  - devenir de l'agrandissement A/B/C sur les runs longues (l'étape C est
+    désormais symétrique, `DESIGN_DECISIONS.md` E4).
 
 ---
 
@@ -241,8 +242,10 @@ rejouabilité.
 ### L3 — Boutique de run et améliorations de Forge — *Implémenté (équilibrage à poursuivre)*
 
 - **État** : le système est en place (Forge construite en Or, améliorations
-  propres à la run achetées en Or ; voir `CURRENT_STATE.md` §6 et §14). Son
-  barème reste provisoire et son équilibrage est à poursuivre avec M2.
+  propres à la run achetées en Or ; voir `CURRENT_STATE.md` §6 et §14). La
+  Mine et la Caserne s'améliorent désormais chacune depuis sa fiche
+  (`DESIGN_DECISIONS.md` D6). Le barème reste provisoire et son équilibrage
+  est à poursuivre avec M2.
 - **Objectif** : enrichir la variété de la boutique de run et des
   améliorations achetables en Or à la Forge.
 - **Pourquoi** : multiplier les arbitrages économiques pendant la run
@@ -252,7 +255,10 @@ rejouabilité.
   (L2) et des achievements (L4).
 - **Dépendances** : M2, C3.
 - **Décisions ouvertes** : barème de l'Or ; plafonds de niveau ; boutique fixe
-  ou à offres aléatoires ; déblocage de contenu par achievements ou autre.
+  ou à offres aléatoires ; déblocage de contenu par achievements ou autre ;
+  recentrage de la Forge sur les améliorations d'unités, et nouvelle place
+  des améliorations de la Baliste et des parchemins (`DESIGN_DECISIONS.md`
+  D5).
 
 ### L4 — Achievements et progression collectionnable — *Direction forte (forme ouverte)*
 

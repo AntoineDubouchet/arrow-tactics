@@ -32,7 +32,6 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-10 | Commentaire inexact du bouton d'achat ×5 | Dette |
 | KI-11 | Nom trompeur `MAGE_UNLOCK_WAVE` | Dette |
 | KI-12 | Sens implicite du « record de vague » | Dette |
-| KI-13 | Commentaires de code périmés | Dette |
 | KI-15 | Aucune suite de tests automatisée | Dette |
 | KI-16 | Assets inutilisés copiés dans le build | Confirmé (mesuré) |
 | KI-20 | Validation partielle des positions dans l'éditeur | Dette |
@@ -40,10 +39,11 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-22 | Assets suivis directement par Git, sans Git LFS | Dette |
 | KI-23 | Raycast sur un modèle animé avant son premier rendu | Dette |
 | KI-24 | Espace réactive le bouton qui a gardé le focus | Confirmé (éditeur) / À vérifier (jeu) |
-| KI-25 | Bordure neutre asymétrique après l'étape C de l'agrandissement | Confirmé (mesuré) |
+| KI-26 | Arbres et props pivotent autour de l'origine de leur modèle | Dette (lecture du code) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
-(c'est le cas de KI-05, KI-06, KI-08, KI-14, KI-17, KI-18 et KI-19).
+(c'est le cas de KI-05, KI-06, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19 et
+KI-25).
 
 Retirées lors de la refonte de l'éditeur, résolues côté code :
 
@@ -63,6 +63,22 @@ Retirée avec l'arène du Mode survie, résolue côté code :
   rotation précédente, y compris son absence pour un décor jamais tourné, et
   le décor retrouve son aspect d'origine (aspect fixé par la position,
   `DESIGN_DECISIONS.md` E6). Aucun `rotationY = 0` n'est plus écrit.
+
+Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
+
+- **KI-25** (bordure neutre asymétrique après l'étape C) : l'étape C recule
+  désormais chaque camp d'une case vers son bord (`centerExpansionZOffset`,
+  `run/mapExpansion.ts` ; `DESIGN_DECISIONS.md` E4). Vérifié par script sur
+  l'arène jusqu'à la vague 12 : bordure neutre d'une case des quatre côtés
+  de chaque zone, deux zones de même taille, territoire seulement sur des
+  cases existantes, Baliste et bâtiments dans la zone joueur.
+- **KI-13** (commentaires de code périmés) : les commentaires listés (talent
+  « Le temps, c'est de l'argent », Cavalier léger, plafond de la Caserne,
+  `PLAYER_ARROW_SPEED = 9`, `License.txt`, en-têtes de `render/board.ts` et
+  `config/territory.ts`, `ASSET_GROUPS`) ont été corrigés ou ont disparu
+  avec le code qu'ils décrivaient, ainsi que ceux qui décrivaient encore le
+  placement manuel de la tour, `DEFAULT_MAP` comme carte de l'éditeur ou
+  l'arène 20 × 36.
 
 ---
 
@@ -116,11 +132,12 @@ Retirée avec l'arène du Mode survie, résolue côté code :
 - **Reste possible** : un `territory` explicite écrit à la main (ou issu d'un
   autre outil) peut couvrir une case absente ; le chargement ne le vérifie
   pas. On pourrait alors poser un élément au-dessus d'un vide.
-- **Impact actuel** : aucun constaté. L'arène du Mode survie a 64 trous et
-  un territoire dessiné, mais aucune case de territoire ne tombe sur un
-  trou, au départ comme après chaque étape A/B/C (l'agrandissement
-  transforme cases et territoire ensemble). La simulation bloque déjà les
-  trous (`computeVoidObstacles`, `sim/world.ts`).
+- **Impact actuel** : aucun constaté. L'arène du Mode survie (MapV2, 21 × 36)
+  a 64 trous et un territoire dessiné, mais aucune case de territoire ne
+  tombe sur un trou, au départ comme après chaque étape A/B/C (vérifié par
+  script jusqu'à la vague 12 ; l'agrandissement transforme cases et
+  territoire ensemble). La simulation bloque déjà les trous
+  (`computeVoidObstacles`, `sim/world.ts`).
 - **Vérification** : par script, comparer le territoire et les cases de la
   carte courante après chaque étape d'agrandissement.
 - **Piste** : faire tenir compte des cellules à `isValidPlacementTile`
@@ -151,26 +168,14 @@ Retirée avec l'arène du Mode survie, résolue côté code :
   dans `onValidatePlacement` (`main.ts`) décalerait silencieusement les PV des
   survivants.
 - **Impact actuel** : aucun. L'ordre est respecté, et les bâtiments sont
-  exclus de la correspondance.
+  exclus de la correspondance de l'armée.
+- **Même contrat pour les bâtiments** : `applyBattleOutcome` reporte leurs
+  PV, et `main.ts` (`ownedBuildingIndexByEntityId`) relie chaque Mine ou
+  Caserne de la bataille à son niveau propre, tous deux par l'ordre de spawn
+  de `currentRun.buildings`.
 - **Vérification** : relire `onValidatePlacement` et `applyBattleOutcome` à
   chaque modification de l'un des deux.
 - **Piste** : un identifiant explicite reliant `OwnedUnit` et entité.
-
-### KI-25 — Bordure neutre asymétrique après l'étape C de l'agrandissement
-
-- **Statut** : Confirmé (mesuré par script sur l'arène du Mode survie).
-- **Symptôme** : à chaque étape C, la bordure neutre derrière la zone joueur
-  s'épaissit d'une rangée, et celle derrière la zone ennemie disparaît dès
-  la première étape C (la zone ennemie touche alors le bord du plateau).
-- **Cause** : le plateau reste centré (il grandit d'une rangée à chaque
-  bout), alors que l'étape C garde le camp joueur fixe et recule le camp
-  ennemi de deux cases (`centerExpansionZOffset`, `run/mapExpansion.ts`).
-- **Impact actuel** : visuel. Aucun décor ne sort du plateau, la Baliste et
-  les bâtiments restent dans la zone joueur, et la zone joueur ne perd
-  aucune case.
-- **Piste** : une étape C qui ne recentre pas le plateau, ou qui décale les
-  deux camps symétriquement. C'est une décision de design (`DESIGN_DECISIONS.md`
-  E4 : camp joueur fixe).
 
 ## B. Éditeur de maps
 
@@ -198,12 +203,17 @@ Retirée avec l'arène du Mode survie, résolue côté code :
 
 - **Statut** : Dette. Confirmé par lecture du code.
 - **Emprises de plusieurs cases réduites à leur case centrale** :
-  - `canRemoveCell` et `canPlaceUnitAt` (`editor/editorState.ts`) comparent
-    uniquement la case qui contient le **centre** d'un obstacle bloquant
+  - `canPlaceUnitAt` (`editor/editorState.ts`) compare uniquement la case
+    qui contient le **centre** d'un obstacle bloquant
     (`floor(obstacleCenter(o))`) à la case testée ;
+  - `canRemoveCell` refuse désormais la case sous le centre de **tout**
+    décor (props traversables compris), mais seulement cette case ;
+  - la pose et le déplacement d'un décor (`canPlaceObstacleAt`) n'exigent
+    qu'une case existante sous son **centre** ;
   - conséquence : on peut retirer une case de terrain sous le bord d'un
-    rocher ou d'un bâtiment de plusieurs cases, ou y poser ou y déplacer une
-    unité.
+    rocher ou d'un bâtiment de plusieurs cases, y poser ou y déplacer une
+    unité, ou poser un gros décor qui déborde sur un trou ou hors du
+    plateau.
 - **Résolu** : l'ancienne asymétrie entre pose et déplacement d'unités a
   disparu. Les déplacements utilisent désormais `canPlaceUnitAt` (voir
   `EDITOR.md` §8), et deux unités ne peuvent plus finir sur la même case.
@@ -211,7 +221,10 @@ Retirée avec l'arène du Mode survie, résolue côté code :
   d'un gros obstacle, sans avertissement.
 - **Vérification** : poser ou déplacer une unité sur une case de bord d'un
   rocher 2×2 ; retirer une case au bord d'un bâtiment 2×2.
-- **Piste** : tester toute l'emprise d'un obstacle (`obstacleBounds`).
+- **Piste** : tester toute l'emprise d'un obstacle (`obstacleBounds`). Pour
+  les décors, l'arène actuelle compte des rochers de bordure qui débordent
+  volontairement du plateau : une règle d'emprise complète devrait en tenir
+  compte.
 - **Hors de cette entrée** : la Baliste teste toute son emprise
   (`obstacleBounds`), et le jeu réel aussi (`isValidPlacementTile`) ; la
   divergence ne concerne que les règles de l'éditeur citées plus haut.
@@ -289,40 +302,6 @@ Retirée avec l'arène du Mode survie, résolue côté code :
 - **Impact actuel** : affichage seulement, cohérent avec le mot « atteinte ».
   Le sens n'est documenté nulle part ailleurs.
 - **Piste** : fixer et documenter un sens explicite.
-
-### KI-13 — Commentaires de code périmés
-
-- **Statut** : Dette.
-- **Écart** : plusieurs commentaires décrivent des éléments retirés ou
-  modifiés :
-  - le talent « Le temps, c'est de l'argent » présenté comme source de la
-    Mine ;
-  - le Cavalier léger ;
-  - un plafond `maxLevel` de la Caserne ;
-  - `PLAYER_ARROW_SPEED = 9`.
-- **Emplacements** :
-  - `main.ts` : accumulateur et revenu de la Mine, `isValidPlacementTile`,
-    consommation des capacités, aperçu d'emprise ;
-  - `run/mineUpgradeEffects.ts`, `data/mineUpgrade.ts`,
-    `data/shadowUpgrade.ts` ;
-  - `ui/screens.ts`, `buildMineUpgradeCard` : la carte y est décrite comme
-    masquée, alors qu'elle est toujours visible ;
-  - `run/metaProgress.ts`, `canPurchaseUpgrade` : mentionne un « plafond
-    Caserne » ; le mécanisme `maxLevel` reste générique mais n'est plus
-    utilisé ;
-  - `data/units.ts` : vitesse de la flèche dans un commentaire du Mage ;
-  - `render/assetLibrary.ts` : l'en-tête affirme qu'aucun autre asset graphique
-    n'est utilisé dans le jeu, et un commentaire renvoie à un `License.txt`
-    « copié avec les fichiers », absent du dépôt ;
-  - `render/board.ts` : un commentaire affirme que seuls les rochers et les
-    arbres viennent de modèles `.glb` ;
-  - `config/territory.ts` : l'en-tête affirme que ni l'éditeur ni le rendu
-    n'utilisent encore le module, alors que tous deux s'en servent ;
-  - `data/buildings.ts` : renvoie au catalogue `ASSET_GROUPS`
-    « Bâtiments (KayKit) », remplacé par `DECOR_CATALOG` (catégorie
-    « Structures décoratives »).
-- **Impact actuel** : risque d'induire en erreur un développeur ou un agent.
-- **Piste** : un passage de nettoyage des commentaires.
 
 ## D. Outillage et dépôt
 
@@ -420,3 +399,24 @@ Retirée avec l'arène du Mode survie, résolue côté code :
   des matrices et du squelette (`updateMatrixWorld`, `skeleton.update`)
   avant le premier raycast.
 - Voir aussi `ARCHITECTURE.md` §16.
+
+### KI-26 — Arbres et props pivotent autour de l'origine de leur modèle
+
+- **Statut** : Dette. Établi par lecture du code ; l'ampleur visible dépend
+  du pivot de chaque modèle et n'a pas été mesurée.
+- **Mécanisme** : `cloneScaledTo` (`render/assetLibrary.ts`) recentre un
+  modèle en décalant sa **position** ; `createTreeObstacle` et
+  `createPropObstacle` appliquent ensuite la rotation à ce même objet. Il
+  tourne donc autour de l'origine de son fichier, pas du centre de son
+  emprise : un pivot excentré déplace le décor quand on le tourne.
+  - Dans l'éditeur, `refreshEditorObjects` réécrit ensuite la position d'un
+    décor déjà construit au centre exact, ce qui annule ce recentrage : le
+    même décor peut s'afficher légèrement différemment dans l'éditeur et en
+    jeu.
+- **Corrigé pour les bâtiments** : `createBuildingObstacle`
+  (`render/buildings.ts`) place le modèle recentré dans un groupe posé au
+  centre exact de l'emprise ; c'est ce groupe qui tourne (`ASSETS.md`).
+- **Impact actuel** : aucun signalé ; les arbres et props sont petits et la
+  plupart des modèles ont un pivot proche de leur centre.
+- **Piste** : le même emballage que les bâtiments pour les arbres et les
+  props.

@@ -44,8 +44,8 @@ définissent ni l'armée de départ ni les vagues d'une run.
 
 - **Ouvrir** : menu principal → **Éditeur de maps**. L'éditeur s'ouvre
   toujours sur l'**arène officielle du Mode survie** (`SURVIVAL_ARENA_MAP`,
-  20 × 36) au complet : terrain, décors, territoire, unités de scénario et
-  Baliste. C'est une copie de travail : l'arène du jeu n'est jamais
+  « MapV2 », 21 × 36) au complet : terrain, décors, territoire, unités de
+  scénario (un Fantassin de chaque camp) et Baliste. C'est une copie de travail : l'arène du jeu n'est jamais
   modifiée. L'historique est vide et la carte est considérée comme
   enregistrée (§14) : pas d'indicateur « non enregistré » à l'ouverture.
 - **Quitter** : **« ← Retour au menu »**. Si la carte a des modifications
@@ -130,11 +130,11 @@ définissent ni l'armée de départ ni les vagues d'une run.
 - **Ajout** : refusé si une case existe déjà à cet endroit. Une case ajoutée
   est neutre si le territoire est explicite ; avec le repli historique, les
   bandes sont recalculées sur les cases présentes (§4).
-- **Suppression** : refusée si une unité ou un obstacle bloquant occupe la
-  case (seule la case du centre de l'obstacle compte, **KI-20**), ou si la
-  case est sous l'empreinte de la Baliste (§16). Un décor traversable
-  n'empêche pas la suppression. Supprimer une case retire aussi son entrée de
-  territoire explicite.
+- **Suppression** : refusée si une unité occupe la case, si le **centre d'un
+  décor** est dessus (décors traversables compris, pour qu'aucun ne reste
+  suspendu dans le vide ; seule la case du centre compte, **KI-20**), ou si
+  la case est sous l'empreinte de la Baliste (§16). Supprimer une case
+  retire aussi son entrée de territoire explicite.
 
 ## 4. Territoire
 
@@ -236,8 +236,10 @@ ouverte au départ) :
   correspond. Effacer la recherche rétablit l'état des catégories.
 - **Pose libre** : un clic pose le décor exactement sous le curseur, sans
   alignement sur une case. Un fantôme semi-transparent le montre avant le
-  clic. Après la pose, l'outil revient à Sélection et le décor posé est
-  sélectionné.
+  clic, avec la case sous son centre en vert ou en rouge. La pose est
+  refusée si ce **centre** ne tombe pas sur une case existante (trou ou hors
+  du plateau ; seul le centre compte, **KI-20**). Après la pose, l'outil
+  revient à Sélection et le décor posé est sélectionné.
 - **Aspect fixe** : l'aspect d'un décor (orientation s'il n'a pas de
   `rotationY`, forme d'un rocher, hauteur d'un arbre) dépend de sa position.
   Il est identique dans l'éditeur, dans « Tester le scénario », dans le Mode
@@ -291,7 +293,9 @@ ouverte au départ) :
 
 - **Décors** :
   - uniquement avec les **flèches du gizmo** ;
-  - déplacement libre sur le plan horizontal ;
+  - déplacement libre sur le plan horizontal ; un déplacement qui amènerait
+    le centre du décor au-dessus du vide est refusé, le décor restant à sa
+    dernière position valide ;
   - un glisser complet compte comme **une seule entrée** d'historique.
 - **Unités et groupes** : même geste et même calcul qu'en préparation.
   - **Aperçu au survol** : avec une ou plusieurs unités sélectionnées, le
@@ -613,7 +617,7 @@ joueur, et sa position fait partie de la carte (`ballista`, §14).
   jamais déplacé automatiquement.
 - **Position initiale en partie** : cette position est la position de départ
   de la Baliste pour un mode qui utilise la carte. Le Mode survie crée sa
-  Baliste à la position de son arène, (0.5, 13.5), sans placement par le
+  Baliste à la position de son arène, (0.5, 15.5), sans placement par le
   joueur ; une carte enregistrée depuis l'éditeur n'est pas encore jouable
   en run.
 
@@ -623,8 +627,10 @@ joueur, et sa position fait partie de la carte (`ballista`, §14).
 - **En bataille** (y compris « Tester le scénario »), un trou bloque comme un
   obstacle.
 - **Dans l'éditeur**, une unité ne peut pas être posée ni déplacée hors d'une
-  case existante, la Baliste ne peut pas être déplacée au-dessus d'un trou, et
-  un trou n'a pas de territoire.
+  case existante, le centre d'un décor non plus, la Baliste ne peut pas être
+  déplacée au-dessus d'un trou, et un trou n'a pas de territoire.
+- **Rendu** : seules les cases existantes sont dessinées ; les débris de
+  bois décoratifs du plateau ne sont semés que sur des cases existantes.
 - Le placement du jeu réel ne teste pas directement les cases (**KI-02**).
 
 ## 18. Limitations connues
@@ -634,7 +640,8 @@ Détaillées dans `KNOWN_ISSUES.md` :
 - **KI-07** : « Tester le scénario » ne crée ni Mine ni Caserne.
 - **KI-02** : le placement en jeu ne teste pas directement les cases.
 - **KI-20** : certaines règles ne testent que la **case centrale** d'un
-  obstacle (suppression d'une case, pose et déplacement d'unités).
+  obstacle (suppression d'une case, pose et déplacement d'unités, pose et
+  déplacement de décors).
 - **KI-24** : après un clic, un bouton garde le focus ; Espace peut alors le
   réactiver en plus de réinitialiser la caméra.
 
@@ -648,8 +655,7 @@ Limitations de l'éditeur, sans entrée dans `KNOWN_ISSUES.md` :
   le sol peut capter le clic (§7).
 - **Territoire et expansion** : en run, l'agrandissement A/B/C transforme le
   territoire dessiné de l'arène (`CURRENT_STATE.md` §11) ; il n'y a pas
-  encore de territoire propre à la run, et l'étape C rend la bordure neutre
-  asymétrique (KI-25).
+  encore de territoire propre à la run.
 - **Aperçu de déplacement** : une silhouette rouge peut s'afficher hors du
   plateau, à la case visée ; l'outil de pose d'unité garde son propre
   fantôme.

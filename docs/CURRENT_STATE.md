@@ -44,12 +44,13 @@ des parchemins de bataille.
 
 - L'**Or** est la seule monnaie de la run. Il sert à recruter des unités,
   acheter des parchemins, construire des bâtiments et acheter des
-  améliorations à la **Forge**.
+  améliorations : à la **Forge**, ou sur la fiche d'une Mine ou d'une
+  Caserne.
 - La run continue tant que le joueur gagne ; elle s'arrête à la première
   défaite.
 - Seuls les talents et la progression générale (record, ennemis vaincus…)
-  sont conservés entre les runs. Les améliorations de Forge sont propres à
-  la run. Il n'y a plus de Runes.
+  sont conservés entre les runs. Les améliorations sont propres à la run.
+  Il n'y a plus de Runes.
 
 ## 2. Déroulé d'une run
 
@@ -64,7 +65,7 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
      vague 1.
 2. **Démarrage direct**. La run part de l'arène officielle (§11) remise à
    neuf. La Baliste est créée directement à la position définie par la
-   carte (`MapDef.ballista`, (0.5, 13.5) pour l'arène) : il n'y a plus de
+   carte (`MapDef.ballista`, (0.5, 15.5) pour l'arène) : il n'y a plus de
    placement manuel de la tour. La caméra reprend son angle par défaut et
    cadre toute la carte, puis la préparation commence.
 3. **Phase de placement**. La boutique s'ouvre automatiquement. Le joueur
@@ -72,6 +73,7 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
    - déplacer, sélectionner et vendre ses unités ;
    - acheter, poser et déplacer des bâtiments ;
    - ouvrir une Forge possédée pour acheter des améliorations (§14) ;
+   - améliorer une Mine ou une Caserne depuis sa fiche (§6) ;
    - utiliser un parchemin de soin.
 
    **Sélection des unités**, avec les mêmes gestes qu'en bataille et dans
@@ -130,27 +132,77 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
      d'unités, et un clic sur une unité ou un rectangle la retire. Un second
      clic sur le même bâtiment la retire aussi. La Baliste n'est retenue que
      par son empreinte au sol, et une unité sous le curseur reste
-     prioritaire. Les ennemis ne sont pas inspectables ;
-   - chaque unité sélectionnée porte l'**anneau de sélection commun**,
-     identique en préparation et dans l'éditeur. Sa couleur est celle du
-     camp de l'unité (bleu pour le joueur, rouge pour l'ennemi), pas une
-     couleur de validation. La cible d'un ordre d'attaque a son propre
-     anneau rouge ;
+     prioritaire ;
+   - **clic gauche sur une unité ennemie** : inspection seule (fiche), un
+     second clic la retire. Un **rectangle de sélection** qui contient au
+     moins une unité alliée ne sélectionne que les alliés ; sans allié, il
+     inspecte tous les ennemis encadrés. Un ennemi inspecté n'est **jamais
+     commandable** (ni clic droit, ni S, ni ordre de groupe). Sélection
+     alliée et inspection (ennemis ou bâtiment) ne coexistent jamais :
+     l'une remplace l'autre ;
+   - chaque unité sélectionnée ou ennemi inspecté porte l'**anneau d'unité
+     commun**, identique en préparation et dans l'éditeur, proportionnel au
+     rayon de l'unité. Sa couleur est celle du camp (bleu pour le joueur,
+     rouge pour l'ennemi), pas une couleur de validation. Un ordre d'attaque
+     accepté fait **clignoter** brièvement (environ 1 s) un anneau rouge de
+     même taille sous la cible ; il n'y a plus d'anneau permanent sous une
+     cible ;
+   - **barres de PV** (unités, bâtiments et Baliste, des deux camps, en
+     préparation comme en bataille) : visibles seulement pour une entité
+     **blessée** ou **sélectionnée / inspectée** ; une entité intacte et non
+     sélectionnée n'en a pas. Le remplissage prend la couleur du camp ;
    - **clic droit** : ordre aux unités sélectionnées (attaque si un ennemi
      est sous le curseur, sinon déplacement de groupe) ;
    - **S** : Stop, les unités sélectionnées passent en Garde ;
    - **Q** : tir de la Baliste (voir §5) ;
    - caméra : Maj + clic droit pour pivoter, clic gauche + clic droit pour
      déplacer, molette pour zoomer (détail dans `EDITOR.md`, §13).
+
+   **Début de bataille** (vraie bataille et « Tester le scénario ») : les
+   ennemis avancent ; les unités du joueur présentes au lancement font un
+   pas d'ouverture d'exactement **une case** vers l'ennemi, formation
+   conservée, puis passent en **Garde** : elles restent sur place et ne
+   réagissent qu'à un ennemi entrant dans leur aggro, ou à un ordre. Le pas
+   est tout ou rien : si une seule case d'arrivée est invalide (hors terrain,
+   obstacle, bâtiment, Baliste, unité immobile), tout le groupe reste en
+   place et passe directement en Garde. Les Fantassins produits ensuite par
+   une Caserne passent directement en Garde, sans ce pas.
 5. **Fin de bataille**, dès qu'un camp n'a plus de combattant (unités et
    bâtiments du joueur comptent tous les deux) :
-   - **Victoire** : bonus d'or, étape d'expansion de la carte, écran de fin
-     de vague, puis placement de la vague suivante.
+   - **Victoire** : une bannière, puis un rideau noir, derrière lequel sont
+     versés le bonus d'or et appliquée l'étape d'expansion de la carte ;
+     ensuite l'écran de bilan de la manche (ci-dessous), puis le placement
+     de la vague suivante.
    - **Défaite** : écran « Partie terminée », puis retour au menu.
 6. **Abandon** (Échap → Quitter → confirmation) : retour au menu. Les gains de
    méta-progression déjà obtenus pendant la run restent acquis (ils sont
    sauvegardés au fil des batailles), mais **aucune récompense supplémentaire
    n'est accordée à l'abandon**.
+
+### Bilan de fin de vague
+
+Sources : `run/battleSummary.ts`, `ui/screens.ts` (`showWaveComplete`),
+`main.ts`.
+
+Après une victoire, l'écran de fin de vague présente :
+
+- « **VICTOIRE** », d'abord seul, puis « Vague N terminée » ;
+- une ligne par type d'ennemi réellement vaincu pendant la manche
+  (« Fantassins vaincus 8 », « Sentinelles vaincues 1 »), dans l'ordre
+  Fantassin, Archer, Mage, Sentinelle ; aucune ligne à 0 ;
+- « **Or gagné cette manche** », en dernier ;
+- le bouton « Continuer », vers la préparation suivante.
+
+Les lignes apparaissent une à une (environ 0,4 s d'écart), puis l'or, puis
+le bouton ; l'écran reste affiché jusqu'au clic.
+
+- **Ennemis vaincus** : comptés à leur mort réelle dans la simulation, une
+  seule fois par unité (même détection que l'or des kills).
+- **Or gagné cette manche** : tout l'or **gagné** pendant la manche, soit
+  la récompense de chaque ennemi tué (Butin de guerre compris), chaque
+  production de Mine et le bonus de victoire. N'y entrent ni l'or possédé
+  au départ, ni les achats, reventes, annulations ou le bouton de debug.
+  Le compteur repart de zéro au lancement de chaque vraie bataille.
 
 ### Fiche d'entité
 
@@ -162,13 +214,23 @@ en bataille. Elle n'existe pas dans l'éditeur.
 
 - **Sélections prises en charge** :
   - préparation : unité seule, groupe, Mine, Caserne, Forge, Baliste ;
-  - bataille : unité alliée seule, groupe allié, Mine, Caserne, Forge,
-    Baliste (bâtiments inspectés, voir ci-dessus).
+  - bataille : unité alliée seule, groupe allié, unité ennemie inspectée,
+    groupe d'ennemis inspectés, Mine, Caserne, Forge, Baliste (voir
+    ci-dessus).
 - **Valeurs** : ce sont celles réellement utilisées par le jeu, à l'**échelle
   du joueur** (PV et dégâts divisés par 10, comme les barres de vie), jamais
   les valeurs internes ×10. En préparation, elles sont recalculées avec les
   mêmes fonctions que l'apparition en bataille. En bataille, elles sont lues
   sur l'entité.
+- **Niveau** : le titre devient « Nom — Niv. N » pour une entité qui a
+  réellement un niveau d'amélioration : unités du joueur et Baliste (niveau
+  de Forge), chaque Mine et Caserne (niveau propre, §6), et en vraie
+  bataille les Fantassins, Archers et Mages ennemis (niveau de vague,
+  §10). Le niveau interne commence à 0 ; l'affichage commence à **Niv. 1**.
+  Pas de niveau pour la Forge, la Sentinelle ennemie, ni les ennemis de
+  « Tester le scénario ». Un groupe d'un seul type reprend ce niveau sur sa
+  ligne de composition (un groupe ennemi, seulement si tous ses membres ont
+  le même).
 - **Contenu** (titre, camp, PV actuels / max avec une barre de PV) :
   - **Fantassin, Archer, Sentinelle** : dégâts, portée (« Mêlée » ou en
     cases), cadence, vitesse, et l'esquive quand elle est non nulle. Ni rayon,
@@ -181,26 +243,31 @@ en bataille. Elle n'existe pas dans l'éditeur.
   - en bataille, chaque capacité indique son état (Prête, Recharge x.x s,
     Incantation, « Dans x.x s » pendant le verrou initial de la
     Provocation), et un bouclier actif s'affiche sous la barre de PV ;
-  - **Mine** : PV et revenu par seconde (amélioration comprise) ;
-  - **Caserne** : PV, unité produite, intervalle, unités par production. En
-    bataille, aussi la prochaine production, ou « En attente » quand le lot
-    attend des cases libres ;
-  - **Forge** : PV seulement. En préparation, la fiche porte le bouton
+  - **Mine** : PV, production (« 3 à 7 or »), fréquence (« toutes les 5 s »)
+    et emprise. En préparation, aussi l'effet du niveau suivant et le bouton
+    **« Améliorer la mine — N or »** (§6) ;
+  - **Caserne** : PV, unité produite, intervalle, unités par production et
+    emprise. En préparation, aussi l'effet du niveau suivant et le bouton
+    **« Améliorer la caserne — N or »**. En bataille, aussi la prochaine
+    production, ou « En attente » quand le lot attend des cases libres ;
+  - **Forge** : PV et emprise. En préparation, la fiche porte le bouton
     **« Ouvrir la Forge »** (§14) ; en bataille, aucun bouton ;
   - **Baliste** : PV, dégâts par carreau, recharge, carreaux par volée.
     Aucune portée, le tir n'en a pas. En préparation : PV max / max et
     « Prête pour la bataille ». En bataille : PV de l'entité et état
     dynamique `PRÊTE`, `RECHARGE x.x s`, `EN VOL` ou `DÉTRUITE`, issu de la
     même source que le HUD de la Baliste ;
-  - **Groupe** : nombre d'unités, composition par classe (« 3 Fantassins »),
-    PV cumulés actuels / max et nombre de blessées. Aucune moyenne de
-    dégâts, de portée ou de vitesse. En bataille, seules les unités vivantes
-    encore sélectionnées comptent.
+  - **Groupe** (allié sélectionné ou ennemis inspectés) : nombre d'unités,
+    composition par classe (« 3 Fantassins »), PV cumulés actuels / max et
+    nombre de blessées. Aucune moyenne de dégâts, de portée ou de vitesse.
+    En bataille, seules les unités vivantes encore sélectionnées ou
+    inspectées comptent.
 - **Durées** : au dixième, sans « .0 » superflu (`0.4 s`, `5.5 s`, `12 s`).
   Les durées restantes suivent le format du HUD de la Baliste (`1.7 s`).
-- **Emplacement** : en haut à gauche (`left: 12px; top: 12px`), environ
-  236 px de large, même style sombre que le HUD de la Baliste, liseré à la
-  couleur du camp.
+- **Emplacement** : en haut à gauche (`left: 12px; top: 12px`), 354 px de
+  large, même style sombre que le HUD de la Baliste, liseré à la couleur du
+  camp. Le titre est en grand (18 px) ; les lignes et les boutons sont à la
+  taille du reste de l'interface (13 px).
 - **Visibilité** : masquée sans sélection, en pause, sous la boutique ou la
   Forge,
   pendant le placement d'un bâtiment, pendant la transition de
@@ -208,10 +275,11 @@ en bataille. Elle n'existe pas dans l'éditeur.
 - **Mise à jour** : immédiate à chaque changement de sélection, sinon environ
   10 fois par seconde. Le DOM n'est reconstruit que si la forme de la fiche
   change.
-- **Morts et destructions** : une unité morte quitte la sélection et la fiche
-  disparaît. Une Mine, une Caserne ou une Forge détruite n'est plus
-  inspectée. La
-  Baliste détruite reste inspectable, avec l'état `DÉTRUITE`.
+- **Morts et destructions** : une unité morte quitte la sélection ou
+  l'inspection, avec son anneau et sa barre ; la fiche disparaît quand plus
+  rien n'est sélectionné. Une Mine, une Caserne ou une Forge détruite n'est
+  plus inspectée. La Baliste détruite reste inspectable, avec l'état
+  `DÉTRUITE`.
 
 ## 3. Unités
 
@@ -238,8 +306,8 @@ Quatre unités existent, communes au joueur et à l'ennemi.
     bataille.
 - **Valeur au kill et à la revente** (`KILL_REWARD`) : Fantassin 1, Archer
   1,5, Mage 5, Sentinelle 20.
-- Le coût payé en partie est toujours le coût de base : les améliorations de
-  Forge (§14) ne le modifient pas.
+- Le coût payé en partie est toujours le coût de base : les améliorations
+  (§6, §14) ne le modifient pas.
 
 ## 4. Déblocage des unités
 
@@ -266,9 +334,10 @@ effectives du tir), `sim/playerArrow.ts`, `main.ts`.
   joueur. Une fois détruite, elle ne tire plus.
 - **Position** : celle de la carte (`MapDef.ballista`, sinon le repli
   historique du coin), dans le Mode survie comme dans l'éditeur et « Tester
-  le scénario ». Pour l'arène du Mode survie : (0.5, 13.5). Elle reste fixe
-  pendant toute la run, agrandissements compris ; le joueur ne la place ni
-  ne la déplace (`EDITOR.md` §16 pour l'éditeur).
+  le scénario ». Pour l'arène du Mode survie : (0.5, 15.5). Le joueur ne la
+  place ni ne la déplace ; pendant la run, elle ne bouge qu'à l'étape C de
+  l'agrandissement, en reculant d'une case avec le camp joueur (§11).
+  Voir `EDITOR.md` §16 pour l'éditeur.
 - **Tir** : un appui sur **Q** tire un carreau en arc vers le point du sol
   sous le curseur, recalculé au moment de l'appui (la caméra a pu bouger
   depuis le dernier mouvement de souris).
@@ -311,9 +380,9 @@ effectives du tir), `sim/playerArrow.ts`, `main.ts`.
 
 ## 6. Bâtiments gameplay : Mine, Caserne et Forge
 
-Sources : `data/buildings.ts`, `run/mineUpgradeEffects.ts`,
-`run/barracksUpgradeEffects.ts`, `run/buildingUpgradeEffects.ts`,
-`sim/systems/barracksSystem.ts`, `main.ts`.
+Sources : `data/buildings.ts`, `data/mineUpgrade.ts`, `run/buildingUpgrades.ts`,
+`run/mineUpgradeEffects.ts`, `run/barracksUpgradeEffects.ts`,
+`run/buildingUpgradeEffects.ts`, `sim/systems/barracksSystem.ts`, `main.ts`.
 
 Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 
@@ -333,28 +402,53 @@ Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 | | Mine | Caserne | Forge |
 |---|---|---|---|
 | Coût en partie | 20 | 25 | 10 |
-| PV / emprise | 15 / 2×2 | 25 / 2×2 | 15 / 2×2 |
-| Effet | +1 or/s par Mine vivante pendant la bataille (+0,2 or/s par niveau d'amélioration Mine) | Produit des Fantassins (voir ci-dessous) | Accès à la boutique des améliorations de la run (§14) ; aucun effet passif |
+| PV / emprise | 15 / 2×2 | 25 / 3×3 | 15 / 2×2 |
+| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Produit des Fantassins (voir ci-dessous) | Accès à la boutique des améliorations de la run (§14) ; aucun effet passif |
 
-Les coûts sont fixes : une amélioration de Forge ne les augmente pas (une
-Mine améliorée coûte toujours 20, une Caserne améliorée toujours 25).
+Le coût d'achat est fixe : il ne dépend d'aucune amélioration (une Mine
+coûte toujours 20, une Caserne toujours 25).
+
+**Amélioration de la Mine et de la Caserne** :
+
+- chaque Mine et chaque Caserne a son **propre niveau**
+  (`OwnedBuilding.level`), affiché à partir de « Niv. 1 » ; deux bâtiments
+  du même type peuvent avoir des niveaux différents ;
+- il s'achète depuis la fiche du bâtiment, en préparation seulement
+  (« Améliorer la mine — N or », « Améliorer la caserne — N or » ; bouton
+  désactivé si l'or manque). Il n'agit que sur ce bâtiment ;
+- prix : 25 / 50 / 100 / 200… or, compté par bâtiment
+  (`run/buildingUpgrades.ts`) ;
+- le niveau suit le bâtiment d'une vague à l'autre, et disparaît avec lui
+  s'il est détruit.
+
+Production de la Mine :
+
+- toutes les **5 s** de bataille, chaque Mine vivante produit un montant
+  entier tiré dans la tranche de son niveau : 3 à 7 or au niveau 1, puis
+  +2 / +2 par niveau (5 à 9, 7 à 11…) ;
+- le tirage est pseudo-aléatoire et déterministe (générateur à graine,
+  re-semé depuis la graine de la bataille) ;
+- « +N or » s'affiche au-dessus de la Mine ;
+- jamais dans « Tester le scénario » ; une Mine détruite s'arrête aussitôt.
 
 Production de la Caserne :
 
-- **Rythme** : base de 1 Fantassin toutes les 5 s. Chaque niveau
-  d'amélioration Caserne ajoute 1 Fantassin par production, et retire 1 s
-  d'intervalle tous les 3 niveaux (minimum 1 s).
+- **Rythme** : base de 1 Fantassin toutes les 5 s. Chaque niveau de la
+  Caserne ajoute 1 Fantassin par production, et retire 1 s d'intervalle
+  tous les 3 niveaux (minimum 1 s).
 - **Production atomique** : si les cases libres autour d'elle ne suffisent
   pas pour tout le lot, rien n'est produit et la production attend.
 - **Bonus** : les Fantassins produits reçoivent les mêmes bonus (talents et
   améliorations de la run) qu'un Fantassin acheté.
+- **Comportement** : ils passent directement en Garde, sans pas
+  d'ouverture (§2).
 - **Persistance** : ils **ne rejoignent pas** l'armée qui persiste entre les
   vagues.
 
 La Forge (modèle `blue_blacksmith`) est un vrai bâtiment : ciblable,
 destructible, collidable. Elle n'a ni production ni revenu ; toutes les
 Forges ouvrent la **même** boutique d'améliorations, sans bonus par
-exemplaire. Si toutes les Forges sont détruites, les améliorations déjà
+exemplaire. Elle n'améliore plus la Mine ni la Caserne. Si toutes les Forges sont détruites, les améliorations déjà
 achetées restent actives, mais aucun nouvel achat n'est possible tant
 qu'une Forge n'est pas reconstruite.
 
@@ -365,14 +459,14 @@ Sources : `run/runState.ts`, `run/talentEffects.ts`, `run/runUpgrades.ts`,
 
 L'Or est la **seule monnaie** de la run. Il sert à recruter des unités,
 acheter des parchemins, construire des bâtiments et acheter des
-améliorations à la Forge (§14).
+améliorations (Forge §14, Mine et Caserne §6).
 
 Gains :
 
 - or de départ (§2) ;
 - **kill ennemi** : `KILL_REWARD`, versé en temps réel ; +1 avec Butin de
   guerre ;
-- **Mines** : revenu continu pendant la bataille ;
+- **Mines** : une production toutes les 5 s pendant la bataille (§6) ;
 - **victoire** : +5 (`WAVE_CLEAR_BONUS`) ; rien à la défaite ;
 - **ventes** d'unités.
 
@@ -455,6 +549,8 @@ Fantassins et Archers :
   - Ce renforcement s'applique aux Fantassins, Archers et Mages.
   - Il ne s'applique pas à la Sentinelle, qui n'a pas d'entrée dans
     `UNIT_UPGRADES`.
+  - La fiche d'un ennemi inspecté affiche ce niveau à partir de 1
+    (`floor(v / 2) + 1`), en vraie bataille seulement.
 - **Formation** : mêlée devant, unités à distance derrière.
 
 ## 11. Arène, territoire et expansion de la carte
@@ -465,15 +561,17 @@ Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
 
 **Arène du Mode survie**
 
-- Carte officielle `SURVIVAL_BASE_MAP`, fournie par Antoine depuis l'éditeur :
-  20 × 36 cases, dont 64 trous (le champ de bataille central est plus
+- Carte officielle (« MapV2 », fournie par Antoine depuis l'éditeur) :
+  21 × 36 cases, dont 64 trous (le champ de bataille central est plus
   étroit que les bases), 100 décors (24 arbres et 7 rochers bloquants, 69
-  props traversables).
+  props traversables). `SURVIVAL_ARENA_MAP` est la carte complète ;
+  `SURVIVAL_BASE_MAP` est la même, sans unités de scénario.
 - Le Mode survie en lit le terrain (`cells`), les décors (`obstacles`), le
   territoire dessiné (`territory`) et la position de la Baliste
-  (`ballista`). Il **ignore** `playerUnits` et `enemyUnits`, réservées au
-  scénario de test de l'éditeur : l'armée de départ et les vagues restent
-  celles du mode (§2, §10).
+  (`ballista`, (0.5, 15.5)). Il **ignore** `playerUnits` et `enemyUnits`
+  (1 Fantassin allié en (0.5, 10.5), 1 Fantassin ennemi en (0.5, −14.5)),
+  réservées au scénario de test de l'éditeur : l'armée de départ et les
+  vagues restent celles du mode (§2, §10).
 - La carte officielle n'est jamais modifiée : chaque run repart d'elle, sans
   bâtiment, destruction ni agrandissement d'une run précédente.
 - La carte historique « vague1-20 » (18 × 26, `DEFAULT_MAP`) n'est plus
@@ -486,8 +584,8 @@ Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
 - Chaque case appartient au joueur, à l'ennemi, ou à personne (neutre).
 - En préparation, le **territoire joueur** est la zone de placement : unités
   et bâtiments (toute l'emprise) doivent y être.
-- Arène : territoire dessiné, 144 cases par camp. Zone joueur : rangées
-  z 9 à 16, colonnes x −9 à 8 ; zone ennemie symétrique (z −17 à −10). Une
+- Arène : territoire dessiné, 152 cases par camp. Zone joueur : rangées
+  z 9 à 16, colonnes x −9 à 9 ; zone ennemie symétrique (z −17 à −10). Une
   bordure neutre d'une case entoure chaque zone.
 - Une carte sans territoire utilise le **repli historique** : deux bandes de
   7 rangées à l'arrière de chaque camp, le centre neutre.
@@ -506,20 +604,18 @@ Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
   - **B** : une colonne de plus de chaque côté ; les zones s'élargissent de
     même. Les encoches latérales de l'arène se creusent : le champ de
     bataille central garde sa largeur ;
-  - **C** : le champ de bataille s'allonge de deux rangées. La zone joueur
-    (bâtiments, Baliste, décors compris) ne bouge pas ; la zone ennemie
-    recule de deux cases avec toute la partie ennemie.
-- Zone joueur de l'arène : 144 cases au départ, puis 162 (A), 180 (B),
-  180 (C).
+  - **C** : le champ de bataille s'allonge de deux rangées. Chaque camp
+    recule d'une case vers son bord, avec son territoire et ses décors (et,
+    côté joueur, ses bâtiments et la Baliste) ; les deux nouvelles rangées
+    vont au champ de bataille.
+- Zone de chaque camp : 152 cases au départ, puis 171 (A), 189 (B), 189 (C),
+  les deux camps restant de même taille. La bordure neutre d'une case est
+  conservée à chaque étape, des deux côtés.
 - Les trous et le terrain de la carte sont conservés à chaque étape ; aux
-  étapes A et B, aucun décor ne bouge.
+  étapes A et B, aucun décor ne bouge ; aucun centre de décor ne sort du
+  terrain.
 - Une carte sans territoire dessiné garde le comportement historique : bandes
   recalculées à chaque étape.
-- **Défaut connu de l'étape C** : la carte reste centrée alors que le camp
-  joueur ne bouge pas. À chaque étape C, la bordure neutre derrière le joueur
-  s'épaissit d'une rangée, et celle derrière l'ennemi finit par disparaître
-  (la zone ennemie touche alors le bord). Rien n'est bloqué, mais la
-  bordure devient asymétrique. Non résolu.
 - Pas de territoire propre à la run : il n'y a ni `RunState.territory`, ni
   croissance ou conquête réelle du territoire au fil des vagues.
 - La carte repart de son état initial à chaque nouvelle run.
@@ -583,13 +679,15 @@ Sources : `run/runUpgrades.ts` (niveaux, coûts, achat), `data/*Upgrade.ts`,
 
 Les améliorations sont **propres à la run** : niveaux stockés dans
 `RunState.upgrades`, remis à `{}` à chaque nouvelle run, jamais
-sauvegardés. Elles s'achètent en Or, uniquement depuis une Forge.
+sauvegardés. Elles s'achètent en Or, uniquement depuis une Forge. La Mine
+et la Caserne n'y figurent plus : chacune s'améliore depuis sa fiche (§6).
 
 - **Accès** : en préparation, sélectionner une Forge possédée, puis
   « Ouvrir la Forge » sur sa fiche. En bataille, la Forge reste inspectable
   mais la boutique est inaccessible.
 - **Overlay** : titre « Forge », Or actuel, une carte par amélioration avec
-  son niveau, ses effets et le coût du niveau suivant. « Retour » ou Échap
+  son niveau (affiché à partir de 1), ses effets et le coût du niveau
+  suivant. « Retour » ou Échap
   ramène à la préparation, la Forge toujours sélectionnée. Pendant
   l'overlay, « Vendre », « Boutique » et « Prêt pour la bataille » sont
   masqués.
@@ -597,11 +695,8 @@ sauvegardés. Elles s'achètent en Or, uniquement depuis une Forge.
   ensuite, prochaine bataille). Bouton désactivé si l'Or ne suffit pas.
 - **PV max** : quand un achat augmente les PV max d'une unité déjà possédée,
   ses PV actuels augmentent du même écart (5/5 → 6/6, 3/5 → 4/6).
-- **Coût** (`runUpgradeGoldCost(id, niveau)`) : coût de départ × 2^niveau.
-  - Cas général : 1 / 2 / 4 / 8 / 16…
-  - Mine et Caserne : 25 / 50 / 100 / 200… (`RUN_UPGRADE_GOLD_COST_BASE_BY_ID`),
-    parce qu'elles accélèrent directement l'économie ou l'armée.
-  - Aucun talent ne modifie ce coût.
+- **Coût** (`runUpgradeGoldCost(id, niveau)`) : 1 / 2 / 4 / 8 / 16…
+  Aucun talent ne modifie ce coût.
 - **Plafond** : aucune amélioration n'a de niveau maximum.
 - **Prix indépendants** : une amélioration n'augmente jamais le prix de ce
   qu'elle améliore (unité, bâtiment, parchemin).
@@ -613,8 +708,6 @@ sauvegardés. Elles s'achètent en Or, uniquement depuis une Forge.
 | Baliste | +20 % de cadence (additif), +10 PV ; +1 dégât tous les 3 niveaux |
 | Parchemin de soin | +1 PV soigné ; une cible secondaire de plus tous les 3 niveaux (moitié du soin, à 2 cases de la cible) |
 | Nova de glace | +0,5 s d'immobilisation et de Blizzard ; +1 dégât de Blizzard tous les 3 niveaux |
-| Mine | +0,2 or/s |
-| Caserne | +1 Fantassin par production ; −1 s d'intervalle tous les 3 niveaux (minimum 1 s) |
 | Soins excédentaires | +0,5 dégât par projectile ; +1 projectile tous les 3 niveaux |
 
 La carte « Soins excédentaires » n'apparaît qu'avec le talent du même nom.
@@ -631,8 +724,8 @@ Sources : `run/metaProgress.ts`, `run/userSettings.ts`.
 - paliers de points de talent déjà accordés ;
 - réglages (clé séparée).
 
-**Non persistant** : toute la run en cours (or, armée, inventaire, bâtiments,
-améliorations de Forge, vague, état de la carte).
+**Non persistant** : toute la run en cours (or, armée, inventaire, bâtiments
+et leurs niveaux, améliorations de Forge, vague, état de la carte).
 Quitter ou recharger la page la fait perdre.
 
 Une ancienne sauvegarde contenant des Runes (`upgradeRunes`) ou des niveaux
@@ -672,7 +765,10 @@ carte exportée de l'éditeur puis intégrée au code (§11).
   territoire, Taille).
 
 - **Décors** : rochers, arbres, props et bâtiments décoratifs, en placement
-  libre (position et rotation).
+  libre (position et rotation). Le **centre** d'un décor doit tomber sur une
+  case existante, à la pose comme au déplacement : jamais au-dessus d'un
+  trou ni hors du plateau (`KNOWN_ISSUES.md`, KI-20, pour les grosses
+  emprises).
 - **Unités** : du bestiaire, alignées sur la grille. Leur camp est celui du
   territoire de la case où elles sont posées ; une case neutre est
   interdite.
@@ -691,7 +787,9 @@ carte exportée de l'éditeur puis intégrée au code (§11).
       son camp tant qu'elle n'est pas déplacée.
 - **Terrain** : ajout et suppression de cellules au pinceau (clic maintenu
   et glisser ; un trait = une seule entrée d'annuler / rétablir, territoire
-  des cases supprimées compris), taille du plateau modifiable.
+  des cases supprimées compris), taille du plateau modifiable. Une case ne
+  peut pas être supprimée sous une unité, sous la Baliste, ni sous le centre
+  d'un décor (props compris).
 - **Baliste** : sélectionnable et déplaçable, calée sur une grille de 3×3
   cases. Le déplacement est refusé si l'empreinte 3×3 n'est pas entièrement
   en territoire joueur, ou si la tour sortirait du plateau ou recouvrirait un

@@ -207,6 +207,12 @@ voir §9.
   - puis séparation entre corps (directe ou par grille), collision avec les
     obstacles (`resolveObstacleCollisions`) et limites du plateau ;
   - un `Root` bloque le mouvement, mais pas l'attaque.
+  - un ordre `move` marqué `exact` (`sim/orders.ts`) arrive au point près :
+    `followMoveOrder` pose l'unité sur sa destination quand le reste du
+    trajet tient dans un sous-pas. Seul le pas d'ouverture de la bataille
+    l'utilise (`openBattleWithFormationStep`, `main.ts` : un pas d'une case
+    pour tout le camp du joueur si toutes les destinations sont libres,
+    sinon aucun ; puis Garde, comme les unités produites par une Caserne).
 - **Pathfinding** (`sim/pathfinding.ts`) : grille par case reconstruite à
   chaque appel du système de déplacement, A* en 8 directions sans couper les
   coins, et repli sur la case libre la plus proche si la case visée est
@@ -300,10 +306,15 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - `main.ts` maintient `buildingViewsByEntityId` ;
   - la Baliste est un singleton au rendu dédié (`render/ballista.ts`).
 - **Run** : `RunState.buildings` (`OwnedBuilding`) conserve position,
-  rotation et PV entre les vagues. La position de la Baliste,
-  `RunState.ballistaPosition`, est fixée au démarrage de la run depuis la
-  carte de départ (`resolveBallistaOrigin`, voir §10) ; elle ne change plus
-  ensuite.
+  rotation, PV et niveau propre (Mine, Caserne) entre les vagues. La
+  position de la Baliste, `RunState.ballistaPosition`, est fixée au
+  démarrage de la run depuis la carte de départ (`resolveBallistaOrigin`,
+  voir §10). Seule l'étape C de l'agrandissement la déplace, comme les
+  bâtiments (`offsetForZ`, `main.ts`).
+- **Production de la Mine** : gérée par `main.ts` en bataille réelle
+  (minuteur `mineProductionIntervalSeconds`, montant `rollMineGold` de
+  `run/mineUpgradeEffects.ts`, tiré d'un `Rng` dérivé de la graine du
+  `World`), pas par la simulation.
 - **Bâtiments décoratifs** : dans l'éditeur et sur les cartes, ce sont de
   simples `ObstacleDef` `kind: 'building'`, jamais des entités.
 
@@ -350,15 +361,35 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
     `main.ts` la construit à la demande (`playerProgression()`, jamais
     stockée) ; « Tester le scénario » se joue avec `upgrades = {}`.
-  - Coût : `runUpgradeGoldCost(id, niveau)` = coût de départ × 2^niveau.
-    Coût de départ `RUN_UPGRADE_GOLD_COST_BASE` (1), sauf valeur propre dans
-    `RUN_UPGRADE_GOLD_COST_BASE_BY_ID` (Mine et Caserne : 25) ; croissance
-    `RUN_UPGRADE_GOLD_COST_GROWTH` (2). Aucun talent n'intervient.
+  - Coût : `runUpgradeGoldCost(id, niveau)` = coût de départ × 2^niveau,
+    avec `RUN_UPGRADE_GOLD_COST_BASE` (1) et
+    `RUN_UPGRADE_GOLD_COST_GROWTH` (2), identique pour toutes les
+    améliorations de la Forge. Aucun talent n'intervient.
+  - Niveaux affichés : les niveaux internes partent de 0 ;
+    `displayedUpgradeLevel` (niveau + 1) est la seule conversion vers
+    l'affichage « Niv. N ».
   - Achat : `canPurchaseRunUpgrade` / `purchaseRunUpgrade(run, id)` (id
     connu via `isRunUpgradeId`, `maxLevel` éventuel de la définition,
     débit par `spendGold`, puis niveau + 1 ; tout ou rien).
   - Les définitions (`data/*Upgrade.ts`, type commun `UpgradeDefBase`) ne
     portent que les effets et un `maxLevel` facultatif, jamais de prix.
+- **Améliorations par bâtiment** (`run/buildingUpgrades.ts`) : la Mine et la
+  Caserne ont chacune leur niveau (`OwnedBuilding.level`, 0 si absent), hors
+  de `RunState.upgrades`.
+  - Coût `buildingUpgradeGoldCost(niveau)` = 25 × 2^niveau ; achat
+    `canUpgradeOwnedBuilding` / `upgradeOwnedBuilding(run, index)` (débit
+    par `spendGold`, tout ou rien).
+  - `main.ts` déclenche l'achat depuis l'action `upgradeBuilding` de la
+    fiche, en préparation seulement. Les effets se lisent dans
+    `run/mineUpgradeEffects.ts` et `run/barracksUpgradeEffects.ts`.
+  - En bataille, `ownedBuildingIndexByEntityId` (`main.ts`) relie chaque
+    entité de bâtiment à son `OwnedBuilding`, par l'ordre de spawn.
+- **Bilan de fin de vague** (`run/battleSummary.ts`) : compteur pur des
+  ennemis vaincus par type et de l'Or gagné pendant la bataille. `main.ts`
+  le remet à zéro au début de chaque bataille réelle et l'alimente (Or des
+  ennemis tués, production des Mines, bonus de fin de vague) ;
+  `defeatedLines` donne les lignes affichées, sans zéro, dans l'ordre de
+  `UNITS`. L'écran est rendu par `showWaveComplete` (`ui/screens.ts`).
 - **Calcul des effets** (`run/*UpgradeEffects.ts`, `run/talentEffects.ts`) :
   seuls `run/` et `main.ts` connaissent talents et améliorations. Les
   modules `*UpgradeEffects.ts` reçoivent les niveaux de la run
@@ -399,8 +430,12 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - Il rend un `EntityInfoViewModel` (`UnitInfo | GroupInfo | BuildingInfo
     | BallistaInfo`) : `kind`, titre, camp, PV (texte et fraction), lignes,
     sections (capacités), statut ; composition pour un groupe ; `actions`
-    facultatives (données pures : `id`, libellé, activé). Seule la fiche de
-    préparation d'une Forge en porte une : `openForge`.
+    facultatives (données pures : `id`, libellé, activé). Seules les fiches
+    de préparation en portent : `openForge` (Forge) et `upgradeBuilding`
+    (Mine, Caserne).
+  - Il n'affiche un niveau (`displayedUpgradeLevel`) que pour ce qui en a
+    un : unités et Baliste du joueur (niveau de la Forge), Mine et Caserne
+    (niveau propre), ennemis renforcés en bataille réelle.
   - En préparation, il recalcule les valeurs avec les fonctions ci-dessus
     (même fusion que `World.spawn`). En bataille, il lit l'entité (`stats`,
     `hp`, `abilityDamageBonus`, `tauntShieldBonus`, `abilityCooldowns`,
@@ -431,13 +466,12 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     proche (`expandCells`) : la forme de la carte et son territoire
     explicite suivent l'agrandissement. A et B repoussent vers l'extérieur
     ce qui est au-delà des zones, sans déplacer les objets ; C déplace
-    cases, territoire et objets par `centerExpansionZOffset` (camp joueur
-    fixe).
+    cases, territoire et objets par `centerExpansionZOffset`, de façon
+    symétrique : le camp du joueur recule d'une case vers +z, le camp ennemi
+    d'une case vers −z, le champ de bataille ne bouge pas. `main.ts`
+    applique le même `offsetForZ` aux bâtiments possédés et à la Baliste.
   - Un objet déplacé reçoit une `appearanceSeed` figée, pour garder son
     aspect (voir §11).
-  - Limite : le plateau reste centré alors que le camp joueur est fixe en C ;
-    la bordure neutre derrière le joueur s'épaissit et celle derrière
-    l'ennemi disparaît au fil des étapes C.
 - **Territoire** (`config/territory.ts`, module pur sans DOM ni Three.js) :
   - `TerritoryCell = { x, z, team: 'player' | 'enemy' }`, dans la
     convention de `MapDef.cells` (coin entier de la case). Une case sans
@@ -476,7 +510,7 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     jeu.
   - Au démarrage d'une run, `frameRunCamera` (`main.ts`) remet l'angle par
     défaut puis appelle `frameBox` sur toute la carte de départ (sans
-    marges) : l'arène 20 × 36 dépasse le zoom par défaut.
+    marges) : l'arène 21 × 36 dépasse le zoom par défaut.
 - **Unités** :
   - `render/unitViews.ts` crée une vue par entité, interpole sa position,
     joue les animations, le flash de dégâts et la mort ;
@@ -485,6 +519,10 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - attaques procédurales : `proceduralAttackAnimator.ts`, `proceduralSwing.ts`.
 - **Plateau** : `render/board.ts` (sol, grille, zones), `terrainCells.ts`
   (un `InstancedMesh` par type de terrain), `textures.ts`.
+  - Dalles : chaque case est une dalle d'épaisseur `CELL_THICKNESS` (0,45),
+    dont le dessus reste à y = 0 ; l'épaisseur est purement visuelle.
+  - Débris de bois décoratifs (`render/board.ts`) : semés seulement sur des
+    cases existantes, avec une marge, jamais au-dessus d'un trou.
   - Textures du sol : une seule instance par texture, chargée au premier
     appel puis partagée par tous les plateaux, jamais libérée. Un nouveau
     chargement à chaque reconstruction rendait le sol noir le temps du
@@ -527,8 +565,9 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     - La géométrie est partagée, avec un matériau par couleur jamais modifié.
     - L'anneau ignore les rayons, et l'échelle à la racine des modèles est
       compensée.
-    - Décors, Baliste, cible d'ordre d'attaque et parchemins gardent leurs
-      propres indicateurs. L'anneau de la Baliste dans l'éditeur garde sa
+    - Décors, Baliste et parchemins gardent leurs propres indicateurs. La
+      cible d'un ordre d'attaque clignote avec la même géométrie d'anneau
+      (`render/attackOrderFeedback.ts`). L'anneau de la Baliste dans l'éditeur garde sa
       forme, mais prend la couleur de son camp via `teamColor` (même règle
       que les unités) ; celui des décors reste doré.
     - Un bâtiment ou la Baliste sélectionnés en préparation
@@ -563,6 +602,8 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   boutique de la Forge, paramètres, confirmations. Il reçoit des callbacks
   (`ScreenHandlers`) depuis `main.ts` et lit `RunState` / `MetaProgress`
   pour l'affichage (prix calculés via `run/`).
+  - L'écran de victoire (`showWaveComplete`) affiche le bilan de vague
+    fourni par `main.ts` (`run/battleSummary.ts`, §10).
   - La boutique de la Forge réutilise l'overlay d'id interne
     `unitUpgradeShop` (`showForge` / `refreshForge`) : Or de la run, niveaux
     de `RunState.upgrades`, prix `runUpgradeGoldCost`, boutons activés par
@@ -573,7 +614,8 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 - **HUD et composants** : `goldHud`, `waveIndicator`, `inventoryBar`,
   `sellZone`, `placementPanel`, `selectionBox`, toasts, `combatOverlay`
   (barres de PV et textes flottants positionnés par projection monde →
-  écran), `ballistaIndicator` (HUD de la Baliste), `entityInfoPanel`
+  écran ; les textes flottants partagent la classe `floating-text` et la
+  durée `MISS_TEXT_DURATION`), `ballistaIndicator` (HUD de la Baliste), `entityInfoPanel`
   (fiche d'entité), `debug` (panneau de debug).
 - **Fiche d'entité** : un flux à sens unique.
 

@@ -219,7 +219,8 @@ distinct pour ne pas faire doublon :
 
 Les améliorations de statistiques ne relèvent plus de la progression
 permanente : elles s'achètent en **Or**, pendant la run, à une **Forge**
-construite par le joueur, et disparaissent avec la run. Elles entrent ainsi
+construite par le joueur (la Mine et la Caserne, elles, s'améliorent chacune
+depuis sa fiche), et disparaissent avec la run. Elles entrent ainsi
 en concurrence directe avec le recrutement et la construction : investir dans
 une amélioration **ou** acheter de quoi survivre à la vague suivante.
 
@@ -281,7 +282,9 @@ Même avec beaucoup d'unités et de systèmes, le joueur doit pouvoir comprendre
 comportement en place et non comme une règle immuable (fonctionnement
 détaillé dans `CURRENT_STATE.md`) :
 
-- les deux camps avancent l'un vers l'autre ;
+- les ennemis avancent ; le camp du joueur fait un court pas d'ouverture
+  puis tient sa position en Garde, et ne s'engage qu'à l'approche d'un
+  ennemi ou sur ordre ;
 - l'aggro choisit une cible ;
 - la portée arrête l'unité ;
 - une unité n'attaque pas en marchant ;
@@ -370,8 +373,8 @@ Aucune de ces questions n'est tranchée.
 
 **Économie et progression**
 
-- L'équilibre de l'Or entre recrutement, bâtiments et améliorations de
-  Forge (barème encore provisoire).
+- L'équilibre de l'Or entre recrutement, bâtiments et améliorations (Forge,
+  Mine et Caserne ; barème encore provisoire).
 - La forme d'un arbre de talents « beaucoup plus riche » : choix exclusifs ou
   cumulables, réinitialisation, et comment éviter la dilution en petits bonus.
 - La répartition des récompenses et des déblocages entre talents,
