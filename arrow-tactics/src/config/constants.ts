@@ -268,6 +268,15 @@ export const CAMERA = {
    *  l'ecran ("il ne faut pas qu'il sorte du cadre") — valeur toujours
    *  choisie par Claude, a ajuster si le compromis ne convient pas. */
   verticalFrameOffset: 1.5,
+  /** Distance maximale (en cases) entre le point vise par la camera et la
+   *  case de terrain existante la plus proche, quand le joueur deplace la
+   *  camera (voir core/cameraBounds.ts) : assez de liberte pour regarder les
+   *  bords, jamais de plateau perdu hors de l'ecran. */
+  maxTargetDistanceFromTerrain: 6,
+  /** Marges (pixels CSS) du cadrage de la carte en jeu (debut de run,
+   *  Espace) : le haut et le bas laissent la place au HUD (indicateur de
+   *  vague, panneaux du bas). */
+  gameFrameMarginsPx: { top: 56, right: 24, bottom: 100, left: 24 },
 };
 
 // --- Palette ---

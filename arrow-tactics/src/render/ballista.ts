@@ -333,6 +333,12 @@ export interface BallistaTowerPlatform {
   mountHeight: number;
 }
 
+/** Le sommet de la boite englobante de la tour est celui de ses creneaux :
+ *  le plancher interieur est ~0,22 plus bas (mesure par lancer de rayon en
+ *  jeu). La Baliste est descendue d'autant pour reposer sur ce plancher.
+ *  Purement visuel : `mountHeight` (depart visuel des tirs) ne change pas. */
+const BALLISTA_FLOOR_DROP = 0.2;
+
 export async function buildBallistaTowerPlatform(assets: EnvironmentAssets): Promise<BallistaTowerPlatform> {
   const ballista = await buildBallista();
 
@@ -341,7 +347,7 @@ export async function buildBallistaTowerPlatform(assets: EnvironmentAssets): Pro
   const tower = cloneScaledToFootprint(towerPrototype, BALLISTA_TOWER_FOOTPRINT, BALLISTA_TOWER_FOOTPRINT);
 
   const towerHeight = new THREE.Box3().setFromObject(tower).getSize(new THREE.Vector3()).y;
-  ballista.position.set(0, towerHeight, 0);
+  ballista.position.set(0, towerHeight - BALLISTA_FLOOR_DROP, 0);
 
   const platform = new THREE.Group();
   platform.add(tower, ballista);

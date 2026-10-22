@@ -88,8 +88,16 @@ function buildInstancedLayer(cells: TerrainCellDef[], texture: THREE.Texture): T
  *  classique, produit un quadrillage visuellement identique à l'ancien
  *  (`createGridLines(MapSize)`, retiré) — zéro changement pour les maps
  *  existantes.
+ *
+ *  `withSideEdges` (plateau du jeu) : ajoute les aretes verticales entre
+ *  dalles sur les flancs exposes (bord du plateau, pourtour des trous) —
+ *  un trait par coin d'une face laterale visible, sur toute l'epaisseur de
+ *  la dalle, legerement decale vers l'exterieur pour ne pas se melanger a
+ *  la face. Un seul LineSegments enfant de la grille (il suit donc sa
+ *  visibilite), avec une teinte plus claire : la teinte de la grille,
+ *  sombre, disparait sur les flancs deja a l'ombre.
  */
-export function buildCellGridLines(cells: TerrainCellDef[], color: number): THREE.LineSegments {
+export function buildCellGridLines(cells: TerrainCellDef[], color: number, withSideEdges = false): THREE.LineSegments {
   const points: number[] = [];
   for (const c of cells) {
     const x0 = c.x;
@@ -104,6 +112,49 @@ export function buildCellGridLines(cells: TerrainCellDef[], color: number): THRE
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
   const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 }));
-  lines.position.y = 0.012;
+  lines.position.y = GRID_LIFT;
+  if (withSideEdges) {
+    const sideGeometry = new THREE.BufferGeometry();
+    sideGeometry.setAttribute('position', new THREE.Float32BufferAttribute(sideEdgePoints(cells), 3));
+    lines.add(new THREE.LineSegments(sideGeometry, new THREE.LineBasicMaterial({ color: SIDE_EDGE_COLOR, transparent: true, opacity: SIDE_EDGE_OPACITY })));
+  }
   return lines;
+}
+
+/** Aretes laterales : teinte et opacite (voir buildCellGridLines). */
+const SIDE_EDGE_COLOR = 0x6f8a52;
+const SIDE_EDGE_OPACITY = 0.45;
+
+/** Hauteur de la grille au-dessus du sol (evite le scintillement avec la dalle). */
+const GRID_LIFT = 0.012;
+/** Decalage des aretes laterales hors de la face de la dalle. */
+const SIDE_EDGE_OUTSET = 0.006;
+
+/** Segments verticaux (repere de la grille, donc corriges de GRID_LIFT) aux
+ *  deux coins de chaque face laterale exposee, sans doublon. */
+function sideEdgePoints(cells: TerrainCellDef[]): number[] {
+  const present = new Set(cells.map((c) => `${c.x},${c.z}`));
+  const top = -GRID_LIFT;
+  const bottom = -GRID_LIFT - CELL_THICKNESS;
+  const seen = new Set<string>();
+  const points: number[] = [];
+  const add = (x: number, z: number): void => {
+    const key = `${x.toFixed(3)},${z.toFixed(3)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    points.push(x, top, z, x, bottom, z);
+  };
+  const o = SIDE_EDGE_OUTSET;
+  for (const c of cells) {
+    const x0 = c.x;
+    const x1 = c.x + TILE;
+    const z0 = c.z;
+    const z1 = c.z + TILE;
+    // Face exposee (case voisine absente) : un trait a chacun de ses deux coins.
+    if (!present.has(`${c.x - TILE},${c.z}`)) { add(x0 - o, z0); add(x0 - o, z1); }
+    if (!present.has(`${c.x + TILE},${c.z}`)) { add(x1 + o, z0); add(x1 + o, z1); }
+    if (!present.has(`${c.x},${c.z - TILE}`)) { add(x0, z0 - o); add(x1, z0 - o); }
+    if (!present.has(`${c.x},${c.z + TILE}`)) { add(x0, z1 + o); add(x1, z1 + o); }
+  }
+  return points;
 }

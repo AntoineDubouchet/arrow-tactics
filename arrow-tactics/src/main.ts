@@ -40,6 +40,7 @@ import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type T
 import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapExpansion';
 import { Loop } from './core/loop';
 import { dist } from './core/math';
+import { clampToCellsDistance, type CellCorner } from './core/cameraBounds';
 import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMoveMember } from './core/gridGroupMove';
 import { getBuilding } from './data/buildings';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
@@ -224,6 +225,20 @@ const vfxManager = new VfxManager(fireballView, shadowProjectileView);
 // produit de nouvelles MapDef).
 let currentMap: MapDef = SURVIVAL_BASE_MAP;
 world.setMap(currentMap);
+
+// Limite du deplacement de la camera en jeu : le point vise reste a moins de
+// CAMERA.maxTargetDistanceFromTerrain cases du terrain de la carte courante
+// (agrandissements compris). Ni dans l'editeur ni pendant son test.
+let cameraBoundsMap: MapDef | null = null;
+let cameraBoundsCells: readonly CellCorner[] = [];
+renderer.setTargetConstraint((x, z) => {
+  if (inEditorMode || inTestMode) return null;
+  if (cameraBoundsMap !== currentMap) {
+    cameraBoundsMap = currentMap;
+    cameraBoundsCells = resolveMapCells(currentMap);
+  }
+  return clampToCellsDistance(cameraBoundsCells, x, z, CAMERA.maxTargetDistanceFromTerrain);
+});
 
 // Chargement asynchrone : les rochers/arbres viennent de vrais modeles .glb
 // (voir render/assetLibrary.ts), pas de geometrie generee — le reste de
@@ -1739,12 +1754,12 @@ function startNewRun(): void {
   }
 }
 
-/** Cadrage initial d'une run : angle par defaut, carte de depart entiere a
- *  l'ecran (l'arene du Mode survie, 21 × 36, depasse le zoom par defaut).
- *  Les gestes et Espace gardent ensuite leur comportement habituel. */
+/** Cadrage de la carte en jeu (debut de run, Espace) : angle par defaut,
+ *  carte courante entiere dans la zone visible, entre les marges du HUD
+ *  (l'arene du Mode survie, 21 × 36, depasse le zoom par defaut). */
 function frameRunCamera(): void {
   renderer.resetCamera();
-  renderer.frameBox({ ...computeMapCellBounds(resolveMapCells(currentMap)), height: 2 });
+  renderer.frameBox({ ...computeMapCellBounds(resolveMapCells(currentMap)), height: 2 }, CAMERA.gameFrameMarginsPx);
 }
 
 /** Place la Baliste (modele, origine des tirs, collision) a la position de
@@ -6015,9 +6030,14 @@ window.addEventListener('keydown', (event) => {
       // jeu depuis le retrait de la pause au clavier (voir CLAUDE.md,
       // "Panneau de debug allege, pause a l'espace retiree"), donc pas de
       // conflit a gerer meme en mode editeur. Dans l'editeur (E6), la carte
-      // est recadree dans la zone libre.
+      // est recadree dans la zone libre ; en jeu, la carte courante est
+      // recadree dans la zone visible (frameRunCamera), R garde le simple
+      // retour a la camera par defaut.
+      // preventDefault : Espace ne doit pas EN PLUS activer le bouton qui a
+      // le focus (ex. « Boutique » apres un clic, qui se rouvrait).
+      event.preventDefault();
       if (inEditorMode || inTestMode) resetEditorCamera();
-      else renderer.resetCamera();
+      else frameRunCamera();
       break;
     case 'Delete':
     case 'Backspace':

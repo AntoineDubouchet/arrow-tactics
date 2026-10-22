@@ -119,14 +119,17 @@ const ATTACK_TIME_SCALE: Record<AttackId, number> = {
 /** Attaque jouee en jeu : seul son fichier est charge. */
 const ACTIVE_ATTACK: AttackId = 'leftSlash';
 
+/** Epee : rotation de calibration relevee de 15° (seule la composante Z
+ *  change) : au repos, la lame pointe a -9° sous l'horizontale au lieu de
+ *  -24°. */
 const TEAM_RIGS: Record<Team, TeamRig> = {
   player: {
-    sword: { bone: 'smartrigRightHand', position: [-0.058, -0.117, -0.008], rotationDeg: [50.7, 38.8, 171.4], scale: 0.005 * EQUIPMENT_SCALE, pivot: SWORD_PIVOT },
-    shieldOffset: new THREE.Vector3(15, -6, 4),
+    sword: { bone: 'smartrigRightHand', position: [-0.058, -0.117, -0.008], rotationDeg: [50.7, 38.8, -173.6], scale: 0.005 * EQUIPMENT_SCALE, pivot: SWORD_PIVOT },
+    shieldOffset: new THREE.Vector3(14, -4, 2),
   },
   enemy: {
-    sword: { bone: 'smartrigRightHand', position: [-0.048, 0.131, -0.024], rotationDeg: [-76.3, 64.1, 118.9], scale: 0.005 * EQUIPMENT_SCALE, pivot: SWORD_PIVOT },
-    shieldOffset: new THREE.Vector3(15, -6, 4),
+    sword: { bone: 'smartrigRightHand', position: [-0.048, 0.131, -0.024], rotationDeg: [-76.3, 64.1, 133.9], scale: 0.005 * EQUIPMENT_SCALE, pivot: SWORD_PIVOT },
+    shieldOffset: new THREE.Vector3(14, -4, 2),
   },
 };
 

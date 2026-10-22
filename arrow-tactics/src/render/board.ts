@@ -56,7 +56,7 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   const terrain = buildTerrainCellsView(cells);
   group.add(terrain.group);
 
-  const gridLines = buildCellGridLines(cells, COLORS.gridLine);
+  const gridLines = buildCellGridLines(cells, COLORS.gridLine, true);
   group.add(gridLines);
 
   // Zones de camp : le territoire de la map (config/territory.ts,

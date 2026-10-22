@@ -19,6 +19,17 @@ export interface FrameBox {
   height: number;
 }
 
+/** Marges en pixels CSS, par cote, entre la zone d'affichage et l'emprise cadree. */
+export interface FrameMargins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/** Corrige un point vise propose (x, z) ; null = aucune limite. */
+export type CameraTargetConstraint = (x: number, z: number) => { x: number; z: number } | null;
+
 export interface CameraViewState {
   yawDeg: number;
   pitchDeg: number;
@@ -58,7 +69,10 @@ export class Renderer {
   /** Emprise cadree par frameBox, recadree au changement de zone tant que
    *  la camera n'a pas ete bougee a la main depuis. */
   private framedBox: FrameBox | null = null;
+  private framedMargins: number | FrameMargins = 24;
   private framed = false;
+  /** Limite du point vise appliquee au deplacement (pan), voir setTargetConstraint. */
+  private targetConstraint: CameraTargetConstraint | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -127,10 +141,16 @@ export class Renderer {
     window.addEventListener('resize', () => this.resize());
   }
 
+  /** Tampon de rendu a la taille CSS × devicePixelRatio, ET taille
+   *  d'affichage du canvas fixee a la taille CSS de la fenetre : sans cette
+   *  derniere (ancien `setSize(w, h, false)`), le canvas s'affichait a la
+   *  taille de son tampon des que l'echelle Windows depassait 100 % (125 %,
+   *  150 %…), donc agrandi et rogne en bas a droite, alors que projections,
+   *  cadrage et clics raisonnent en pixels CSS. */
   resize(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    this.renderer.setSize(w, h, false);
+    this.renderer.setSize(w, h);
     this.updateCamera();
   }
 
@@ -180,17 +200,31 @@ export class Renderer {
       this.framedBox = null;
       this.framed = false;
     }
-    if (this.framed && this.framedBox) this.frameBox(this.framedBox);
+    if (this.framed && this.framedBox) this.frameBox(this.framedBox, this.framedMargins);
     else this.updateCamera();
   }
 
+  /** Limite le point vise pendant les deplacements a la souris (pan) : la
+   *  contrainte recoit le point propose et renvoie le point corrige, ou
+   *  null pour le laisser libre. null retire toute limite. */
+  setTargetConstraint(constraint: CameraTargetConstraint | null): void {
+    this.targetConstraint = constraint;
+  }
+
   /**
-   * Cadre une emprise du monde dans la zone d'affichage, avec une marge en
-   * pixels, sans changer l'orientation ni l'inclinaison : seuls le point
-   * vise et le zoom sont calcules. L'emprise reste cadree au redimensionnement
-   * ou au changement de zone, jusqu'au prochain geste de camera.
+   * Cadre une emprise du monde dans la zone d'affichage, avec des marges en
+   * pixels CSS (une valeur pour les quatre cotes, ou une par cote pour
+   * laisser la place au HUD), sans changer l'orientation ni l'inclinaison :
+   * seuls le point vise et le zoom sont calcules. L'emprise reste cadree au
+   * redimensionnement ou au changement de zone, jusqu'au prochain geste de
+   * camera.
+   *
+   * Tout est calcule dans les dimensions CSS de la zone d'affichage (celles
+   * des projections et du raycast), jamais en pixels physiques : le resultat
+   * ne depend ni de devicePixelRatio ni de la taille du tampon de rendu.
    */
-  frameBox(box: FrameBox, marginPx = 24): void {
+  frameBox(box: FrameBox, margins: number | FrameMargins = 24): void {
+    const m = typeof margins === 'number' ? { top: margins, right: margins, bottom: margins, left: margins } : margins;
     this.target.set(0, 0, 0);
     this.updateCamera();
     this.camera.updateMatrixWorld();
@@ -212,24 +246,36 @@ export class Renderer {
       }
     }
     const { width, height } = this.viewportSize();
-    const usableW = Math.max(width - 2 * marginPx, 1);
-    const usableH = Math.max(height - 2 * marginPx, 1);
+    const usableW = Math.max(width - m.left - m.right, 1);
+    const usableH = Math.max(height - m.top - m.bottom, 1);
     const worldPerPixel = Math.max((maxX - minX) / usableW, (maxY - minY) / usableH, 1e-3);
     const fitted = worldPerPixel * height;
     this.maxViewHeight = Math.max(CAMERA.maxViewHeight, fitted);
     this.viewHeight = clamp(fitted, CAMERA.minViewHeight, this.maxViewHeight);
 
-    // Point du sol qui s'affiche au centre de l'emprise : on part du centre
-    // en coordonnees camera et on glisse le long de l'axe de vue (sans effet
-    // a l'ecran en orthographique) jusqu'au plan y = 0.
+    // Le centre de l'emprise doit tomber au centre de la zone utile (hors
+    // marges), pas au point vise : en jeu, le frustum est decale de
+    // CAMERA.verticalFrameOffset (le point vise s'affiche plus bas que le
+    // centre de l'ecran), et des marges inegales deplacent encore ce centre.
+    // Ecart voulu, en coordonnees camera, entre le centre de l'emprise et
+    // le point vise.
+    const unitsPerPixel = this.viewHeight / height;
+    const frustumCenterY = this.viewportInsets ? 0 : CAMERA.verticalFrameOffset;
+    const desiredX = ((m.left - m.right) / 2) * unitsPerPixel;
+    const desiredY = frustumCenterY - ((m.top - m.bottom) / 2) * unitsPerPixel;
+
+    // Point du sol vise : on part de ce point en coordonnees camera et on
+    // glisse le long de l'axe de vue (sans effet a l'ecran en
+    // orthographique) jusqu'au plan y = 0.
     const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
     const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
     const forward = new THREE.Vector3();
     this.camera.getWorldDirection(forward);
-    const center = right.multiplyScalar((minX + maxX) / 2).add(up.multiplyScalar((minY + maxY) / 2));
+    const center = right.multiplyScalar((minX + maxX) / 2 - desiredX).add(up.multiplyScalar((minY + maxY) / 2 - desiredY));
     center.addScaledVector(forward, -center.y / forward.y);
     this.target.set(center.x, 0, center.z);
     this.framedBox = box;
+    this.framedMargins = margins;
     this.framed = true;
     this.updateCamera();
   }
@@ -271,8 +317,10 @@ export class Renderer {
     const forwardX = -Math.sin(yaw);
     const forwardZ = -Math.cos(yaw);
 
-    this.target.x += -dxPixels * scale * rightX + dyPixels * scale * forwardX;
-    this.target.z += -dxPixels * scale * rightZ + dyPixels * scale * forwardZ;
+    const x = this.target.x - dxPixels * scale * rightX + dyPixels * scale * forwardX;
+    const z = this.target.z - dxPixels * scale * rightZ + dyPixels * scale * forwardZ;
+    const limited = this.targetConstraint?.(x, z) ?? null;
+    this.target.set(limited?.x ?? x, 0, limited?.z ?? z);
     this.updateCamera();
   }
 
