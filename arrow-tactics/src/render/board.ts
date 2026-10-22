@@ -56,9 +56,6 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   const terrain = buildTerrainCellsView(cells);
   group.add(terrain.group);
 
-  const gridLines = buildCellGridLines(cells, COLORS.gridLine, true);
-  group.add(gridLines);
-
   // Zones de camp : le territoire de la map (config/territory.ts,
   // resolveMapTerritory — meme resolution que la validation du placement),
   // explicite ou, a defaut, les bandes historiques de profondeur
@@ -66,7 +63,21 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   // REELLE pour la run en cours, voir run/mapExpansion.ts) — absent = retombe
   // sur PLACEMENT_ROWS (la constante de depart), pour l'editeur/testBoard, qui
   // n'ont aucun lien avec la progression d'une run reelle.
-  const zones = createZonesGroup(resolveMapTerritory(map, spawnDepth ?? PLACEMENT_ROWS));
+  const territory = resolveMapTerritory(map, spawnDepth ?? PLACEMENT_ROWS);
+
+  // Grille UNIQUEMENT sur les cases colorees (territoire joueur et ennemi),
+  // jamais sur le terrain neutre : memes cases que les zones, limitees aux
+  // cellules de terrain existantes (aucun trait au-dessus d'un trou). Le
+  // plateau est reconstruit a chaque agrandissement, la grille suit donc le
+  // territoire.
+  const cellKeys = new Set(cells.map((c) => cellKey(c.x, c.z)));
+  const gridLines = buildCellGridLines(
+    territory.filter((c) => cellKeys.has(cellKey(c.x, c.z))),
+    COLORS.gridLine,
+  );
+  group.add(gridLines);
+
+  const zones = createZonesGroup(territory);
   group.add(zones);
 
   // Obstacles : rochers et arbres bloquent la ligne de tir ET les pas en

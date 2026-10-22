@@ -72,11 +72,19 @@ function retargetClipToBody(clip: THREE.AnimationClip, newName: string): THREE.A
   return new THREE.AnimationClip(newName, clip.duration, tracks);
 }
 
+/** Os racine du squelette : ses pistes sont retirees des clips de tir et
+ *  d'apres-tir. Elles fixent une orientation sans la correction d'axe que le
+ *  chargeur applique au corps, et faisaient basculer le modele ENTIER de 90°
+ *  vers l'arriere pendant tout le tir et le rechargement. Les os du
+ *  mecanisme (treuil, corde, bras) restent animes. */
+const ROOT_BONE = 'Root';
+
 async function loadRetargetedClip(path: string, name: string): Promise<THREE.AnimationClip> {
   const loader = new FBXLoader();
   const obj = await loader.loadAsync(path);
   const clip = obj.animations[0];
   if (!clip) throw new Error(`Aucune animation trouvee dans ${path}`);
+  clip.tracks = clip.tracks.filter((track) => track.name.slice(0, track.name.indexOf('.')) !== ROOT_BONE);
   return retargetClipToBody(clip, name);
 }
 
@@ -140,8 +148,10 @@ function collectRestPoseClip(body: THREE.Object3D, refClips: THREE.AnimationClip
  * la largeur des bras de l'arc) a celui de l'ancien (1.875) : 1.875 / 365.109
  * ≈ 0.00513, arrondi a 0.005 — a ajuster si la baliste parait trop grande ou
  * trop petite une fois vue en jeu (aucun acces visuel de mon cote).
+ * Reduite de 20 % ensuite (0.005 x 0.8) : pivot au pied du modele, la
+ * Baliste reste posee sur le plancher de la tour sans retoucher son Y.
  */
-const BALLISTA_SCALE = 0.005;
+const BALLISTA_SCALE = 0.005 * 0.8;
 
 /**
  * Axe de tir : DEDUIT de la geometrie du squelette (script jetable), pas

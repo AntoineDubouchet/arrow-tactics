@@ -193,14 +193,17 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     id: 'house',
     displayName: 'Maison',
     maxHp: 10 * HP_PER_PIP,
-    radius: 0.55,
+    // Emprise 2 × 2 (1 × 1 a l'origine, trop petite) : rayon aligne sur les
+    // autres batiments 2 × 2 (Mine, Forge) ; modele mis a l'echelle de
+    // l'emprise (2,18 de haut), barre de PV juste au-dessus du toit.
+    radius: 1.0,
     targetable: true,
     countsForDefeat: true,
-    hpBarHeight: 1.35,
+    hpBarHeight: 2.5,
     cost: 5,
     buildingModel: 'blue_home_A',
-    footprintTilesX: 1,
-    footprintTilesZ: 1,
+    footprintTilesX: 2,
+    footprintTilesZ: 2,
     populationBonus: 5,
   },
 };
