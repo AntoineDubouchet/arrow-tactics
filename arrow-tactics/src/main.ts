@@ -107,9 +107,11 @@ import {
 import { computeStartingGoldBonus, computeTalentEconomyHooks } from './run/talentEffects';
 import {
   computeEnemyUnitUpgradeEffects,
+  currentProductionLevel,
   effectivePlayerUnitCost,
-  effectivePlayerUnitMaxHp,
   enemyUnitUpgradeLevel,
+  playerUnitMaxHp,
+  playerUnitProductionCost,
 } from './run/unitUpgradeEffects';
 import { HEAL_SCROLL_UPGRADE } from './data/healScrollUpgrade';
 import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
@@ -730,16 +732,22 @@ function enemyAbilityDamageBonus(unitId: string, waveNumber: number): number {
   return computeEnemyUnitUpgradeEffects(unitId, waveNumber).abilityDamageBonus;
 }
 
-/** Niveau de vague applique a chaque unite ennemie de la bataille en cours,
- *  par id d'entite, pour la fiche d'inspection (l'Entity ne le porte pas).
- *  Rempli aux memes spawns que enemyStatOverrides, donc jamais en "Tester le
- *  scenario" ; absent pour un type sans amelioration. Vide a chaque
- *  world.clear() (forgetBattleBuildings). */
-const enemyUnitLevels = new Map<number, number>();
+/** Niveau propre a chaque unite de la bataille en cours, par id d'entite,
+ *  pour la fiche d'inspection (l'Entity ne le porte pas) : niveau de vague
+ *  d'un ennemi (rempli aux memes spawns que enemyStatOverrides, donc jamais
+ *  en "Tester le scenario"), niveau de production d'une unite du joueur.
+ *  Absent pour un type sans amelioration. Vide a chaque world.clear()
+ *  (forgetBattleBuildings). */
+const battleUnitLevels = new Map<number, number>();
 
 function rememberEnemyUnitLevel(entity: Entity, waveNumber: number): void {
   const level = enemyUnitUpgradeLevel(entity.unitId, waveNumber);
-  if (level !== null) enemyUnitLevels.set(entity.id, level);
+  if (level !== null) battleUnitLevels.set(entity.id, level);
+}
+
+/** Unite du joueur : son niveau de production, fige a sa creation. */
+function rememberPlayerUnitLevel(entity: Entity, productionLevel: number): void {
+  battleUnitLevels.set(entity.id, productionLevel);
 }
 
 // --- Economie / progression de run (chantier en cours — voir CLAUDE.md) -
@@ -793,7 +801,7 @@ function currentTerritoryIndex(): TerritoryIndex {
  *  pendant la run) ; aucun niveau n'est conserve d'une run a l'autre. */
 function createFreshRun(): RunState {
   const upgrades: RunUpgradeLevels = {};
-  return createNewRun(computeStartingGoldBonus(metaProgress), effectivePlayerUnitMaxHp('fantassin', upgrades), upgrades);
+  return createNewRun(computeStartingGoldBonus(metaProgress), playerUnitMaxHp('fantassin', 0), upgrades);
 }
 
 /** SOURCE UNIQUE de la progression du joueur pour les statistiques
@@ -851,16 +859,18 @@ function setupTestBattle(): void {
   battleOver = false;
 
   for (const pos of currentMap.playerUnits) {
-    world.spawn(
+    const level = currentProductionLevel(playerProgression().upgrades, pos.unitId);
+    const spawned = world.spawn(
       pos.unitId,
       'player',
       pos.x,
       pos.z,
       undefined,
-      playerUnitStatOverrides(pos.unitId, playerProgression()),
-      playerUnitAbilityDamageBonus(pos.unitId, playerProgression().upgrades),
-      playerUnitTauntShieldBonus(pos.unitId, playerProgression().upgrades),
+      playerUnitStatOverrides(pos.unitId, level, playerProgression()),
+      playerUnitAbilityDamageBonus(pos.unitId, level),
+      playerUnitTauntShieldBonus(pos.unitId, level),
     );
+    rememberPlayerUnitLevel(spawned, level);
   }
   for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z);
   // Apres les unites, comme en vraie bataille (voir onValidatePlacement).
@@ -1049,6 +1059,8 @@ interface PlacementSlot {
   /** PV actuels a spawner (voir World.spawn) — une unite blessee survivante
    *  d'une vague precedente reste blessee tant qu'elle n'est pas soignee. */
   hp: number;
+  /** Niveau de production de l'unite (OwnedUnit.productionLevel), fige. */
+  productionLevel: number;
 }
 
 let placementSlots: PlacementSlot[] = [];
@@ -1230,7 +1242,7 @@ function createHealTargetRing(): THREE.Mesh {
  *  deverrouille. */
 function isRecyclageEligible(slot: PlacementSlot): boolean {
   if (!isTalentActive('recyclage')) return false;
-  return slot.hp < 0.5 * effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades);
+  return slot.hp < 0.5 * playerUnitMaxHp(slot.unitId, slot.productionLevel);
 }
 
 /** Anneau de PREVISUALISATION de la cible de soin (2026-08-11, demande
@@ -1390,7 +1402,7 @@ function computeSellValue(indices: number[]): number {
   for (const index of indices) {
     const slot = placementSlots[index];
     if (!slot) continue;
-    total += isRecyclageEligible(slot) ? Math.round(3 * effectivePlayerUnitCost(slot.unitId)) : (KILL_REWARD[slot.unitId] ?? 0);
+    total += isRecyclageEligible(slot) ? Math.round(3 * playerUnitProductionCost(slot.unitId, slot.productionLevel)) : (KILL_REWARD[slot.unitId] ?? 0);
   }
   return total;
 }
@@ -1517,16 +1529,17 @@ function onValidatePlacement(): void {
 
   for (const slot of placementSlots) {
     if (slot.x === null || slot.z === null) continue;
-    world.spawn(
+    const spawned = world.spawn(
       slot.unitId,
       'player',
       slot.x,
       slot.z,
       slot.hp,
-      playerUnitStatOverrides(slot.unitId, playerProgression()),
-      playerUnitAbilityDamageBonus(slot.unitId, playerProgression().upgrades),
-      playerUnitTauntShieldBonus(slot.unitId, playerProgression().upgrades),
+      playerUnitStatOverrides(slot.unitId, slot.productionLevel, playerProgression()),
+      playerUnitAbilityDamageBonus(slot.unitId, slot.productionLevel),
+      playerUnitTauntShieldBonus(slot.unitId, slot.productionLevel),
     );
+    rememberPlayerUnitLevel(spawned, slot.productionLevel);
   }
   for (const pos of computeEnemyWavePlacements(currentRun.waveNumber, currentMap)) {
     const enemy = world.spawn(
@@ -1616,7 +1629,7 @@ function spawnBallistaBuilding(): void {
  *  dans la bataille suivante, donc aucune reference a un batiment de la
  *  bataille videe ne doit survivre (l'ancien id de la Baliste ou d'une Mine
  *  pourrait designer une tout autre entite du test suivant), ni aucun niveau
- *  d'ennemi memorise (enemyUnitLevels). Remet aussi le
+ *  d'unite memorise (battleUnitLevels). Remet aussi le
  *  visuel de la Baliste dans son etat normal : detruite pendant la bataille
  *  videe, elle doit reapparaitre des la preparation suivante (ou le
  *  depart d'une nouvelle run, ou l'editeur), pas seulement au
@@ -1640,7 +1653,7 @@ function forgetBattleBuildings(): void {
   ballistaEntityId = null;
   buildingViewsByEntityId.clear();
   ownedBuildingIndexByEntityId.clear();
-  enemyUnitLevels.clear();
+  battleUnitLevels.clear();
   ballistaBuildingView.reset();
 }
 
@@ -1671,6 +1684,7 @@ function startPlacement(): void {
     x: formation[i]!.x,
     z: formation[i]!.z,
     hp: unit.hp,
+    productionLevel: unit.productionLevel,
   }));
   clearSelection();
   refreshPlayerPreview();
@@ -1855,20 +1869,12 @@ function closeForge(): void {
 }
 
 /** Achat d'un niveau a la Forge (Or de la run, voir run/runUpgrades.ts). Une
- *  amelioration qui augmente les PV max d'une unite deja possedee augmente
- *  aussi ses PV actuels du meme ecart (les PV manquants restent les memes) ;
- *  aucune autre amelioration ne soigne. */
+ *  amelioration d'unite n'eleve que le niveau de production des PROCHAINES
+ *  unites : les unites deja possedees gardent leurs PV et leurs stats
+ *  (OwnedUnit.productionLevel, jamais retroactif). */
 function purchaseForgeUpgrade(id: string): void {
   if (!screens.isForgeOpen() || !inPlacementPhase || !hasForge()) return;
-  const maxHpBefore = placementSlots.map((slot) => effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades));
   if (!purchaseRunUpgrade(currentRun, id)) return;
-  placementSlots.forEach((slot, i) => {
-    const gained = effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades) - maxHpBefore[i]!;
-    if (gained <= 0) return;
-    slot.hp += gained;
-    const owned = currentRun.army[i];
-    if (owned) owned.hp = slot.hp;
-  });
   refreshPlayerPreview();
   screens.refreshForge(currentRun, metaProgress);
 }
@@ -3573,6 +3579,11 @@ function isEntityInfoContextActive(): boolean {
 /** Modele de la fiche pour la selection courante, ou null sans selection.
  *  Bataille : lit les entites de simulation (stats deja effectives). Une
  *  unite morte a deja ete retiree de battleSelection par sync(). */
+/** Niveau memorise d'une unite de la bataille en cours (battleUnitLevels). */
+function battleUnitLevelOf(entity: Entity): number | null {
+  return battleUnitLevels.get(entity.id) ?? null;
+}
+
 function currentEntityInfo(): EntityInfoViewModel | null {
   if (inBattlePhase()) {
     if (battleInspectedEntityId !== null) {
@@ -3587,14 +3598,11 @@ function currentEntityInfo(): EntityInfoViewModel | null {
     // memorise au spawn.
     const enemies = aliveEntities(battleEnemyInspection.ids);
     if (enemies.length > 0) {
-      const enemyLevelOf = (e: Entity): number | null => enemyUnitLevels.get(e.id) ?? null;
-      return enemies.length === 1
-        ? battleUnitInfo(enemies[0]!, world.time, playerProgression().upgrades, enemyLevelOf(enemies[0]!))
-        : battleGroupInfo(enemies, playerProgression().upgrades, enemyLevelOf);
+      return enemies.length === 1 ? battleUnitInfo(enemies[0]!, world.time, battleUnitLevelOf(enemies[0]!)) : battleGroupInfo(enemies, battleUnitLevelOf);
     }
     const units = aliveEntities(battleSelection.ids);
     if (units.length === 0) return null;
-    return units.length === 1 ? battleUnitInfo(units[0]!, world.time, playerProgression().upgrades) : battleGroupInfo(units, playerProgression().upgrades);
+    return units.length === 1 ? battleUnitInfo(units[0]!, world.time, battleUnitLevelOf(units[0]!)) : battleGroupInfo(units, battleUnitLevelOf);
   }
   if (placementBallistaSelected) return placementBallistaInfo(playerProgression());
   if (selectedBuildingIndex !== null) {
@@ -3948,7 +3956,7 @@ function findHealTargetSlotIndex(x: number, z: number): number | null {
   let bestRatio = Infinity;
   placementSlots.forEach((slot, i) => {
     if (slot.x === null || slot.z === null) return;
-    const maxHp = effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades);
+    const maxHp = playerUnitMaxHp(slot.unitId, slot.productionLevel);
     if (slot.hp >= maxHp) return;
     if (dist(x, z, slot.x, slot.z) > HEAL_TARGET_RADIUS) return;
     const ratio = slot.hp / maxHp;
@@ -4003,7 +4011,7 @@ function findSecondaryHealSlotIndices(primaryIndex: number, count: number, radiu
   const candidates: { index: number; d: number }[] = [];
   placementSlots.forEach((slot, i) => {
     if (i === primaryIndex || slot.x === null || slot.z === null) return;
-    const maxHp = effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades);
+    const maxHp = playerUnitMaxHp(slot.unitId, slot.productionLevel);
     if (slot.hp >= maxHp) return;
     const d = dist(px, pz, slot.x, slot.z);
     if (d > radius) return;
@@ -4146,7 +4154,7 @@ function useArmedItemOnPlacementClick(event: MouseEvent): boolean {
     const slotIndex = point ? findHealTargetSlotIndex(point.x, point.z) : null;
     if (slotIndex === null) return true;
     const slot = placementSlots[slotIndex]!;
-    const maxHp = effectivePlayerUnitMaxHp(slot.unitId, playerProgression().upgrades);
+    const maxHp = playerUnitMaxHp(slot.unitId, slot.productionLevel);
     const healAmount = effectivePlayerHealAmount(playerProgression().upgrades);
     // entityId=null : aucune Entity/bataille en cours pendant le placement,
     // la notion de "seuil Aux petits oignons deja consomme" ne s'applique
@@ -4169,7 +4177,7 @@ function useArmedItemOnPlacementClick(event: MouseEvent): boolean {
       const secondaryIndices = findSecondaryHealSlotIndices(slotIndex, secondaryCount, HEAL_SCROLL_UPGRADE.secondaryTargetRadius);
       for (const i of secondaryIndices) {
         const s = placementSlots[i]!;
-        const sMaxHp = effectivePlayerUnitMaxHp(s.unitId, playerProgression().upgrades);
+        const sMaxHp = playerUnitMaxHp(s.unitId, s.productionLevel);
         applyPlayerHeal(s, sMaxHp, secondaryAmount, null);
         currentRun.army[i]!.hp = s.hp;
         combatOverlay.spawnHealText(s.x ?? 0, s.z ?? 0, secondaryAmount / HP_PER_PIP, true);
@@ -5042,19 +5050,27 @@ const loop = new Loop(
     // permanentes/talents qu'un Fantassin achete normalement, jamais un
     // "BarracksFootman" special).
     for (const event of world.barracksSpawnEvents) {
+      // Niveau de production lu ICI, au spawn : les unites deja produites
+      // gardent le leur (voir rememberPlayerUnitLevel).
+      const level = currentProductionLevel(playerProgression().upgrades, event.unitId);
+      const isPlayer = event.team === 'player';
       const spawned = world.spawn(
         event.unitId,
         event.team,
         event.x,
         event.z,
         undefined,
-        event.team === 'player' ? playerUnitStatOverrides(event.unitId, playerProgression()) : enemyStatOverrides(event.unitId, currentRun.waveNumber),
-        event.team === 'player' ? playerUnitAbilityDamageBonus(event.unitId, playerProgression().upgrades) : enemyAbilityDamageBonus(event.unitId, currentRun.waveNumber),
+        isPlayer ? playerUnitStatOverrides(event.unitId, level, playerProgression()) : enemyStatOverrides(event.unitId, currentRun.waveNumber),
+        isPlayer ? playerUnitAbilityDamageBonus(event.unitId, level) : enemyAbilityDamageBonus(event.unitId, currentRun.waveNumber),
+        isPlayer ? playerUnitTauntShieldBonus(event.unitId, level) : undefined,
       );
-      if (event.team === 'enemy') rememberEnemyUnitLevel(spawned, currentRun.waveNumber);
-      // Fantassin de Caserne du joueur : en Garde des son apparition, comme
-      // le reste de l'armee en debut de bataille.
-      else holdPlayerUnitsInGuard([spawned.id]);
+      if (!isPlayer) rememberEnemyUnitLevel(spawned, currentRun.waveNumber);
+      else {
+        rememberPlayerUnitLevel(spawned, level);
+        // Unite de Caserne du joueur : en Garde des son apparition, comme
+        // le reste de l'armee en debut de bataille.
+        holdPlayerUnitsInGuard([spawned.id]);
+      }
     }
 
     // Or en TEMPS REEL a chaque kill (2026-08-11, demande d'Antoine : "dès
@@ -5455,10 +5471,12 @@ const loop = new Loop(
     if (inPlacementPhase) {
       const upgrades = playerProgression().upgrades;
       const selectedSlots = new Set(selectedIndices);
-      const placedSlots = placementSlots.filter(
-        (s, i): s is PlacementSlot & { x: number; z: number } =>
-          s.x !== null && s.z !== null && (selectedSlots.has(i) || s.hp < effectivePlayerUnitMaxHp(s.unitId, upgrades)),
-      );
+      const placedSlots = placementSlots
+        .filter(
+          (s, i): s is PlacementSlot & { x: number; z: number } =>
+            s.x !== null && s.z !== null && (selectedSlots.has(i) || s.hp < playerUnitMaxHp(s.unitId, s.productionLevel)),
+        )
+        .map((s) => ({ unitId: s.unitId, x: s.x, z: s.z, hp: s.hp, maxHp: playerUnitMaxHp(s.unitId, s.productionLevel) }));
       const shownBuildings: PlacementBuildingHpSubject[] = [];
       currentRun.buildings.forEach((owned, i) => {
         // Bâtiment en cours de deplacement : son modele suit le curseur, sa
@@ -5475,7 +5493,7 @@ const loop = new Loop(
         const maxHp = effectiveBallistaMaxHp(upgrades);
         shownBuildings.push({ x: playerArrowOrigin.x, z: playerArrowOrigin.z, hp: maxHp, maxHp, radius: def.radius, hpBarHeight: def.hpBarHeight });
       }
-      combatOverlay.syncPlacement(placedSlots, (unitId) => effectivePlayerUnitMaxHp(unitId, upgrades), shownBuildings);
+      combatOverlay.syncPlacement(placedSlots, shownBuildings);
       // Aura de particules du talent "Recyclage" (2026-08-14) — voir
       // render/recyclageAura.ts. `key` = index REEL dans placementSlots (pas
       // dans placedSlots, filtre a part) pour rester stable avec le reste du
@@ -5707,12 +5725,12 @@ function findFreePlacementTile(unitId: string, preferredX: number, preferredZ: n
  *  effectivement ajoutee — les autres, deja potentiellement deplacees a la
  *  main par le joueur, restent intactes, d'ou findFreePlacementTile pour
  *  eviter de tomber pile sur l'une d'elles. */
-function addUnitToPlacement(unitId: string, hp: number): void {
+function addUnitToPlacement(unitId: string, hp: number, productionLevel: number): void {
   const unitIds = [...placementSlots.map((s) => s.unitId), unitId];
   const formation = computeArmyFormation(unitIds, currentMap);
   const preferred = formation[formation.length - 1]!;
   const pos = findFreePlacementTile(unitId, preferred.x, preferred.z);
-  placementSlots.push({ unitId, x: pos.x, z: pos.z, hp });
+  placementSlots.push({ unitId, x: pos.x, z: pos.z, hp, productionLevel });
   refreshPlayerPreview();
 }
 
@@ -5729,7 +5747,10 @@ function buyUnit(unitId: string): void {
   // Population pleine : refus avant tout debit (bouton deja desactive avec
   // sa raison, voir Screens.refreshShop ; garde-fou ici aussi).
   if (!canRecruitWithinPopulation(currentRun, unitId)) return;
-  const cost = effectivePlayerUnitCost(unitId);
+  // Niveau de production courant : fixe une fois pour toutes pour CETTE
+  // unite (stats, PV, cout ; jamais retroactif). Cout et PV en derivent.
+  const productionLevel = currentProductionLevel(currentRun.upgrades, unitId);
+  const cost = effectivePlayerUnitCost(unitId, currentRun.upgrades);
   if (currentRun.gold < cost) return;
   // Math.max(0, ...) : filet de securite defensif contre tout bruit de
   // virgule flottante residuel (2026-08-14, bug remonte par Antoine : "il
@@ -5738,9 +5759,9 @@ function buyUnit(unitId: string): void {
   // meme si le garde-fou `gold < cost` ci-dessus est deja cense l'empecher
   // dans le cas normal.
   currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
-  const hp = effectivePlayerUnitMaxHp(unitId, playerProgression().upgrades);
-  currentRun.army.push({ unitId, hp });
-  if (inPlacementPhase) addUnitToPlacement(unitId, hp);
+  const hp = playerUnitMaxHp(unitId, productionLevel);
+  currentRun.army.push({ unitId, hp, productionLevel });
+  if (inPlacementPhase) addUnitToPlacement(unitId, hp, productionLevel);
   lastUnitPurchase = { unitId, cost };
   screens.refreshShop(currentRun, metaProgress, lastUnitPurchase !== null);
   spawnCoinPopup(screens.shopGoldElement, -cost);
@@ -5761,10 +5782,9 @@ function buyUnitFive(unitId: string): void {
 /** Annule le dernier achat d'unite fait en boutique de run (2026-08-13,
  *  demande d'Antoine : "un bouton retour dans la boutique au cas où une
  *  unité ait été achetée par hasard") — rembourse EXACTEMENT le cout paye
- *  (voir lastUnitPurchase, capture au moment de l'achat : le cout effectif
- *  peut varier avec le niveau d'amelioration permanente, mais celui-ci n'est
- *  modifiable que depuis le menu titre, jamais en cours de run — la valeur
- *  figee reste donc toujours exacte), retire l'unite de currentRun.army ET
+ *  (voir lastUnitPurchase, capture au moment de l'achat : le cout de
+ *  production peut augmenter ensuite avec une amelioration de Forge, le
+ *  remboursement reste celui du prix reellement paye), retire l'unite de currentRun.army ET
  *  de placementSlots si le placement est en cours (meme invariant que
  *  sellUnits : les deux tableaux restent alignes par index, l'achat etant
  *  TOUJOURS pousse en DERNIERE position des deux cotes). Ne fait rien si
@@ -5872,11 +5892,10 @@ const screens = new Screens({
   onCancelQuitRun: cancelQuitRun,
   onConfirmQuitRun: confirmQuitRun,
   // Cout EN OR EFFECTIF (voir run/unitUpgradeEffects.ts,
-  // effectivePlayerUnitCost : cout de base, les ameliorations ne le changent
-  // pas). `hp` (PV de depart de l'OwnedUnit) lit de meme
-  // le maxHp EFFECTIF (base + bonus PV permanent) — sans ca, une unite tout
-  // juste achetee apparaitrait avec plus de PV MAX (statOverrides) mais pas
-  // plus de PV ACTUELS, un ecart illogique pour une unite jamais blessee.
+  // effectivePlayerUnitCost : cout du niveau de production courant). `hp`
+  // (PV de depart de l'OwnedUnit) lit de meme le maxHp de ce niveau — sans
+  // ca, une unite tout juste achetee apparaitrait avec plus de PV MAX
+  // (statOverrides) que de PV ACTUELS.
   // Les 3 handlers partagent desormais buyUnit() (voir plus bas) — extrait
   // en meme temps que l'ajout de lastUnitPurchase (2026-08-13, "bouton
   // retour... au cas où une unité ait été achetée par hasard").

@@ -180,7 +180,7 @@ export const TAUNT_DURATION = 5.0;
 export const SHIELD_DURATION = 10.0;
 /** Points de bouclier AFFICHES (pas l'echelle interne) gagnes PAR ENNEMI
  *  effectivement provoque, avant amelioration permanente (voir
- *  run/sentinelUpgradeEffects.ts, qui ajoute +1 tous les 3 achats). */
+ *  data/unitUpgrades.ts, +1 par niveau de production de la Sentinelle). */
 export const SHIELD_PER_TAUNTED_ENEMY = 3;
 /** Verrou initial de Provocation (2026-08-14, demande d'Antoine : "elle se
  *  declenche actuellement trop tot au debut d'une bataille") — secondes de

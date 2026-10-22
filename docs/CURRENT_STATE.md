@@ -223,14 +223,16 @@ en bataille. Elle n'existe pas dans l'éditeur.
   mêmes fonctions que l'apparition en bataille. En bataille, elles sont lues
   sur l'entité.
 - **Niveau** : le titre devient « Nom — Niv. N » pour une entité qui a
-  réellement un niveau d'amélioration : unités du joueur et Baliste (niveau
-  de Forge), chaque Mine et Caserne (niveau propre, §6), et en vraie
+  réellement un niveau d'amélioration : unités du joueur (niveau de
+  production propre à chaque unité, §14), Baliste (niveau de Forge), chaque
+  Mine et Caserne (niveau propre, §6), et en vraie
   bataille les Fantassins, Archers et Mages ennemis (niveau de vague,
   §10). Le niveau interne commence à 0 ; l'affichage commence à **Niv. 1**.
   Pas de niveau pour la Forge, la Sentinelle ennemie, ni les ennemis de
   « Tester le scénario ». Un groupe d'un seul type reprend ce niveau sur sa
-  ligne de composition (un groupe ennemi, seulement si tous ses membres ont
-  le même).
+  ligne de composition, seulement si tous ses membres ont le même. Une
+  unité du joueur affiche aussi son **coût** (celui de son niveau) et sa
+  population.
 - **Contenu** (titre, camp, PV actuels / max avec une barre de PV) :
   - **Fantassin, Archer, Sentinelle** : dégâts, portée (« Mêlée » ou en
     cases), cadence, vitesse, et l'esquive quand elle est non nulle. Ni rayon,
@@ -306,8 +308,10 @@ Quatre unités existent, communes au joueur et à l'ennemi.
     bataille.
 - **Valeur au kill et à la revente** (`KILL_REWARD`) : Fantassin 1, Archer
   1,5, Mage 5, Sentinelle 20.
-- Le coût payé en partie est toujours le coût de base : les améliorations
-  (§6, §14) ne le modifient pas.
+- Le coût payé en partie est le coût de base **plus le surcoût du niveau
+  de production courant** de l'unité (§14) : Fantassin et Archer +1 or,
+  Mage +3, Sentinelle +10 par niveau. La boutique affiche ce coût, le niveau
+  (« Niv. N ») et, en infobulle, les stats de la prochaine recrue.
 
 ## 4. Déblocage des unités
 
@@ -438,8 +442,10 @@ Production de la Caserne :
   tous les 3 niveaux (minimum 1 s).
 - **Production atomique** : si les cases libres autour d'elle ne suffisent
   pas pour tout le lot, rien n'est produit et la production attend.
-- **Bonus** : les Fantassins produits reçoivent les mêmes bonus (talents et
-  améliorations de la run) qu'un Fantassin acheté.
+- **Bonus** : les Fantassins produits reçoivent les mêmes bonus qu'un
+  Fantassin acheté : talents, et niveau de production courant **au moment
+  de leur apparition** (§14). La fiche indique « Produit : Fantassin —
+  Niv. N ».
 - **Comportement** : ils passent directement en Garde, sans pas
   d'ouverture (§2).
 - **Persistance** : ils **ne rejoignent pas** l'armée qui persiste entre les
@@ -476,9 +482,9 @@ Revente d'unités (phase de placement uniquement) :
   « Vendre » pour vendre la sélection.
 - **Barème** : `KILL_REWARD`.
 - **Avec le talent Recyclage** : une unité sous 50 % de ses PV maximum
-  rapporte `round(3 × coût)` au lieu du barème normal (coût de base, que
-  les améliorations ne changent pas). Les unités concernées sont surlignées
-  en jaune.
+  rapporte `round(3 × coût)` au lieu du barème normal, où le coût est
+  celui du niveau de production de l'unité vendue. Les unités concernées
+  sont surlignées en jaune.
 
 Tous les montants d'or sont arrondis au dixième (`roundGold`).
 
@@ -693,18 +699,33 @@ et la Caserne n'y figurent plus : chacune s'améliore depuis sa fiche (§6).
   masqués.
 - **Achat** : Or débité, niveau +1, effet immédiat (fiches, unités recrutées
   ensuite, prochaine bataille). Bouton désactivé si l'Or ne suffit pas.
-- **PV max** : quand un achat augmente les PV max d'une unité déjà possédée,
-  ses PV actuels augmentent du même écart (5/5 → 6/6, 3/5 → 4/6).
-- **Coût** (`runUpgradeGoldCost(id, niveau)`) : 1 / 2 / 4 / 8 / 16…
-  Aucun talent ne modifie ce coût.
+- **Niveau de production des unités** (`data/unitUpgrades.ts`,
+  `run/unitUpgradeEffects.ts`) :
+  - améliorer une unité à la Forge élève le niveau auquel les **futures**
+    unités de ce type sont produites (boutique, Caserne, Tester le
+    scénario) ;
+  - chaque unité possédée garde à vie le niveau de sa création
+    (`OwnedUnit.productionLevel`) : ses PV, dégâts, bouclier et coût en
+    dérivent. Une amélioration ne modifie jamais une unité déjà créée, ni
+    ses PV actuels ;
+  - chaque niveau augmente aussi le coût de recrutement des futures
+    recrues (tableau ci-dessous) ; la population ne change pas ;
+  - la carte de la Forge montre le niveau de production, les stats et le
+    coût de la prochaine unité, et le gain du niveau suivant.
+- **Coût** (`runUpgradeGoldCost(id, niveau)`) : `7 × 2^niveau` pour les
+  unités (7 / 14 / 28 / 56…) ; 1 / 2 / 4 / 8 / 16… pour la Baliste et les
+  parchemins. Aucun talent ne modifie ce coût.
 - **Plafond** : aucune amélioration n'a de niveau maximum.
-- **Prix indépendants** : une amélioration n'augmente jamais le prix de ce
-  qu'elle améliore (unité, bâtiment, parchemin).
+- **Prix** : les améliorations de la Baliste et des parchemins
+  n'augmentent pas le prix de ce qu'elles améliorent ; celles des unités,
+  si (surcoût de recrutement par niveau).
 
 | Amélioration | Effet par niveau |
 |---|---|
-| Fantassin, Archer, Mage | +1 PV ; +1 attaque tous les 3 niveaux (pour le Mage, sur la Boule de feu) |
-| Sentinelle | +5 PV ; +1 bouclier par ennemi provoqué tous les 3 niveaux |
+| Fantassin | +3 PV, +1 attaque ; recrutement +1 or |
+| Archer | +2 PV, +1 attaque ; recrutement +1 or |
+| Mage | +3 PV, +2 Boule de feu ; recrutement +3 or |
+| Sentinelle | +15 PV, +1 bouclier par ennemi provoqué (jamais d'attaque) ; recrutement +10 or |
 | Baliste | +20 % de cadence (additif), +10 PV ; +1 dégât tous les 3 niveaux |
 | Parchemin de soin | +1 PV soigné ; une cible secondaire de plus tous les 3 niveaux (moitié du soin, à 2 cases de la cible) |
 | Nova de glace | +0,5 s d'immobilisation et de Blizzard ; +1 dégât de Blizzard tous les 3 niveaux |

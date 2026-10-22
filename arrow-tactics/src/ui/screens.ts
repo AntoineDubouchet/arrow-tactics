@@ -4,7 +4,6 @@ import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
 import { getBuilding, listBuyableBuildingIds } from '../data/buildings';
 import { HEAL_SCROLL_UPGRADE } from '../data/healScrollUpgrade';
 import { ICE_NOVA_UPGRADE } from '../data/iceNovaUpgrade';
-import { SENTINEL_UPGRADE } from '../data/sentinelUpgrade';
 import { SHADOW_UPGRADE } from '../data/shadowUpgrade';
 import { getTalent, listDependents, listFounderTalents, TALENTS } from '../data/talents';
 import { computeTalentTreeLayout, type TalentNodeLayout, type TalentTreeLayoutNode } from './talentTreeLayout';
@@ -19,13 +18,7 @@ import {
   type MetaProgress,
 } from '../run/metaProgress';
 import { canAddItemsToInventory, canAddItemToInventory, formatGold, type RunState } from '../run/runState';
-import {
-  effectivePlayerUnitCost,
-  upgradeAttackBonusDisplay,
-  upgradeHpBonusDisplay,
-  upgradeNextPurchaseGrantsAttackBonus,
-  upgradeRemainingUntilAttackBonus,
-} from '../run/unitUpgradeEffects';
+import { currentProductionLevel, effectivePlayerUnitCost, unitProductionSummary, type UnitProductionSummary } from '../run/unitUpgradeEffects';
 import {
   ballistaAttackSpeedBonus,
   ballistaDamageBonusDisplay,
@@ -51,11 +44,6 @@ import {
 import { mineGoldRange, mineProductionIntervalSeconds } from '../run/mineUpgradeEffects';
 import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from '../run/barracksUpgradeEffects';
 import {
-  computePlayerSentinelUpgradeEffects,
-  sentinelNextPurchaseGrantsShieldBonus,
-  sentinelRemainingUntilShieldBonus,
-} from '../run/sentinelUpgradeEffects';
-import {
   shadowBonusProjectileCount,
   shadowDamagePerProjectileDisplay,
   shadowNextPurchaseGrantsBonusProjectile,
@@ -63,7 +51,7 @@ import {
   shadowUpgradeLevel,
 } from '../run/shadowUpgradeEffects';
 import { getEffectiveBuildingCost } from '../run/buildingUpgradeEffects';
-import { canPurchaseRunUpgrade, displayedUpgradeLevel, runUpgradeGoldCost, runUpgradeLevel } from '../run/runUpgrades';
+import { canPurchaseRunUpgrade, displayedUpgradeLevel, runUpgradeGoldCost } from '../run/runUpgrades';
 import type { AudioSettings } from '../run/userSettings';
 import { createCoinIcon } from './pixelIcon';
 import { createItemIcon } from './itemIcons';
@@ -114,11 +102,12 @@ interface SliderControl {
 interface UnitUpgradeCardRefs {
   button: HTMLButtonElement;
   levelEl: HTMLElement;
-  hpBonusEl: HTMLElement;
-  attackBonusEl: HTMLElement;
+  /** Stats de la PROCHAINE unite produite (niveau courant). */
+  nextUnitEl: HTMLElement;
+  /** Cout de production de la prochaine unite. */
   goldCostEl: HTMLElement;
+  /** Ce qu'apporte le niveau suivant, cout de production compris. */
   nextUpgradeEl: HTMLElement;
-  remainingAttackEl: HTMLElement;
   costEl: HTMLElement;
 }
 
@@ -163,22 +152,6 @@ interface IceNovaUpgradeCardRefs {
   damageEl: HTMLElement;
   nextUpgradeEl: HTMLElement;
   remainingDamageEl: HTMLElement;
-  costEl: HTMLElement;
-}
-
-/** Refs de la carte "Sentinelle" (2026-08-14) — voir buildSentinelUpgradeCard/
- *  refreshForge. Shape dediee (PV + Bouclier/ennemi, PAS
- *  d'Attaque) : ne rentre pas dans UnitUpgradeCardRefs (qui suppose
- *  toujours un palier d'attaque, voir data/unitUpgrades.ts) — meme
- *  raisonnement que Baliste/Nova de glace/Mine, toujours visible (pas de
- *  masquage comme la Mine). */
-interface SentinelUpgradeCardRefs {
-  button: HTMLButtonElement;
-  levelEl: HTMLElement;
-  hpBonusEl: HTMLElement;
-  shieldPerEnemyEl: HTMLElement;
-  nextUpgradeEl: HTMLElement;
-  remainingShieldEl: HTMLElement;
   costEl: HTMLElement;
 }
 
@@ -452,6 +425,9 @@ export class Screens {
    *  refreshShop selon `run.gold >= 5 * coutEffectif` ET (pour un
    *  consommable) la capacite d'inventoire pour 5 exemplaires de plus. */
   private readonly shopUnitBuyFiveEls = new Map<string, HTMLButtonElement>();
+  /** Niveau de production courant de chaque unite (« Niv. 2 »), a cote du
+   *  nom, cle par unitId — reecrit dans refreshShop. */
+  private readonly shopUnitLevelEls = new Map<string, HTMLElement>();
   /** Ligne complete (bouton simple + ×5) du Mage — c'est CETTE ligne qui est
    *  masquee tant que le Mage n'est pas debloque (voir refreshShop), pas
    *  seulement le bouton d'achat simple, sinon le ×5 resterait visible et
@@ -476,8 +452,6 @@ export class Screens {
   private readonly ballistaUpgradeCard: BallistaUpgradeCardRefs;
   private readonly healScrollUpgradeCard: HealScrollUpgradeCardRefs;
   private readonly iceNovaUpgradeCard: IceNovaUpgradeCardRefs;
-  /** Carte "Sentinelle" (2026-08-14) — voir buildSentinelUpgradeCard. */
-  private readonly sentinelUpgradeCard: SentinelUpgradeCardRefs;
   /** Carte "Soins excédentaires" (2026-08-15) — MASQUEE tant que le talent
    *  du meme nom n'est pas debloque, voir refreshForge. */
   private readonly shadowUpgradeCard: ShadowUpgradeCardRefs;
@@ -786,14 +760,11 @@ export class Screens {
     this.healScrollUpgradeCard = healScrollCard.refs;
     const iceNovaCard = this.buildIceNovaUpgradeCard(handlers);
     this.iceNovaUpgradeCard = iceNovaCard.refs;
-    const sentinelCard = this.buildSentinelUpgradeCard(handlers);
-    this.sentinelUpgradeCard = sentinelCard.refs;
     this.shadowUpgradeCard = this.buildShadowUpgradeCard(handlers);
     cardsContainer.append(
       ballistaCard.card,
       healScrollCard.card,
       iceNovaCard.card,
-      sentinelCard.card,
       this.shadowUpgradeCard.card,
     );
 
@@ -1069,10 +1040,12 @@ export class Screens {
     // ui/goldHud.ts), qui reste inchange pour sa propre raison documentee.
     this.shopGoldAmount.textContent = formatGold(run.gold);
 
-    const costFantassin = effectivePlayerUnitCost('fantassin');
-    const costArcher = effectivePlayerUnitCost('archer');
-    const costMage = effectivePlayerUnitCost('mage');
-    const costSentinel = effectivePlayerUnitCost('sentinel');
+    // Cout de production COURANT (niveau de Forge compris), meme fonction
+    // que le debit reel (main.ts, buyUnit).
+    const costFantassin = effectivePlayerUnitCost('fantassin', run.upgrades);
+    const costArcher = effectivePlayerUnitCost('archer', run.upgrades);
+    const costMage = effectivePlayerUnitCost('mage', run.upgrades);
+    const costSentinel = effectivePlayerUnitCost('sentinel', run.upgrades);
     // Population (voir run/population.ts) : un recrutement qui depasserait
     // le maximum est refuse, bouton desactive avec la raison en infobulle.
     const population = runPopulation(run);
@@ -1082,8 +1055,15 @@ export class Screens {
     const gateUnit = (button: HTMLButtonElement, unitId: string, cost: number, count: number): void => {
       const noRoom = !roomFor(unitId, count);
       button.disabled = run.gold < cost * count || noRoom;
-      button.title = noRoom ? `Population insuffisante (${population.used} / ${population.max}, ${unitPopulationCost(unitId) * count} requise)` : '';
+      // Infobulle : stats de la prochaine unite, puis la raison d'un refus.
+      const summary = unitProductionSummary(unitId, currentProductionLevel(run.upgrades, unitId));
+      const lines = [`${getUnit(unitId).name} — Niv. ${displayedUpgradeLevel(summary.productionLevel)} : ${formatUnitStats(summary)}, ${formatGold(summary.cost)} or`];
+      if (noRoom) lines.push(`Population insuffisante (${population.used} / ${population.max}, ${unitPopulationCost(unitId) * count} requise)`);
+      button.title = lines.join('\n');
     };
+    for (const [unitId, levelEl] of this.shopUnitLevelEls) {
+      levelEl.textContent = `Niv. ${displayedUpgradeLevel(currentProductionLevel(run.upgrades, unitId))}`;
+    }
     gateUnit(this.shopBuyFantassin, 'fantassin', costFantassin, 1);
     gateUnit(this.shopBuyArcher, 'archer', costArcher, 1);
     gateUnit(this.shopBuyMage, 'mage', costMage, 1);
@@ -1228,28 +1208,20 @@ export class Screens {
   refreshForge(run: RunState, progress: MetaProgress): void {
     const levels = run.upgrades;
     this.forgeGoldAmount.textContent = formatGold(run.gold);
+    // Niveau de production : stats de la PROCHAINE unite produite et gain du
+    // niveau suivant (voir data/unitUpgrades.ts) ; les unites deja
+    // recrutees gardent le leur (rappel sur la carte).
     for (const [unitId, refs] of this.unitUpgradeCards) {
-      const def = getUnitUpgradeDef(unitId);
-      if (!def) continue;
-      const level = runUpgradeLevel(levels, unitId);
-      const hpBonus = upgradeHpBonusDisplay(def, level);
-      const attackBonus = upgradeAttackBonusDisplay(def, level);
-      const nextCost = runUpgradeGoldCost(unitId, level);
-      const remaining = upgradeRemainingUntilAttackBonus(def, level);
-      const grantsAttack = upgradeNextPurchaseGrantsAttackBonus(def, level);
+      if (!getUnitUpgradeDef(unitId)) continue;
+      const level = currentProductionLevel(levels, unitId);
+      const current = unitProductionSummary(unitId, level);
+      const next = unitProductionSummary(unitId, level + 1);
 
-      refs.levelEl.textContent = `Niveau d’amélioration : ${displayedUpgradeLevel(level)}`;
-      refs.hpBonusEl.textContent = `PV : +${hpBonus}`;
-      refs.attackBonusEl.textContent = `Attaque : +${attackBonus}`;
-      refs.goldCostEl.textContent = `Coût en partie : ${effectivePlayerUnitCost(unitId)}`;
-      // Palier d'attaque mis en avant si le PROCHAIN achat le declenche
-      // (point 27 de la demande : "rends-le tres clair").
-      refs.nextUpgradeEl.textContent = grantsAttack
-        ? `Prochaine amélioration : +1 PV, +1 ATTAQUE`
-        : `Prochaine amélioration : +1 PV`;
-      refs.remainingAttackEl.textContent =
-        remaining === 1 ? 'Prochain bonus ATK : dans 1 amélioration' : `Prochain bonus ATK : dans ${remaining} améliorations`;
-      refs.costEl.textContent = formatGold(nextCost);
+      refs.levelEl.textContent = `Niveau de production : ${displayedUpgradeLevel(level)}`;
+      refs.nextUnitEl.textContent = `Prochaine unité : ${formatUnitStats(current)}`;
+      refs.goldCostEl.textContent = `Coût de production : ${formatGold(current.cost)}`;
+      refs.nextUpgradeEl.textContent = `Niv. ${displayedUpgradeLevel(level + 1)} : ${formatUnitGains(current, next)}`;
+      refs.costEl.textContent = formatGold(runUpgradeGoldCost(unitId, level));
       refs.button.disabled = !canPurchaseRunUpgrade(run, unitId);
     }
 
@@ -1340,33 +1312,6 @@ export class Screens {
       refs.button.disabled = !canPurchaseRunUpgrade(run, ICE_NOVA_UPGRADE.id);
     }
 
-    // Sentinelle (2026-08-14) — voir run/sentinelUpgradeEffects.ts. PAS de
-    // ligne "Attaque" (contrairement aux cartes d'unite generiques) : cette
-    // amelioration ne donne jamais d'attaque, seulement PV + Bouclier par
-    // ennemi provoque.
-    {
-      const effects = computePlayerSentinelUpgradeEffects(levels);
-      const nextCost = runUpgradeGoldCost(SENTINEL_UPGRADE.id, effects.level);
-      const remaining = sentinelRemainingUntilShieldBonus(effects.level);
-      const grantsShield = sentinelNextPurchaseGrantsShieldBonus(effects.level);
-      const refs = this.sentinelUpgradeCard;
-
-      refs.levelEl.textContent = `Niveau : ${displayedUpgradeLevel(effects.level)}`;
-      refs.hpBonusEl.textContent = `PV : +${effects.hpBonusDisplay}`;
-      refs.shieldPerEnemyEl.textContent = `Bouclier / ennemi provoqué : ${effects.effectiveShieldPerEnemyDisplay}`;
-      // Palier de bouclier mis en avant si le PROCHAIN achat le declenche
-      // (meme convention que les autres cartes a palier).
-      refs.nextUpgradeEl.textContent = grantsShield
-        ? 'Prochaine amélioration : +5 PV, +1 Bouclier / ennemi provoqué'
-        : 'Prochaine amélioration : +5 PV';
-      refs.remainingShieldEl.textContent =
-        remaining === 1
-          ? 'Prochain bonus de bouclier : dans 1 amélioration'
-          : `Prochain bonus de bouclier : dans ${remaining} améliorations`;
-      refs.costEl.textContent = formatGold(nextCost);
-      refs.button.disabled = !canPurchaseRunUpgrade(run, SENTINEL_UPGRADE.id);
-    }
-
     // Soins excédentaires (2026-08-15) — voir run/shadowUpgradeEffects.ts.
     // Carte MASQUEE tant que le talent du meme nom n'est pas debloque (le
     // niveau deja achete, lui, N'EST JAMAIS PERDU — voir data/shadowUpgrade.ts) :
@@ -1414,18 +1359,17 @@ export class Screens {
 
     const levelEl = document.createElement('p');
     levelEl.className = 'upgrade-card-line';
-    const hpBonusEl = document.createElement('p');
-    hpBonusEl.className = 'upgrade-card-line';
-    const attackBonusEl = document.createElement('p');
-    attackBonusEl.className = 'upgrade-card-line';
+    const nextUnitEl = document.createElement('p');
+    nextUnitEl.className = 'upgrade-card-line';
     const goldCostGroup = document.createElement('p');
     goldCostGroup.className = 'upgrade-card-line';
     const goldCostEl = document.createElement('span');
     goldCostGroup.append(goldCostEl, ' ', createCoinIcon(12));
     const nextUpgradeEl = document.createElement('p');
     nextUpgradeEl.className = 'upgrade-card-line upgrade-card-next';
-    const remainingAttackEl = document.createElement('p');
-    remainingAttackEl.className = 'upgrade-card-line upgrade-card-dim';
+    const noteEl = document.createElement('p');
+    noteEl.className = 'upgrade-card-line upgrade-card-dim';
+    noteEl.textContent = 'Les unités déjà recrutées gardent leur niveau.';
 
     const buyRow = document.createElement('div');
     buyRow.className = 'upgrade-card-buy-row';
@@ -1444,16 +1388,14 @@ export class Screens {
     });
     buyRow.append(costGroup, button);
 
-    card.append(nameEl, levelEl, hpBonusEl, attackBonusEl, goldCostGroup, nextUpgradeEl, remainingAttackEl, buyRow);
+    card.append(nameEl, levelEl, nextUnitEl, goldCostGroup, nextUpgradeEl, noteEl, buyRow);
 
     this.unitUpgradeCards.set(unitId, {
       button,
       levelEl,
-      hpBonusEl,
-      attackBonusEl,
+      nextUnitEl,
       goldCostEl,
       nextUpgradeEl,
-      remainingAttackEl,
       costEl,
     });
 
@@ -1601,51 +1543,6 @@ export class Screens {
     card.append(nameEl, levelEl, rootDurationEl, blizzardDurationEl, damageEl, nextUpgradeEl, remainingDamageEl, buyRow);
 
     return { card, refs: { button, levelEl, rootDurationEl, blizzardDurationEl, damageEl, nextUpgradeEl, remainingDamageEl, costEl } };
-  }
-
-  /** Carte "Sentinelle" (2026-08-14, boutique d'amelioration) — PV + Bouclier
-   *  par ennemi provoque, JAMAIS d'Attaque (voir data/sentinelUpgrade.ts) :
-   *  shape different de buildUnitUpgradeCard, toujours visible (contrairement
-   *  a la Mine, jamais masquee). */
-  private buildSentinelUpgradeCard(handlers: ScreenHandlers): { card: HTMLElement; refs: SentinelUpgradeCardRefs } {
-    const card = document.createElement('div');
-    card.className = 'upgrade-card';
-
-    const nameEl = document.createElement('h3');
-    nameEl.className = 'upgrade-card-name';
-    nameEl.textContent = 'Sentinelle';
-
-    const levelEl = document.createElement('p');
-    levelEl.className = 'upgrade-card-line';
-    const hpBonusEl = document.createElement('p');
-    hpBonusEl.className = 'upgrade-card-line';
-    const shieldPerEnemyEl = document.createElement('p');
-    shieldPerEnemyEl.className = 'upgrade-card-line';
-    const nextUpgradeEl = document.createElement('p');
-    nextUpgradeEl.className = 'upgrade-card-line upgrade-card-next';
-    const remainingShieldEl = document.createElement('p');
-    remainingShieldEl.className = 'upgrade-card-line upgrade-card-dim';
-
-    const buyRow = document.createElement('div');
-    buyRow.className = 'upgrade-card-buy-row';
-    const costEl = document.createElement('span');
-    const costGroup = document.createElement('span');
-    costGroup.className = 'shop-item-price-group';
-    costGroup.append(costEl, createCoinIcon(14));
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'screen-button upgrade-card-button';
-    button.textContent = 'Améliorer';
-    button.addEventListener('mouseenter', () => this.uiSound.hover());
-    button.addEventListener('click', () => {
-      this.uiSound.click();
-      handlers.onPurchaseRunUpgrade(SENTINEL_UPGRADE.id);
-    });
-    buyRow.append(costGroup, button);
-
-    card.append(nameEl, levelEl, hpBonusEl, shieldPerEnemyEl, nextUpgradeEl, remainingShieldEl, buyRow);
-
-    return { card, refs: { button, levelEl, hpBonusEl, shieldPerEnemyEl, nextUpgradeEl, remainingShieldEl, costEl } };
   }
 
   /** Carte "Soins excédentaires" (2026-08-15, boutique d'amelioration) —
@@ -2202,8 +2099,13 @@ export class Screens {
     iconItemId?: string,
   ): { row: HTMLElement; button: HTMLButtonElement } {
     const button = this.shopItemButton(def.name, def.cost, onBuyOne, def.id, iconItemId);
-    // Unite : places de population occupees, a cote du nom.
+    // Unite : niveau de production courant et places de population, a cote
+    // du nom.
     if (def.populationCost !== undefined) {
+      const level = document.createElement('span');
+      level.className = 'shop-item-level';
+      button.querySelector('.shop-item-name-group')?.appendChild(level);
+      this.shopUnitLevelEls.set(def.id, level);
       const population = document.createElement('span');
       population.className = 'shop-item-population';
       population.textContent = `Pop. ${def.populationCost}`;
@@ -2226,4 +2128,25 @@ export class Screens {
     row.append(button, five);
     return { row, button };
   }
+}
+
+/** Stats d'une unite produite, sur une ligne (« 8 PV · Attaque 2 · Pop. 1 »). */
+function formatUnitStats(summary: UnitProductionSummary): string {
+  const parts = [`${formatGold(summary.hp)} PV`];
+  if (summary.attack > 0) parts.push(`${summary.attackLabel} ${formatGold(summary.attack)}`);
+  if (summary.tauntShield !== null) parts.push(`Bouclier ${formatGold(summary.tauntShield)} / ennemi`);
+  parts.push(`Pop. ${summary.population}`);
+  return parts.join(' · ');
+}
+
+/** Gain d'un niveau de production au suivant (« +3 PV, +1 Attaque, coût +1 »). */
+function formatUnitGains(from: UnitProductionSummary, to: UnitProductionSummary): string {
+  const gains: string[] = [];
+  if (to.hp > from.hp) gains.push(`+${formatGold(to.hp - from.hp)} PV`);
+  if (to.attack > from.attack) gains.push(`+${formatGold(to.attack - from.attack)} ${from.attackLabel}`);
+  if (to.tauntShield !== null && from.tauntShield !== null && to.tauntShield > from.tauntShield) {
+    gains.push(`+${formatGold(to.tauntShield - from.tauntShield)} Bouclier / ennemi`);
+  }
+  gains.push(`coût +${formatGold(to.cost - from.cost)}`);
+  return gains.join(', ');
 }

@@ -393,23 +393,28 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 - **Calcul des effets** (`run/*UpgradeEffects.ts`, `run/talentEffects.ts`) :
   seuls `run/` et `main.ts` connaissent talents et améliorations. Les
   modules `*UpgradeEffects.ts` reçoivent les niveaux de la run
-  (`RunUpgradeLevels`) ; les prix effectifs d'unités, de bâtiments et de
-  parchemins (`effectivePlayerUnitCost`, `getEffectiveBuildingCost`…) ne
-  dépendent d'aucun niveau. L'achat et l'affichage utilisent les mêmes
-  fonctions. `computeEnemyUnitUpgradeEffects` réutilise les définitions
-  d'unités pour le renforcement par vague, indépendamment du joueur.
+  (`RunUpgradeLevels`) ; les prix de bâtiments et de parchemins
+  (`getEffectiveBuildingCost`…) ne dépendent d'aucun niveau, le prix d'une
+  unité dépend de son niveau de production (`effectivePlayerUnitCost`,
+  `playerUnitProductionCost`). L'achat et l'affichage utilisent les mêmes
+  fonctions. `computeEnemyUnitUpgradeEffects` utilise un barème séparé
+  (`ENEMY_WAVE_UPGRADES`) pour le renforcement par vague, indépendant du
+  joueur.
 - **Statistiques effectives du joueur** : fonctions pures de la progression,
   source commune du gameplay et de l'interface. Elles combinent talents
   permanents et améliorations de la run ; aucune de ces formules n'est
   dupliquée dans `ui/` ni dans `main.ts`.
   - `run/playerUnitStats.ts` :
-    - `playerUnitStatOverrides(unitId, progression)` (`PlayerProgression`) :
+    - `playerUnitStatOverrides(unitId, productionLevel, progression)` :
       surcharges de stats passées à `World.spawn` (esquive du talent, PV et
-      dégâts des améliorations, PV de la Sentinelle) ;
-    - `playerUnitAbilityDamageBonus(unitId, niveaux)` : bonus de dégâts de
-      capacité (Boule de feu du Mage) ;
-    - `playerUnitTauntShieldBonus(unitId, niveaux)` : bonus de bouclier par
-      ennemi provoqué (Sentinelle).
+      dégâts du niveau de production) ;
+    - `playerUnitAbilityDamageBonus(unitId, productionLevel)` : bonus de
+      dégâts de capacité (Boule de feu du Mage) ;
+    - `playerUnitTauntShieldBonus(unitId, productionLevel)` : bonus de
+      bouclier par ennemi provoqué (Sentinelle) ;
+    - `productionLevel` est celui de l'unité (`OwnedUnit.productionLevel`,
+      fixé à sa création), jamais le niveau courant de la Forge : une
+      amélioration n'est pas rétroactive.
   - `run/ballistaStats.ts` :
     - `effectivePlayerArrowDamage`, `effectivePlayerArrowCooldown` et
       `totalBallistaAttackSpeedBonus` reçoivent une `PlayerProgression`

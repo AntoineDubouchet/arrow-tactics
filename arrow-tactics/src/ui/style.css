@@ -659,6 +659,13 @@ img {
   opacity: 0.7;
 }
 
+/* Niveau de production courant de l'unite (« Niv. 2 »), voir refreshShop. */
+.shop-item-level {
+  margin-left: 8px;
+  font-size: 11px;
+  color: #e8c35c;
+}
+
 /* --- Onglets de la boutique (2026-08-11, demande d'Antoine : "classer les
    objets de la boutique dans des fenêtres distinctes") --- */
 

@@ -209,7 +209,7 @@ export class World {
    *  `tauntShieldBonus` optionnel (defaut 0) : voir Entity.tauntShieldBonus —
    *  meme principe, bonus PERMANENT du JOUEUR sur le bouclier gagne par
    *  ennemi provoque (Sentinelle, 2026-08-14 — voir
-   *  run/sentinelUpgradeEffects.ts), toujours 0 pour un ennemi. */
+   *  run/unitUpgradeEffects.ts), toujours 0 pour un ennemi. */
   spawn(
     unitId: string,
     team: Team,

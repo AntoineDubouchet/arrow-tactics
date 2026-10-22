@@ -86,6 +86,10 @@ export interface OwnedUnit {
   /** PV actuels (echelle interne x10, comme UnitStats.maxHp) — un survivant
    *  blesse reste blesse jusqu'au soin, voir CLAUDE.md "Echelle des nombres". */
   hp: number;
+  /** Niveau de production (voir data/unitUpgrades.ts), FIGE a la creation de
+   *  l'unite : ses stats et son cout en derivent pour toute la run, quelles
+   *  que soient les ameliorations achetees ensuite (jamais retroactives). */
+  productionLevel: number;
 }
 
 /** Un objet possede, achete a la boutique (voir data/items.ts) — pas encore
@@ -266,7 +270,7 @@ export const STARTING_GOLD = 15;
 export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = getUnit('fantassin').stats.maxHp, upgrades: RunUpgradeLevels = {}): RunState {
   return {
     gold: roundGold(STARTING_GOLD + startingGoldBonus),
-    army: [{ unitId: 'fantassin', hp: startingFantassinMaxHp }],
+    army: [{ unitId: 'fantassin', hp: startingFantassinMaxHp, productionLevel: 0 }],
     inventory: [],
     buildings: [],
     waveNumber: 1,
@@ -504,7 +508,7 @@ export function applyBattleOutcome(run: RunState, entities: Entity[]): BattleOut
   const updatedArmy: OwnedUnit[] = [];
   for (let i = 0; i < run.army.length; i++) {
     const entity = playerUnitEntities[i];
-    if (entity?.alive) updatedArmy.push({ unitId: run.army[i]!.unitId, hp: entity.hp });
+    if (entity?.alive) updatedArmy.push({ ...run.army[i]!, hp: entity.hp });
   }
   run.army = updatedArmy;
 

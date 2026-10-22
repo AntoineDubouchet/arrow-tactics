@@ -38,6 +38,8 @@ export interface PlacementHpSubject {
   x: number;
   z: number;
   hp: number;
+  /** PV maximum de CETTE unite (niveau de production compris). */
+  maxHp: number;
 }
 
 /** Bâtiment (Mine, Caserne, Forge, Baliste) en phase de placement : aucune
@@ -188,25 +190,19 @@ export class CombatOverlay {
   }
 
   /** Barres de PV pendant la phase de placement — voir placementPipBars.
-   *  `resolveMaxHp` (2026-08-13, correctif "je commence a 5/9") : le PLAFOND
-   *  de PV d'une unite JOUEUR depend de sa boutique d'amelioration permanente
+   *  Le PLAFOND de PV d'une unite JOUEUR depend de son niveau de production
    *  (voir run/unitUpgradeEffects.ts) — ce module ne connait pas ce systeme,
-   *  il recoit juste le nombre deja calcule par l'appelant (main.ts), meme
-   *  principe que `resolvePosition` ci-dessus. Repli sur le maxHp de BASE
-   *  (`getUnit(unitId).stats.maxHp`) si omis. `buildings` : bâtiments du
-   *  joueur a afficher, reconstruits de la meme facon. L'appelant ne passe
-   *  que les sujets dont la barre doit etre visible. */
-  syncPlacement(
-    slots: PlacementHpSubject[],
-    resolveMaxHp: (unitId: string) => number = (id) => getUnit(id).stats.maxHp,
-    buildings: PlacementBuildingHpSubject[] = [],
-  ): void {
+   *  il recoit le nombre deja calcule par l'appelant (main.ts) dans chaque
+   *  sujet, meme principe que `resolvePosition` ci-dessus. `buildings` :
+   *  bâtiments du joueur a afficher, reconstruits de la meme facon.
+   *  L'appelant ne passe que les sujets dont la barre doit etre visible. */
+  syncPlacement(slots: PlacementHpSubject[], buildings: PlacementBuildingHpSubject[] = []): void {
     this.refreshCanvasSize();
     for (const bar of this.placementPipBars) bar.remove();
     this.placementPipBars.length = 0;
 
     for (const slot of slots) {
-      const maxHp = resolveMaxHp(slot.unitId);
+      const maxHp = slot.maxHp;
       const barHeight = getUnit(slot.unitId).visual.hpBarHeight ?? HP_BAR_WORLD_HEIGHT;
       const screen = this.project(slot.x, barHeight, slot.z);
       if (!screen) continue;

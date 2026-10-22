@@ -15,8 +15,10 @@ import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
 import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from './barracksUpgradeEffects';
 import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isUpgradableBuilding } from './buildingUpgrades';
+import { getUnitUpgradeDef } from '../data/unitUpgrades';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
 import { displayedUpgradeLevel, entityRunUpgradeLevel, type PlayerProgression, type RunUpgradeLevels } from './runUpgrades';
+import { currentProductionLevel, playerUnitProductionCost } from './unitUpgradeEffects';
 
 /**
  * Fiche d'entite : adaptateur PUR entre l'etat du jeu (emplacements de
@@ -114,7 +116,13 @@ function titleWithLevel(title: string, level: number | null): string {
   return level === null ? title : `${title} — Niv. ${displayedUpgradeLevel(level)}`;
 }
 
-/** Niveau a afficher pour une entite : seulement dans le camp du joueur
+/** Niveau a afficher pour une unite du joueur : son niveau de production
+ *  propre, null pour un type sans amelioration. */
+function unitProductionLevelOrNull(unitId: string, productionLevel: number): number | null {
+  return getUnitUpgradeDef(unitId) ? productionLevel : null;
+}
+
+/** Niveau a afficher pour un batiment : seulement dans le camp du joueur
  *  (les ameliorations de la Forge ne concernent que lui). */
 function playerLevel(team: Team, levels: Readonly<RunUpgradeLevels>, definitionId: string): number | null {
   return team === 'player' ? entityRunUpgradeLevel(levels, definitionId) : null;
@@ -193,7 +201,8 @@ interface UnitInfoSource {
   abilityDamageBonus: number;
   tauntShieldBonus: number;
   battle: BattleUnitState | null;
-  /** Niveau d'amelioration de run du type d'unite, null s'il n'y en a pas. */
+  /** Niveau propre a l'unite (production pour le joueur, vague pour un
+   *  ennemi), null s'il n'y en a pas. */
   upgradeLevel: number | null;
 }
 
@@ -232,8 +241,14 @@ function buildUnitInfo(source: UnitInfoSource): UnitInfo {
   }
   rows.push({ label: 'Vitesse', value: `${formatNumber(stats.moveSpeed)} cases/s` });
   if (stats.dodgeChance > 0) rows.push({ label: 'Esquive', value: `${Math.round(stats.dodgeChance * 100)} %` });
-  // Seul le camp du joueur a une population (voir data/population.ts).
-  if (source.team === 'player') rows.push({ label: 'Population', value: String(def.populationCost) });
+  // Seul le camp du joueur a un cout de production et une population (voir
+  // data/population.ts) ; le cout est celui du niveau de CETTE unite.
+  if (source.team === 'player') {
+    rows.push(
+      { label: 'Coût', value: `${formatNumber(playerUnitProductionCost(source.unitId, source.upgradeLevel ?? 0))} or` },
+      { label: 'Population', value: String(def.populationCost) },
+    );
+  }
 
   if (taunt) {
     const tauntRows: EntityInfoRow[] = [
@@ -263,31 +278,37 @@ function buildUnitInfo(source: UnitInfoSource): UnitInfo {
 /** Stats EFFECTIVES d'une unite joueur avant son apparition : meme fusion
  *  que World.spawn ({ ...def.stats, ...statOverrides }) avec les memes
  *  surcharges (run/playerUnitStats.ts). */
-function effectivePlayerUnitStats(unitId: string, progress: PlayerProgression): UnitStats {
-  return { ...getUnit(unitId).stats, ...playerUnitStatOverrides(unitId, progress) };
+function effectivePlayerUnitStats(unitId: string, productionLevel: number, progress: PlayerProgression): UnitStats {
+  return { ...getUnit(unitId).stats, ...playerUnitStatOverrides(unitId, productionLevel, progress) };
+}
+
+/** Emplacement de preparation tel que la fiche le lit. */
+interface PlacementUnitSource {
+  unitId: string;
+  hp: number;
+  productionLevel: number;
 }
 
 /** Unite seule en preparation : PV actuels de l'emplacement (persistants
- *  d'une vague a l'autre), stats effectives recalculees. */
-export function placementUnitInfo(slot: { unitId: string; hp: number }, progress: PlayerProgression): UnitInfo {
+ *  d'une vague a l'autre), stats effectives de SON niveau de production. */
+export function placementUnitInfo(slot: PlacementUnitSource, progress: PlayerProgression): UnitInfo {
   return buildUnitInfo({
     unitId: slot.unitId,
     team: 'player',
     hp: slot.hp,
-    stats: effectivePlayerUnitStats(slot.unitId, progress),
-    abilityDamageBonus: playerUnitAbilityDamageBonus(slot.unitId, progress.upgrades),
-    tauntShieldBonus: playerUnitTauntShieldBonus(slot.unitId, progress.upgrades),
+    stats: effectivePlayerUnitStats(slot.unitId, slot.productionLevel, progress),
+    abilityDamageBonus: playerUnitAbilityDamageBonus(slot.unitId, slot.productionLevel),
+    tauntShieldBonus: playerUnitTauntShieldBonus(slot.unitId, slot.productionLevel),
     battle: null,
-    upgradeLevel: playerLevel('player', progress.upgrades, slot.unitId),
+    upgradeLevel: unitProductionLevelOrNull(slot.unitId, slot.productionLevel),
   });
 }
 
 /** Unite seule en bataille : tout vient de l'entite, deja effective, sauf
- *  le niveau d'amelioration, lu dans les niveaux de la run (`levels`). */
-/** `enemyLevel` : niveau de vague memorise au spawn d'une unite ennemie
- *  (main.ts), null quand il n'existe pas (Tester le scenario, type sans
- *  amelioration). Ignore pour une unite du joueur. */
-export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, levels: Readonly<RunUpgradeLevels>, enemyLevel: number | null = null): UnitInfo {
+ *  le niveau, memorise a son apparition par main.ts (production pour le
+ *  joueur, vague pour un ennemi) ; null quand il n'existe pas (Tester le
+ *  scenario cote ennemi, type sans amelioration). */
+export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, level: number | null = null): UnitInfo {
   return buildUnitInfo({
     unitId: entity.unitId,
     team: entity.team,
@@ -301,7 +322,7 @@ export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, lev
       shield: entity.shield,
       battleElapsedSeconds,
     },
-    upgradeLevel: entity.team === 'enemy' ? enemyLevel : playerLevel(entity.team, levels, entity.unitId),
+    upgradeLevel: level,
   });
 }
 
@@ -311,11 +332,14 @@ interface GroupMember {
   unitId: string;
   hp: number;
   maxHp: number;
+  /** Niveau propre au membre (voir battleUnitInfo), null s'il n'y en a pas. */
+  level: number | null;
 }
 
-/** `enemyLevel` : niveau commun a tout un groupe ennemi, null s'il n'existe
- *  pas ou differe entre les membres (voir battleGroupInfo). */
-function buildGroupInfo(members: GroupMember[], team: Team, levels: Readonly<RunUpgradeLevels>, enemyLevel: number | null = null): GroupInfo {
+/** Un niveau n'est rappele que pour un groupe d'un seul type dont tous les
+ *  membres partagent le meme niveau (les unites d'un meme type peuvent
+ *  differer : niveau de production fige a leur creation). */
+function buildGroupInfo(members: GroupMember[], team: Team): GroupInfo {
   const counts = new Map<string, number>();
   let hp = 0;
   let maxHp = 0;
@@ -331,9 +355,9 @@ function buildGroupInfo(members: GroupMember[], team: Team, levels: Readonly<Run
   const composition = [...counts.entries()]
     .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
     .map(([unitId, count]) => `${count} ${plural(count, getUnit(unitId).name)}`);
-  // Un seul type : un seul niveau de run, rappele sur la ligne de composition.
-  const onlyType = counts.size === 1 ? [...counts.keys()][0]! : null;
-  const level = onlyType ? (team === 'enemy' ? enemyLevel : playerLevel(team, levels, onlyType)) : null;
+  // Un seul type et un seul niveau : rappele sur la ligne de composition.
+  const memberLevels = new Set(members.map((m) => m.level));
+  const level = counts.size === 1 && memberLevels.size === 1 ? (members[0]?.level ?? null) : null;
   if (level !== null) composition[0] = titleWithLevel(composition[0]!, level);
   return {
     kind: 'group',
@@ -347,30 +371,25 @@ function buildGroupInfo(members: GroupMember[], team: Team, levels: Readonly<Run
   };
 }
 
-export function placementGroupInfo(slots: readonly { unitId: string; hp: number }[], progress: PlayerProgression): GroupInfo {
+export function placementGroupInfo(slots: readonly PlacementUnitSource[], progress: PlayerProgression): GroupInfo {
   return buildGroupInfo(
-    slots.map((s) => ({ unitId: s.unitId, hp: s.hp, maxHp: effectivePlayerUnitStats(s.unitId, progress).maxHp })),
+    slots.map((s) => ({
+      unitId: s.unitId,
+      hp: s.hp,
+      maxHp: effectivePlayerUnitStats(s.unitId, s.productionLevel, progress).maxHp,
+      level: unitProductionLevelOrNull(s.unitId, s.productionLevel),
+    })),
     'player',
-    progress.upgrades,
   );
 }
 
 /** `entities` : unites encore vivantes de la selection (les mortes en sont
- *  deja retirees par BattleSelection.sync). `enemyLevelOf` : niveau
- *  memorise de chaque ennemi (voir battleUnitInfo) ; un niveau n'est
- *  affiche que s'il est le meme pour tout le groupe. */
-export function battleGroupInfo(
-  entities: readonly Entity[],
-  levels: Readonly<RunUpgradeLevels>,
-  enemyLevelOf: (entity: Entity) => number | null = () => null,
-): GroupInfo {
-  const memberLevels = new Set(entities.map(enemyLevelOf));
-  const sharedEnemyLevel = memberLevels.size === 1 && entities[0] ? enemyLevelOf(entities[0]) : null;
+ *  deja retirees par BattleSelection.sync). `levelOf` : niveau memorise de
+ *  chaque unite (voir battleUnitInfo). */
+export function battleGroupInfo(entities: readonly Entity[], levelOf: (entity: Entity) => number | null = () => null): GroupInfo {
   return buildGroupInfo(
-    entities.map((e) => ({ unitId: e.unitId, hp: e.hp, maxHp: e.stats.maxHp })),
+    entities.map((e) => ({ unitId: e.unitId, hp: e.hp, maxHp: e.stats.maxHp, level: levelOf(e) })),
     entities[0]?.team ?? 'player',
-    levels,
-    sharedEnemyLevel,
   );
 }
 
@@ -385,9 +404,12 @@ function mineRows(level: number): EntityInfoRow[] {
   ];
 }
 
-function barracksRows(unitId: string, intervalSeconds: number, count: number): EntityInfoRow[] {
+/** `productionLevel` : niveau auquel la Caserne produit maintenant (celui
+ *  de la Forge au moment du spawn, voir main.ts), null pour l'adversaire. */
+function barracksRows(unitId: string, intervalSeconds: number, count: number, productionLevel: number | null): EntityInfoRow[] {
+  const level = productionLevel === null ? null : unitProductionLevelOrNull(unitId, productionLevel);
   return [
-    { label: 'Produit', value: getUnit(unitId).name },
+    { label: 'Produit', value: titleWithLevel(getUnit(unitId).name, level) },
     { label: 'Intervalle', value: formatSeconds(intervalSeconds) },
     { label: 'Unités / production', value: String(count) },
   ];
@@ -407,10 +429,13 @@ function populationBonusRows(buildingId: string): EntityInfoRow[] {
 }
 
 /** Lignes de production d'un batiment possede selon SON niveau. */
-function ownedBuildingRows(buildingId: string, level: number): EntityInfoRow[] {
+function ownedBuildingRows(buildingId: string, level: number, upgrades: Readonly<RunUpgradeLevels>): EntityInfoRow[] {
   const def = getBuilding(buildingId);
   if (def.id === 'mine') return mineRows(level);
-  if (def.spawner) return barracksRows(def.spawner.unitId, effectiveBarracksSpawnInterval(level), effectiveBarracksSpawnCount(level));
+  if (def.spawner) {
+    const unitId = def.spawner.unitId;
+    return barracksRows(unitId, effectiveBarracksSpawnInterval(level), effectiveBarracksSpawnCount(level), currentProductionLevel(upgrades, unitId));
+  }
   return populationBonusRows(def.id);
 }
 
@@ -435,7 +460,7 @@ export function placementBuildingInfo(owned: { buildingId: string; hp: number; l
   const def = getBuilding(owned.buildingId);
   const upgradable = isUpgradableBuilding(def.id);
   const level = owned.level ?? 0;
-  const rows = [...ownedBuildingRows(def.id, level), ...footprintRows(def.id)];
+  const rows = [...ownedBuildingRows(def.id, level, progress.upgrades), ...footprintRows(def.id)];
   let actions: EntityInfoAction[] | undefined;
   if (def.id === 'forge') actions = [{ id: 'openForge', label: 'Ouvrir la Forge', enabled: true }];
   if (upgradable) {
@@ -457,7 +482,8 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
   let rows: EntityInfoRow[] = [];
   if (def.id === 'mine') rows = mineRows(ownedLevel ?? 0);
   else if (entity.spawnUnitId !== null && entity.spawnIntervalSeconds !== null) {
-    rows = barracksRows(entity.spawnUnitId, entity.spawnIntervalSeconds, entity.spawnCount ?? 1);
+    const productionLevel = entity.team === 'player' ? currentProductionLevel(progress.upgrades, entity.spawnUnitId) : null;
+    rows = barracksRows(entity.spawnUnitId, entity.spawnIntervalSeconds, entity.spawnCount ?? 1, productionLevel);
     if (entity.spawnTimer !== null) {
       // Minuterie a 0 : le lot attend une place de population ou des cases
       // libres autour de la Caserne (voir sim/systems/barracksSystem.ts).

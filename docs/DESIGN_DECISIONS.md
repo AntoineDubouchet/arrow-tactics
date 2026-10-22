@@ -69,7 +69,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | D2 | Bâtiments gameplay et bâtiments décoratifs distincts | Active |
 | D3 | Placement obligatoire de la tour en début de run | Remplacée (Baliste définie par la carte) |
 | D4 | Sauvegarde d'une run en cours | Ouverte |
-| D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Forge et Or) / Remplacée (Runes, améliorations permanentes, amélioration globale de la Mine et de la Caserne) |
+| D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Forge et Or, niveau de production des unités) / Remplacée (Runes, améliorations permanentes, amélioration globale de la Mine et de la Caserne, absence de surcoût de production) |
 | D6 | Améliorations de la Mine et de la Caserne propres à chaque bâtiment | Active |
 | E1 | Manipulation directe pendant le placement | Active |
 | E2 | Collision des décors : emprise rectangulaire, props traversables | Active |
@@ -437,9 +437,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### D5 — Or monnaie unique, Runes supprimées, améliorations achetées à la Forge
 
-- **Statut** : Active (Or et Forge). Remplacée : la monnaie Rune, la boutique
-  d'amélioration permanente du menu principal et le talent « Maître de la
-  forge ».
+- **Statut** : Active (Or et Forge ; niveau de production des unités).
+  Remplacée : la monnaie Rune, la boutique d'amélioration permanente du menu
+  principal, le talent « Maître de la forge » et la règle « une amélioration
+  n'augmente pas le prix de ce qu'elle améliore » (pour les unités).
 - **Contexte** : les améliorations de statistiques s'achetaient avec des
   Runes gagnées à chaque victoire, dans une boutique du menu principal, et
   restaient acquises d'une run à l'autre. Elles ne créaient aucun arbitrage
@@ -457,12 +458,26 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     restent actives mais aucun nouvel achat n'est possible avant
     reconstruction ;
   - une amélioration n'augmente plus le prix de ce qu'elle améliore (unité,
-    bâtiment, parchemin) ;
+    bâtiment, parchemin) — **remplacé pour les unités**, voir « Évolution » ;
   - « Maître de la forge », qui ne réduisait que le coût en Runes, est retiré
     de l'arbre ; ses points sont remboursés au chargement des anciennes
     sauvegardes.
-- **Évolution** : la Mine et la Caserne ne s'améliorent plus à la Forge,
-  mais chacune depuis sa propre fiche (D6).
+- **Évolution** :
+  - la Mine et la Caserne ne s'améliorent plus à la Forge, mais chacune
+    depuis sa propre fiche (D6) ;
+  - **niveau de production des unités** (refonte « escarmouches » : moins
+    d'unités, plus puissantes) :
+    - une amélioration d'unité à la Forge élève le niveau auquel les
+      **futures** unités de ce type sont produites (boutique, Caserne) ;
+      elle ne modifie jamais une unité déjà créée ;
+    - une unité conserve à vie le niveau, les statistiques et le coût de
+      production de sa création (`OwnedUnit.productionLevel`) ;
+    - chaque niveau est un vrai gain de puissance et **augmente le coût de
+      recrutement des futures recrues** (Fantassin et Archer +1 or, Mage
+      +3, Sentinelle +10 par niveau) ;
+    - un niveau coûte `7 × 2^niveau` à la Forge (7 / 14 / 28…) ;
+    - les bâtiments et les parchemins gardent leurs règles (pas de
+      surcoût, barème 1 / 2 / 4…).
 - **Raison connue** : créer une vraie tension économique pendant la run —
   investir dans une amélioration **ou** acheter des unités et des bâtiments
   pour survivre — et séparer clairement les rôles : talents pour la
@@ -473,19 +488,25 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     Caserne 25 ;
   - la Forge améliore les unités (Fantassin, Archer, Mage, Sentinelle), la
     Baliste et les parchemins (soin, Nova de glace, Soins excédentaires),
-    au coût `runUpgradeGoldCost` : 1 / 2 / 4 / 8… Ces montants sont de
-    l'**équilibrage provisoire**, pas une décision ;
+    au coût `runUpgradeGoldCost` : 7 / 14 / 28 / 56… pour les unités,
+    1 / 2 / 4 / 8… pour le reste. Ces montants, comme les gains et surcoûts
+    par niveau (`data/unitUpgrades.ts`), sont de l'**équilibrage
+    provisoire**, pas une décision ;
   - `MetaProgress` ne contient plus que la progression permanente ; les clés
     `upgradeRunes` / `unitUpgrades` des anciennes sauvegardes sont ignorées.
 - **À ne pas faire** :
   - ne pas réintroduire de monnaie permanente qui achèterait des
     améliorations de statistiques hors de la run ;
   - ne pas faire dépendre la puissance des améliorations du nombre de Forges ;
-  - ne pas réintroduire de surcoût lié au niveau d'amélioration.
+  - ne pas rendre une amélioration d'unité rétroactive : une unité garde
+    le niveau de sa création ;
+  - ne pas ajouter de surcoût lié au niveau aux bâtiments ni aux parchemins
+    sans nouvelle décision.
 - **Direction (intention, non actée)** : à terme, la Forge ne devrait plus
   améliorer que les unités ; la place des améliorations de la Baliste et des
   parchemins reste à décider.
-- **Sources** : `run/runUpgrades.ts`, `run/runState.ts`, `run/metaProgress.ts`
+- **Sources** : `run/runUpgrades.ts`, `data/unitUpgrades.ts`,
+  `run/unitUpgradeEffects.ts`, `run/runState.ts`, `run/metaProgress.ts`
   (`REMOVED_TALENT_REFUNDS`), `data/buildings.ts`, `main.ts` (`openForge`,
   `purchaseForgeUpgrade`), `CURRENT_STATE.md` §6, §7 et §14.
 

@@ -1,7 +1,6 @@
 import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
 import { HEAL_SCROLL_UPGRADE } from '../data/healScrollUpgrade';
 import { ICE_NOVA_UPGRADE } from '../data/iceNovaUpgrade';
-import { SENTINEL_UPGRADE } from '../data/sentinelUpgrade';
 import { SHADOW_UPGRADE } from '../data/shadowUpgrade';
 import { UNIT_UPGRADES, type UpgradeDefBase } from '../data/unitUpgrades';
 import type { MetaProgress } from './metaProgress';
@@ -30,12 +29,11 @@ export function runUpgradeLevel(levels: Readonly<RunUpgradeLevels>, id: string):
 }
 
 /** Amelioration de Forge propre a une entite du joueur, par id de
- *  definition (unite de data/units.ts ou batiment de data/buildings.ts).
- *  Absente = entite sans amelioration de Forge (Forge ; Mine et Caserne,
- *  dont le niveau est propre a chaque batiment, voir run/buildingUpgrades.ts). */
+ *  definition (batiment de data/buildings.ts). Absente = entite sans
+ *  amelioration de Forge commune : Forge ; Mine et Caserne, dont le niveau
+ *  est propre a chaque batiment (run/buildingUpgrades.ts) ; unites, qui
+ *  portent chacune leur niveau de production (OwnedUnit.productionLevel). */
 const ENTITY_UPGRADE_IDS: Readonly<Record<string, string>> = {
-  ...Object.fromEntries(Object.entries(UNIT_UPGRADES).map(([id, def]) => [def.unitId, id])),
-  sentinel: SENTINEL_UPGRADE.id,
   ballista: BALLISTA_UPGRADE.id,
 };
 
@@ -67,7 +65,6 @@ export interface PlayerProgression {
 /** Ameliorations achetables, par id (memes cles que RunState.upgrades). */
 const RUN_UPGRADE_DEFS: Readonly<Record<string, UpgradeDefBase>> = {
   ...UNIT_UPGRADES,
-  [SENTINEL_UPGRADE.id]: SENTINEL_UPGRADE,
   [BALLISTA_UPGRADE.id]: BALLISTA_UPGRADE,
   [HEAL_SCROLL_UPGRADE.id]: HEAL_SCROLL_UPGRADE,
   [ICE_NOVA_UPGRADE.id]: ICE_NOVA_UPGRADE,
@@ -81,15 +78,20 @@ export function isRunUpgradeId(id: string): boolean {
 
 /** Bareme PROVISOIRE, seul endroit a modifier pour le reequilibrer : cout
  *  du niveau 0 -> 1 (RUN_UPGRADE_GOLD_COST_BASE), puis
- *  x RUN_UPGRADE_GOLD_COST_GROWTH a chaque niveau : 1, 2, 4, 8, 16... Mine et
- *  Caserne ont leur propre bareme par batiment (run/buildingUpgrades.ts). */
+ *  x RUN_UPGRADE_GOLD_COST_GROWTH a chaque niveau : 1, 2, 4, 8, 16... Les
+ *  niveaux de production d'unite (data/unitUpgrades.ts) partent de
+ *  UNIT_UPGRADE_GOLD_COST_BASE : 7, 14, 28, 56... (un niveau regroupe trois
+ *  anciens achats, 1 + 2 + 4). Mine et Caserne ont leur propre bareme par
+ *  batiment (run/buildingUpgrades.ts). */
 export const RUN_UPGRADE_GOLD_COST_BASE = 1;
+export const UNIT_UPGRADE_GOLD_COST_BASE = 7;
 export const RUN_UPGRADE_GOLD_COST_GROWTH = 2;
 
 /** Cout en Or du niveau suivant de l'amelioration `id`, depuis le niveau
  *  `level` deja atteint. */
-export function runUpgradeGoldCost(_id: string, level: number): number {
-  return roundGold(RUN_UPGRADE_GOLD_COST_BASE * RUN_UPGRADE_GOLD_COST_GROWTH ** level);
+export function runUpgradeGoldCost(id: string, level: number): number {
+  const base = Object.prototype.hasOwnProperty.call(UNIT_UPGRADES, id) ? UNIT_UPGRADE_GOLD_COST_BASE : RUN_UPGRADE_GOLD_COST_BASE;
+  return roundGold(base * RUN_UPGRADE_GOLD_COST_GROWTH ** level);
 }
 
 /** Vrai si l'amelioration `id` peut etre achetee maintenant : id connu,
