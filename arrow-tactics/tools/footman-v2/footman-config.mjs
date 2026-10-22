@@ -40,7 +40,9 @@ export const CLIPS = [
 
 /** Equipements rigides : FBX et prefixe des textures, relatifs au dossier source. */
 export const EQUIPMENT = {
-  sword: { prefix: 'Meshy_AI_footman_sword_cartoon_fbx/Meshy_AI_footman_sword_cartoon_1021011448_image-to-3d-texture', hasNormal: true },
+  // Epee v2 (lame retravaillee) ; l'ancienne reste dans
+  // Meshy_AI_footman_sword_cartoon_fbx/ (1021011448_image-to-3d-texture).
+  sword: { prefix: 'Meshy_AI_footman_sword_v2/Meshy_AI_Make_the_blade_notice_1022194529_texture', hasNormal: true },
   shield_blue: { prefix: 'Meshy_AI_footman_shield_blue_fbx/Meshy_AI_footman_shield_blue_c_1021011623_image-to-3d-texture', hasNormal: true },
   shield_red: { prefix: 'Meshy_AI_footman_shield_red_fbx/Meshy_AI_footman_shield_red_ca_1021011346_image-to-3d-texture', hasNormal: true },
 };

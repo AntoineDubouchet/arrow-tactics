@@ -42,6 +42,11 @@ interface EquipmentOffset {
   rotationDeg: [number, number, number];
   scale: number;
   pivot: [number, number, number];
+  /** Rotation propre au modele (degres, XYZ), appliquee a sa geometrie
+   *  AVANT le pivot : ramene un export oriente autrement dans la convention
+   *  de la calibration (lame vers +Y, pommeau en bas). `pivot` est exprime
+   *  apres cette rotation. Absente = aucune. */
+  modelRotationDeg?: [number, number, number];
 }
 
 type AttackId = 'leftSlash' | 'spartanKick';
@@ -74,8 +79,13 @@ function pbrFiles(name: string, hasNormal: boolean): PbrTextureFiles {
   };
 }
 
-/** Centre de la poignee (la lame monte vers +Y, le pommeau est en bas). */
-const SWORD_PIVOT: [number, number, number] = [0, -57, 0];
+/** Epee v2 : exportee pointe vers le bas (garde vers +45, poignee de +60 a
+ *  +80, pommeau en haut). Retournee de 180° autour de Z pour retrouver la
+ *  convention de la calibration (lame vers +Y, pommeau en bas), sans
+ *  toucher a la prise en main validee. */
+const SWORD_MODEL_ROTATION: [number, number, number] = [0, 0, 180];
+/** Centre de la poignee, apres retournement (poignee de -80 a -60). */
+const SWORD_PIVOT: [number, number, number] = [0, -70, 0];
 /** Centre du dos du bouclier (la face decoree est en +Z). */
 const SHIELD_PIVOT: [number, number, number] = [0, 5, -11];
 /** Agrandissement visuel de l'epee et du bouclier (+30 %), applique autour de
@@ -124,11 +134,11 @@ const ACTIVE_ATTACK: AttackId = 'leftSlash';
  *  -24°. */
 const TEAM_RIGS: Record<Team, TeamRig> = {
   player: {
-    sword: { bone: 'smartrigRightHand', position: [-0.058, -0.117, -0.008], rotationDeg: [50.7, 38.8, -173.6], scale: 0.005 * EQUIPMENT_SCALE, pivot: SWORD_PIVOT },
+    sword: { bone: 'smartrigRightHand', position: [-0.058, -0.117, -0.008], rotationDeg: [50.7, 38.8, -173.6], scale: 0.005 * EQUIPMENT_SCALE, pivot: SWORD_PIVOT, modelRotationDeg: SWORD_MODEL_ROTATION },
     shieldOffset: new THREE.Vector3(14, -4, 2),
   },
   enemy: {
-    sword: { bone: 'smartrigRightHand', position: [-0.048, 0.131, -0.024], rotationDeg: [-76.3, 64.1, 133.9], scale: 0.005 * EQUIPMENT_SCALE, pivot: SWORD_PIVOT },
+    sword: { bone: 'smartrigRightHand', position: [-0.048, 0.131, -0.024], rotationDeg: [-76.3, 64.1, 133.9], scale: 0.005 * EQUIPMENT_SCALE, pivot: SWORD_PIVOT, modelRotationDeg: SWORD_MODEL_ROTATION },
     shieldOffset: new THREE.Vector3(14, -4, 2),
   },
 };
@@ -243,6 +253,10 @@ function attachEquipment(
   if (!source) throw new Error(`Aucun mesh dans l'equipement ${name}`);
   const geometry = source.geometry.clone();
   geometry.applyMatrix4(source.matrixWorld);
+  if (offset.modelRotationDeg) {
+    const euler = new THREE.Euler(...(offset.modelRotationDeg.map(THREE.MathUtils.degToRad) as [number, number, number]), 'XYZ');
+    geometry.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(euler));
+  }
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = name;

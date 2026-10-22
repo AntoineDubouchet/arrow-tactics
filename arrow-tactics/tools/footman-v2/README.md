@@ -50,7 +50,8 @@ ignoré par Git (les exports sont trop lourds pour être versionnés) :
     Meshy_AI_footman_red_remesh_3k_biped_Character_output.fbx
     Meshy_AI_footman_red_remesh_3k_biped_Animation_*_withSkin.fbx   (mêmes trois clips)
     Meshy_AI_footman_red_remesh_3k_biped_texture_0.png      (+ _metallic, _roughness ; pas de normal map)
-  Meshy_AI_footman_sword_cartoon_fbx/        (FBX + PNG : base, _normal, _metallic, _roughness)
+  Meshy_AI_footman_sword_v2/                 (épée actuelle ; FBX + PNG : base, _normal, _metallic, _roughness)
+  Meshy_AI_footman_sword_cartoon_fbx/        (ancienne épée, conservée, plus utilisée)
   Meshy_AI_footman_shield_blue_fbx/          (idem)
   Meshy_AI_footman_shield_red_fbx/           (idem)
 ```
