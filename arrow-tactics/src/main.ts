@@ -41,6 +41,9 @@ import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapE
 import { Loop } from './core/loop';
 import { dist } from './core/math';
 import { clampToCellsDistance, type CellCorner } from './core/cameraBounds';
+import { populationOfEntities } from './data/population';
+import { canRecruitWithinPopulation, runPopulation } from './run/population';
+import { PopulationHud } from './ui/populationHud';
 import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMoveMember } from './core/gridGroupMove';
 import { getBuilding } from './data/buildings';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
@@ -198,6 +201,7 @@ renderer.scene.add(battleSelection.group);
 const battleEnemyInspection = new BattleSelection();
 renderer.scene.add(battleEnemyInspection.group);
 const goldHud = new GoldHud();
+const populationHud = new PopulationHud();
 const telegraphView = new TelegraphView();
 const fireballView = new FireballView();
 const iceNovaView = new IceNovaView();
@@ -1659,6 +1663,7 @@ function startPlacement(): void {
   waveIndicator.update(currentRun.waveNumber);
   waveIndicator.setVisible(true);
   goldHud.setVisible(true);
+  populationHud.setVisible(true);
 
   const formation = computeArmyFormation(currentRun.army.map((u) => u.unitId), currentMap);
   placementSlots = currentRun.army.map((unit, i) => ({
@@ -5232,6 +5237,7 @@ const loop = new Loop(
               talentPointToast.show(metaProgress.talentPoints - talentPointsBefore);
               waveIndicator.setVisible(false);
               goldHud.setVisible(false);
+              populationHud.setVisible(false);
               screens.showGameOver(metaProgress.highestWaveReached);
             } else {
               // Agrandissement progressif du champ de bataille (2026-08-18,
@@ -5293,6 +5299,10 @@ const loop = new Loop(
     // evenement") — plus aucun site d'appel a se souvenir d'ajouter apres un
     // achat/une vente.
     goldHud.update(currentRun.gold);
+    // Population : armee et batiments de la run en preparation, entites
+    // vivantes de la bataille sinon (unite morte, Caserne, Maison detruite).
+    const population = inPlacementPhase ? runPopulation(currentRun) : populationOfEntities(world.entities);
+    populationHud.update(population.used, population.max);
 
     // Batiments gameplay (Mine, Baliste) EXCLUS des systemes de rendu qui
     // supposent une vraie unite (getUnit(entity.unitId), voir data/units.ts)
@@ -5654,6 +5664,7 @@ function quitToMenu(): void {
   board.zones.visible = false;
   waveIndicator.setVisible(false);
   goldHud.setVisible(false);
+  populationHud.setVisible(false);
   screens.show('menu');
 }
 
@@ -5715,6 +5726,9 @@ function addUnitToPlacement(unitId: string, hp: number): void {
  *  dernier achat" (voir undoLastUnitPurchase). */
 function buyUnit(unitId: string): void {
   if (!canPlayerRecruitUnit(metaProgress, unitId)) return;
+  // Population pleine : refus avant tout debit (bouton deja desactive avec
+  // sa raison, voir Screens.refreshShop ; garde-fou ici aussi).
+  if (!canRecruitWithinPopulation(currentRun, unitId)) return;
   const cost = effectivePlayerUnitCost(unitId);
   if (currentRun.gold < cost) return;
   // Math.max(0, ...) : filet de securite defensif contre tout bruit de

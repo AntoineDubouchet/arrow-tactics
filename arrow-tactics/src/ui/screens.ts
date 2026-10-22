@@ -9,6 +9,8 @@ import { SHADOW_UPGRADE } from '../data/shadowUpgrade';
 import { getTalent, listDependents, listFounderTalents, TALENTS } from '../data/talents';
 import { computeTalentTreeLayout, type TalentNodeLayout, type TalentTreeLayoutNode } from './talentTreeLayout';
 import { getUnit } from '../data/units';
+import { buildingPopulationBonus, unitPopulationCost } from '../data/population';
+import { runPopulation } from '../run/population';
 import { getUnitUpgradeDef, listUpgradableUnitIds } from '../data/unitUpgrades';
 import {
   canUnlockTalent,
@@ -426,6 +428,8 @@ export class Screens {
   /** Nombre d'or affiché dans shopGold — élément dédié pour ne pas écraser
    *  l'icône de pièce voisine en réécrivant tout le textContent parent. */
   private readonly shopGoldAmount: HTMLElement;
+  /** « Population : 7 / 15 » sous l'or de la boutique (voir refreshShop). */
+  private readonly shopPopulation: HTMLElement;
   private readonly shopBuyFantassin: HTMLButtonElement;
   private readonly shopBuyArcher: HTMLButtonElement;
   private readonly shopBuyMage: HTMLButtonElement;
@@ -615,6 +619,8 @@ export class Screens {
     this.shopGold.className = 'screen-text shop-gold';
     this.shopGoldAmount = document.createElement('span');
     this.shopGold.append('Or : ', this.shopGoldAmount, createCoinIcon(16));
+    this.shopPopulation = document.createElement('p');
+    this.shopPopulation.className = 'screen-text shop-population';
 
     const fantassinDef = getUnit('fantassin');
     const archerDef = getUnit('archer');
@@ -743,6 +749,7 @@ export class Screens {
     this.shop = this.overlay('shop', [
       this.title('Boutique'),
       this.shopGold,
+      this.shopPopulation,
       shopTabs,
       this.shopPanelUnits,
       this.shopPanelBuildings,
@@ -1066,10 +1073,21 @@ export class Screens {
     const costArcher = effectivePlayerUnitCost('archer');
     const costMage = effectivePlayerUnitCost('mage');
     const costSentinel = effectivePlayerUnitCost('sentinel');
-    this.shopBuyFantassin.disabled = run.gold < costFantassin;
-    this.shopBuyArcher.disabled = run.gold < costArcher;
-    this.shopBuyMage.disabled = run.gold < costMage;
-    this.shopBuySentinel.disabled = run.gold < costSentinel;
+    // Population (voir run/population.ts) : un recrutement qui depasserait
+    // le maximum est refuse, bouton desactive avec la raison en infobulle.
+    const population = runPopulation(run);
+    this.shopPopulation.textContent = `Population : ${population.used} / ${population.max}`;
+    this.shopPopulation.classList.toggle('shop-population--full', population.used >= population.max);
+    const roomFor = (unitId: string, count: number): boolean => population.used + unitPopulationCost(unitId) * count <= population.max;
+    const gateUnit = (button: HTMLButtonElement, unitId: string, cost: number, count: number): void => {
+      const noRoom = !roomFor(unitId, count);
+      button.disabled = run.gold < cost * count || noRoom;
+      button.title = noRoom ? `Population insuffisante (${population.used} / ${population.max}, ${unitPopulationCost(unitId) * count} requise)` : '';
+    };
+    gateUnit(this.shopBuyFantassin, 'fantassin', costFantassin, 1);
+    gateUnit(this.shopBuyArcher, 'archer', costArcher, 1);
+    gateUnit(this.shopBuyMage, 'mage', costMage, 1);
+    gateUnit(this.shopBuySentinel, 'sentinel', costSentinel, 1);
     const fantassinPriceEl = this.shopUnitPriceEls.get('fantassin');
     if (fantassinPriceEl) fantassinPriceEl.textContent = formatGold(costFantassin);
     const archerPriceEl = this.shopUnitPriceEls.get('archer');
@@ -1081,14 +1099,15 @@ export class Screens {
 
     // Boutons "×5" (2026-08-13) — desactives des que l'or ne couvre pas 5
     // achats d'affilee (le cout par unite reste CONSTANT sur ces 5 achats).
+    // Meme exigence pour la population : de la place pour les 5.
     const fantassinFiveEl = this.shopUnitBuyFiveEls.get('fantassin');
-    if (fantassinFiveEl) fantassinFiveEl.disabled = run.gold < costFantassin * 5;
+    if (fantassinFiveEl) gateUnit(fantassinFiveEl, 'fantassin', costFantassin, 5);
     const archerFiveEl = this.shopUnitBuyFiveEls.get('archer');
-    if (archerFiveEl) archerFiveEl.disabled = run.gold < costArcher * 5;
+    if (archerFiveEl) gateUnit(archerFiveEl, 'archer', costArcher, 5);
     const mageFiveEl = this.shopUnitBuyFiveEls.get('mage');
-    if (mageFiveEl) mageFiveEl.disabled = run.gold < costMage * 5;
+    if (mageFiveEl) gateUnit(mageFiveEl, 'mage', costMage, 5);
     const sentinelFiveEl = this.shopUnitBuyFiveEls.get('sentinel');
-    if (sentinelFiveEl) sentinelFiveEl.disabled = run.gold < costSentinel * 5;
+    if (sentinelFiveEl) gateUnit(sentinelFiveEl, 'sentinel', costSentinel, 5);
 
     // Mage/Sentinelle reserves tant qu'ils n'ont pas ete vaincus au moins une
     // fois comme ennemis (2026-08-15, systeme GENERIQUE — voir data/units.ts,
@@ -1185,6 +1204,10 @@ export class Screens {
     }
     if (buildingId === 'forge') {
       return `${costLine} Permettra d’améliorer l’armée.`;
+    }
+    const populationBonus = buildingPopulationBonus(buildingId);
+    if (populationBonus > 0) {
+      return `${costLine} +${populationBonus} population maximale tant qu’elle reste debout.`;
     }
     return costLine;
   }
@@ -2173,12 +2196,19 @@ export class Screens {
    *  toujours pas, les consommables passent leur propre id pour afficher
    *  leur icone (voir createItemIcon). */
   private unitPurchaseRow(
-    def: { id: string; name: string; cost: number },
+    def: { id: string; name: string; cost: number; populationCost?: number },
     onBuyOne: () => void,
     onBuyFive: () => void,
     iconItemId?: string,
   ): { row: HTMLElement; button: HTMLButtonElement } {
     const button = this.shopItemButton(def.name, def.cost, onBuyOne, def.id, iconItemId);
+    // Unite : places de population occupees, a cote du nom.
+    if (def.populationCost !== undefined) {
+      const population = document.createElement('span');
+      population.className = 'shop-item-population';
+      population.textContent = `Pop. ${def.populationCost}`;
+      button.querySelector('.shop-item-name-group')?.appendChild(population);
+    }
 
     const five = document.createElement('button');
     five.type = 'button';

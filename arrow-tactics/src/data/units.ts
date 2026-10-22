@@ -83,6 +83,9 @@ export interface UnitDef {
   name: string;
   /** Cout en credits lors de la composition d'armee. */
   cost: number;
+  /** Places de population occupees par une unite du joueur (voir
+   *  data/population.ts) ; source unique pour l'equilibrage. */
+  populationCost: number;
   stats: UnitStats;
   visual: UnitVisual;
   /** Comment cette unite devient disponible pour le JOUEUR (2026-08-15,
@@ -139,6 +142,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: 'fantassin',
     name: 'Fantassin',
     cost: 2,
+    populationCost: 1,
     stats: {
       maxHp: 50,
       damage: 10,
@@ -165,6 +169,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: 'archer',
     name: 'Archer',
     cost: 3,
+    populationCost: 1,
     stats: {
       maxHp: 30,
       // 8 -> 12 (2026-08-14, demande d'Antoine : "unite trop faible, ils
@@ -215,6 +220,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: 'mage',
     name: 'Mage',
     cost: 10,
+    populationCost: 3,
     // Deblocage par victoire (2026-08-15) : le joueur doit avoir vaincu au
     // moins un Mage ENNEMI avant de pouvoir le recruter — voir
     // UnitDef.playerUnlockMode. Remplace l'ancien deblocage "manche 8
@@ -327,6 +333,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: 'sentinel',
     name: 'Sentinelle',
     cost: 40,
+    populationCost: 5,
     // Deblocage par victoire (2026-08-15, meme systeme que le Mage) : le
     // joueur doit avoir vaincu au moins une Sentinelle ENNEMIE (apparait a
     // partir de ENEMY_SENTINEL_START_WAVE, voir run/runState.ts) avant de

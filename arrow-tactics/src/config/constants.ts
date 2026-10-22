@@ -35,6 +35,9 @@ export const GRID_MOVE_SEARCH_RADIUS = 2;
  *  choisie par Claude dans la fourchette proposee, a ajuster si Antoine juge
  *  que ca continue de se declencher trop souvent ou pas assez. */
 export const PLACEMENT_GOLD_WARNING_RATIO = 0.3;
+/** Population maximale du joueur sans Maison (voir data/population.ts) ;
+ *  chaque Maison y ajoute son `populationBonus` (data/buildings.ts). */
+export const PLAYER_BASE_POPULATION = 10;
 // --- Affichage des PV ---
 export const HP_PER_PIP = 10;
 

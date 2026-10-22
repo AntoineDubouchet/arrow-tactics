@@ -642,6 +642,23 @@ img {
   gap: 6px;
 }
 
+/* Population de la run sous l'or (voir Screens.refreshShop). */
+.shop-population {
+  margin-top: -4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.shop-population--full {
+  color: #e8a35c;
+}
+
+/* Places de population d'une unite, a cote de son nom dans la boutique. */
+.shop-item-population {
+  margin-left: 8px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
 /* --- Onglets de la boutique (2026-08-11, demande d'Antoine : "classer les
    objets de la boutique dans des fenêtres distinctes") --- */
 
@@ -1117,6 +1134,44 @@ img {
 
 .gold-hud-icon {
   display: block;
+}
+
+/* Population (voir populationHud.ts) : meme colonne et meme style que l'or,
+   juste au-dessus. */
+.population-hud {
+  position: fixed;
+  right: 16px;
+  bottom: 182px;
+  width: var(--shop-panel-width);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  z-index: 5;
+}
+
+.population-hud-label {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.population-hud-amount {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.population-hud--full .population-hud-amount {
+  color: #e8a35c;
+}
+
+.population-hud--over .population-hud-amount {
+  color: #e8665c;
 }
 
 .gold-hud-amount {

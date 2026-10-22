@@ -309,6 +309,10 @@ export interface Entity {
    *  moment du spawn du batiment (World.spawnBuilding), meme convention que
    *  spawnIntervalSeconds. `null` pour toute entite qui ne produit rien. */
   spawnCount: number | null;
+  /** Vrai tant qu'une production prete attend une place de population
+   *  (voir barracksSystem) : affiche par la fiche, jamais lu par la
+   *  simulation elle-meme. */
+  spawnWaitingForPopulation: boolean;
 }
 
 /** Direction d'avance : le joueur part du bas (+z) et monte vers -z. */

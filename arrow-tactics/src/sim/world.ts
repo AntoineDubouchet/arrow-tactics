@@ -288,6 +288,7 @@ export class World {
       spawnIntervalSeconds: null,
       spawnUnitId: null,
       spawnCount: null,
+      spawnWaitingForPopulation: false,
     };
     this.entities.push(entity);
     this.entityById.set(entity.id, entity);
@@ -433,6 +434,7 @@ export class World {
       spawnIntervalSeconds: effectiveSpawnInterval,
       spawnUnitId: def.spawner?.unitId ?? null,
       spawnCount: effectiveSpawnCount,
+      spawnWaitingForPopulation: false,
     };
     this.entities.push(entity);
     this.entityById.set(entity.id, entity);

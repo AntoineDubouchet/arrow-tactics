@@ -1,4 +1,5 @@
 import { isCollidableObstacle, obstacleBounds, type ObstacleDef } from '../../config/constants';
+import { populationOfEntities, unitPopulationCost } from '../../data/population';
 import { forwardDir, type Entity, type Team } from '../entity';
 
 /**
@@ -35,9 +36,20 @@ export interface BarracksSpawnEvent {
  * l'intervalle complet) tant que la production complete n'a pas pu avoir
  * lieu, retente au tick suivant. Le timer n'est reinitialise qu'au moment
  * d'une production REELLEMENT reussie (le lot ENTIER).
+ *
+ * Population (camp du joueur, voir data/population.ts) : le lot est reduit
+ * aux places restantes au moment de la production ; s'il n'en reste aucune,
+ * la production attend de la meme facon que pour des cases libres.
  */
 export function barracksSystem(entities: Entity[], obstacles: ObstacleDef[], dt: number): BarracksSpawnEvent[] {
   const events: BarracksSpawnEvent[] = [];
+  // Population du joueur verifiee au moment REEL de la production, et
+  // decomptee au fil des productions du tick : plusieurs Casernes pretes en
+  // meme temps ne depassent jamais ensemble le maximum (ordre deterministe,
+  // celui des entites). Une Maison detruite plus tot dans la bataille
+  // n'est deja plus vivante, donc ne compte plus.
+  const population = populationOfEntities(entities);
+  let playerRoom = population.max - population.used;
 
   for (const e of entities) {
     if (!e.alive || e.spawnTimer === null || e.spawnUnitId === null) continue;
@@ -45,11 +57,20 @@ export function barracksSystem(entities: Entity[], obstacles: ObstacleDef[], dt:
     e.spawnTimer = Math.max(0, e.spawnTimer - dt);
     if (e.spawnTimer > 0) continue;
 
-    const count = e.spawnCount ?? 1;
+    // Lot reduit a la place de population disponible ; sans aucune place,
+    // la production attend (minuterie a 0, retentee chaque tick, comme
+    // l'attente de cases libres) : elle est gratuite, rien n'est perdu.
+    let count = e.spawnCount ?? 1;
+    const unitCost = e.team === 'player' ? unitPopulationCost(e.spawnUnitId) : 0;
+    if (unitCost > 0) count = Math.min(count, Math.floor(Math.max(playerRoom, 0) / unitCost));
+    e.spawnWaitingForPopulation = count === 0;
+    if (count === 0) continue;
+
     const cells = findFreeAdjacentCells(e, entities, obstacles, count);
     if (cells.length < count) continue;
 
     for (const cell of cells) events.push({ entityId: e.id, unitId: e.spawnUnitId, team: e.team, x: cell.x, z: cell.z });
+    playerRoom -= count * unitCost;
     e.spawnTimer = e.spawnIntervalSeconds ?? 0;
   }
 

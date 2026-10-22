@@ -232,6 +232,8 @@ function buildUnitInfo(source: UnitInfoSource): UnitInfo {
   }
   rows.push({ label: 'Vitesse', value: `${formatNumber(stats.moveSpeed)} cases/s` });
   if (stats.dodgeChance > 0) rows.push({ label: 'Esquive', value: `${Math.round(stats.dodgeChance * 100)} %` });
+  // Seul le camp du joueur a une population (voir data/population.ts).
+  if (source.team === 'player') rows.push({ label: 'Population', value: String(def.populationCost) });
 
   if (taunt) {
     const tauntRows: EntityInfoRow[] = [
@@ -398,12 +400,18 @@ function footprintRows(buildingId: string): EntityInfoRow[] {
   return [{ label: 'Emprise', value: `${def.footprintTilesX} × ${def.footprintTilesZ} cases` }];
 }
 
+/** Population maximale apportee par le batiment (Maison). */
+function populationBonusRows(buildingId: string): EntityInfoRow[] {
+  const bonus = getBuilding(buildingId).populationBonus;
+  return bonus ? [{ label: 'Population', value: `+${bonus}` }] : [];
+}
+
 /** Lignes de production d'un batiment possede selon SON niveau. */
 function ownedBuildingRows(buildingId: string, level: number): EntityInfoRow[] {
   const def = getBuilding(buildingId);
   if (def.id === 'mine') return mineRows(level);
   if (def.spawner) return barracksRows(def.spawner.unitId, effectiveBarracksSpawnInterval(level), effectiveBarracksSpawnCount(level));
-  return [];
+  return populationBonusRows(def.id);
 }
 
 /** Effet du prochain niveau, en une ligne (Mine, Caserne). */
@@ -451,11 +459,12 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
   else if (entity.spawnUnitId !== null && entity.spawnIntervalSeconds !== null) {
     rows = barracksRows(entity.spawnUnitId, entity.spawnIntervalSeconds, entity.spawnCount ?? 1);
     if (entity.spawnTimer !== null) {
-      // Minuterie a 0 : le lot attend des cases libres autour de la Caserne
-      // (voir sim/systems/barracksSystem.ts).
-      rows.push({ label: 'Prochaine production', value: entity.spawnTimer > 0 ? formatRemaining(entity.spawnTimer) : 'En attente' });
+      // Minuterie a 0 : le lot attend une place de population ou des cases
+      // libres autour de la Caserne (voir sim/systems/barracksSystem.ts).
+      const waiting = entity.spawnWaitingForPopulation ? 'Population pleine' : 'En attente';
+      rows.push({ label: 'Prochaine production', value: entity.spawnTimer > 0 ? formatRemaining(entity.spawnTimer) : waiting });
     }
-  }
+  } else rows = populationBonusRows(def.id);
   rows.push(...footprintRows(def.id));
   const level = isUpgradableBuilding(def.id) ? ownedLevel : playerLevel(entity.team, progress.upgrades, def.id);
   const title = titleWithLevel(def.displayName, level);

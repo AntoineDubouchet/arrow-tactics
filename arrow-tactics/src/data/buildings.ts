@@ -83,6 +83,9 @@ export interface BuildingDef {
   /** Production automatique d'unités — voir SpawnerBuildingConfig ci-dessus.
    *  Absent pour la Mine/la Baliste. */
   spawner?: SpawnerBuildingConfig;
+  /** Population maximale ajoutee tant que le batiment existe (Maison, voir
+   *  data/population.ts). Absent = aucun effet sur la population. */
+  populationBonus?: number;
 }
 
 export const BUILDINGS: Record<string, BuildingDef> = {
@@ -182,6 +185,23 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_blacksmith',
     footprintTilesX: 2,
     footprintTilesZ: 2,
+  },
+  // Maison : +5 de population maximale tant qu'elle existe (voir
+  // data/population.ts). Cout et PV PROVISOIRES, non encore fixes par le
+  // design : a reequilibrer.
+  house: {
+    id: 'house',
+    displayName: 'Maison',
+    maxHp: 10 * HP_PER_PIP,
+    radius: 0.55,
+    targetable: true,
+    countsForDefeat: true,
+    hpBarHeight: 1.35,
+    cost: 5,
+    buildingModel: 'blue_home_A',
+    footprintTilesX: 1,
+    footprintTilesZ: 1,
+    populationBonus: 5,
   },
 };
 
