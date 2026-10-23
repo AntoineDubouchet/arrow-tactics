@@ -486,9 +486,15 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Aujourd'hui** :
   - Or de départ 15 (20 avec « Or de départ ») ; Forge 10, Mine 20,
     Caserne 25 ;
-  - la Forge améliore les unités (Fantassin, Archer, Mage, Sentinelle), la
-    Baliste et les parchemins (soin, Nova de glace, Soins excédentaires),
-    au coût `runUpgradeGoldCost` : 7 / 14 / 28 / 56… pour les unités,
+  - la Forge propose les améliorations de production des unités (Fantassin,
+    Archer, Mage, Sentinelle) et la Baliste ;
+  - l'Église est le point d'accès aux améliorations du Parchemin de soin, de
+    la Nova de glace et de Soins excédentaires. Ces trois améliorations
+    restent des améliorations **globales de la run** (`RunState.upgrades`,
+    partagées par toutes les Églises), pas des améliorations individuelles
+    de l'Église ; le niveau propre d'une Église ne porte que sur ses PV max
+    et l'efficacité de son soin (PV par or) ;
+  - coût `runUpgradeGoldCost` : 7 / 14 / 28 / 56… pour les unités,
     1 / 2 / 4 / 8… pour le reste. Ces montants, comme les gains et surcoûts
     par niveau (`data/unitUpgrades.ts`), sont de l'**équilibrage
     provisoire**, pas une décision ;

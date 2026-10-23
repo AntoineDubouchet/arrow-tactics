@@ -51,7 +51,7 @@ import {
   shadowUpgradeLevel,
 } from '../run/shadowUpgradeEffects';
 import { getEffectiveBuildingCost } from '../run/buildingUpgradeEffects';
-import { canPurchaseRunUpgrade, displayedUpgradeLevel, runUpgradeGoldCost } from '../run/runUpgrades';
+import { canPurchaseRunUpgrade, displayedUpgradeLevel, runUpgradeGoldCost, runUpgradeSite, type RunUpgradeSite } from '../run/runUpgrades';
 import type { AudioSettings } from '../run/userSettings';
 import { createCoinIcon } from './pixelIcon';
 import { createItemIcon } from './itemIcons';
@@ -443,6 +443,14 @@ export class Screens {
    *  historique `unitUpgradeShop`) — voir data/unitUpgrades.ts. */
   private readonly unitUpgradeShop: HTMLElement;
   private readonly forgeGoldAmount: HTMLElement;
+  /** Titre de l'ecran d'ameliorations de run : « Forge » ou « Église »
+   *  selon le batiment qui l'ouvre (voir showForge). */
+  private readonly forgeTitle: HTMLElement;
+  /** Batiment d'acces de l'ecran ouvert : seules ses cartes sont visibles. */
+  private upgradeShopSite: RunUpgradeSite = 'forge';
+  /** Chaque carte d'amelioration et le batiment qui y donne acces
+   *  (run/runUpgrades.ts, runUpgradeSite). */
+  private readonly upgradeCardSites: { card: HTMLElement; site: RunUpgradeSite }[] = [];
   private readonly unitUpgradeCards = new Map<string, UnitUpgradeCardRefs>();
   /** Cartes "Baliste"/"Parchemin de soin"/"Nova de glace" (2026-08-13,
    *  2026-08-14) — shape different des unites (voir BallistaUpgradeCardRefs/
@@ -748,7 +756,9 @@ export class Screens {
     const cardsContainer = document.createElement('div');
     cardsContainer.className = 'upgrade-cards';
     for (const unitId of listUpgradableUnitIds()) {
-      cardsContainer.append(this.buildUnitUpgradeCard(unitId, handlers));
+      const card = this.buildUnitUpgradeCard(unitId, handlers);
+      this.upgradeCardSites.push({ card, site: runUpgradeSite(unitId) });
+      cardsContainer.append(card);
     }
     // Baliste / Parchemin de soin / Nova de glace (2026-08-13, 2026-08-14) —
     // shape different des unites (voir buildBallistaUpgradeCard/
@@ -767,9 +777,18 @@ export class Screens {
       iceNovaCard.card,
       this.shadowUpgradeCard.card,
     );
+    // Parchemins et Soins excedentaires : accessibles depuis l'Eglise, plus
+    // depuis la Forge (meme ecran, filtre par batiment d'acces).
+    this.upgradeCardSites.push(
+      { card: ballistaCard.card, site: runUpgradeSite(BALLISTA_UPGRADE.id) },
+      { card: healScrollCard.card, site: runUpgradeSite(HEAL_SCROLL_UPGRADE.id) },
+      { card: iceNovaCard.card, site: runUpgradeSite(ICE_NOVA_UPGRADE.id) },
+      { card: this.shadowUpgradeCard.card, site: runUpgradeSite(SHADOW_UPGRADE.id) },
+    );
 
+    this.forgeTitle = this.title('Forge');
     this.unitUpgradeShop = this.overlay('unit-upgrade-shop', [
-      this.title('Forge'),
+      this.forgeTitle,
       forgeGold,
       cardsContainer,
       this.button('Retour', handlers.onCloseForge),
@@ -1192,6 +1211,11 @@ export class Screens {
       const stats = `${size} · ${formatGold(def.maxHp / HP_PER_PIP)} PV · ${formatGold(def.attack.damage / HP_PER_PIP)} dégâts · portée ${formatGold(def.attack.rangeTiles)} cases`;
       return `${costLine} Bâtiment défensif automatique à longue portée. ${stats}. S’améliore depuis sa fiche.`;
     }
+    // Eglise : soin de l'armee contre de l'or (valeurs de niveau 1).
+    if (def.armyHeal) {
+      const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
+      return `${costLine} Soigne toutes vos unités contre de l’or (${formatGold(def.armyHeal.hpPerGold)} PV par or). ${size} · ${formatGold(def.maxHp / HP_PER_PIP)} PV. Donne accès aux améliorations des parchemins. S’améliore depuis sa fiche.`;
+    }
     const populationBonus = buildingPopulationBonus(buildingId);
     if (populationBonus > 0) {
       return `${costLine} +${populationBonus} population maximale tant qu’elle reste debout.`;
@@ -1202,7 +1226,9 @@ export class Screens {
   /** Affiche la boutique de la Forge a jour — toujours appeler ceci plutot
    *  que show('unitUpgradeShop') directement (meme motif que
    *  showShop/showTalents). */
-  showForge(run: RunState, progress: MetaProgress): void {
+  showForge(run: RunState, progress: MetaProgress, site: RunUpgradeSite = 'forge'): void {
+    this.upgradeShopSite = site;
+    this.forgeTitle.textContent = site === 'church' ? 'Église' : 'Forge';
     this.refreshForge(run, progress);
     this.show('unitUpgradeShop');
   }
@@ -1215,6 +1241,8 @@ export class Screens {
   refreshForge(run: RunState, progress: MetaProgress): void {
     const levels = run.upgrades;
     this.forgeGoldAmount.textContent = formatGold(run.gold);
+    // Seules les cartes du batiment d'acces ouvert (Forge ou Eglise).
+    for (const { card, site } of this.upgradeCardSites) card.classList.toggle('upgrade-card--other-site', site !== this.upgradeShopSite);
     // Niveau de production : stats de la PROCHAINE unite produite et gain du
     // niveau suivant (voir data/unitUpgrades.ts) ; les unites deja
     // recrutees gardent le leur (rappel sur la carte).

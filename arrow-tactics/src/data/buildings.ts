@@ -62,6 +62,15 @@ export interface BuildingAttackConfig {
   launchOutset: number;
 }
 
+/** Soin de l'armee contre de l'or (Eglise) — voir run/churchHeal.ts.
+ *  Efficacite en PV AFFICHES (points) rendus par piece d'or. */
+export interface ArmyHealConfig {
+  /** PV rendus par or au niveau 1. */
+  hpPerGold: number;
+  /** PV par or ajoutes a chaque niveau d'amelioration du batiment. */
+  hpPerGoldPerLevel: number;
+}
+
 export interface BuildingDef {
   id: string;
   displayName: string;
@@ -117,6 +126,8 @@ export interface BuildingDef {
   hpPerLevel?: number;
   /** Attaque automatique (Tour). Absent = batiment passif. */
   attack?: BuildingAttackConfig;
+  /** Soin de toute l'armee contre de l'or, en preparation (Eglise). */
+  armyHeal?: ArmyHealConfig;
   /** Facteur de taille VISUELLE du modele par rapport a son emprise (voir
    *  ObstacleDef.scale) ; l'emprise de collision et de placement ne change
    *  pas. Absent = 1. */
@@ -279,6 +290,27 @@ export const BUILDINGS: Record<string, BuildingDef> = {
       launchHeight: 2.15,
       launchOutset: 0.65,
     },
+  },
+  // Eglise : soigne toutes les unites du joueur contre de l'or (run/churchHeal.ts),
+  // et donne acces aux ameliorations de run des parchemins et de Soins
+  // excedentaires (run/runUpgrades.ts, runUpgradeSite). Valeurs PROVISOIRES.
+  church: {
+    id: 'church',
+    displayName: 'Église',
+    maxHp: 15 * HP_PER_PIP,
+    radius: 1.0,
+    targetable: true,
+    countsForDefeat: true,
+    // Modele ajuste a l'emprise 2 × 2 : 2,85 de haut (clocher), sous la
+    // Caserne (3,14) ; barre juste au-dessus.
+    hpBarHeight: 3.2,
+    cost: 15,
+    buildingModel: 'blue_church',
+    footprintTilesX: 2,
+    footprintTilesZ: 2,
+    upgradeGoldCostBase: 5,
+    hpPerLevel: 5 * HP_PER_PIP,
+    armyHeal: { hpPerGold: 5, hpPerGoldPerLevel: 2 },
   },
 };
 

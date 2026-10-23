@@ -162,7 +162,8 @@ import {
   type OwnedBuilding,
   type RunState,
 } from './run/runState';
-import { purchaseRunUpgrade, type PlayerProgression, type RunUpgradeLevels } from './run/runUpgrades';
+import { purchaseRunUpgrade, runUpgradeSite, type PlayerProgression, type RunUpgradeLevels, type RunUpgradeSite } from './run/runUpgrades';
+import { armyMissingHp, healArmyAtChurch } from './run/churchHeal';
 import { forwardDir, type Entity, type Team } from './sim/entity';
 import type { ArrowShotSpec } from './sim/playerArrow';
 import { World } from './sim/world';
@@ -1829,13 +1830,16 @@ function openShopFromPlacement(): void {
   screens.showShop(currentRun, metaProgress, lastUnitPurchase !== null);
 }
 
-/** Au moins une Forge possedee : condition d'acces a la boutique des
- *  ameliorations. Une Forge detruite a deja ete retiree de
- *  currentRun.buildings (applyBattleOutcome). Plusieurs Forges ouvrent la
- *  MEME boutique, sur les memes niveaux de run. */
-function hasForge(): boolean {
-  return currentRun.buildings.some((b) => b.buildingId === 'forge');
+/** Batiment possede (Forge ou Eglise) donnant acces aux ameliorations de
+ *  run de ce site (run/runUpgrades.ts, runUpgradeSite). Un batiment detruit
+ *  a deja ete retire de currentRun.buildings (applyBattleOutcome). Plusieurs
+ *  exemplaires ouvrent les MEMES ameliorations, sur les memes niveaux de run. */
+function hasRunUpgradeSite(site: RunUpgradeSite): boolean {
+  return currentRun.buildings.some((b) => b.buildingId === site);
 }
+
+/** Site de l'ecran d'ameliorations actuellement ouvert (Forge ou Eglise). */
+let openRunUpgradeSite: RunUpgradeSite = 'forge';
 
 /** Action de la fiche d'entite (ui/entityInfoPanel.ts). */
 function onEntityInfoAction(id: EntityInfoAction['id']): void {
@@ -1847,9 +1851,29 @@ function onEntityInfoAction(id: EntityInfoAction['id']): void {
     upgradeSelectedBuilding();
     return;
   }
-  if (id !== 'openForge') return;
+  if (id === 'healArmy') {
+    healArmyAtSelectedChurch();
+    return;
+  }
   const selected = selectedBuildingIndex !== null ? currentRun.buildings[selectedBuildingIndex] : undefined;
-  if (selected?.buildingId === 'forge') openForge();
+  if (id === 'openForge' && selected?.buildingId === 'forge') openForge('forge');
+  if (id === 'openChurchUpgrades' && selected?.buildingId === 'church') openForge('church');
+}
+
+/** "Soigner l'armée" depuis la fiche d'une Eglise : preparation uniquement,
+ *  avec l'efficacite de CETTE Eglise (run/churchHeal.ts). Les PV des
+ *  emplacements de preparation suivent ceux de l'armee (memes index). */
+function healArmyAtSelectedChurch(): void {
+  if (!inPlacementPhase || pauseMenuOpen || buildingPlacementMode || selectedBuildingIndex === null) return;
+  const result = healArmyAtChurch(currentRun, selectedBuildingIndex);
+  if (!result) return;
+  currentRun.army.forEach((unit, i) => {
+    const slot = placementSlots[i];
+    if (slot) slot.hp = unit.hp;
+  });
+  spawnCoinPopup(screens.shopGoldElement, -result.cost);
+  refreshPlayerPreview();
+  entityInfoSelectionKey = '';
 }
 
 /** "Ameliorer la mine / la caserne" depuis la fiche : preparation
@@ -1868,12 +1892,13 @@ function upgradeSelectedBuilding(): void {
  *  les controles de preparation qui passent au-dessus des overlays
  *  ("Vendre"/"Boutique", "Pret pour la bataille"), comme le menu pause. La
  *  selection de la Forge est conservee : sa fiche revient a la fermeture. */
-function openForge(): void {
-  if (!inPlacementPhase || pauseMenuOpen || buildingPlacementMode || !hasForge()) return;
+function openForge(site: RunUpgradeSite): void {
+  if (!inPlacementPhase || pauseMenuOpen || buildingPlacementMode || !hasRunUpgradeSite(site)) return;
   disarmItem();
   sellZone.setVisible(false);
   placementPanel.hide();
-  screens.showForge(currentRun, metaProgress);
+  openRunUpgradeSite = site;
+  screens.showForge(currentRun, metaProgress, site);
 }
 
 /** "Retour" ou Echap : retour a la preparation. */
@@ -1889,7 +1914,9 @@ function closeForge(): void {
  *  unites : les unites deja possedees gardent leurs PV et leurs stats
  *  (OwnedUnit.productionLevel, jamais retroactif). */
 function purchaseForgeUpgrade(id: string): void {
-  if (!screens.isForgeOpen() || !inPlacementPhase || !hasForge()) return;
+  // Seulement une amelioration du site ouvert (Forge ou Eglise), tant qu'un
+  // batiment de ce site est possede.
+  if (!screens.isForgeOpen() || !inPlacementPhase || runUpgradeSite(id) !== openRunUpgradeSite || !hasRunUpgradeSite(openRunUpgradeSite)) return;
   if (!purchaseRunUpgrade(currentRun, id)) return;
   refreshPlayerPreview();
   screens.refreshForge(currentRun, metaProgress);
@@ -3661,7 +3688,7 @@ function currentEntityInfo(): EntityInfoViewModel | null {
   if (placementBallistaSelected) return placementBallistaInfo(playerProgression());
   if (selectedBuildingIndex !== null) {
     const owned = currentRun.buildings[selectedBuildingIndex];
-    return owned ? placementBuildingInfo(owned, playerProgression(), currentRun.gold) : null;
+    return owned ? placementBuildingInfo(owned, playerProgression(), currentRun.gold, armyMissingHp(currentRun)) : null;
   }
   const slots = selectedIndices.map((i) => placementSlots[i]).filter((slot): slot is PlacementSlot => slot !== undefined);
   if (slots.length === 0) return null;

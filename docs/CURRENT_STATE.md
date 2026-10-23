@@ -18,7 +18,7 @@ contient ni intentions de design ni décisions futures.
 3. Unités
 4. Déblocage des unités
 5. La Baliste (tour du joueur)
-6. Bâtiments gameplay : Mine, Caserne, Forge et Tour
+6. Bâtiments gameplay : Mine, Caserne, Forge, Tour et Église
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -26,7 +26,7 @@ contient ni intentions de design ni décisions futures.
 11. Arène, territoire et expansion de la carte
 12. Talents
 13. Méta-progression : points de talent
-14. Améliorations de Forge
+14. Améliorations de Forge et d’Église
 15. Sauvegarde : ce qui persiste
 16. Éditeur de maps
 17. Audio
@@ -257,6 +257,11 @@ en bataille. Elle n'existe pas dans l'éditeur.
   - **Tour** : « Tour — Niv. N », PV, dégâts, portée, cadence (« 1 tir /
     2.5 s ») et emprise. En préparation, aussi l'effet du niveau suivant
     (« +5 PV, +2 dégâts ») et le bouton **« Améliorer — N or »** (§6) ;
+  - **Église** : « Église — Niv. N », PV, soin (« 5 PV par or ») et
+    emprise. En préparation, aussi les PV manquants de l'armée, l'effet du
+    niveau suivant (« +5 PV, +2 PV par or ») et les boutons **« Soigner
+    l'armée — N or »**, **« Améliorer — N or »** et **« Améliorations de
+    l'Église »** (§6, §14). En bataille, « En préparation uniquement » ;
   - **Baliste** : PV, dégâts par carreau, recharge, carreaux par volée.
     Aucune portée, le tir n'en a pas. En préparation : PV max / max,
     « Mode : Automatique au début de la bataille » et « Prête pour la
@@ -416,12 +421,13 @@ AUTO), `main.ts`.
   - en petit, le nombre d'unités sélectionnées (ligne masquée quand rien
     n'est sélectionné).
 
-## 6. Bâtiments gameplay : Mine, Caserne, Forge et Tour
+## 6. Bâtiments gameplay : Mine, Caserne, Forge, Tour et Église
 
 Sources : `data/buildings.ts`, `data/mineUpgrade.ts`, `run/buildingUpgrades.ts`,
 `run/mineUpgradeEffects.ts`, `run/barracksUpgradeEffects.ts`,
 `run/buildingUpgradeEffects.ts`, `sim/systems/barracksSystem.ts`,
-`sim/systems/buildingAttack.ts` (tir de la Tour), `render/projectiles.ts`, `main.ts`.
+`sim/systems/buildingAttack.ts` (tir de la Tour), `render/projectiles.ts`,
+`run/churchHeal.ts` (soin de l'Église), `main.ts`.
 
 Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 
@@ -438,29 +444,29 @@ Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 - **Survie du camp** : ces bâtiments comptent pour la défaite
   (`countsForDefeat`), comme les unités et la Baliste.
 
-| | Mine | Caserne | Forge | Tour |
-|---|---|---|---|---|
-| Coût en partie | 20 | 25 | 10 | 10 |
-| PV / emprise | 15 / 2×2 | 25 / 3×3 | 15 / 2×2 | 15 / 2×2 |
-| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Produit des Fantassins (voir ci-dessous) | Accès à la boutique des améliorations de la run (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) |
+| | Mine | Caserne | Forge | Tour | Église |
+|---|---|---|---|---|---|
+| Coût en partie | 20 | 25 | 10 | 10 | 15 |
+| PV / emprise | 15 / 2×2 | 25 / 3×3 | 15 / 2×2 | 15 / 2×2 | 15 / 2×2 |
+| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Produit des Fantassins (voir ci-dessous) | Accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; accès aux améliorations des parchemins et de Soins excédentaires (voir ci-dessous et §14) |
 
 Le coût d'achat est fixe : il ne dépend d'aucune amélioration (une Mine
 coûte toujours 20, une Caserne toujours 25).
 
-**Amélioration de la Mine, de la Caserne et de la Tour** :
+**Amélioration de la Mine, de la Caserne, de la Tour et de l'Église** :
 
-- chaque Mine, Caserne et Tour a son **propre niveau**
+- chaque Mine, Caserne, Tour et Église a son **propre niveau**
   (`OwnedBuilding.level`), affiché à partir de « Niv. 1 » ; deux bâtiments
   du même type peuvent avoir des niveaux différents ;
 - il s'achète depuis la fiche du bâtiment, en préparation seulement
   (« Améliorer la mine — N or », « Améliorer la caserne — N or »,
-  « Améliorer — N or » pour la Tour ; bouton désactivé si l'or manque). Il
-  n'agit que sur ce bâtiment ;
+  « Améliorer — N or » pour la Tour et l'Église ; bouton désactivé si l'or
+  manque). Il n'agit que sur ce bâtiment ;
 - prix : base × 2^niveau, la base étant propre au bâtiment
   (`BuildingDef.upgradeGoldCostBase`) : 25 / 50 / 100 / 200… or pour la
-  Mine et la Caserne, 5 / 10 / 20 / 40… pour la Tour. Indépendant du prix
-  des améliorations d'unités à la Forge ;
-- un niveau qui augmente les PV max (Tour) augmente aussi les PV actuels du
+  Mine et la Caserne, 5 / 10 / 20 / 40… pour la Tour et l'Église.
+  Indépendant du prix des améliorations d'unités à la Forge ;
+- un niveau qui augmente les PV max (Tour, Église) augmente aussi les PV actuels du
   même écart : les PV manquants restent les mêmes ;
 - le niveau suit le bâtiment d'une vague à l'autre, et disparaît avec lui
   s'il est détruit.
@@ -510,6 +516,25 @@ pour rester à la hauteur de la Caserne et de la tour de la Baliste) :
 - **Destruction** : une Tour détruite ne tire plus et oublie sa cible ; ses
   flèches déjà en vol arrivent normalement.
 - La Tour n'apporte aucune population.
+
+Soin de l'Église (modèle `blue_church`, ajusté à l'emprise 2 × 2) :
+
+- **Action** « Soigner l'armée — N or » sur sa fiche, **en préparation
+  uniquement** (en bataille, la fiche indique « En préparation
+  uniquement », sans bouton) : rend à toutes les unités possédées du joueur
+  leurs PV manquants, jusqu'au maximum propre à chacune (niveau de
+  production compris). Jamais les bâtiments, la Baliste ni les ennemis.
+- **Coût** : `ceil(PV manquants de toute l'armée / efficacité)`, avec
+  l'efficacité de **cette** Église à son niveau : 5 PV par or au niveau 1,
+  +2 par niveau (5, 7, 9, 11…) ; elle gagne aussi +5 PV max par niveau
+  (15, 20, 25, 30…). Exemple : 23 PV manquants à 5 PV/or → 5 or.
+- **Tout ou rien** : pas de soin partiel ; bouton désactivé (coût affiché)
+  si l'or manque ; « Armée déjà au maximum », désactivé, si personne n'est
+  blessé (aucun or dépensé). Plusieurs Églises ne cumulent rien : chacune
+  soigne avec sa propre efficacité.
+- **Améliorations** : « Améliorations de l'Église » ouvre les améliorations
+  de run des parchemins et de Soins excédentaires (§14).
+- Une Église détruite disparaît de la run comme les autres bâtiments.
 
 La Forge (modèle `blue_blacksmith`) est un vrai bâtiment : ciblable,
 destructible, collidable. Elle n'a ni production ni revenu ; toutes les
@@ -737,7 +762,7 @@ Autres éléments :
 
 - **Record** : le plus haut numéro de vague atteint est conservé et affiché.
 
-## 14. Améliorations de Forge
+## 14. Améliorations de Forge et d’Église
 
 Sources : `run/runUpgrades.ts` (niveaux, coûts, achat), `data/*Upgrade.ts`,
 `run/*UpgradeEffects.ts`, `ui/screens.ts` (overlay), `main.ts`
@@ -745,16 +770,22 @@ Sources : `run/runUpgrades.ts` (niveaux, coûts, achat), `data/*Upgrade.ts`,
 
 Les améliorations sont **propres à la run** : niveaux stockés dans
 `RunState.upgrades`, remis à `{}` à chaque nouvelle run, jamais
-sauvegardés. Elles s'achètent en Or, uniquement depuis une Forge. La Mine
-et la Caserne n'y figurent plus : chacune s'améliore depuis sa fiche (§6).
+sauvegardés. Elles s'achètent en Or, depuis une Forge ou une Église
+(`runUpgradeSite`) : la **Forge** propose la production des unités et la
+Baliste, l'**Église** le Parchemin de soin, la Nova de glace et Soins
+excédentaires. Le bâtiment n'est qu'un point d'accès : les niveaux restent
+ceux de la run, partagés par toutes les Forges ou Églises possédées
+(plusieurs Églises ne permettent aucun achat supplémentaire). La Mine, la
+Caserne, la Tour et l'Église elle-même s'améliorent depuis leur fiche (§6).
 
-- **Accès** : en préparation, sélectionner une Forge possédée, puis
-  « Ouvrir la Forge » sur sa fiche. En bataille, la Forge reste inspectable
-  mais la boutique est inaccessible.
-- **Overlay** : titre « Forge », Or actuel, une carte par amélioration avec
+- **Accès** : en préparation, sélectionner une Forge possédée puis
+  « Ouvrir la Forge », ou une Église possédée puis « Améliorations de
+  l'Église ». En bataille, ces écrans sont inaccessibles.
+- **Overlay** : même écran pour les deux, titre « Forge » ou « Église »,
+  seules les cartes du bâtiment ouvert ; Or actuel, une carte par amélioration avec
   son niveau (affiché à partir de 1), ses effets et le coût du niveau
   suivant. « Retour » ou Échap
-  ramène à la préparation, la Forge toujours sélectionnée. Pendant
+  ramène à la préparation, le bâtiment toujours sélectionné. Pendant
   l'overlay, « Vendre », « Boutique » et « Prêt pour la bataille » sont
   masqués.
 - **Achat** : Or débité, niveau +1, effet immédiat (fiches, unités recrutées
@@ -780,16 +811,16 @@ et la Caserne n'y figurent plus : chacune s'améliore depuis sa fiche (§6).
   n'augmentent pas le prix de ce qu'elles améliorent ; celles des unités,
   si (surcoût de recrutement par niveau).
 
-| Amélioration | Effet par niveau |
+| Amélioration (accès) | Effet par niveau |
 |---|---|
 | Fantassin | +3 PV, +1 attaque ; recrutement +1 or |
 | Archer | +2 PV, +1 attaque ; recrutement +1 or |
 | Mage | +3 PV, +2 Boule de feu ; recrutement +3 or |
 | Sentinelle | +15 PV, +1 bouclier par ennemi provoqué (jamais d'attaque) ; recrutement +10 or |
-| Baliste | +20 % de cadence (additif), +10 PV ; +1 dégât tous les 3 niveaux |
-| Parchemin de soin | +1 PV soigné ; une cible secondaire de plus tous les 3 niveaux (moitié du soin, à 2 cases de la cible) |
-| Nova de glace | +0,5 s d'immobilisation et de Blizzard ; +1 dégât de Blizzard tous les 3 niveaux |
-| Soins excédentaires | +0,5 dégât par projectile ; +1 projectile tous les 3 niveaux |
+| Baliste (Forge) | +20 % de cadence (additif), +10 PV ; +1 dégât tous les 3 niveaux |
+| Parchemin de soin (Église) | +1 PV soigné ; une cible secondaire de plus tous les 3 niveaux (moitié du soin, à 2 cases de la cible) |
+| Nova de glace (Église) | +0,5 s d'immobilisation et de Blizzard ; +1 dégât de Blizzard tous les 3 niveaux |
+| Soins excédentaires (Église) | +0,5 dégât par projectile ; +1 projectile tous les 3 niveaux |
 
 La carte « Soins excédentaires » n'apparaît qu'avec le talent du même nom.
 

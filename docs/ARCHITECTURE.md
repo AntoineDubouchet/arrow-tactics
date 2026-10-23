@@ -448,8 +448,9 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     | BallistaInfo`) : `kind`, titre, camp, PV (texte et fraction), lignes,
     sections (capacités), statut ; composition pour un groupe ; `actions`
     facultatives (données pures : `id`, libellé, activé). Seules les fiches
-    de préparation en portent : `openForge` (Forge) et `upgradeBuilding`
-    (Mine, Caserne).
+    de préparation en portent : `openForge` (Forge), `upgradeBuilding`
+    (Mine, Caserne, Tour, Église), `healArmy` et `openChurchUpgrades`
+    (Église) ; en bataille, seule la Baliste en porte (`toggleBallistaMode`).
   - Il n'affiche un niveau (`displayedUpgradeLevel`) que pour ce qui en a
     un : unités et Baliste du joueur (niveau de la Forge), Mine et Caserne
     (niveau propre), ennemis renforcés en bataille réelle.
@@ -621,13 +622,18 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   pour l'affichage (prix calculés via `run/`).
   - L'écran de victoire (`showWaveComplete`) affiche le bilan de vague
     fourni par `main.ts` (`run/battleSummary.ts`, §10).
-  - La boutique de la Forge réutilise l'overlay d'id interne
-    `unitUpgradeShop` (`showForge` / `refreshForge`) : Or de la run, niveaux
-    de `RunState.upgrades`, prix `runUpgradeGoldCost`, boutons activés par
-    `canPurchaseRunUpgrade`. `main.ts` l'ouvre (`openForge`, préparation
-    uniquement, au moins une Forge possédée), réalise l'achat
-    (`purchaseForgeUpgrade`) et la ferme (`closeForge`, « Retour » ou Échap,
-    prioritaire sur la pause).
+  - Les améliorations de run de la Forge et de l'Église partagent l'overlay
+    d'id interne `unitUpgradeShop` (`showForge(run, progress, site)` /
+    `refreshForge`) : titre et cartes filtrés par site
+    (`runUpgradeSite`, `run/runUpgrades.ts`), Or de la run, niveaux de
+    `RunState.upgrades`, prix `runUpgradeGoldCost`, boutons activés par
+    `canPurchaseRunUpgrade`. `main.ts` l'ouvre (`openForge(site)`,
+    préparation uniquement, au moins un bâtiment de ce site possédé),
+    réalise l'achat (`purchaseForgeUpgrade`, refusé hors du site ouvert) et
+    la ferme (`closeForge`, « Retour » ou Échap, prioritaire sur la pause).
+  - Le soin de l'armée à l'Église est calculé et appliqué par
+    `run/churchHeal.ts` (PV manquants via `playerUnitMaxHp`, coût, tout ou
+    rien) ; la fiche l'affiche et `main.ts` le déclenche.
 - **HUD et composants** : `goldHud`, `waveIndicator`, `inventoryBar`,
   `sellZone`, `placementPanel`, `selectionBox`, toasts, `combatOverlay`
   (barres de PV et textes flottants positionnés par projection monde →

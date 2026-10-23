@@ -750,6 +750,11 @@ img {
   text-align: left;
 }
 
+/* Carte d'un autre batiment d'acces (Forge / Eglise), voir Screens.showForge. */
+.upgrade-card.upgrade-card--other-site {
+  display: none;
+}
+
 .upgrade-card-name {
   margin: 0 0 4px;
   font-size: 13px;

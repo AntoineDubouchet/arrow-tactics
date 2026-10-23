@@ -15,6 +15,7 @@ import {
 import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
 import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from './barracksUpgradeEffects';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp } from './buildingUpgradeEffects';
+import { churchHealCost, churchHealHpPerGold } from './churchHeal';
 import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isUpgradableBuilding } from './buildingUpgrades';
 import { getUnitUpgradeDef } from '../data/unitUpgrades';
@@ -59,9 +60,11 @@ export interface EntityInfoHp {
 /** Action proposee par la fiche (bouton). Donnee pure : main.ts recoit
  *  l'`id` au clic et decide de l'effet ; l'adaptateur ne connait pas le DOM. */
 export interface EntityInfoAction {
-  /** `upgradeBuilding` : ameliore le batiment selectionne (Mine, Caserne).
-   *  `toggleBallistaMode` : bascule la Baliste AUTO / MANUEL (bataille). */
-  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode';
+  /** `upgradeBuilding` : ameliore le batiment selectionne (Mine, Caserne,
+   *  Tour, Eglise). `toggleBallistaMode` : bascule la Baliste AUTO / MANUEL
+   *  (bataille). `healArmy` : soin de l'armee a l'Eglise selectionnee ;
+   *  `openChurchUpgrades` : ameliorations de run accessibles a l'Eglise. */
+  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'openChurchUpgrades';
   label: string;
   enabled: boolean;
   hint?: string;
@@ -434,6 +437,11 @@ function attackRows(damage: number, rangeTiles: number, cooldownSeconds: number)
   ];
 }
 
+/** Soin de l'armee (Eglise) : efficacite au niveau propre du batiment. */
+function armyHealRows(buildingId: string, level: number): EntityInfoRow[] {
+  return [{ label: 'Soin', value: `${formatNumber(churchHealHpPerGold(buildingId, level))} PV par or` }];
+}
+
 /** Population maximale apportee par le batiment (Maison). */
 function populationBonusRows(buildingId: string): EntityInfoRow[] {
   const bonus = getBuilding(buildingId).populationBonus;
@@ -449,6 +457,7 @@ function ownedBuildingRows(buildingId: string, level: number, upgrades: Readonly
     return barracksRows(unitId, effectiveBarracksSpawnInterval(level), effectiveBarracksSpawnCount(level), currentProductionLevel(upgrades, unitId));
   }
   if (def.attack) return attackRows(effectiveBuildingAttackDamage(def.id, level), def.attack.rangeTiles, def.attack.cooldownSeconds);
+  if (def.armyHeal) return armyHealRows(def.id, level);
   return populationBonusRows(def.id);
 }
 
@@ -459,6 +468,11 @@ function nextLevelRow(buildingId: string, level: number): EntityInfoRow {
     const hpGain = effectiveBuildingMaxHp(buildingId, level + 1) - effectiveBuildingMaxHp(buildingId, level);
     const damageGain = effectiveBuildingAttackDamage(buildingId, level + 1) - effectiveBuildingAttackDamage(buildingId, level);
     return { label, value: `+${formatPoints(hpGain)} PV, +${formatPoints(damageGain)} dégâts` };
+  }
+  if (getBuilding(buildingId).armyHeal) {
+    const hpGain = effectiveBuildingMaxHp(buildingId, level + 1) - effectiveBuildingMaxHp(buildingId, level);
+    const healGain = churchHealHpPerGold(buildingId, level + 1) - churchHealHpPerGold(buildingId, level);
+    return { label, value: `+${formatPoints(hpGain)} PV, +${formatNumber(healGain)} PV par or` };
   }
   if (buildingId === 'mine') {
     const { min, max } = mineGoldRange(level + 1);
@@ -471,24 +485,52 @@ function nextLevelRow(buildingId: string, level: number): EntityInfoRow {
 const UPGRADE_LABELS: Readonly<Record<string, string>> = { mine: 'Améliorer la mine', barracks: 'Améliorer la caserne' };
 
 /** Bâtiment possede en preparation : PV persistants de la run, niveau et
- *  production PROPRES a ce batiment ; Mine et Caserne s'ameliorent ici
- *  (`gold` : or disponible, pour activer le bouton), la Forge ouvre sa
- *  boutique. Aucune action en bataille (battleBuildingInfo). */
-export function placementBuildingInfo(owned: { buildingId: string; hp: number; level?: number }, progress: PlayerProgression, gold: number): BuildingInfo {
+ *  production PROPRES a ce batiment ; Mine, Caserne, Tour et Eglise
+ *  s'ameliorent ici (`gold` : or disponible, pour activer le bouton), la
+ *  Forge et l'Eglise ouvrent leurs ameliorations de run, l'Eglise soigne
+ *  l'armee (`armyMissingHp` : PV manquants de l'armee, interne). Aucune
+ *  action en bataille (battleBuildingInfo). */
+export function placementBuildingInfo(
+  owned: { buildingId: string; hp: number; level?: number },
+  progress: PlayerProgression,
+  gold: number,
+  armyMissingHp = 0,
+): BuildingInfo {
   const def = getBuilding(owned.buildingId);
   const upgradable = isUpgradableBuilding(def.id);
   const level = owned.level ?? 0;
   const rows = [...ownedBuildingRows(def.id, level, progress.upgrades), ...footprintRows(def.id)];
-  let actions: EntityInfoAction[] | undefined;
-  if (def.id === 'forge') actions = [{ id: 'openForge', label: 'Ouvrir la Forge', enabled: true }];
+  const actions: EntityInfoAction[] = [];
+  if (def.id === 'forge') actions.push({ id: 'openForge', label: 'Ouvrir la Forge', enabled: true });
+  if (def.armyHeal) {
+    // Soin de toute l'armee : cout total des PV manquants, tout ou rien.
+    rows.push({ label: 'PV manquants (armée)', value: formatPoints(armyMissingHp) });
+    const healCost = churchHealCost(armyMissingHp, churchHealHpPerGold(def.id, level));
+    if (healCost <= 0) actions.push({ id: 'healArmy', label: 'Armée déjà au maximum', enabled: false });
+    else {
+      const enabled = gold >= healCost;
+      actions.push({ id: 'healArmy', label: `Soigner l'armée — ${formatNumber(healCost)} or`, enabled, hint: enabled ? undefined : 'Or insuffisant' });
+    }
+  }
   if (upgradable) {
     rows.push(nextLevelRow(def.id, level));
     const cost = buildingUpgradeGoldCost(def.id, level);
     const enabled = gold >= cost;
-    actions = [{ id: 'upgradeBuilding', label: `${UPGRADE_LABELS[def.id] ?? 'Améliorer'} — ${formatNumber(cost)} or`, enabled, hint: enabled ? undefined : 'Or insuffisant' }];
+    actions.push({ id: 'upgradeBuilding', label: `${UPGRADE_LABELS[def.id] ?? 'Améliorer'} — ${formatNumber(cost)} or`, enabled, hint: enabled ? undefined : 'Or insuffisant' });
   }
+  if (def.armyHeal) actions.push({ id: 'openChurchUpgrades', label: 'Améliorations de l’Église', enabled: true });
   const title = titleWithLevel(def.displayName, upgradable ? level : playerLevel('player', progress.upgrades, def.id));
-  return { kind: 'building', buildingId: def.id, title, team: 'player', hp: hpOf(owned.hp, effectiveBuildingMaxHp(def.id, level)), rows, sections: [], status: null, actions };
+  return {
+    kind: 'building',
+    buildingId: def.id,
+    title,
+    team: 'player',
+    hp: hpOf(owned.hp, effectiveBuildingMaxHp(def.id, level)),
+    rows,
+    sections: [],
+    status: null,
+    actions: actions.length > 0 ? actions : undefined,
+  };
 }
 
 /** Bâtiment en bataille : PV et production lus sur l'entite. `ownedLevel` :
@@ -511,6 +553,9 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
   } else if (entity.buildingAttack) {
     const attack = entity.buildingAttack;
     rows = attackRows(attack.damage, attack.rangeTiles, attack.cooldownSeconds);
+  } else if (def.armyHeal) {
+    // Le soin de l'armee ne se declenche qu'en preparation.
+    rows = [...armyHealRows(def.id, ownedLevel ?? 0), { label: 'Soin de l’armée', value: 'En préparation uniquement' }];
   } else rows = populationBonusRows(def.id);
   rows.push(...footprintRows(def.id));
   const level = isUpgradableBuilding(def.id) ? ownedLevel : playerLevel(entity.team, progress.upgrades, def.id);
