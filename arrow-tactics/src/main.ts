@@ -46,7 +46,8 @@ import { populationOfEntities } from './data/population';
 import { canRecruitWithinPopulation, runPopulation } from './run/population';
 import { PopulationHud } from './ui/populationHud';
 import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMoveMember } from './core/gridGroupMove';
-import { getBuilding } from './data/buildings';
+import { getBuilding, unitsProducedPerWave } from './data/buildings';
+import { hasRecruitmentBuilding } from './run/recruitment';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
 import { getUnit, type UnitStats } from './data/units';
 import {
@@ -152,7 +153,6 @@ import {
   type EntityInfoViewModel,
 } from './run/entityInfo';
 import { computePlayerShadowEffects } from './run/shadowUpgradeEffects';
-import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from './run/barracksUpgradeEffects';
 import {
   effectiveHealScrollCost,
   effectivePlayerHealAmount,
@@ -1614,13 +1614,8 @@ function onValidatePlacement(): void {
   buildingViewsByEntityId.clear();
   refreshOwnedBuildingViews();
   currentRun.buildings.forEach((owned, i) => {
-    // Intervalle/nombre de production EFFECTIFS (2026-08-17, amelioration
-    // permanente de la Caserne) — undefined pour tout bâtiment sans spawner
-    // (Mine), World.spawnBuilding retombe alors sur la base (sans effet).
-    const spawnIntervalOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnInterval(ownedBuildingLevel(owned)) : undefined;
-    const spawnCountOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnCount(ownedBuildingLevel(owned)) : undefined;
-    // PV max et degats du niveau PROPRE au batiment (Tour) ; egaux a la base
-    // pour un batiment sans gain par niveau.
+    // PV max, degats (Tour) et quota de production de la manche (Caserne,
+    // Camp d'archerie) du niveau PROPRE au batiment.
     const level = ownedBuildingLevel(owned);
     const entity = world.spawnBuilding(
       getBuilding(owned.buildingId),
@@ -1630,8 +1625,7 @@ function onValidatePlacement(): void {
       ownedBuildingObstacle(owned),
       owned.hp,
       effectiveBuildingMaxHp(owned.buildingId, level),
-      spawnIntervalOverride,
-      spawnCountOverride,
+      unitsProducedPerWave(owned.buildingId, level),
       effectiveBuildingAttackDamage(owned.buildingId, level),
     );
     const view = ownedBuildingViews[i]!.view;
@@ -5279,13 +5273,11 @@ const loop = new Loop(
       }
     }
 
-    // Production de la Caserne (2026-08-17) : le sim pousse un evenement par
-    // Fantassin reellement produit (voir sim/systems/barracksSystem.ts,
-    // brancle dans World.step) — consomme ici pour spawner une VRAIE Entity
-    // Fantassin (statOverrides joueur/ennemi selon le camp, memes ameliorations
-    // permanentes/talents qu'un Fantassin achete normalement, jamais un
-    // "BarracksFootman" special).
-    for (const event of world.barracksSpawnEvents) {
+    // Production de la manche (Caserne, Camp d'archerie) : le sim pousse un
+    // evenement par unite reellement produite (voir
+    // sim/systems/buildingProduction.ts) — consomme ici pour spawner une
+    // VRAIE Entity (memes stats et ameliorations qu'une unite recrutee).
+    for (const event of world.productionSpawnEvents) {
       // Niveau de production lu ICI, au spawn : les unites deja produites
       // gardent le leur (voir rememberPlayerUnitLevel).
       const level = currentProductionLevel(playerProgression().upgrades, event.unitId);
@@ -5303,7 +5295,7 @@ const loop = new Loop(
       if (!isPlayer) rememberEnemyUnitLevel(spawned, currentRun.waveNumber);
       else {
         rememberPlayerUnitLevel(spawned, level);
-        // Unite de Caserne du joueur : en Garde des son apparition, comme
+        // Unite produite du joueur : en Garde des son apparition, comme
         // le reste de l'armee en debut de bataille.
         holdPlayerUnitsInGuard([spawned.id]);
       }
@@ -6007,6 +5999,9 @@ function addUnitToPlacement(unitId: string, hp: number, productionLevel: number)
  *  dernier achat" (voir undoLastUnitPurchase). */
 function buyUnit(unitId: string): void {
   if (!canPlayerRecruitUnit(metaProgress, unitId)) return;
+  // Fantassin / Archer : Caserne / Camp d'archerie requis (bouton deja
+  // desactive avec sa raison, voir Screens.refreshShop ; garde-fou ici).
+  if (!hasRecruitmentBuilding(currentRun, unitId)) return;
   // Population pleine : refus avant tout debit (bouton deja desactive avec
   // sa raison, voir Screens.refreshShop ; garde-fou ici aussi).
   if (!canRecruitWithinPopulation(currentRun, unitId)) return;

@@ -297,39 +297,19 @@ export interface Entity {
    *  VERS ce batiment. */
   footprintObstacle: ObstacleDef | null;
 
-  /** Production automatique d'unites (2026-08-17, Caserne — voir
-   *  data/buildings.ts, BuildingDef.spawner, sim/systems/barracksSystem.ts) —
-   *  GENERIQUE, jamais reserve a un Fantassin precis : `null` pour toute
-   *  entite qui ne produit rien (unites normales, Mine, Baliste). Secondes
-   *  restantes avant la PROCHAINE tentative de production ; decompte par
-   *  barracksSystem, jamais par Date.now()/setTimeout (temps de SIMULATION
-   *  uniquement, voir World.step). Reste a 0 (jamais negatif) tant qu'aucune
-   *  case libre n'est trouvee autour du batiment — "le Fantassin est deja
-   *  pret", retente chaque tick suivant SANS reinitialiser a l'intervalle
-   *  complet (voir barracksSystem). */
-  spawnTimer: number | null;
-  /** Intervalle EFFECTIF (secondes) auquel `spawnTimer` est reinitialise
-   *  apres CHAQUE production reussie — fige au moment du spawn du batiment
-   *  (World.spawnBuilding), reflete deja le niveau d'amelioration permanente
-   *  a cet instant (voir run/barracksUpgradeEffects.ts) : ne change plus en
-   *  cours de bataille, meme convention que le reste des ameliorations
-   *  permanentes (achetables uniquement entre les runs, jamais en cours). */
-  spawnIntervalSeconds: number | null;
-  /** Id de l'unite produite (voir data/units.ts) — generique (pas hardcode
-   *  "fantassin" dans le systeme sim, voir data/buildings.ts,
-   *  SpawnerBuildingConfig.unitId) : une future Ecurie pourra produire des
-   *  Cavaliers sans toucher a sim/systems/barracksSystem.ts. */
-  spawnUnitId: string | null;
-  /** Nombre d'unites produites PAR PRODUCTION REUSSIE (2026-08-17, refonte
-   *  de l'amelioration de la Caserne — voir
-   *  run/barracksUpgradeEffects.ts, effectiveBarracksSpawnCount) — fige au
-   *  moment du spawn du batiment (World.spawnBuilding), meme convention que
-   *  spawnIntervalSeconds. `null` pour toute entite qui ne produit rien. */
-  spawnCount: number | null;
-  /** Vrai tant qu'une production prete attend une place de population
-   *  (voir barracksSystem) : affiche par la fiche, jamais lu par la
+  /** Unite produite par un batiment de production (Caserne, Camp
+   *  d'archerie — voir data/buildings.ts, BuildingDef.production et
+   *  sim/systems/buildingProduction.ts) ; `null` pour toute entite qui ne
+   *  produit rien. */
+  productionUnitId: string | null;
+  /** Unites restant a produire pendant cette manche : fixe a l'apparition du
+   *  batiment (World.spawnBuilding), decremente a chaque unite produite,
+   *  jamais renouvele en cours de bataille. 0 = quota de la manche epuise. */
+  productionRemaining: number;
+  /** Vrai tant que le quota restant attend une place de population (voir
+   *  buildingProductionSystem) : affiche par la fiche, jamais lu par la
    *  simulation elle-meme. */
-  spawnWaitingForPopulation: boolean;
+  productionWaitingForPopulation: boolean;
   /** Attaque automatique d'un batiment defensif (Tour), null pour toute
    *  autre entite. Distincte de targetId/attackTimer : le ciblage et le
    *  combat generiques des unites ne la lisent jamais. */

@@ -17,26 +17,30 @@ import { HP_PER_PIP } from '../config/constants';
  * un décor KayKit ne l'est jamais.
  */
 /**
- * Production automatique d'unites (2026-08-17, Caserne — voir
- * sim/systems/barracksSystem.ts) — GENERIQUE, jamais hardcode a un seul type
- * d'unite (demande explicite d'Antoine, point 73 : "il serait interessant
- * que la production ne soit pas hardcodee exclusivement a Footman... ainsi
- * plus tard Stable -> Cavalry, Mage Tower -> Mage"). N'implemente RIEN
- * au-dela de la Caserne aujourd'hui — juste la FORME, deja reutilisable.
+ * Batiment de production d'unites (Caserne -> Fantassin, Camp d'archerie ->
+ * Archer), GENERIQUE : il en produit gratuitement un lot UNE FOIS PAR MANCHE,
+ * au debut de la bataille (sim/systems/buildingProduction.ts).
  */
-export interface SpawnerBuildingConfig {
-  /** Unite REELLEMENT produite (voir data/units.ts) — reçoit les memes
-   *  ameliorations/talents permanents que toute unite joueur normale, voir
-   *  main.ts, consommation de World.barracksSpawnEvents. */
+export interface UnitProductionConfig {
+  /** Unite produite (data/units.ts). Les unites produites recoivent le
+   *  niveau de production courant de leur type au moment de leur apparition
+   *  (main.ts). */
   unitId: string;
-  /** Intervalle de BASE (secondes) entre deux productions — voir
-   *  run/barracksUpgradeEffects.ts pour la valeur EFFECTIVE (base - niveau
-   *  d'amelioration permanente, plafonnee a minIntervalSeconds). */
-  baseIntervalSeconds: number;
-  /** Plancher ABSOLU (secondes), jamais franchi quel que soit le niveau
-   *  d'amelioration permanente — voir CLAUDE.md, demande explicite : "jamais
-   *  1 sec, 0 sec, valeur negative". */
-  minIntervalSeconds: number;
+  /** Unites produites par manche, par niveau interne du batiment (index 0 =
+   *  Niv. 1). Voir aussi BuildingDef.maxUpgradeLevel. */
+  unitsPerWaveByLevel: number[];
+}
+
+/**
+ * Recrutement debloque par un batiment (Caserne -> Fantassin, Camp
+ * d'archerie -> Archer, Eglise -> Mage) : sans au moins un exemplaire
+ * possede, l'unite ne se recrute pas en boutique (run/recruitment.ts). Les
+ * unites deja possedees, dont l'armee de depart, ne sont jamais concernees.
+ */
+export interface RecruitmentUnlockConfig {
+  unitId: string;
+  /** Raison affichee quand ce batiment manque pour recruter l'unite. */
+  missingBuildingHint: string;
 }
 
 /** Attaque automatique d'un batiment defensif (Tour) — voir
@@ -112,9 +116,11 @@ export interface BuildingDef {
    *  main.ts, canPlaceBuildingAt/onValidatePlacement). */
   footprintTilesX?: number;
   footprintTilesZ?: number;
-  /** Production automatique d'unités — voir SpawnerBuildingConfig ci-dessus.
-   *  Absent pour la Mine/la Baliste. */
-  spawner?: SpawnerBuildingConfig;
+  /** Production d'unites une fois par manche — voir UnitProductionConfig.
+   *  Absent pour les autres. */
+  production?: UnitProductionConfig;
+  /** Recrutement debloque — voir RecruitmentUnlockConfig. */
+  recruitmentUnlock?: RecruitmentUnlockConfig;
   /** Population maximale ajoutee tant que le batiment existe (Maison, voir
    *  data/population.ts). Absent = aucun effet sur la population. */
   populationBonus?: number;
@@ -122,6 +128,9 @@ export interface BuildingDef {
    *  double a chaque niveau (run/buildingUpgrades.ts). Absent = batiment non
    *  ameliorable depuis sa fiche. */
   upgradeGoldCostBase?: number;
+  /** Niveau INTERNE maximal de cette amelioration (1 = Niv. 2 au plus).
+   *  Absent = sans limite. */
+  maxUpgradeLevel?: number;
   /** PV max ajoutes par niveau d'amelioration, echelle interne. Absent = 0. */
   hpPerLevel?: number;
   /** Attaque automatique (Tour). Absent = batiment passif. */
@@ -176,9 +185,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // fois pour toutes (voir main.ts, onValidatePlacement) — inchangé par ce
     // chantier.
   },
-  // Caserne (2026-08-17, demande explicite d'Antoine) — nouveau bâtiment
-  // GAMEPLAY achetable, produit automatiquement des Fantassins pendant la
-  // bataille (voir sim/systems/barracksSystem.ts). PV V1 choisis par Claude
+  // Caserne : debloque le recrutement des Fantassins et en produit
+  // gratuitement 1 par manche (2 au Niv. 2), au debut de la bataille (voir
+  // UnitProductionConfig). PV V1 choisis par Claude
   // (fourchette "20 à 30 HP" donnée par Antoine, "plus résistante qu'une
   // petite unité mais moins tanky qu'une Sentinelle très améliorée") : 25 HP,
   // à mi-chemin de la fourchette — ISOLÉE ici pour rééquilibrage ultérieur,
@@ -195,24 +204,36 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 2.7,
-    // Prix de base en Or (25 : plus cher que la Forge et la Mine, puisqu'elle
-    // produit ensuite des unites sans autre depense ; 50 avant la refonte
-    // economique autour de la Forge).
-    cost: 25,
+    cost: 15,
     buildingModel: 'blue_barracks',
     footprintTilesX: 3,
     footprintTilesZ: 3,
-    upgradeGoldCostBase: 25,
-    // REFONTE 2026-08-17 (meme jour, retour d'Antoine apres test) : base
-    // 10s -> 5s ("il faut invoquer un fantassin toutes les 5 secondes"),
-    // plancher 2s -> 1s ("ne peut pas descendre en dessous de 1 seconde") —
-    // voir data/barracksUpgrade.ts pour la formule d'amelioration (nombre de
-    // Fantassins ET intervalle desormais tous les deux ameliorables).
-    spawner: {
-      unitId: 'fantassin',
-      baseIntervalSeconds: 5,
-      minIntervalSeconds: 1,
-    },
+    // Une seule amelioration : Niv. 1 -> Niv. 2 pour 20 or.
+    upgradeGoldCostBase: 20,
+    maxUpgradeLevel: 1,
+    production: { unitId: 'fantassin', unitsPerWaveByLevel: [1, 2] },
+    recruitmentUnlock: { unitId: 'fantassin', missingBuildingHint: 'Nécessite une Caserne' },
+  },
+  // Camp d'archerie : meme role que la Caserne pour les Archers (memes PV,
+  // emprise, prix et amelioration). Modele KayKit `blue_archeryrange`
+  // (« Champ de tir à l'arc » de l'editeur), ajuste a l'emprise 3 × 3
+  // (3,22 de haut, comme la Caserne).
+  archery: {
+    id: 'archery',
+    displayName: 'Camp d’archerie',
+    maxHp: 25 * HP_PER_PIP,
+    radius: 1.6,
+    targetable: true,
+    countsForDefeat: true,
+    hpBarHeight: 2.7,
+    cost: 15,
+    buildingModel: 'blue_archeryrange',
+    footprintTilesX: 3,
+    footprintTilesZ: 3,
+    upgradeGoldCostBase: 20,
+    maxUpgradeLevel: 1,
+    production: { unitId: 'archer', unitsPerWaveByLevel: [1, 2] },
+    recruitmentUnlock: { unitId: 'archer', missingBuildingHint: 'Nécessite un Camp d’archerie' },
   },
   // Forge (refonte economique) — batiment allie achetable, sans production,
   // revenu ni effet passif pour l'instant : ciblable, destructible et
@@ -294,8 +315,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     },
   },
   // Eglise : soigne toutes les unites du joueur contre de l'or (run/churchHeal.ts),
-  // et donne acces aux ameliorations de run des parchemins et de Soins
-  // excedentaires (run/runUpgrades.ts, runUpgradeSite). Valeurs PROVISOIRES.
+  // donne acces aux ameliorations de run des parchemins et de Soins
+  // excedentaires (run/runUpgrades.ts, runUpgradeSite) et debloque le
+  // recrutement du Mage. Batiment plus tardif (35 or). Valeurs PROVISOIRES.
   church: {
     id: 'church',
     displayName: 'Église',
@@ -306,13 +328,14 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // Modele ajuste a l'emprise 2 × 2 : 2,85 de haut (clocher), sous la
     // Caserne (3,14) ; barre juste au-dessus.
     hpBarHeight: 3.2,
-    cost: 15,
+    cost: 35,
     buildingModel: 'blue_church',
     footprintTilesX: 2,
     footprintTilesZ: 2,
     upgradeGoldCostBase: 5,
     hpPerLevel: 5 * HP_PER_PIP,
     armyHeal: { hpPerGold: 5, hpPerGoldPerLevel: 2 },
+    recruitmentUnlock: { unitId: 'mage', missingBuildingHint: 'Nécessite une Église' },
   },
 };
 
@@ -330,4 +353,18 @@ export function getBuilding(id: string): BuildingDef {
   const def = BUILDINGS[id];
   if (!def) throw new Error(`Bâtiment inconnu : ${id}`);
   return def;
+}
+
+/** Batiment requis pour recruter `unitId` (voir RecruitmentUnlockConfig),
+ *  ou null si l'unite n'en exige aucun (Sentinelle). */
+export function recruitmentBuildingFor(unitId: string): BuildingDef | null {
+  return Object.values(BUILDINGS).find((def) => def.recruitmentUnlock?.unitId === unitId) ?? null;
+}
+
+/** Unites produites par manche par le batiment `buildingId` a son niveau
+ *  interne `level` (borne au dernier niveau defini), 0 sans production. */
+export function unitsProducedPerWave(buildingId: string, level: number): number {
+  const byLevel = BUILDINGS[buildingId]?.production?.unitsPerWaveByLevel;
+  if (!byLevel || byLevel.length === 0) return 0;
+  return byLevel[Math.min(Math.max(level, 0), byLevel.length - 1)]!;
 }

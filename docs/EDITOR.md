@@ -557,7 +557,8 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
   mêmes règles qu'en partie. Aucune confirmation n'est demandée.
 - **Bâtiments de scénario** (`buildings`, §16) : chacun devient un **vrai
   bâtiment** à sa position, au **niveau 1** (PV, collision, sélection, fiche
-  « Nom — Niv. 1 », fonction : la Tour tire, la Caserne produit, la Maison
+  « Nom — Niv. 1 », fonction : la Tour tire, la Caserne et le Camp
+  d'archerie produisent leur unité de la manche, la Maison
   compte pour la population…). La Mine n'y produit pas d'or (le test n'a pas
   de run).
 - **Baliste** : une **vraie** Baliste est créée, comme en partie. C'est un
@@ -584,8 +585,9 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
   le passage et la ligne de tir, mais ne peuvent être ni ciblés, ni détruits,
   ni produire quoi que ce soit. Leur teinte est purement visuelle.
 - **Bâtiments de scénario** (groupe **« Bâtiments »** de la bibliothèque,
-  juste après « Unités ») : Mine, Caserne, Forge, Maison, Tour, Église, les
-  vrais bâtiments gameplay (liste et emprises lues dans `data/buildings.ts`).
+  juste après « Unités ») : Mine, Caserne, Camp d'archerie, Forge, Maison,
+  Tour, Église, les vrais bâtiments gameplay (liste et emprises lues dans
+  `data/buildings.ts`).
   - **Pose continue** : choisir un bâtiment, puis cliquer autant de fois que
     voulu ; l'aperçu montre son emprise réelle (2×2, 3×3…), verte ou rouge,
     et le modèle. Clic droit ou Échap reviennent à Sélection.

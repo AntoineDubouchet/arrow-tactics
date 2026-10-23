@@ -248,8 +248,11 @@ function rewardForKill(unitId: string): number {
   return KILL_REWARD[unitId] ?? 0;
 }
 
-/** Or de depart d'une toute nouvelle run (15 ; 5 a l'origine). */
-export const STARTING_GOLD = 15;
+/** Or de depart d'une toute nouvelle run (20 ; 15 puis 5 avant). */
+export const STARTING_GOLD = 20;
+
+/** Fantassins de l'armee de depart (Pop. 4 / 5 avec PLAYER_BASE_POPULATION). */
+export const STARTING_FANTASSIN_COUNT = 4;
 
 /** Etat de depart d'une toute nouvelle run : un seul fantassin a pleins PV —
  *  "le minimum possible pour une partie" (Antoine). `startingGoldBonus`
@@ -270,7 +273,9 @@ export const STARTING_GOLD = 15;
 export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = getUnit('fantassin').stats.maxHp, upgrades: RunUpgradeLevels = {}): RunState {
   return {
     gold: roundGold(STARTING_GOLD + startingGoldBonus),
-    army: [{ unitId: 'fantassin', hp: startingFantassinMaxHp, productionLevel: 0 }],
+    // Armee de depart : 4 Fantassins de niveau 1 (STARTING_FANTASSIN_COUNT),
+    // presents meme sans Caserne (seul le recrutement en exige une).
+    army: Array.from({ length: STARTING_FANTASSIN_COUNT }, () => ({ unitId: 'fantassin', hp: startingFantassinMaxHp, productionLevel: 0 })),
     inventory: [],
     buildings: [],
     waveNumber: 1,

@@ -18,7 +18,7 @@ contient ni intentions de design ni décisions futures.
 3. Unités
 4. Déblocage des unités
 5. La Baliste (tour du joueur)
-6. Bâtiments gameplay : Mine, Caserne, Forge, Tour et Église
+6. Bâtiments gameplay : Mine, Caserne, Camp d'archerie, Forge, Tour et Église
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -58,11 +58,28 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
 `onValidatePlacement`, fin de bataille dans la boucle de jeu.
 
 1. **Nouvelle run** (menu → **Mode survie**, `createNewRun`) :
-   - armée de départ : 1 Fantassin ;
-   - or de départ : 15 (`STARTING_GOLD`), 20 avec le talent Or de départ
+   - armée de départ : **4 Fantassins** de niveau 1
+     (`STARTING_FANTASSIN_COUNT`), présents même sans Caserne ;
+   - or de départ : **20** (`STARTING_GOLD`), 25 avec le talent Or de départ
      (+5, `TALENT_STARTING_GOLD_BONUS`) ;
+   - population : **4 / 5** (base `PLAYER_BASE_POPULATION` = 5, voir
+     ci-dessous) ;
    - inventaire et bâtiments vides, aucune amélioration (`upgrades = {}`),
      vague 1.
+
+   **Début de run** : 20 or, 4 Fantassins, Pop. 4 / 5, aucun bâtiment.
+   Une seule place est libre : une Maison (5 or, +5 population) est le
+   premier levier. Recruter exige un bâtiment (§4) : Fantassin → Caserne,
+   Archer → Camp d'archerie, Mage → Église. Maison + Caserne ou Maison +
+   Camp d'archerie tiennent dans les 20 or ; Caserne + Camp d'archerie
+   (30 or) non.
+
+   **Population** (`data/population.ts`, `run/population.ts`) : maximum
+   5 + 5 par Maison possédée (en bataille, par Maison vivante) ; chaque
+   unité en occupe `populationCost` (Fantassin et Archer 1, Mage 3,
+   Sentinelle 5). Affichée par le HUD « Pop. N / M » et dans la boutique.
+   Un recrutement qui dépasserait le maximum est refusé ; la production
+   des bâtiments est limitée de la même façon (§6).
 2. **Démarrage direct**. La run part de l'arène officielle (§11) remise à
    neuf. La Baliste est créée directement à la position définie par la
    carte (`MapDef.ballista`, (0.5, 15.5) pour l'arène) : il n'y a plus de
@@ -165,8 +182,9 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
    réagissent qu'à un ennemi entrant dans leur aggro, ou à un ordre. Le pas
    est tout ou rien : si une seule case d'arrivée est invalide (hors terrain,
    obstacle, bâtiment, Baliste, unité immobile), tout le groupe reste en
-   place et passe directement en Garde. Les Fantassins produits ensuite par
-   une Caserne passent directement en Garde, sans ce pas.
+   place et passe directement en Garde. Les unités produites ensuite par
+   une Caserne ou un Camp d'archerie passent directement en Garde, sans ce
+   pas.
 5. **Fin de bataille**, dès qu'un camp n'a plus de combattant (unités et
    bâtiments du joueur comptent tous les deux) :
    - **Victoire** : une bannière, puis un rideau noir, derrière lequel sont
@@ -248,17 +266,21 @@ en bataille. Elle n'existe pas dans l'éditeur.
   - **Mine** : PV, production (« 3 à 7 or »), fréquence (« toutes les 5 s »)
     et emprise. En préparation, aussi l'effet du niveau suivant et le bouton
     **« Améliorer la mine — N or »** (§6) ;
-  - **Caserne** : PV, unité produite, intervalle, unités par production et
-    emprise. En préparation, aussi l'effet du niveau suivant et le bouton
-    **« Améliorer la caserne — N or »**. En bataille, aussi la prochaine
-    production, ou « En attente » quand le lot attend des cases libres ;
+  - **Caserne / Camp d'archerie** : « Nom — Niv. N », PV, production
+    (« 1 Fantassin par manche »), recrutement débloqué (« Recrutement de
+    Fantassins », « Recrutement d'Archers ») et emprise. En préparation, au
+    Niv. 1, aussi l'effet du Niv. 2 (« 2 Fantassins par manche ») et le
+    bouton **« Améliorer — 20 or »** ; au Niv. 2, « Niveau maximum » et plus
+    de bouton. En bataille, « En attente : N (population pleine) » ou
+    « (aucune case libre) » tant que le quota de la manche n'est pas
+    produit ;
   - **Forge** : PV et emprise. En préparation, la fiche porte le bouton
     **« Ouvrir la Forge »** (§14) ; en bataille, aucun bouton ;
   - **Tour** : « Tour — Niv. N », PV, dégâts, portée, cadence (« 1 tir /
     2.5 s ») et emprise. En préparation, aussi l'effet du niveau suivant
     (« +5 PV, +2 dégâts ») et le bouton **« Améliorer — N or »** (§6) ;
-  - **Église** : « Église — Niv. N », PV, soin (« 5 PV par or ») et
-    emprise. En préparation, aussi les PV manquants de l'armée, l'effet du
+  - **Église** : « Église — Niv. N », PV, soin (« 5 PV par or »),
+    recrutement débloqué (« Recrutement de Mages ») et emprise. En préparation, aussi les PV manquants de l'armée, l'effet du
     niveau suivant (« +5 PV, +2 PV par or ») et les boutons **« Soigner
     l'armée — N or »**, **« Améliorer — N or »** et **« Améliorations de
     l'Église »** (§6, §14). En bataille, « En préparation uniquement » ;
@@ -330,9 +352,20 @@ Quatre unités existent, communes au joueur et à l'ennemi.
 Sources : `data/units.ts` (`playerUnlockMode`), `run/metaProgress.ts`
 (`canPlayerRecruitUnit`, `registerEnemyDefeat`).
 
-- **Fantassin et Archer** : toujours recrutables.
+- **Fantassin et Archer** : recrutables seulement si le joueur possède au
+  moins une **Caserne** (Fantassin) ou un **Camp d'archerie** (Archer)
+  (`run/recruitment.ts`, d'après `BuildingDef.recruitmentUnlock`). Sinon,
+  le bouton reste visible mais désactivé, avec « Nécessite une Caserne » ou
+  « Nécessite un Camp d'archerie » en infobulle, et l'achat est refusé.
+  L'armée de départ n'est pas concernée. Les unités déjà possédées restent. Un bâtiment détruit en
+  bataille bloque le recrutement à la préparation suivante s'il était le
+  dernier ; en construire un le débloque aussitôt.
 - **Mage et Sentinelle** (`defeatEnemy`) : recrutables après avoir vaincu au
   moins un exemplaire **ennemi** de ce type.
+  - Le **Mage** exige en plus au moins une **Église** possédée, selon la
+    même règle que le Fantassin et l'Archer (« Nécessite une Église »). Les
+    Mages possédés restent si la dernière Église est détruite.
+  - La Sentinelle n'exige aucun bâtiment.
   - Le déblocage est permanent, enregistré dès la mort de l'ennemi
     (`defeatedEnemyUnitIds`) et signalé par un toast.
   - Tant qu'elles ne sont pas débloquées, ces unités sont masquées dans la
@@ -431,11 +464,11 @@ AUTO), `main.ts`.
   - en petit, le nombre d'unités sélectionnées (ligne masquée quand rien
     n'est sélectionné).
 
-## 6. Bâtiments gameplay : Mine, Caserne, Forge, Tour et Église
+## 6. Bâtiments gameplay : Mine, Caserne, Camp d'archerie, Forge, Tour et Église
 
 Sources : `data/buildings.ts`, `data/mineUpgrade.ts`, `run/buildingUpgrades.ts`,
-`run/mineUpgradeEffects.ts`, `run/barracksUpgradeEffects.ts`,
-`run/buildingUpgradeEffects.ts`, `sim/systems/barracksSystem.ts`,
+`run/mineUpgradeEffects.ts`, `run/recruitment.ts`,
+`run/buildingUpgradeEffects.ts`, `sim/systems/buildingProduction.ts`,
 `sim/systems/buildingAttack.ts` (tir de la Tour), `render/projectiles.ts`,
 `run/churchHeal.ts` (soin de l'Église), `main.ts`.
 
@@ -454,27 +487,30 @@ Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 - **Survie du camp** : ces bâtiments comptent pour la défaite
   (`countsForDefeat`), comme les unités et la Baliste.
 
-| | Mine | Caserne | Forge | Tour | Église |
-|---|---|---|---|---|---|
-| Coût en partie | 20 | 25 | 10 | 20 | 15 |
-| PV / emprise | 15 / 2×2 | 25 / 3×3 | 15 / 2×2 | 15 / 2×2 | 15 / 2×2 |
-| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Produit des Fantassins (voir ci-dessous) | Accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; accès aux améliorations des parchemins et de Soins excédentaires (voir ci-dessous et §14) |
+| | Mine | Caserne | Camp d'archerie | Maison | Forge | Tour | Église |
+|---|---|---|---|---|---|---|---|
+| Coût en partie | 20 | 15 | 15 | 5 | 10 | 20 | 35 |
+| PV / emprise | 15 / 2×2 | 25 / 3×3 | 25 / 3×3 | 10 / 2×2 | 15 / 2×2 | 15 / 2×2 | 15 / 2×2 |
+| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Débloque le recrutement des Fantassins et en produit (voir ci-dessous) | Débloque le recrutement des Archers et en produit (voir ci-dessous) | +5 population maximale (§2) | Accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; débloque le recrutement du Mage (§4) ; accès aux améliorations des parchemins et de Soins excédentaires (voir ci-dessous et §14) |
 
 Le coût d'achat est fixe : il ne dépend d'aucune amélioration (une Mine
-coûte toujours 20, une Caserne toujours 25).
+coûte toujours 20, une Caserne toujours 15).
 
-**Amélioration de la Mine, de la Caserne, de la Tour et de l'Église** :
+**Amélioration de la Mine, de la Caserne, du Camp d'archerie, de la Tour et
+de l'Église** :
 
-- chaque Mine, Caserne, Tour et Église a son **propre niveau**
+- chaque Mine, Caserne, Camp d'archerie, Tour et Église a son **propre
+  niveau**
   (`OwnedBuilding.level`), affiché à partir de « Niv. 1 » ; deux bâtiments
   du même type peuvent avoir des niveaux différents ;
 - il s'achète depuis la fiche du bâtiment, en préparation seulement
-  (« Améliorer la mine — N or », « Améliorer la caserne — N or »,
-  « Améliorer — N or » pour la Tour et l'Église ; bouton désactivé si l'or
-  manque). Il n'agit que sur ce bâtiment ;
+  (« Améliorer la mine — N or », « Améliorer — N or » pour les autres ;
+  bouton désactivé si l'or manque). Il n'agit que sur ce bâtiment ;
 - prix : base × 2^niveau, la base étant propre au bâtiment
   (`BuildingDef.upgradeGoldCostBase`) : 25 / 50 / 100 / 200… or pour la
-  Mine et la Caserne, 5 / 10 / 20 / 40… pour la Tour et l'Église.
+  Mine, 5 / 10 / 20 / 40… pour la Tour et l'Église. La Caserne et le Camp
+  d'archerie n'ont qu'**une** amélioration, Niv. 1 → Niv. 2 pour 20 or
+  (`BuildingDef.maxUpgradeLevel`) ; elle n'ajoute ni PV ni autre bonus.
   Indépendant du prix des améliorations d'unités à la Forge ;
 - un niveau qui augmente les PV max (Tour, Église) augmente aussi les PV actuels du
   même écart : les PV manquants restent les mêmes ;
@@ -491,21 +527,33 @@ Production de la Mine :
 - « +N or » s'affiche au-dessus de la Mine ;
 - jamais dans « Tester le scénario » ; une Mine détruite s'arrête aussitôt.
 
-Production de la Caserne :
+Production de la Caserne (Fantassins) et du Camp d'archerie (Archers) :
 
-- **Rythme** : base de 1 Fantassin toutes les 5 s. Chaque niveau de la
-  Caserne ajoute 1 Fantassin par production, et retire 1 s d'intervalle
-  tous les 3 niveaux (minimum 1 s).
-- **Production atomique** : si les cases libres autour d'elle ne suffisent
-  pas pour tout le lot, rien n'est produit et la production attend.
-- **Bonus** : les Fantassins produits reçoivent les mêmes bonus qu'un
-  Fantassin acheté : talents, et niveau de production courant **au moment
-  de leur apparition** (§14). La fiche indique « Produit : Fantassin —
-  Niv. N ».
+- **Une fois par manche** : au début de chaque bataille, chaque bâtiment
+  reçoit un quota de **1 unité au Niv. 1, 2 au Niv. 2**, produit
+  gratuitement dès que possible. Aucun minuteur, aucune production répétée
+  pendant la bataille. Chaque bâtiment produit son propre quota.
+- **Population** : le quota est limité aux places libres ; ce qui manque
+  attend et réessaie pendant la bataille (une mort libère une place). Un
+  quota non produit à la fin de la bataille est perdu, sans cumul.
+- **Cases** : les unités apparaissent sur des cases libres autour de
+  l'emprise, les plus avancées vers le champ de bataille d'abord ; si
+  toutes sont occupées, le quota attend une case libre.
+- **Lot partiel, volontaire** : un Camp Niv. 2 (quota 2) avec une seule
+  place produit 1 Archer et garde l'autre en attente. Plusieurs bâtiments
+  se servent dans l'ordre stable des entités (ordre d'achat) : avec une
+  seule place, la Caserne achetée en premier produit, le Camp attend la
+  prochaine place libérée.
+- **Bonus** : les unités produites reçoivent les mêmes bonus qu'une unité
+  achetée : talents, et niveau de production courant **au moment de leur
+  apparition** (§14).
 - **Comportement** : ils passent directement en Garde, sans pas
   d'ouverture (§2).
 - **Persistance** : ils **ne rejoignent pas** l'armée qui persiste entre les
   vagues.
+- **Modèles** : `blue_barracks` et `blue_archeryrange` (KayKit), ajustés à
+  l'emprise 3×3. Aucun des deux n'est posé automatiquement sur la carte du
+  Mode survie.
 
 Tir de la Tour (modèle `blue_tower_A`, affiché à 0,8 de son emprise
 pour rester à la hauteur de la Caserne et de la tour de la Baliste) :
@@ -545,6 +593,8 @@ Soin de l'Église (modèle `blue_church`, ajusté à l'emprise 2 × 2) :
   soigne avec sa propre efficacité.
 - **Améliorations** : « Améliorations de l'Église » ouvre les améliorations
   de run des parchemins et de Soins excédentaires (§14).
+- **Recrutement** : posséder au moins une Église débloque le recrutement
+  du Mage (§4).
 - Une Église détruite disparaît de la run comme les autres bâtiments.
 
 La Forge (modèle `blue_blacksmith`) est un vrai bâtiment : ciblable,
@@ -804,8 +854,8 @@ Caserne, la Tour et l'Église elle-même s'améliorent depuis leur fiche (§6).
 - **Niveau de production des unités** (`data/unitUpgrades.ts`,
   `run/unitUpgradeEffects.ts`) :
   - améliorer une unité à la Forge élève le niveau auquel les **futures**
-    unités de ce type sont produites (boutique, Caserne, Tester le
-    scénario) ;
+    unités de ce type sont produites (boutique, Caserne, Camp d'archerie,
+    Tester le scénario) ;
   - chaque unité possédée garde à vie le niveau de sa création
     (`OwnedUnit.productionLevel`) : ses PV, dégâts, bouclier et coût en
     dérivent. Une amélioration ne modifie jamais une unité déjà créée, ni
@@ -941,7 +991,7 @@ carte exportée de l'éditeur puis intégrée au code (§11).
   - Les bâtiments de scénario de la carte y deviennent de vrais
     bâtiments, au niveau 1 (voir ci-dessous).
 - **Bâtiments de scénario** : groupe « Bâtiments » de la bibliothèque (Mine,
-  Caserne, Forge, Maison, Tour, Église) ; pose continue selon l'emprise réelle
+  Caserne, Camp d'archerie, Forge, Maison, Tour, Église) ; pose continue selon l'emprise réelle
   du bâtiment, refusée hors du plateau, sur un trou, sur un autre bâtiment,
   la Baliste, un décor bloquant ou une unité, sans règle de territoire ;
   camp joueur ; enregistrés dans `MapDef.buildings` (absent = aucun),

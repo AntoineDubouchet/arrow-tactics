@@ -71,6 +71,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | D4 | Sauvegarde d'une run en cours | Ouverte |
 | D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Forge et Or, niveau de production des unités) / Remplacée (Runes, améliorations permanentes, amélioration globale de la Mine et de la Caserne, absence de surcoût de production) |
 | D6 | Améliorations de la Mine et de la Caserne propres à chaque bâtiment | Active |
+| D7 | Départ de run, population et bâtiments de recrutement | Active |
 | E1 | Manipulation directe pendant le placement | Active |
 | E2 | Collision des décors : emprise rectangulaire, props traversables | Active |
 | E3 | Rotation des décors dans l'éditeur | Remplacée (W/E) / Active (anneau et Ctrl+molette) |
@@ -347,6 +348,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   vaincu ») plutôt qu'une conclusion. Ce fait reste réutilisable plus tard,
   par exemple pour un bestiaire ou des succès.
 - **Aujourd'hui** : mécanisme générique, appliqué au Mage et à la Sentinelle.
+  Le Mage exige en plus une Église possédée pour être recruté (D7).
 - **Sources** : archive (« Système générique de déblocage d'unités ») ;
   `data/units.ts` (`playerUnlockMode`), `run/metaProgress.ts`.
 
@@ -468,7 +470,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - **niveau de production des unités** (refonte « escarmouches » : moins
     d'unités, plus puissantes) :
     - une amélioration d'unité à la Forge élève le niveau auquel les
-      **futures** unités de ce type sont produites (boutique, Caserne) ;
+      **futures** unités de ce type sont produites (boutique, Caserne,
+      Camp d'archerie) ;
       elle ne modifie jamais une unité déjà créée ;
     - une unité conserve à vie le niveau, les statistiques et le coût de
       production de sa création (`OwnedUnit.productionLevel`) ;
@@ -484,8 +487,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   progression permanente et les règles, Forge pour l'investissement
   économique de la run.
 - **Aujourd'hui** :
-  - Or de départ 15 (20 avec « Or de départ ») ; Forge 10, Mine 20,
-    Caserne 25 ;
+  - Or de départ 20 (25 avec « Or de départ », voir D7) ; Forge 10,
+    Mine 20, Caserne 15, Camp d'archerie 15, Maison 5, Tour 20, Église 35 ;
   - la Forge propose les améliorations de production des unités (Fantassin,
     Archer, Mage, Sentinelle) et la Baliste ;
   - l'Église est le point d'accès aux améliorations du Parchemin de soin, de
@@ -523,18 +526,73 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   niveau global partagé par tous les exemplaires.
 - **Décision** (demande d'Antoine) :
   - chaque Mine et chaque Caserne a son **propre niveau**, acheté depuis sa
-    fiche (« Améliorer la mine », « Améliorer la caserne »), en préparation ;
+    fiche, en préparation (règle étendue ensuite au Camp d'archerie, à la
+    Tour et à l'Église) ;
   - deux bâtiments du même type peuvent avoir des niveaux différents ;
-  - le prix reprend l'ancien barème, compté par bâtiment : 25 / 50 / 100…
+  - la Mine garde l'ancien barème, compté par bâtiment : 25 / 50 / 100… La
+    Caserne et le Camp d'archerie n'ont plus qu'une amélioration,
+    Niv. 1 → Niv. 2 pour 20 or (D7).
 - **Raison connue** : les bâtiments doivent porter leur propre logique de
   fiche et d'amélioration ; la Forge doit tendre vers les améliorations
   d'unités (D5).
 - **Aujourd'hui** : Mine : 3 à 7 or toutes les 5 s au niveau 1, +2 / +2 par
-  niveau ; Caserne : +1 Fantassin par production à chaque niveau, −1 s
-  d'intervalle tous les 3 niveaux. Ces valeurs sont de l'équilibrage, pas
-  une décision.
+  niveau ; Caserne et Camp d'archerie : voir D7. Ces valeurs sont de
+  l'équilibrage, pas une décision.
 - **Sources** : `run/buildingUpgrades.ts`, `run/mineUpgradeEffects.ts`,
-  `run/barracksUpgradeEffects.ts`, `CURRENT_STATE.md` §6.
+  `data/buildings.ts`, `CURRENT_STATE.md` §6.
+
+### D7 — Départ de run, population et bâtiments de recrutement
+
+- **Statut** : Active.
+- **Contexte** : la run commençait avec 1 Fantassin, 15 or et 10 places de
+  population ; toutes les unités de base se recrutaient sans condition, et
+  la Caserne produisait des Fantassins à intervalle régulier pendant la
+  bataille.
+- **Décision** (demande d'Antoine) :
+  - **départ** : 20 or, **4 Fantassins** de niveau 1, population maximale
+    **5** (`PLAYER_BASE_POPULATION`), aucun bâtiment. La run commence donc à
+    **4 / 5** ;
+  - **Maison** : 5 or, +5 de population maximale, aucune Maison gratuite.
+    Avec une seule place libre au départ, elle est la première réponse à la
+    contrainte de population ;
+  - **recrutement** : un bâtiment possédé est requis pour recruter
+    certaines unités. Fantassin → Caserne, Archer → Camp d'archerie, Mage
+    → Église ; la Sentinelle garde sa règle (C4). Sans le bâtiment, le
+    bouton reste visible mais désactivé, avec la raison en infobulle ; la
+    même règle est vérifiée à l'achat. Les unités déjà possédées, dont
+    l'armée de départ, ne sont jamais retirées ;
+  - **Caserne** : 15 or, 3 × 3, débloque le Fantassin et en produit 1 par
+    manche au Niv. 1, 2 au Niv. 2. Une seule amélioration, 20 or, Niv. 2
+    maximum, sans PV ni autre bonus ;
+  - **Camp d'archerie** : mêmes règles pour l'Archer (15 or, 3 × 3, 1 puis
+    2 Archers par manche, amélioration 20 or, Niv. 2 maximum) ;
+  - **production** : une fois par manche, au début de la bataille, sans
+    minuteur. Le quota est limité par la population et les cases libres ;
+    un **lot partiel est volontaire** (une place pour un quota de 2 →
+    1 unité produite, l'autre attend et sort si une place se libère pendant
+    la bataille). Le quota restant est perdu à la fin de la bataille, sans
+    report ;
+  - **Église** : 35 or ; elle débloque désormais le recrutement du Mage,
+    en plus de son soin et de ses améliorations.
+- **Raison connue** :
+  - le départ à 4 / 5 force un choix immédiat : Maison + Caserne ou Maison
+    + Camp d'archerie (20 or). Caserne + Camp d'archerie (30 or) est
+    volontairement impossible au départ ;
+  - le Mage devient une unité plus tardive, derrière une Église plus chère.
+- **Aujourd'hui** : valeurs dans `config/constants.ts`
+  (`PLAYER_BASE_POPULATION`), `run/runState.ts` (`STARTING_GOLD`,
+  `STARTING_FANTASSIN_COUNT`) et `data/buildings.ts` (`production`,
+  `recruitmentUnlock`, `maxUpgradeLevel`). Le talent « Or de départ »
+  ajoute toujours 5 or. Les montants restent de l'équilibrage.
+- **À ne pas faire** :
+  - ne pas donner de Maison gratuite au départ ;
+  - ne pas réintroduire de production à intervalle régulier ;
+  - ne pas disperser les conditions de recrutement dans l'interface : elles
+    viennent des données (`BuildingDef.recruitmentUnlock`) et de
+    `run/recruitment.ts`.
+- **Sources** : `data/buildings.ts`, `run/recruitment.ts`,
+  `sim/systems/buildingProduction.ts`, `run/runState.ts`,
+  `config/constants.ts`, `CURRENT_STATE.md` §2, §4 et §6.
 
 ---
 

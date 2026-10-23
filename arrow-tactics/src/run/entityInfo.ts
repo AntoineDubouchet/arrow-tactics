@@ -1,6 +1,6 @@
 import { HP_PER_PIP, PLAYER_ARROW_RANGE } from '../config/constants';
 import { findAbility } from '../data/abilities';
-import { getBuilding } from '../data/buildings';
+import { getBuilding, unitsProducedPerWave } from '../data/buildings';
 import { getUnit, UNITS, type UnitStats } from '../data/units';
 import type { Entity, Team } from '../sim/entity';
 import {
@@ -13,15 +13,14 @@ import {
   type BallistaStatus,
 } from './ballistaStats';
 import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
-import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from './barracksUpgradeEffects';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp } from './buildingUpgradeEffects';
 import { churchHealCost, churchHealHpPerGold } from './churchHeal';
 import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
-import { buildingUpgradeGoldCost, isUpgradableBuilding } from './buildingUpgrades';
+import { buildingUpgradeGoldCost, isBuildingAtMaxLevel, isUpgradableBuilding } from './buildingUpgrades';
 import { getUnitUpgradeDef } from '../data/unitUpgrades';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
 import { displayedUpgradeLevel, entityRunUpgradeLevel, type PlayerProgression, type RunUpgradeLevels } from './runUpgrades';
-import { currentProductionLevel, playerUnitProductionCost } from './unitUpgradeEffects';
+import { playerUnitProductionCost } from './unitUpgradeEffects';
 
 /**
  * Fiche d'entite : adaptateur PUR entre l'etat du jeu (emplacements de
@@ -399,7 +398,7 @@ export function battleGroupInfo(entities: readonly Entity[], levelOf: (entity: E
   );
 }
 
-// --- Mine et Caserne -------------------------------------------------------
+// --- Mine, Caserne et Camp d'archerie --------------------------------------
 
 /** Niveau interne propre au batiment (Mine, Caserne). */
 function mineRows(level: number): EntityInfoRow[] {
@@ -410,14 +409,27 @@ function mineRows(level: number): EntityInfoRow[] {
   ];
 }
 
-/** `productionLevel` : niveau auquel la Caserne produit maintenant (celui
- *  de la Forge au moment du spawn, voir main.ts), null pour l'adversaire. */
-function barracksRows(unitId: string, intervalSeconds: number, count: number, productionLevel: number | null): EntityInfoRow[] {
-  const level = productionLevel === null ? null : unitProductionLevelOrNull(unitId, productionLevel);
+/** "1 Fantassin par manche", "2 Archers par manche". */
+function unitsPerWaveText(unitId: string, count: number): string {
+  const name = getUnit(unitId).name;
+  return `${count} ${count > 1 ? `${name}s` : name} par manche`;
+}
+
+/** Recrutement debloque par le batiment (Caserne, Camp d'archerie, Eglise). */
+function recruitmentUnlockRows(buildingId: string): EntityInfoRow[] {
+  const unlock = getBuilding(buildingId).recruitmentUnlock;
+  if (!unlock) return [];
+  const plural = `${getUnit(unlock.unitId).name}s`;
+  const article = /^[AEIOUYÉÈ]/i.test(plural) ? 'd’' : 'de ';
+  return [{ label: 'Débloque', value: `Recrutement ${article}${plural}` }];
+}
+
+/** Batiment de production (Caserne, Camp d'archerie) a son niveau propre. */
+function productionRows(buildingId: string, level: number): EntityInfoRow[] {
+  const unitId = getBuilding(buildingId).production!.unitId;
   return [
-    { label: 'Produit', value: titleWithLevel(getUnit(unitId).name, level) },
-    { label: 'Intervalle', value: formatSeconds(intervalSeconds) },
-    { label: 'Unités / production', value: String(count) },
+    { label: 'Produit', value: unitsPerWaveText(unitId, unitsProducedPerWave(buildingId, level)) },
+    ...recruitmentUnlockRows(buildingId),
   ];
 }
 
@@ -449,19 +461,17 @@ function populationBonusRows(buildingId: string): EntityInfoRow[] {
 }
 
 /** Lignes de production d'un batiment possede selon SON niveau. */
-function ownedBuildingRows(buildingId: string, level: number, upgrades: Readonly<RunUpgradeLevels>): EntityInfoRow[] {
+function ownedBuildingRows(buildingId: string, level: number): EntityInfoRow[] {
   const def = getBuilding(buildingId);
   if (def.id === 'mine') return mineRows(level);
-  if (def.spawner) {
-    const unitId = def.spawner.unitId;
-    return barracksRows(unitId, effectiveBarracksSpawnInterval(level), effectiveBarracksSpawnCount(level), currentProductionLevel(upgrades, unitId));
-  }
+  if (def.production) return productionRows(def.id, level);
   if (def.attack) return attackRows(effectiveBuildingAttackDamage(def.id, level), def.attack.rangeTiles, def.attack.cooldownSeconds);
-  if (def.armyHeal) return armyHealRows(def.id, level);
+  if (def.armyHeal) return [...armyHealRows(def.id, level), ...recruitmentUnlockRows(def.id)];
   return populationBonusRows(def.id);
 }
 
-/** Effet du prochain niveau, en une ligne (Mine, Caserne, Tour). */
+/** Effet du prochain niveau, en une ligne (Mine, Caserne, Camp d'archerie,
+ *  Tour, Eglise). */
 function nextLevelRow(buildingId: string, level: number): EntityInfoRow {
   const label = `Niv. ${displayedUpgradeLevel(level + 1)}`;
   if (getBuilding(buildingId).attack) {
@@ -478,11 +488,11 @@ function nextLevelRow(buildingId: string, level: number): EntityInfoRow {
     const { min, max } = mineGoldRange(level + 1);
     return { label, value: `${min} à ${max} or` };
   }
-  const count = effectiveBarracksSpawnCount(level + 1);
-  return { label, value: `${count} unités / ${formatSeconds(effectiveBarracksSpawnInterval(level + 1))}` };
+  const production = getBuilding(buildingId).production;
+  return { label, value: production ? unitsPerWaveText(production.unitId, unitsProducedPerWave(buildingId, level + 1)) : '' };
 }
 
-const UPGRADE_LABELS: Readonly<Record<string, string>> = { mine: 'Améliorer la mine', barracks: 'Améliorer la caserne' };
+const UPGRADE_LABELS: Readonly<Record<string, string>> = { mine: 'Améliorer la mine' };
 
 /** Bâtiment possede en preparation : PV persistants de la run, niveau et
  *  production PROPRES a ce batiment ; Mine, Caserne, Tour et Eglise
@@ -499,7 +509,7 @@ export function placementBuildingInfo(
   const def = getBuilding(owned.buildingId);
   const upgradable = isUpgradableBuilding(def.id);
   const level = owned.level ?? 0;
-  const rows = [...ownedBuildingRows(def.id, level, progress.upgrades), ...footprintRows(def.id)];
+  const rows = [...ownedBuildingRows(def.id, level), ...footprintRows(def.id)];
   const actions: EntityInfoAction[] = [];
   if (def.id === 'forge') actions.push({ id: 'openForge', label: 'Ouvrir la Forge', enabled: true });
   if (def.armyHeal) {
@@ -512,7 +522,8 @@ export function placementBuildingInfo(
       actions.push({ id: 'healArmy', label: `Soigner l'armée — ${formatNumber(healCost)} or`, enabled, hint: enabled ? undefined : 'Or insuffisant' });
     }
   }
-  if (upgradable) {
+  if (upgradable && isBuildingAtMaxLevel(def.id, level)) rows.push({ label: 'Amélioration', value: 'Niveau maximum' });
+  else if (upgradable) {
     rows.push(nextLevelRow(def.id, level));
     const cost = buildingUpgradeGoldCost(def.id, level);
     const enabled = gold >= cost;
@@ -541,24 +552,24 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
   const def = getBuilding(entity.unitId);
   let rows: EntityInfoRow[] = [];
   if (def.id === 'mine') rows = mineRows(ownedLevel ?? 0);
-  else if (entity.spawnUnitId !== null && entity.spawnIntervalSeconds !== null) {
-    const productionLevel = entity.team === 'player' ? currentProductionLevel(progress.upgrades, entity.spawnUnitId) : null;
-    rows = barracksRows(entity.spawnUnitId, entity.spawnIntervalSeconds, entity.spawnCount ?? 1, productionLevel);
-    if (entity.spawnTimer !== null) {
-      // Minuterie a 0 : le lot attend une place de population ou des cases
-      // libres autour de la Caserne (voir sim/systems/barracksSystem.ts).
-      const waiting = entity.spawnWaitingForPopulation ? 'Population pleine' : 'En attente';
-      rows.push({ label: 'Prochaine production', value: entity.spawnTimer > 0 ? formatRemaining(entity.spawnTimer) : waiting });
+  else if (def.production) {
+    rows = productionRows(def.id, ownedLevel ?? 0);
+    // Quota de la manche pas encore produit : il attend une place de
+    // population ou des cases libres (voir sim/systems/buildingProduction.ts).
+    if (entity.productionRemaining > 0) {
+      const reason = entity.productionWaitingForPopulation ? 'population pleine' : 'aucune case libre';
+      rows.push({ label: 'En attente', value: `${entity.productionRemaining} (${reason})` });
     }
   } else if (entity.buildingAttack) {
     const attack = entity.buildingAttack;
     rows = attackRows(attack.damage, attack.rangeTiles, attack.cooldownSeconds);
   } else if (def.armyHeal) {
     // Le soin de l'armee ne se declenche qu'en preparation.
-    rows = [...armyHealRows(def.id, ownedLevel ?? 0), { label: 'Soin de l’armée', value: 'En préparation uniquement' }];
+    rows = [...armyHealRows(def.id, ownedLevel ?? 0), { label: 'Soin de l’armée', value: 'En préparation uniquement' }, ...recruitmentUnlockRows(def.id)];
   } else rows = populationBonusRows(def.id);
   rows.push(...footprintRows(def.id));
-  const level = isUpgradableBuilding(def.id) ? ownedLevel : playerLevel(entity.team, progress.upgrades, def.id);
+  // Batiment de production d'un scenario de l'editeur (non possede) : Niv. 1.
+  const level = isUpgradableBuilding(def.id) ? (def.production ? (ownedLevel ?? 0) : ownedLevel) : playerLevel(entity.team, progress.upgrades, def.id);
   const title = titleWithLevel(def.displayName, level);
   return { kind: 'building', buildingId: def.id, title, team: entity.team, hp: hpOf(entity.hp, entity.stats.maxHp), rows, sections: [], status: null };
 }

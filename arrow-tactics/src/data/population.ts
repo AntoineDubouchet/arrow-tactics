@@ -7,7 +7,7 @@ import { getUnit } from './units';
  * places ; le maximum vaut PLAYER_BASE_POPULATION plus le `populationBonus`
  * de chaque batiment existant (Maison). Fonctions pures, partagees par la
  * preparation (armee et batiments de la run, voir run/population.ts) et par
- * la simulation (entites vivantes, voir sim/systems/barracksSystem.ts) : une
+ * la simulation (entites vivantes, voir sim/systems/buildingProduction.ts) : une
  * seule regle de calcul, quelle que soit la source.
  *
  * Seul le camp du joueur a une population : les ennemis et les batiments

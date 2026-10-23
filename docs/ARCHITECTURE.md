@@ -132,7 +132,7 @@ Ordre de `World.step(dt)` :
 prevX/prevZ ← x/z
 targetingSystem → abilitySystem → movementSystem → combatSystem
 → zones persistantes → flèche du joueur → projectiles d'ombre
-→ barracksSystem → deathSystem → libération des emprises de bâtiments morts
+→ buildingProductionSystem → deathSystem → libération des emprises de bâtiments morts
 tick++, time += dt
 ```
 
@@ -180,7 +180,7 @@ diffère de la base.
 
 - Pour une unité du joueur, ces trois paramètres viennent de
   `run/playerUnitStats.ts` (§10), à chaque site d'apparition : bataille,
-  « Tester le scénario », production de la Caserne.
+  « Tester le scénario », production de la Caserne et du Camp d'archerie.
 - Pour un ennemi, `main.ts` les calcule à partir de
   `computeEnemyUnitUpgradeEffects` (`run/unitUpgradeEffects.ts`).
 
@@ -267,7 +267,7 @@ La simulation émet des **faits** ; `main.ts` décide des réactions (visuelles,
 
 - **Tableaux d'événements, vidés et remplis à chaque tick** :
   `combatEvents`, `abilityEvents`, `areaEffectEvents`, `playerArrowEvents`,
-  `shadowProjectileEvents`, `barracksSpawnEvents`, `buildingAttackEvents`.
+  `shadowProjectileEvents`, `productionSpawnEvents`, `buildingAttackEvents`.
 - **État lu directement par le rendu** : `entities`, `blasts`,
   `shadowProjectiles`, `playerArrow.flights`, `buildingProjectiles`,
   `iceNovaZones`.
@@ -282,7 +282,8 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 - **Or par kill** : détecté par **transition** `alive → false` (un ensemble
   d'ids déjà récompensés), quelle que soit la source de la mort ; aucun
   événement de mort n'est émis.
-- **Production des casernes** : la simulation décide *quand* et *où* ;
+- **Production des bâtiments** (Caserne, Camp d'archerie) : la simulation
+  décide *quand* et *où* ;
   `main.ts` appelle `world.spawn` avec les stats effectives
   (`run/playerUnitStats.ts`).
 - **Fin de bataille** : `world.countCombatants(team)` détecte qu'un camp
@@ -309,16 +310,27 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   `releaseDeadBuildingFootprints`, juste après `deathSystem`.
 - **Survie d'un camp** : `countsForDefeat` (porté par la `BuildingDef`) fait
   compter un bâtiment dans `countCombatants`.
-- **Production** (Caserne) : `barracksSystem` gère un minuteur en temps
-  simulé et cherche des cases libres autour de l'emprise. La production est
-  atomique (tout le lot ou rien) et passe par `barracksSpawnEvents` (§8).
+- **Production** (Caserne, Camp d'archerie) : une `BuildingDef` avec
+  `production` (`unitId`, `unitsPerWaveByLevel`) donne à l'entité un quota
+  pour la manche (`productionRemaining`), fixé par `World.spawnBuilding`
+  depuis le niveau propre du bâtiment (`unitsProducedPerWave`). Aucun
+  minuteur : `sim/systems/buildingProduction.ts` consomme ce quota dès que
+  la population et les cases libres autour de l'emprise le permettent (lot
+  partiel possible, cases réservées au fil du tick), sans jamais le
+  renouveler, et passe par `productionSpawnEvents` (§8).
+- **Recrutement débloqué** (Caserne → Fantassin, Camp d'archerie → Archer,
+  Église → Mage) : champ `recruitmentUnlock` de la `BuildingDef`, distinct
+  de `production`. `run/recruitment.ts` (hors simulation) en est la seule
+  lecture, partagée par la boutique (`ui/screens.ts`) et l'achat
+  (`buyUnit`, `main.ts`).
 - **Rendu** :
   - `render/buildingView.ts` gère le flash, la destruction et les débris, sur
     des matériaux clonés ;
   - `main.ts` maintient `buildingViewsByEntityId` ;
   - la Baliste est un singleton au rendu dédié (`render/ballista.ts`).
 - **Run** : `RunState.buildings` (`OwnedBuilding`) conserve position,
-  rotation, PV et niveau propre (Mine, Caserne) entre les vagues. La
+  rotation, PV et niveau propre (Mine, Caserne, Camp d'archerie, Tour,
+  Église) entre les vagues. La
   position de la Baliste, `RunState.ballistaPosition`, est fixée au
   démarrage de la run depuis la carte de départ (`resolveBallistaOrigin`,
   voir §10). Seule l'étape C de l'agrandissement la déplace, comme les
@@ -385,15 +397,18 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     débit par `spendGold`, puis niveau + 1 ; tout ou rien).
   - Les définitions (`data/*Upgrade.ts`, type commun `UpgradeDefBase`) ne
     portent que les effets et un `maxLevel` facultatif, jamais de prix.
-- **Améliorations par bâtiment** (`run/buildingUpgrades.ts`) : la Mine et la
-  Caserne ont chacune leur niveau (`OwnedBuilding.level`, 0 si absent), hors
+- **Améliorations par bâtiment** (`run/buildingUpgrades.ts`) : chaque
+  bâtiment améliorable a son niveau (`OwnedBuilding.level`, 0 si absent), hors
   de `RunState.upgrades`.
-  - Coût `buildingUpgradeGoldCost(niveau)` = 25 × 2^niveau ; achat
+  - Coût `buildingUpgradeGoldCost(buildingId, niveau)` =
+    `upgradeGoldCostBase` × 2^niveau ; plafond facultatif
+    `BuildingDef.maxUpgradeLevel` (`isBuildingAtMaxLevel`) ; achat
     `canUpgradeOwnedBuilding` / `upgradeOwnedBuilding(run, index)` (débit
     par `spendGold`, tout ou rien).
   - `main.ts` déclenche l'achat depuis l'action `upgradeBuilding` de la
     fiche, en préparation seulement. Les effets se lisent dans
-    `run/mineUpgradeEffects.ts` et `run/barracksUpgradeEffects.ts`.
+    `run/mineUpgradeEffects.ts`, `run/buildingUpgradeEffects.ts` et
+    `unitsProducedPerWave` (`data/buildings.ts`).
   - En bataille, `ownedBuildingIndexByEntityId` (`main.ts`) relie chaque
     entité de bâtiment à son `OwnedBuilding`, par l'ordre de spawn.
 - **Bilan de fin de vague** (`run/battleSummary.ts`) : compteur pur des

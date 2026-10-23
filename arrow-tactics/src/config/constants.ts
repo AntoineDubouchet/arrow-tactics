@@ -37,7 +37,7 @@ export const GRID_MOVE_SEARCH_RADIUS = 2;
 export const PLACEMENT_GOLD_WARNING_RATIO = 0.3;
 /** Population maximale du joueur sans Maison (voir data/population.ts) ;
  *  chaque Maison y ajoute son `populationBonus` (data/buildings.ts). */
-export const PLAYER_BASE_POPULATION = 10;
+export const PLAYER_BASE_POPULATION = 5;
 // --- Affichage des PV ---
 export const HP_PER_PIP = 10;
 

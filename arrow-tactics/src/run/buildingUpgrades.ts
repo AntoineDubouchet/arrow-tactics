@@ -2,22 +2,31 @@ import { getBuilding } from '../data/buildings';
 import { roundGold, spendGold, type OwnedBuilding, type RunState } from './runState';
 
 /**
- * Ameliorations PAR BATIMENT : chaque Mine, Caserne et Tour a son propre
+ * Ameliorations PAR BATIMENT : chaque Mine, Caserne, Camp d'archerie,
+ * Tour et Eglise a son propre
  * niveau (OwnedBuilding.level, interne, 0 = aucune amelioration), achete
  * depuis la fiche de CE batiment pendant la preparation. Ce n'est plus une
  * amelioration globale de la Forge : deux Mines peuvent avoir des niveaux
- * differents. Effets : run/mineUpgradeEffects.ts, run/barracksUpgradeEffects.ts,
- * run/buildingUpgradeEffects.ts (PV et degats de la Tour). Independant du
+ * differents. Effets : run/mineUpgradeEffects.ts, run/buildingUpgradeEffects.ts
+ * (PV et degats de la Tour), data/buildings.ts (unitsProducedPerWave pour la
+ * production de la Caserne et du Camp d'archerie). Independant du
  * prix des ameliorations d'unites a la Forge.
  */
 
 /** Croissance du prix : x2 a chaque niveau. Le prix du premier niveau est
- *  propre a chaque batiment (BuildingDef.upgradeGoldCostBase : Mine et
- *  Caserne 25, Tour 5). */
+ *  propre a chaque batiment (BuildingDef.upgradeGoldCostBase : Mine 25,
+ *  Caserne et Camp d'archerie 20, Tour 5). */
 const BUILDING_UPGRADE_GOLD_COST_GROWTH = 2;
 
 export function isUpgradableBuilding(buildingId: string): boolean {
   return getBuilding(buildingId).upgradeGoldCostBase !== undefined;
+}
+
+/** Vrai quand le batiment a atteint BuildingDef.maxUpgradeLevel (Caserne et
+ *  Camp d'archerie : Niv. 2) ; jamais pour un batiment sans plafond. */
+export function isBuildingAtMaxLevel(buildingId: string, level: number): boolean {
+  const max = getBuilding(buildingId).maxUpgradeLevel;
+  return max !== undefined && level >= max;
 }
 
 /** Niveau interne d'un batiment possede (absent = 0). */
@@ -34,6 +43,7 @@ export function buildingUpgradeGoldCost(buildingId: string, level: number): numb
 export function canUpgradeOwnedBuilding(run: RunState, index: number): boolean {
   const owned = run.buildings[index];
   if (!owned || !isUpgradableBuilding(owned.buildingId)) return false;
+  if (isBuildingAtMaxLevel(owned.buildingId, ownedBuildingLevel(owned))) return false;
   return run.gold >= buildingUpgradeGoldCost(owned.buildingId, ownedBuildingLevel(owned));
 }
 

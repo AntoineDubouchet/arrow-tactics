@@ -9,7 +9,7 @@ import { roundGold, spendGold, type RunState } from './runState';
 /**
  * Niveaux d'amelioration de la RUN en cours : id d'amelioration (memes cles
  * que les definitions de data/ : 'fantassin', 'archer', 'mage', 'sentinel',
- * 'ballista', 'mine', 'barracks', 'heal_scroll_minor', 'ice_nova',
+ * 'ballista', 'mine', 'heal_scroll_minor', 'ice_nova',
  * 'soins_excedentaires') -> niveau achete. Portes par RunState.upgrades :
  * jamais sauvegardes, ils disparaissent avec la run. Seule source des
  * niveaux lue par les formules d'effet (run/*UpgradeEffects.ts) pendant une

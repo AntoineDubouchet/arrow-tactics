@@ -10,6 +10,7 @@ import { computeTalentTreeLayout, type TalentNodeLayout, type TalentTreeLayoutNo
 import { getUnit } from '../data/units';
 import { buildingPopulationBonus, unitPopulationCost } from '../data/population';
 import { runPopulation } from '../run/population';
+import { missingRecruitmentBuildingHint } from '../run/recruitment';
 import { getUnitUpgradeDef, listUpgradableUnitIds } from '../data/unitUpgrades';
 import {
   canUnlockTalent,
@@ -42,7 +43,6 @@ import {
   iceNovaRemainingUntilDamageBonus,
 } from '../run/iceNovaUpgradeEffects';
 import { mineGoldRange, mineProductionIntervalSeconds } from '../run/mineUpgradeEffects';
-import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from '../run/barracksUpgradeEffects';
 import {
   shadowBonusProjectileCount,
   shadowDamagePerProjectileDisplay,
@@ -1073,7 +1073,9 @@ export class Screens {
     const roomFor = (unitId: string, count: number): boolean => population.used + unitPopulationCost(unitId) * count <= population.max;
     const gateUnit = (button: HTMLButtonElement, unitId: string, cost: number, count: number): void => {
       const noRoom = !roomFor(unitId, count);
-      button.disabled = run.gold < cost * count || noRoom;
+      // Fantassin et Archer : verrouilles sans Caserne / Camp d'archerie.
+      const missingBuilding = missingRecruitmentBuildingHint(run, unitId);
+      button.disabled = run.gold < cost * count || noRoom || missingBuilding !== null;
       // Infobulle : stats de la prochaine unite, une par ligne (population
       // comprise : le bouton ne l'affiche plus), puis la raison d'un refus.
       const summary = unitProductionSummary(unitId, currentProductionLevel(run.upgrades, unitId));
@@ -1085,6 +1087,7 @@ export class Screens {
         `Population : ${summary.population}`,
         `${formatGold(summary.cost)} or`,
       ];
+      if (missingBuilding !== null) lines.push(missingBuilding);
       if (noRoom) lines.push(`Population insuffisante (${population.used} / ${population.max}, ${unitPopulationCost(unitId) * count} requise)`);
       button.title = lines.join('\n');
     };
@@ -1204,16 +1207,17 @@ export class Screens {
       const { min, max } = mineGoldRange(0);
       return `${costLine} Produit ${min} à ${max} Gold toutes les ${mineProductionIntervalSeconds()} secondes pendant la bataille. S’améliore depuis sa fiche.`;
     }
-    if (buildingId === 'barracks') {
-      const count = effectiveBarracksSpawnCount(0);
-      const noun = count > 1 ? 'Fantassins' : 'Fantassin';
-      return `${costLine} Produit automatiquement ${count} ${noun} toutes les ${effectiveBarracksSpawnInterval(0).toFixed(0)} secondes pendant la bataille. S’améliore depuis sa fiche.`;
-    }
     if (buildingId === 'forge') {
       return `${costLine} Permettra d’améliorer l’armée.`;
     }
-    // Batiment defensif (Tour) : valeurs de niveau 1, lues dans ses donnees.
     const def = getBuilding(buildingId);
+    // Caserne, Camp d'archerie : unite debloquee et production de niveau 1.
+    if (def.production) {
+      const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
+      const units = `${getUnit(def.production.unitId).name}s`;
+      return `${costLine} Débloque les ${units} et en produit ${formatGold(def.production.unitsPerWaveByLevel[0] ?? 0)} par manche. ${size}.`;
+    }
+    // Batiment defensif (Tour) : valeurs de niveau 1, lues dans ses donnees.
     if (def.attack) {
       const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
       const stats = `${size} · ${formatGold(def.maxHp / HP_PER_PIP)} PV · ${formatGold(def.attack.damage / HP_PER_PIP)} dégâts · portée ${formatGold(def.attack.rangeTiles)} cases`;
@@ -1222,7 +1226,7 @@ export class Screens {
     // Eglise : soin de l'armee contre de l'or (valeurs de niveau 1).
     if (def.armyHeal) {
       const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
-      return `${costLine} Soigne toutes vos unités contre de l’or (${formatGold(def.armyHeal.hpPerGold)} PV par or). ${size} · ${formatGold(def.maxHp / HP_PER_PIP)} PV. Donne accès aux améliorations des parchemins. S’améliore depuis sa fiche.`;
+      return `${costLine} Soigne toutes vos unités contre de l’or (${formatGold(def.armyHeal.hpPerGold)} PV par or). ${size} · ${formatGold(def.maxHp / HP_PER_PIP)} PV. Débloque le recrutement des Mages et donne accès aux améliorations des parchemins. S’améliore depuis sa fiche.`;
     }
     const populationBonus = buildingPopulationBonus(buildingId);
     if (populationBonus > 0) {

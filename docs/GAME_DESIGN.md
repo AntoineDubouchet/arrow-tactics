@@ -147,7 +147,8 @@ Archétypes possibles (exemples, pas des décisions) :
 - **Armée nombreuse** : submerger par le nombre.
 - **Unités d'élite** : peu d'unités, très investies.
 - **Économie / bâtiments** : investir maintenant pour être fort plus tard.
-- **Production** : des bâtiments qui fournissent des renforts en continu.
+- **Production** : des bâtiments qui fournissent des renforts à chaque
+  manche.
 - **Soins / projectiles d'ombre** : tenir plus longtemps et convertir le
   surplus de soin en dégâts.
 - **Glace / contrôle** : maîtriser le rythme et la position des ennemis.
@@ -219,8 +220,9 @@ distinct pour ne pas faire doublon :
 
 Les améliorations de statistiques ne relèvent plus de la progression
 permanente : elles s'achètent en **Or**, pendant la run, à une **Forge**
-construite par le joueur (la Mine et la Caserne, elles, s'améliorent chacune
-depuis sa fiche), et disparaissent avec la run. Elles entrent ainsi
+construite par le joueur (la Mine, la Caserne, le Camp d'archerie, la Tour
+et l'Église, eux, s'améliorent chacun depuis sa fiche), et disparaissent avec
+la run. Elles entrent ainsi
 en concurrence directe avec le recrutement et la construction : investir dans
 une amélioration **ou** acheter de quoi survivre à la vague suivante.
 
@@ -368,7 +370,8 @@ Aucune de ces questions n'est tranchée.
 - Le retour éventuel du Cavalier ou d'une unité montée.
 - La progression de la Sentinelle ennemie.
 - Les rôles ennemis prioritaires.
-- La Caserne : ses Fantassins doivent-ils persister d'une vague à l'autre ?
+- La Caserne et le Camp d'archerie : leurs unités produites doivent-elles
+  persister d'une vague à l'autre ?
   Faut-il plus de persistance de l'armée en général ?
 
 **Économie et progression**

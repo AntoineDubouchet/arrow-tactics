@@ -15,7 +15,7 @@ import {
   type PlayerArrowState,
 } from './playerArrow';
 import { abilitySystem, type AbilityEvent, type BlastProjectile } from './systems/abilities';
-import { barracksSystem, type BarracksSpawnEvent } from './systems/barracksSystem';
+import { buildingProductionSystem, type ProductionSpawnEvent } from './systems/buildingProduction';
 import { buildingAttackSystem, type BuildingAttackEvent, type BuildingProjectile } from './systems/buildingAttack';
 import { combatSystem, type CombatEvent } from './systems/combat';
 import { deathSystem } from './systems/death';
@@ -102,11 +102,11 @@ export class World {
    *  si aucun trait ne vient de terminer son vol ce tick. */
   playerArrowEvents: PlayerArrowEvent[] = [];
   /** Productions d'unites REELLEMENT declenchees au dernier step (Caserne,
-   *  2026-08-17) — vide et repeuple a chaque tick, comme combatEvents. Voir
-   *  sim/systems/barracksSystem.ts, BarracksSpawnEvent — consomme par main.ts
-   *  pour appeler le vrai World.spawn avec les stats/talents effectifs (sim/
-   *  ne les connait pas). */
-  barracksSpawnEvents: BarracksSpawnEvent[] = [];
+   *  Camp d'archerie) — vide et repeuple a chaque tick, comme combatEvents.
+   *  Voir sim/systems/buildingProduction.ts — consomme par main.ts pour
+   *  appeler le vrai World.spawn avec les stats effectives (sim/ ne les
+   *  connait pas). */
+  productionSpawnEvents: ProductionSpawnEvent[] = [];
   /** Resultats des commandes appliquees au debut du dernier step (voir
    *  issueCommand, sim/orders.ts). Vide et repeuple a chaque tick, comme
    *  combatEvents. */
@@ -290,13 +290,11 @@ export class World {
       // Une unite normale n'a jamais de footprint de collision propre (voir
       // Entity.footprintObstacle, seul spawnBuilding en pose un).
       footprintObstacle: null,
-      // Une unite normale ne produit jamais rien (voir Entity.spawnTimer,
-      // seul spawnBuilding avec un BuildingDef.spawner en initialise un).
-      spawnTimer: null,
-      spawnIntervalSeconds: null,
-      spawnUnitId: null,
-      spawnCount: null,
-      spawnWaitingForPopulation: false,
+      // Une unite normale ne produit jamais rien (voir
+      // Entity.productionUnitId).
+      productionUnitId: null,
+      productionRemaining: 0,
+      productionWaitingForPopulation: false,
       buildingAttack: null,
     };
     this.entities.push(entity);
@@ -338,18 +336,11 @@ export class World {
    * corrigee pour les unites, voir CLAUDE.md).
    */
   /**
-   * `spawnIntervalOverride` (2026-08-17, amelioration permanente de la
-   * Caserne — voir run/barracksUpgradeEffects.ts) : intervalle de production
-   * REELLEMENT applique pour CETTE instance, `def.spawner?.baseIntervalSeconds`
-   * restant la valeur de BASE inchangee — meme motif exact que
-   * `maxHpOverride` ci-dessus. Sans effet pour un batiment sans `def.spawner`
-   * (Mine, Baliste) : `spawnTimer`/`spawnIntervalSeconds`/`spawnUnitId`
-   * restent tous `null`.
-   *
-   * `spawnCountOverride` (2026-08-17, meme jour — refonte de l'amelioration
-   * permanente : "+1 Fantassin par achat") : nombre d'unites REELLEMENT
-   * produites par production reussie, `1` par defaut (base) — meme motif
-   * exact que `spawnIntervalOverride`.
+   * `productionCountOverride` : quota d'unites a produire pendant CETTE
+   * manche par un batiment de production (BuildingDef.production), calcule
+   * par l'appelant depuis le niveau propre du batiment ; Niv. 1 de
+   * `unitsPerWaveByLevel` par defaut. Sans effet pour un batiment sans
+   * `def.production`.
    */
   spawnBuilding(
     def: BuildingDef,
@@ -359,13 +350,11 @@ export class World {
     footprint?: ObstacleDef,
     hp?: number,
     maxHpOverride?: number,
-    spawnIntervalOverride?: number,
-    spawnCountOverride?: number,
+    productionCountOverride?: number,
     attackDamageOverride?: number,
   ): Entity {
     const effectiveMaxHp = maxHpOverride ?? def.maxHp;
-    const effectiveSpawnInterval = def.spawner ? (spawnIntervalOverride ?? def.spawner.baseIntervalSeconds) : null;
-    const effectiveSpawnCount = def.spawner ? (spawnCountOverride ?? 1) : null;
+    const productionQuota = def.production ? (productionCountOverride ?? def.production.unitsPerWaveByLevel[0] ?? 0) : 0;
     const entity: Entity = {
       id: this.nextId++,
       team,
@@ -437,15 +426,11 @@ export class World {
       // correctif que ca permet (un batiment ne bloque plus sa propre ligne
       // de tir/poursuite vers lui-meme).
       footprintObstacle: footprint ?? null,
-      // Production automatique (Caserne, 2026-08-17) — voir Entity.spawnTimer.
-      // `effectiveSpawnInterval` demarre le decompte a l'INTERVALLE COMPLET
-      // (jamais 0) : le premier Fantassin apparait bien apres ce delai, pas
-      // instantanement (demande explicite d'Antoine, point 24).
-      spawnTimer: effectiveSpawnInterval,
-      spawnIntervalSeconds: effectiveSpawnInterval,
-      spawnUnitId: def.spawner?.unitId ?? null,
-      spawnCount: effectiveSpawnCount,
-      spawnWaitingForPopulation: false,
+      // Production de la manche (Caserne, Camp d'archerie) — voir
+      // Entity.productionUnitId : le quota est consomme des le premier tick.
+      productionUnitId: def.production?.unitId ?? null,
+      productionRemaining: productionQuota,
+      productionWaitingForPopulation: false,
       // Batiment defensif (Tour) : degats EFFECTIFS du niveau propre du
       // batiment (attackDamageOverride), base sinon. Premier tir des qu'une
       // cible est a portee.
@@ -523,7 +508,7 @@ export class World {
     this.nextBuildingProjectileId = 1;
     this.shadowProjectiles = [];
     this.shadowProjectileEvents = [];
-    this.barracksSpawnEvents = [];
+    this.productionSpawnEvents = [];
     this.commandQueue = [];
     this.commandResults = [];
     this.orderEvents = [];
@@ -637,7 +622,7 @@ export class World {
     this.areaEffectEvents = tickPersistentAreaEffects(this.iceNovaZones, dt, this.entities);
     this.playerArrowEvents = stepPlayerArrow(this.playerArrow, dt, this.entities);
     this.shadowProjectileEvents = advanceShadowProjectiles(this.shadowProjectiles, dt, this.entities, this.rng);
-    this.barracksSpawnEvents = barracksSystem(this.entities, this.obstacles, dt);
+    this.productionSpawnEvents = buildingProductionSystem(this.entities, this.obstacles);
     deathSystem(this.entities);
     this.releaseDeadBuildingFootprints();
 
