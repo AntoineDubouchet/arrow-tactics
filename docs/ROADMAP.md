@@ -309,9 +309,8 @@ Chantiers continus, menés au fil des besoins plutôt qu'en blocs isolés.
   `ui/screens.ts` ce que les chantiers touchent (boutique, placement,
   bâtiments). Jamais de refonte isolée sans besoin concret.
 - **T5 — Outils** :
-  - éditeur de maps : KI-20, KI-24, test de scénario avec
-    bâtiments (KI-07), nom de carte modifiable, priorité de clic des petits
-    décors traversables ;
+  - éditeur de maps : KI-20, KI-24, nom de carte modifiable, priorité de
+    clic des petits décors traversables ;
   - lecture des résultats du harnais d'équilibrage ;
   - retrait des boutons de debug au moment opportun.
 
