@@ -9,6 +9,7 @@ import {
   effectivePlayerArrowDamage,
   formatBallistaCooldownSeconds,
   playerArrowBoltsPerVolley,
+  type BallistaFireMode,
   type BallistaStatus,
 } from './ballistaStats';
 import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
@@ -57,8 +58,9 @@ export interface EntityInfoHp {
 /** Action proposee par la fiche (bouton). Donnee pure : main.ts recoit
  *  l'`id` au clic et decide de l'effet ; l'adaptateur ne connait pas le DOM. */
 export interface EntityInfoAction {
-  /** `upgradeBuilding` : ameliore le batiment selectionne (Mine, Caserne). */
-  id: 'openForge' | 'upgradeBuilding';
+  /** `upgradeBuilding` : ameliore le batiment selectionne (Mine, Caserne).
+   *  `toggleBallistaMode` : bascule la Baliste AUTO / MANUEL (bataille). */
+  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode';
   label: string;
   enabled: boolean;
   hint?: string;
@@ -507,8 +509,8 @@ function ballistaRows(progress: PlayerProgression): EntityInfoRow[] {
   ];
 }
 
-/** Baliste en preparation : elle reapparait toujours a pleins PV au debut
- *  de la bataille. Aucune portee : le tir n'en a pas. */
+/** Baliste en preparation : elle reapparait toujours a pleins PV, en mode
+ *  AUTO, au debut de la bataille. Aucune portee : le tir n'en a pas. */
 export function placementBallistaInfo(progress: PlayerProgression): BallistaInfo {
   const maxHp = effectiveBallistaMaxHp(progress.upgrades);
   return {
@@ -516,23 +518,38 @@ export function placementBallistaInfo(progress: PlayerProgression): BallistaInfo
     title: titleWithLevel(getBuilding('ballista').displayName, playerLevel('player', progress.upgrades, 'ballista')),
     team: 'player',
     hp: hpOf(maxHp, maxHp),
-    rows: ballistaRows(progress),
+    rows: [...ballistaRows(progress), { label: 'Mode', value: 'Automatique au début de la bataille' }],
     sections: [],
     status: { label: 'Prête pour la bataille', tone: 'muted' },
   };
 }
 
+/** Lignes du mode de tir en bataille : en MANUEL, rappel du tir sur Q. */
+function ballistaModeRows(mode: BallistaFireMode): EntityInfoRow[] {
+  if (mode === 'auto') return [{ label: 'Mode', value: 'Automatique' }, { label: 'Cible', value: 'Ennemi le plus proche' }];
+  return [{ label: 'Mode', value: 'Manuel' }, { label: 'Tir', value: 'Q vers le curseur' }];
+}
+
 /** Baliste en bataille : PV de son entite, etat de tir calcule par main.ts
- *  (currentBallistaStatus, meme source que le HUD de la Baliste). */
-export function battleBallistaInfo(entity: Entity, status: BallistaStatus, progress: PlayerProgression): BallistaInfo {
+ *  (currentBallistaStatus, meme source que le HUD de la Baliste), mode de
+ *  tir et bouton de bascule AUTO / MANUEL. */
+export function battleBallistaInfo(entity: Entity, status: BallistaStatus, progress: PlayerProgression, mode: BallistaFireMode): BallistaInfo {
   return {
     kind: 'ballista',
     title: titleWithLevel(getBuilding('ballista').displayName, playerLevel(entity.team, progress.upgrades, 'ballista')),
     team: entity.team,
     hp: hpOf(entity.alive ? entity.hp : 0, entity.stats.maxHp),
-    rows: ballistaRows(progress),
+    rows: [...ballistaModeRows(mode), ...ballistaRows(progress)],
     sections: [],
     status: ballistaStatusInfo(status),
+    actions: [
+      {
+        id: 'toggleBallistaMode',
+        label: mode === 'auto' ? 'Passer en manuel' : 'Passer en automatique',
+        enabled: entity.alive,
+        hint: entity.alive ? undefined : 'Baliste détruite',
+      },
+    ],
   };
 }
 

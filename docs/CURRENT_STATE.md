@@ -154,7 +154,7 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
    - **clic droit** : ordre aux unités sélectionnées (attaque si un ennemi
      est sous le curseur, sinon déplacement de groupe) ;
    - **S** : Stop, les unités sélectionnées passent en Garde ;
-   - **Q** : tir de la Baliste (voir §5) ;
+   - **Q** : tir de la Baliste en mode MANUEL, sans effet en AUTO (voir §5) ;
    - caméra : Maj + clic droit pour pivoter, clic gauche + clic droit pour
      déplacer, molette pour zoomer (détail dans `EDITOR.md`, §13).
 
@@ -255,10 +255,14 @@ en bataille. Elle n'existe pas dans l'éditeur.
   - **Forge** : PV et emprise. En préparation, la fiche porte le bouton
     **« Ouvrir la Forge »** (§14) ; en bataille, aucun bouton ;
   - **Baliste** : PV, dégâts par carreau, recharge, carreaux par volée.
-    Aucune portée, le tir n'en a pas. En préparation : PV max / max et
-    « Prête pour la bataille ». En bataille : PV de l'entité et état
-    dynamique `PRÊTE`, `RECHARGE x.x s`, `EN VOL` ou `DÉTRUITE`, issu de la
-    même source que le HUD de la Baliste ;
+    Aucune portée, le tir n'en a pas. En préparation : PV max / max,
+    « Mode : Automatique au début de la bataille » et « Prête pour la
+    bataille ». En bataille : PV de l'entité, mode de tir (« Automatique ·
+    Cible : Ennemi le plus proche » ou « Manuel · Tir : Q vers le
+    curseur »), bouton **« Passer en manuel » / « Passer en
+    automatique »** (désactivé si elle est détruite), et état dynamique
+    `PRÊTE`, `RECHARGE x.x s`, `EN VOL` ou `DÉTRUITE`, issu de la même
+    source que le HUD de la Baliste ;
   - **Groupe** (allié sélectionné ou ennemis inspectés) : nombre d'unités,
     composition par classe (« 3 Fantassins »), PV cumulés actuels / max et
     nombre de blessées. Aucune moyenne de dégâts, de portée ou de vitesse.
@@ -332,7 +336,8 @@ Sources : `data/units.ts` (`playerUnlockMode`), `run/metaProgress.ts`
 
 Sources : `config/constants.ts` (`PLAYER_ARROW_*`, `TALENT_*`,
 `MACHINE_GUN_*`), `data/buildings.ts`, `run/ballistaStats.ts` (valeurs
-effectives du tir), `sim/playerArrow.ts`, `main.ts`.
+effectives du tir), `sim/playerArrow.ts`, `sim/ballistaAuto.ts` (mode
+AUTO), `main.ts`.
 
 - **Bâtiment** : 25 PV de base. La Baliste compte pour la survie du camp
   joueur. Une fois détruite, elle ne tire plus.
@@ -342,38 +347,64 @@ effectives du tir), `sim/playerArrow.ts`, `main.ts`.
   place ni ne la déplace ; pendant la run, elle ne bouge qu'à l'étape C de
   l'agrandissement, en reculant d'une case avec le camp joueur (§11).
   Voir `EDITOR.md` §16 pour l'éditeur.
-- **Tir** : un appui sur **Q** tire un carreau en arc vers le point du sol
-  sous le curseur, recalculé au moment de l'appui (la caméra a pu bouger
-  depuis le dernier mouvement de souris).
+- **Tir** : un carreau en arc vers un point du sol, résolu à l'arrivée
+  (ennemi le plus proche du point visé dans le rayon d'impact).
   - Valeurs de base : 2 dégâts, recharge d'environ 2,31 s
     (`PLAYER_ARROW_COOLDOWN = 3 / 1.3`).
   - Vitesse 13,5 cases/s, rayon d'impact 0,63.
+  - Aucune portée maximale.
   - Le tir est refusé pendant la recharge et tant que la volée précédente
     est encore en vol.
-  - Q est sans effet hors bataille, en pause, pendant la transition de fin
-    de vague et quand le focus est dans un champ de saisie. La répétition
-    automatique du clavier ne déclenche pas de tir.
+  - La Baliste ne tire jamais hors bataille, en pause ni pendant la
+    transition de fin de vague.
+- **Modes de tir** : chaque bataille commence en **AUTO** (y compris
+  « Tester le scénario »), quel que soit le mode de la bataille précédente.
+  Le joueur bascule entre AUTO et **MANUEL** depuis la fiche de la Baliste
+  (clic sur sa base). Les deux modes utilisent la **même fonction de tir**
+  et la **même recharge** de la simulation : changer de mode ne modifie
+  jamais la recharge et ne donne aucun tir supplémentaire.
+- **Mode AUTO** (`sim/ballistaAuto.ts`, décidé à chaque pas fixe) :
+  - cible l'unité ennemie vivante valide la plus proche de la Baliste
+    (jamais un bâtiment ; égalité tranchée par l'id) ;
+  - une cible acquise est conservée tant qu'elle reste valide ; à sa mort,
+    la plus proche suivante est choisie ;
+  - aucune portée maximale n'est appliquée, comme pour le tir manuel ;
+  - tir anticipé déterministe : la vitesse de la cible est celle observée
+    au dernier pas fixe (`(x − prevX) / dt`, plafonnée à 2 × sa vitesse
+    de marche) ; la prédiction résout l'interception carreau / cible en
+    ligne droite (plus petite racine positive de
+    `|P + V·t − O| = vitesse du carreau × t`, repli sur distance / vitesse
+    sans solution) et vise `P + V·t`, avec `t` plafonné à 2,5 s. Une
+    cible qui change de direction après le tir peut être ratée ;
+  - Q est sans effet ; le réticule est masqué et la Baliste s'oriente vers
+    sa cible.
+- **Mode MANUEL** : aucun tir automatique. Un appui sur **Q** tire vers le
+  point du sol sous le curseur, recalculé au moment de l'appui (la caméra a
+  pu bouger depuis le dernier mouvement de souris).
+  - Q est sans effet quand le focus est dans un champ de saisie. La
+    répétition automatique du clavier ne déclenche pas de tir.
   - Tirer ne modifie ni la sélection des unités, ni un rectangle de
     sélection en cours, et n'émet aucun ordre.
 - **Avec le talent Tir rapide** :
   - cadence +60 %, vitesse du projectile +100 %, +2 dégâts ;
-  - maintenir Q tire automatiquement à la cadence effective. Sans le
-    talent, maintenir Q ne tire qu'une fois.
+  - en MANUEL, maintenir Q tire en continu à la cadence effective. Sans
+    le talent, maintenir Q ne tire qu'une fois.
 - **Avec le talent Mitraillette** :
   - le total des bonus de cadence est multiplié par 3 ;
   - chaque tir envoie 3 carreaux sous une seule recharge. Les deux
-    supplémentaires visent les deux ennemis les plus proches du curseur, dans
-    un rayon de 3.
+    supplémentaires visent les deux ennemis les plus proches du point visé
+    (le curseur en MANUEL, le point anticipé en AUTO), dans un rayon de 3.
 - **Amélioration de Forge « Baliste »** : voir §14.
-- **Parchemin armé** : le clic gauche sert au parchemin. Q tire quand même
-  avec la Baliste, et le parchemin reste armé.
-- **Réticule** : un anneau doré discret suit le sol sous le curseur pendant
-  la bataille, plus visible quand la Baliste est prête, presque transparent
-  pendant la recharge, masqué si elle est détruite. La Baliste s'oriente
-  vers lui.
+- **Parchemin armé** : le clic gauche sert au parchemin. En MANUEL, Q tire
+  quand même avec la Baliste, et le parchemin reste armé.
+- **Réticule** (MANUEL seulement) : un anneau doré discret suit le sol sous
+  le curseur pendant la bataille, plus visible quand la Baliste est prête,
+  presque transparent pendant la recharge, masqué si elle est détruite. La
+  Baliste s'oriente vers lui.
 - **HUD de la Baliste** (`ui/ballistaIndicator.ts`), unique, en bas au
   centre, visible en bataille hors pause :
-  - `[Q] BALISTE — <état>`, avec l'état `PRÊTE`, le temps de recharge
+  - `AUTO BALISTE — <état>` (préfixe vert) en AUTO, `[Q] BALISTE — <état>`
+    en MANUEL, avec l'état `PRÊTE`, le temps de recharge
     restant (`1.4 s`), `EN VOL` (recharge terminée mais volée précédente
     encore en vol) ou `DÉTRUITE` (bloc grisé) ;
   - une barre de recharge intégrée, calculée sur la recharge **effective**

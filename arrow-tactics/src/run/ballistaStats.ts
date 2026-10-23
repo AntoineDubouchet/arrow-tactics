@@ -92,6 +92,12 @@ export type BallistaStatus =
   | { kind: 'inFlight' }
   | { kind: 'destroyed' };
 
+/** Mode de tir de la Baliste pendant la bataille : `auto` (vise seule
+ *  l'unite ennemie la plus proche, tir anticipe, voir sim/ballistaAuto.ts)
+ *  ou `manual` (tir sur Q vers le curseur). Toujours `auto` au debut d'une
+ *  bataille ; choisi par le joueur depuis la fiche de la Baliste. */
+export type BallistaFireMode = 'auto' | 'manual';
+
 /** Libelles des etats sans duree, partages par le HUD et la fiche. */
 export const BALLISTA_STATUS_LABELS: Record<Exclude<BallistaStatus['kind'], 'reloading'>, string> = {
   ready: 'PRÊTE',

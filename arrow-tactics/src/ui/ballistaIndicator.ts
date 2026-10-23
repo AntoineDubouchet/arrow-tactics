@@ -1,5 +1,5 @@
 import { clamp } from '../core/math';
-import { BALLISTA_STATUS_LABELS, formatBallistaCooldownSeconds, type BallistaStatus } from '../run/ballistaStats';
+import { BALLISTA_STATUS_LABELS, formatBallistaCooldownSeconds, type BallistaFireMode, type BallistaStatus } from '../run/ballistaStats';
 
 export type { BallistaStatus };
 
@@ -14,6 +14,9 @@ export type { BallistaStatus };
 export class BallistaIndicator {
   private readonly root: HTMLElement;
   private readonly state: HTMLElement;
+  /** Prefixe du mode : « [Q] » en MANUEL (tir sur Q), « AUTO » en AUTO. */
+  private readonly mode: HTMLElement;
+  private shownMode: BallistaFireMode | null = null;
   private readonly fill: HTMLElement;
   private readonly selection: HTMLElement;
   private shownVisible = false;
@@ -28,7 +31,9 @@ export class BallistaIndicator {
 
     const line = document.createElement('div');
     line.className = 'ballista-indicator-line';
-    line.textContent = '[Q] BALISTE — ';
+    this.mode = document.createElement('span');
+    this.mode.className = 'ballista-indicator-mode';
+    line.append(this.mode, ' BALISTE — ');
     this.state = document.createElement('span');
     this.state.className = 'ballista-indicator-state';
     line.appendChild(this.state);
@@ -47,12 +52,18 @@ export class BallistaIndicator {
     this.root.style.display = 'none';
   }
 
-  update(visible: boolean, status: BallistaStatus, selectedCount: number): void {
+  update(visible: boolean, status: BallistaStatus, selectedCount: number, mode: BallistaFireMode): void {
     if (visible !== this.shownVisible) {
       this.shownVisible = visible;
       this.root.style.display = visible ? '' : 'none';
     }
     if (!visible) return;
+
+    if (mode !== this.shownMode) {
+      this.shownMode = mode;
+      this.mode.textContent = mode === 'auto' ? 'AUTO' : '[Q]';
+      this.root.classList.toggle('ballista-indicator--auto', mode === 'auto');
+    }
 
     const state =
       status.kind === 'reloading'

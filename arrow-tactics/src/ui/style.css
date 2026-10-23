@@ -895,6 +895,11 @@ img {
   opacity: 0.6;
 }
 
+/* Mode AUTO : prefixe « AUTO » distinct du « [Q] » du tir manuel. */
+.ballista-indicator--auto .ballista-indicator-mode {
+  color: #8fd18a;
+}
+
 /* Fiche de l'entite selectionnee (voir ui/entityInfoPanel.ts) : en haut a
    gauche, en preparation comme en bataille (le debug est en haut a droite).
    Meme famille visuelle que le HUD de la Baliste ; le liseré gauche prend la

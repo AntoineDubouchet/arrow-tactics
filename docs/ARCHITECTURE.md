@@ -99,9 +99,12 @@ simulation exécutable sans navigateur (scripts Node ponctuels).
 
 Dans `main.ts` (`new Loop(...)`) :
 
-- **`onStep(dt)`** : `world.step(dt)`, puis tir automatique de la flèche
-  (maintien de Q avec le talent Tir rapide), puis lecture des événements du
-  tick (§8).
+- **`onStep(dt)`** : `world.step(dt)`, puis tir de la flèche : maintien de
+  Q avec le talent Tir rapide en mode MANUEL (`attemptAutoFire`), tir du
+  mode AUTO de la Baliste (`attemptBallistaAutoFire`, cible et point
+  anticipé par `sim/ballistaAuto.ts`) ; les deux passent par le même
+  `fireArrowIfReady` et la même recharge (`World.fireArrowVolley`). Puis
+  lecture des événements du tick (§8).
 - **`onRender(alpha)`** : synchronisation des vues avec la simulation
   (interpolation `prevX/prevZ → x/z`), animations et VFX en temps réel
   (`realDt`), puis `renderer.render()`.

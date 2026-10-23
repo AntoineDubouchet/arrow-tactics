@@ -122,7 +122,14 @@ import { createBattleSummary, defeatedLines, recordEnemyDefeated, recordGoldEarn
 import { Rng } from './core/rng';
 import { getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './run/playerUnitStats';
-import { effectivePlayerArrowCooldown, effectivePlayerArrowDamage, effectivePlayerArrowSpeed, playerArrowBoltsPerVolley } from './run/ballistaStats';
+import {
+  effectivePlayerArrowCooldown,
+  effectivePlayerArrowDamage,
+  effectivePlayerArrowSpeed,
+  playerArrowBoltsPerVolley,
+  type BallistaFireMode,
+} from './run/ballistaStats';
+import { predictBallistaAimPoint, selectBallistaAutoTarget } from './sim/ballistaAuto';
 import {
   battleBallistaInfo,
   type EntityInfoAction,
@@ -1827,6 +1834,10 @@ function hasForge(): boolean {
 
 /** Action de la fiche d'entite (ui/entityInfoPanel.ts). */
 function onEntityInfoAction(id: EntityInfoAction['id']): void {
+  if (id === 'toggleBallistaMode') {
+    setBallistaFireMode(ballistaFireMode === 'auto' ? 'manual' : 'auto');
+    return;
+  }
   if (id === 'upgradeBuilding') {
     upgradeSelectedBuilding();
     return;
@@ -3489,14 +3500,14 @@ function isBallistaDestroyed(): boolean {
  *  UN SEUL appel a fireArrowVolley par tir (jamais 3 appels independants
  *  a fireArrow) : "Une attaque = un declenchement", un seul cooldown pour
  *  toute la volee, meme avec Mitraillette. */
-function fireArrowIfReady(): void {
+function fireArrowIfReady(aimX: number = playerAimX, aimZ: number = playerAimZ): void {
   // Baliste detruite : verifie AVANT tout calcul de tir.
   if (isBallistaDestroyed()) return;
   // Meme valeur de degats EFFECTIVE pour les 3 carreaux (talent Tir rapide +
   // amelioration Baliste deja inclus) — jamais reduite/partagee entre eux
   // (demande explicite : "chaque carreau = degats normaux de la Baliste").
   const damage = effectivePlayerArrowDamage(playerProgression());
-  const shots: ArrowShotSpec[] = buildBallistaVolleyShots(playerArrowOrigin.x, playerArrowOrigin.z, playerAimX, playerAimZ).map((s) => ({
+  const shots: ArrowShotSpec[] = buildBallistaVolleyShots(playerArrowOrigin.x, playerArrowOrigin.z, aimX, aimZ).map((s) => ({
     ...s,
     damage,
   }));
@@ -3535,7 +3546,9 @@ let fireKeyHeld = false;
  *  touche ni a la selection RTS, ni a un rectangle en cours, ni a un objet
  *  arme, qui reste arme. */
 function fireBallistaFromKey(): void {
-  if (!canFireBallista()) return;
+  // Q est inactif en AUTO (decision d'Antoine) : passer en MANUEL depuis la
+  // fiche de la Baliste pour tirer au curseur.
+  if (!canFireBallista() || ballistaFireMode !== 'manual') return;
   fireKeyHeld = true;
   aimAtPointer();
   fireArrowIfReady();
@@ -3548,9 +3561,45 @@ function fireBallistaFromKey(): void {
  *  Baliste ne peut pas tirer (voir canFireBallista). Pas de double tir avec
  *  l'appui initial : fireArrowVolley refuse tant que la recharge court. */
 function attemptAutoFire(): void {
-  if (!fireKeyHeld || !isTalentActive('tir_rapide') || !canFireBallista()) return;
+  if (!fireKeyHeld || ballistaFireMode !== 'manual' || !isTalentActive('tir_rapide') || !canFireBallista()) return;
   aimAtPointer();
   fireArrowIfReady();
+}
+
+/** Mode de tir de la Baliste (voir BallistaFireMode) : remis a `auto` au
+ *  debut de chaque bataille (resetBattleControls), quel que soit le mode de
+ *  la bataille precedente. */
+let ballistaFireMode: BallistaFireMode = 'auto';
+/** Cible AUTO courante (id d'entite), conservee tant qu'elle reste valide
+ *  (voir selectBallistaAutoTarget). null hors bataille ou sans cible. */
+let ballistaAutoTargetId: number | null = null;
+
+/** Bascule AUTO / MANUEL demandee depuis la fiche de la Baliste. Ne touche
+ *  JAMAIS a la recharge (World.playerArrow) : basculer ne permet aucun tir
+ *  supplementaire. */
+function setBallistaFireMode(mode: BallistaFireMode): void {
+  if (!inBattlePhase() || ballistaFireMode === mode) return;
+  ballistaFireMode = mode;
+  ballistaAutoTargetId = null;
+  fireKeyHeld = false;
+  entityInfoSelectionKey = '';
+}
+
+/** Tir AUTOMATIQUE, une fois par pas de simulation fixe (comme
+ *  attemptAutoFire) : cible = unite ennemie valide la plus proche, conservee
+ *  tant qu'elle reste valide ; point vise anticipe (sim/ballistaAuto.ts).
+ *  La cadence reste entierement celle de World.fireArrowVolley (recharge et
+ *  volee en vol), via le meme fireArrowIfReady que le tir manuel. */
+function attemptBallistaAutoFire(dt: number): void {
+  if (ballistaFireMode !== 'auto' || !canFireBallista() || isBallistaDestroyed()) return;
+  const current = ballistaAutoTargetId !== null ? world.getById(ballistaAutoTargetId) : undefined;
+  const target = selectBallistaAutoTarget(world.entities, playerArrowOrigin.x, playerArrowOrigin.z, current);
+  ballistaAutoTargetId = target?.id ?? null;
+  if (!target) return;
+  const arrow = world.playerArrow;
+  if (arrow.cooldown > 0 || arrow.flights.length > 0) return;
+  const aim = predictBallistaAimPoint(playerArrowOrigin.x, playerArrowOrigin.z, target, effectivePlayerArrowSpeed(metaProgress), dt);
+  fireArrowIfReady(aim.x, aim.z);
 }
 
 /** Etat affiche par le HUD de la Baliste (voir ui/ballistaIndicator.ts) —
@@ -3589,7 +3638,7 @@ function currentEntityInfo(): EntityInfoViewModel | null {
     if (battleInspectedEntityId !== null) {
       const inspected = world.getById(battleInspectedEntityId);
       if (!inspected) return null;
-      if (inspected.id === ballistaEntityId) return battleBallistaInfo(inspected, currentBallistaStatus(), playerProgression());
+      if (inspected.id === ballistaEntityId) return battleBallistaInfo(inspected, currentBallistaStatus(), playerProgression(), ballistaFireMode);
       return battleBuildingInfo(inspected, playerProgression(), battleOwnedBuildingLevel(inspected));
     }
     const aliveEntities = (ids: number[]): Entity[] => ids.map((id) => world.getById(id)).filter((e): e is Entity => e !== undefined && e.alive);
@@ -3815,6 +3864,8 @@ function resetBattleControls(): void {
   lastBattleUnitClickId = null;
   pendingRightClickOrder = false;
   fireKeyHeld = false;
+  ballistaFireMode = 'auto';
+  ballistaAutoTargetId = null;
   aimAtPointer();
 }
 
@@ -4871,6 +4922,7 @@ const loop = new Loop(
     // le pas de simulation FIXE, jamais dans le rendu (variable) : le rythme
     // reel des tirs reste cadence a SIM_STEP pres, jamais au framerate.
     attemptAutoFire();
+    attemptBallistaAutoFire(dt);
 
     for (const event of world.combatEvents) {
       // Lookup O(1) (World.getById, 2026-08-13) plutot qu'une recherche
@@ -5351,7 +5403,7 @@ const loop = new Loop(
     // L'apercu de deplacement n'existe qu'en preparation et dans l'editeur.
     if (!inPlacementPhase && !inEditorMode) unitMovePreview.hide();
     else setBattleSelection([]);
-    ballistaIndicator.update(inBattlePhase() && !pauseMenuOpen, currentBallistaStatus(), battleSelection.size);
+    ballistaIndicator.update(inBattlePhase() && !pauseMenuOpen, currentBallistaStatus(), battleSelection.size, ballistaFireMode);
     syncBattleInspection();
     updateEntityInfoPanel(now);
 
@@ -5520,8 +5572,18 @@ const loop = new Loop(
     // RTS : plus visible quand la Baliste est prete, presque transparent
     // pendant la recharge, masque si elle est detruite.
     const aiming = inBattle && !isBallistaDestroyed();
-    aimReticle.visible = aiming;
-    if (aiming) {
+    // AUTO : pas de reticule (Q inactif), la Baliste regarde sa cible.
+    const manualAiming = aiming && ballistaFireMode === 'manual';
+    aimReticle.visible = manualAiming;
+    if (aiming && !manualAiming) {
+      const target = ballistaAutoTargetId !== null ? world.getById(ballistaAutoTargetId) : undefined;
+      if (target?.alive) {
+        const dx = target.x - playerArrowOrigin.x;
+        const dz = target.z - playerArrowOrigin.z;
+        if (Math.hypot(dx, dz) > 1e-4) ballista.rotation.y = Math.atan2(-dx, -dz);
+      }
+    }
+    if (manualAiming) {
       aimAtPointer();
       aimReticle.position.x = playerAimX;
       aimReticle.position.z = playerAimZ;
