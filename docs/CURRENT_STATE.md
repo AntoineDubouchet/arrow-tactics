@@ -176,7 +176,8 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
      déplacer, molette pour zoomer (détail dans `EDITOR.md`, §13).
 
    **Début de bataille** (vraie bataille et « Tester le scénario ») : les
-   ennemis avancent ; les unités du joueur présentes au lancement font un
+   ennemis avancent (en Mode survie, seul le premier groupe de la vague est
+   présent, les autres arrivent en renfort, §10) ; les unités du joueur présentes au lancement font un
    pas d'ouverture d'exactement **une case** vers l'ennemi, formation
    conservée, puis passent en **Garde** : elles restent sur place et ne
    réagissent qu'à un ennemi entrant dans leur aggro, ou à un ordre. Le pas
@@ -186,7 +187,9 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
    une Caserne ou un Camp d'archerie passent directement en Garde, sans ce
    pas.
 5. **Fin de bataille**, dès qu'un camp n'a plus de combattant (unités et
-   bâtiments du joueur comptent tous les deux) :
+   bâtiments du joueur comptent tous les deux). La **victoire** exige en plus
+   que tous les groupes ennemis de la vague soient apparus (§10) ; la
+   défaite reste immédiate :
    - **Victoire** : une bannière, puis un rideau noir, derrière lequel sont
      versés le bonus d'or et appliquée l'étape d'expansion de la carte ;
      ensuite l'écran de bilan de la manche (ci-dessous), puis le placement
@@ -525,6 +528,9 @@ Production de la Mine :
 - le tirage est pseudo-aléatoire et déterministe (générateur à graine,
   re-semé depuis la graine de la bataille) ;
 - « +N or » s'affiche au-dessus de la Mine ;
+- la minuterie est **en pause** quand aucun ennemi n'est en vie alors que
+  des renforts sont attendus (temps mort entre deux groupes, §10) ; elle
+  reprend dès l'arrivée du groupe ;
 - jamais dans « Tester le scénario » ; une Mine détruite s'arrête aussitôt.
 
 Production de la Caserne (Fantassins) et du Camp d'archerie (Archers) :
@@ -703,7 +709,45 @@ Fantassins et Archers :
     `UNIT_UPGRADES`.
   - La fiche d'un ennemi inspecté affiche ce niveau à partir de 1
     (`floor(v / 2) + 1`), en vraie bataille seulement.
-- **Formation** : mêlée devant, unités à distance derrière.
+- **Formation** : mêlée devant, unités à distance derrière, pour chaque
+  groupe (voir ci-dessous).
+
+**Mini-vagues** (`run/enemyWaveGroups.ts`,
+`sim/systems/enemyReinforcements.ts`, constantes `ENEMY_GROUP_*` et
+`ENEMY_EMPTY_FIELD_SPAWN_SECONDS` de `config/constants.ts`). Une vague reste
+une seule vague (même total, même composition, même niveau), mais ses
+ennemis arrivent par groupes :
+
+- **Groupes** : `G = ceil(total / 5)`, tailles **équilibrées** (écart d'au
+  plus 1, les plus grands d'abord) : 2 → [2], 6 → [3, 3], 7 → [4, 3],
+  14 → [5, 5, 4], 28 → [5, 5, 5, 5, 4, 4].
+- **Répartition des types**, déterministe : Sentinelles puis Mages dans le
+  groupe le moins chargé (poids S 20, M 5, A 1,5, F 1, rapporté à la taille
+  du groupe), au plus près de leur place régulière dans la vague ; Archers
+  au prorata de la place restante ; Fantassins pour compléter. Un Mage et
+  une Sentinelle évitent le même groupe ; le premier groupe reste léger.
+- **Cadence** : le premier groupe est présent au lancement ; les suivants
+  arrivent toutes les `clamp(5,5 − 1,2 × ln G, 0,9 ; 4,5)` secondes,
+  arrondies en ticks (30 Hz) : 4,5 s pour 2 groupes, 3,35 s pour 6, 2,86 s
+  pour 9, 1,74 s pour 23. Un groupe **n'attend pas** la mort du précédent
+  (chevauchement).
+- **Terrain vide** : après **1 s** sans aucun ennemi vivant, le groupe
+  suivant arrive sans attendre son délai ; le délai suivant repart de cette
+  arrivée.
+- **Positions** : chaque groupe garde sa formation, centrée au front de la
+  zone de spawn ennemie ; une unité dont la case est prise (obstacle, trou,
+  unité) prend la case libre la plus proche de la zone, dans un ordre
+  stable. Sans place pour tout le groupe, il réessaie au tick suivant.
+- **Victoire** : seulement quand plus aucun ennemi n'est en vie **et** que
+  tous les groupes sont apparus.
+- **Récompenses inchangées** : or au kill, Butin de guerre, bonus de
+  victoire et bilan portent sur la vague entière (pas de bilan
+  intermédiaire).
+- **Interface** : en préparation, seul le premier groupe est visible sur la
+  carte ; l'indicateur affiche « Vague N · X ennemis · G groupes ». En
+  bataille, il affiche les groupes restants, et « Renforts ennemis »
+  apparaît brièvement à chaque arrivée.
+- « Tester le scénario » n'a pas de mini-vagues (ennemis de la carte).
 
 ## 11. Arène, territoire et expansion de la carte
 

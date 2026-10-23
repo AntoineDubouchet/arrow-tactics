@@ -133,6 +133,7 @@ prevX/prevZ ← x/z
 targetingSystem → abilitySystem → movementSystem → combatSystem
 → zones persistantes → flèche du joueur → projectiles d'ombre
 → buildingProductionSystem → deathSystem → libération des emprises de bâtiments morts
+→ renforts ennemis (stepEnemyReinforcements)
 tick++, time += dt
 ```
 
@@ -267,7 +268,8 @@ La simulation émet des **faits** ; `main.ts` décide des réactions (visuelles,
 
 - **Tableaux d'événements, vidés et remplis à chaque tick** :
   `combatEvents`, `abilityEvents`, `areaEffectEvents`, `playerArrowEvents`,
-  `shadowProjectileEvents`, `productionSpawnEvents`, `buildingAttackEvents`.
+  `shadowProjectileEvents`, `productionSpawnEvents`, `enemyReinforcementSpawns`,
+  `buildingAttackEvents`.
 - **État lu directement par le rendu** : `entities`, `blasts`,
   `shadowProjectiles`, `playerArrow.flights`, `buildingProjectiles`,
   `iceNovaZones`.
@@ -286,8 +288,20 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   décide *quand* et *où* ;
   `main.ts` appelle `world.spawn` avec les stats effectives
   (`run/playerUnitStats.ts`).
+- **Renforts ennemis** (mini-vagues) : `main.ts` construit le plan de la
+  vague (`computeEnemyWavePlan` : groupes de `run/enemyWaveGroups.ts`,
+  positions de formation, délais en ticks, zone de spawn) et le passe à
+  `World.startEnemyReinforcements`, qui renvoie le premier groupe. Ensuite,
+  `sim/systems/enemyReinforcements.ts` décide à chaque tick si le groupe
+  suivant arrive (délai atteint ou 1 s de terrain vide) et sur quelles cases
+  libres ; `main.ts` crée les entités (`spawnEnemyReinforcements`, stats de
+  la vague). État explicite : `World.enemyReinforcements`
+  (`nextGroupIndex`, `nextSpawnTick`, `emptySinceTick`),
+  `pendingEnemyGroups()`, `allEnemyGroupsSpawned()`.
 - **Fin de bataille** : `world.countCombatants(team)` détecte qu'un camp
-  n'a plus de combattant, puis `applyBattleOutcome`
+  n'a plus de combattant ; la victoire exige aussi
+  `world.allEnemyGroupsSpawned()`. Puis `applyBattleOutcome`
+  (`pendingEnemyGroups` en paramètre, même règle)
   (`run/runState.ts`), puis une séquence de transition (`ui/waveTransition.ts`)
   dont le callback `onBlackout` peut être asynchrone.
 

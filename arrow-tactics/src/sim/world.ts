@@ -19,6 +19,14 @@ import { buildingProductionSystem, type ProductionSpawnEvent } from './systems/b
 import { buildingAttackSystem, type BuildingAttackEvent, type BuildingProjectile } from './systems/buildingAttack';
 import { combatSystem, type CombatEvent } from './systems/combat';
 import { deathSystem } from './systems/death';
+import {
+  createEnemyReinforcementState,
+  pendingEnemyGroupCount,
+  stepEnemyReinforcements,
+  type EnemyReinforcementPlan,
+  type EnemyReinforcementSpawn,
+  type EnemyReinforcementState,
+} from './systems/enemyReinforcements';
 import { movementSystem } from './systems/movement';
 import { tickPersistentAreaEffects, type AreaEffectTickEvent, type PersistentAreaEffect } from './systems/persistentAreaEffects';
 import { advanceShadowProjectiles, pickShadowTargets, type ShadowProjectile, type ShadowProjectileEvent } from './systems/shadowProjectiles';
@@ -107,6 +115,14 @@ export class World {
    *  appeler le vrai World.spawn avec les stats effectives (sim/ ne les
    *  connait pas). */
   productionSpawnEvents: ProductionSpawnEvent[] = [];
+  /** Renforts ennemis de la vague en cours (mini-vagues du Mode survie),
+   *  null hors Mode survie (« Tester le scénario ») — voir
+   *  sim/systems/enemyReinforcements.ts. */
+  enemyReinforcements: EnemyReinforcementState | null = null;
+  /** Ennemis a faire apparaitre au dernier step (un groupe entier), vide
+   *  sinon. Consomme par main.ts, qui appelle World.spawn avec les stats de
+   *  la vague. */
+  enemyReinforcementSpawns: EnemyReinforcementSpawn[] = [];
   /** Resultats des commandes appliquees au debut du dernier step (voir
    *  issueCommand, sim/orders.ts). Vide et repeuple a chaque tick, comme
    *  combatEvents. */
@@ -491,6 +507,26 @@ export class World {
     return n;
   }
 
+  /** Demarre les renforts ennemis de la vague : le premier groupe est du
+   *  immediatement et ses apparitions sont renvoyees a l'appelant, qui doit
+   *  les creer avant le premier step ; les suivants arrivent pendant les
+   *  steps (enemyReinforcementSpawns). */
+  startEnemyReinforcements(plan: EnemyReinforcementPlan): EnemyReinforcementSpawn[] {
+    this.enemyReinforcements = createEnemyReinforcementState(plan, this.tick);
+    return stepEnemyReinforcements(this.enemyReinforcements, this.tick, this.entities, this.obstacles);
+  }
+
+  /** Groupes ennemis pas encore apparus (0 sans renforts). */
+  pendingEnemyGroups(): number {
+    return this.enemyReinforcements ? pendingEnemyGroupCount(this.enemyReinforcements) : 0;
+  }
+
+  /** Vrai quand tous les ennemis prevus ont ete crees : condition de la
+   *  victoire, avec l'absence d'ennemi vivant. */
+  allEnemyGroupsSpawned(): boolean {
+    return this.pendingEnemyGroups() === 0;
+  }
+
   clear(seed: number = randomSeed()): void {
     this.entities.length = 0;
     this.entityById.clear();
@@ -509,6 +545,8 @@ export class World {
     this.shadowProjectiles = [];
     this.shadowProjectileEvents = [];
     this.productionSpawnEvents = [];
+    this.enemyReinforcements = null;
+    this.enemyReinforcementSpawns = [];
     this.commandQueue = [];
     this.commandResults = [];
     this.orderEvents = [];
@@ -625,6 +663,10 @@ export class World {
     this.productionSpawnEvents = buildingProductionSystem(this.entities, this.obstacles);
     deathSystem(this.entities);
     this.releaseDeadBuildingFootprints();
+    // Apres les morts du tick : un terrain vide se constate ici.
+    this.enemyReinforcementSpawns = this.enemyReinforcements
+      ? stepEnemyReinforcements(this.enemyReinforcements, this.tick, this.entities, this.obstacles)
+      : [];
 
     this.tick++;
     this.time += dt;

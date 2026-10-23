@@ -34,7 +34,6 @@ import {
   resolveBallistaOrigin,
   snapBallistaOrigin,
   type MapDef,
-  type MapUnitPlacement,
 } from './config/mapDef';
 import { SURVIVAL_ARENA_MAP, SURVIVAL_BASE_MAP } from './config/maps/survivalArena';
 import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type TerritoryCell, type TerritoryIndex } from './config/territory';
@@ -176,6 +175,8 @@ import { armyMissingHp, healArmyAtChurch } from './run/churchHeal';
 import { forwardDir, type Entity, type Team } from './sim/entity';
 import type { ArrowShotSpec } from './sim/playerArrow';
 import { World } from './sim/world';
+import type { EnemyReinforcementPlan, EnemyReinforcementSpawn } from './sim/systems/enemyReinforcements';
+import { enemyEmptyFieldSpawnTicks, enemyGroupDelayTicks, splitEnemyWaveComposition } from './run/enemyWaveGroups';
 import { initAudio, persistAudioSettings } from './audio';
 import { BuildingRotationHint } from './ui/buildingRotationHint';
 import { WaveIndicator } from './ui/waveIndicator';
@@ -1066,28 +1067,58 @@ function computeArmyFormation(unitIds: string[], map: MapDef): { x: number; z: n
  * lire `currentMap.enemyUnits` tel quel, sans lien avec la progression d'une
  * run.
  */
-function computeEnemyWavePlacements(waveNumber: number, map: MapDef): MapUnitPlacement[] {
-  const composition = computeEnemyWaveComposition(waveNumber);
-  const unitIds = [
-    ...Array<string>(composition.fantassin).fill('fantassin'),
-    ...Array<string>(composition.archer).fill('archer'),
-    // Mage (2026-08-13) : classe automatiquement en rangee arriere par
-    // layoutFormation (isRangedUnit se base sur engageRange > 2, deja vrai
-    // pour le Mage, aucun cas special necessaire ici).
-    ...Array<string>(composition.mage).fill('mage'),
-    // Sentinelle ennemie (2026-08-15) : melee (attackRange 0.95, engageRange
-    // absent), classee automatiquement en rangee AVANT par layoutFormation —
-    // meme mecanisme generique, aucun cas special necessaire ici non plus.
-    ...Array<string>(composition.sentinel).fill('sentinel'),
-  ];
-
+function computeEnemyWavePlan(waveNumber: number, map: MapDef): EnemyReinforcementPlan {
+  // Mini-vagues : composition inchangee, decoupee en groupes de 5 au plus
+  // (run/enemyWaveGroups.ts). Chaque groupe garde sa propre formation
+  // centree au front de la zone ennemie (melee devant, distance derriere,
+  // voir layoutFormation) ; la simulation decale une unite sur la case libre
+  // la plus proche si sa place est prise (sim/systems/enemyReinforcements.ts).
+  const groups = splitEnemyWaveComposition(computeEnemyWaveComposition(waveNumber));
+  const halfW = (map.width * TILE) / 2;
   const halfH = (map.height * TILE) / 2;
   // spawnDepth DYNAMIQUE — voir computeArmyFormation ci-dessus, meme raisonnement.
-  const enemyFrontZ = -halfH + currentRun.mapExpansion.spawnDepth * TILE - 0.5;
+  const spawnDepth = currentRun.mapExpansion.spawnDepth;
+  const enemyFrontZ = -halfH + spawnDepth * TILE - 0.5;
   const perRow = Math.max(1, map.width - 2);
-  const positions = layoutFormation(unitIds, enemyFrontZ, -TILE, perRow);
+  return {
+    groups: groups.map((unitIds) => {
+      const positions = layoutFormation(unitIds, enemyFrontZ, -TILE, perRow);
+      return unitIds.map((unitId, i) => ({ unitId, x: positions[i]!.x, z: positions[i]!.z }));
+    }),
+    delayTicks: enemyGroupDelayTicks(groups.length),
+    emptyFieldTicks: enemyEmptyFieldSpawnTicks(),
+    zone: { minX: -halfW, maxX: halfW, minZ: -halfH, maxZ: -halfH + spawnDepth * TILE },
+  };
+}
 
-  return unitIds.map((unitId, i) => ({ unitId, x: positions[i]!.x, z: positions[i]!.z }));
+/** Cree les ennemis d'un groupe de renfort avec les stats de la vague en
+ *  cours — meme traitement que l'ancien spawn d'un bloc de la vague. */
+function spawnEnemyReinforcements(spawns: EnemyReinforcementSpawn[]): void {
+  for (const spawn of spawns) {
+    const enemy = world.spawn(
+      spawn.unitId,
+      'enemy',
+      spawn.x,
+      spawn.z,
+      undefined,
+      enemyStatOverrides(spawn.unitId, currentRun.waveNumber),
+      enemyAbilityDamageBonus(spawn.unitId, currentRun.waveNumber),
+    );
+    rememberEnemyUnitLevel(enemy, currentRun.waveNumber);
+  }
+}
+
+/** Indicateur de vague : total et nombre de groupes en preparation, groupes
+ *  restants en bataille. */
+function refreshWaveIndicator(): void {
+  if (inPlacementPhase) {
+    const plan = computeEnemyWavePlan(currentRun.waveNumber, currentMap);
+    const total = plan.groups.reduce((sum, group) => sum + group.length, 0);
+    waveIndicator.update(currentRun.waveNumber, plan.groups.length > 1 ? `${total} ennemis · ${plan.groups.length} groupes` : `${total} ennemis`);
+    return;
+  }
+  const pending = world.pendingEnemyGroups();
+  waveIndicator.update(currentRun.waveNumber, pending > 0 ? `Renforts : ${pending} groupe${pending > 1 ? 's' : ''}` : undefined);
 }
 
 interface PlacementSlot {
@@ -1587,18 +1618,10 @@ function onValidatePlacement(): void {
     );
     rememberPlayerUnitLevel(spawned, slot.productionLevel);
   }
-  for (const pos of computeEnemyWavePlacements(currentRun.waveNumber, currentMap)) {
-    const enemy = world.spawn(
-      pos.unitId,
-      'enemy',
-      pos.x,
-      pos.z,
-      undefined,
-      enemyStatOverrides(pos.unitId, currentRun.waveNumber),
-      enemyAbilityDamageBonus(pos.unitId, currentRun.waveNumber),
-    );
-    rememberEnemyUnitLevel(enemy, currentRun.waveNumber);
-  }
+  // Mini-vagues : seul le premier groupe apparait maintenant ; les suivants
+  // sont crees a leur arrivee (enemyReinforcementSpawns, boucle de jeu).
+  spawnEnemyReinforcements(world.startEnemyReinforcements(computeEnemyWavePlan(currentRun.waveNumber, currentMap)));
+  refreshWaveIndicator();
 
   // Batiments POSSEDES par le joueur (2026-08-17, Mine/Caserne achetables —
   // voir run/runState.ts, RunState.buildings) : les meshes existent deja
@@ -1730,7 +1753,6 @@ function startPlacement(): void {
   inPlacementPhase = true;
   board.gridLines.visible = true;
   board.zones.visible = true;
-  waveIndicator.update(currentRun.waveNumber);
   waveIndicator.setVisible(true);
   goldHud.setVisible(true);
   populationHud.setVisible(true);
@@ -1746,8 +1768,11 @@ function startPlacement(): void {
   clearSelection();
   refreshPlayerPreview();
 
+  // Apercu : seulement le premier groupe, la menace presente au lancement ;
+  // le total et le nombre de groupes sont dans l'indicateur de vague.
+  refreshWaveIndicator();
   enemyPreview.clear();
-  for (const pos of computeEnemyWavePlacements(currentRun.waveNumber, currentMap)) {
+  for (const pos of computeEnemyWavePlan(currentRun.waveNumber, currentMap).groups[0] ?? []) {
     const mesh = buildUnit(pos.unitId, 'enemy');
     mesh.position.set(pos.x, 0, pos.z);
     mesh.rotation.y = Math.PI;
@@ -5257,7 +5282,11 @@ const loop = new Loop(
     // au-dessus d'elle comme l'or d'un ennemi abattu. Jamais pendant "Tester
     // le scenario" (sans lien avec une run reelle). Dans le pas FIXE (dt),
     // comme le reste du jeu ; une Mine detruite s'arrete aussitot.
-    if (inBattlePhase() && !inTestMode) {
+    // Mini-vagues : aucun ennemi en vie mais des renforts attendus -> temps
+    // mort, la minuterie de la Mine est en pause (rien n'est produit ni perdu).
+    const waitingForReinforcements =
+      world.countCombatants('enemy') === 0 && world.enemyReinforcementSpawns.length === 0 && !world.allEnemyGroupsSpawned();
+    if (inBattlePhase() && !inTestMode && !waitingForReinforcements) {
       for (const e of world.entities) {
         if (e.team !== 'player' || !e.alive || !e.isBuilding || e.unitId !== 'mine') continue;
         const elapsed = (mineProductionTimers.get(e.id) ?? 0) + dt;
@@ -5271,6 +5300,13 @@ const loop = new Loop(
         combatOverlay.spawnGoldText(e.x, e.z, amount);
         recordGoldEarned(battleSummary, amount);
       }
+    }
+
+    // Renforts ennemis (mini-vagues) : un groupe entier arrive ce tick.
+    if (world.enemyReinforcementSpawns.length > 0) {
+      spawnEnemyReinforcements(world.enemyReinforcementSpawns);
+      refreshWaveIndicator();
+      waveIndicator.flash('Renforts ennemis');
     }
 
     // Production de la manche (Caserne, Camp d'archerie) : le sim pousse un
@@ -5349,7 +5385,9 @@ const loop = new Loop(
     if (!battleOver && world.entities.length > 0) {
       const playerAlive = world.countCombatants('player');
       const enemyAlive = world.countCombatants('enemy');
-      if (playerAlive === 0 || enemyAlive === 0) {
+      // Mini-vagues : aucun ennemi vivant ne suffit pas, tous les groupes
+      // doivent etre apparus. La defaite reste immediate.
+      if (playerAlive === 0 || (enemyAlive === 0 && world.allEnemyGroupsSpawned())) {
         battleOver = true;
         loop.timeScale = 0;
         // Fin de combat (2026-08-13) : n'importe quel tir automatique en
@@ -5387,7 +5425,7 @@ const loop = new Loop(
             // waveNumber en cas de victoire, donc c'est le numero de la vague
             // qu'on vient reellement de jouer, pas la suivante.
             const waveBeingFought = currentRun.waveNumber;
-            const outcome = applyBattleOutcome(currentRun, world.entities);
+            const outcome = applyBattleOutcome(currentRun, world.entities, world.pendingEnemyGroups());
             lastBattleGoldEarned = outcome.goldEarned;
             // Bonus de victoire : fait partie de l'or gagne par la manche.
             recordGoldEarned(battleSummary, outcome.goldEarned);

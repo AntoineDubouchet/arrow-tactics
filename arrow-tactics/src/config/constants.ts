@@ -108,6 +108,21 @@ export const EXTRA_ENEMY_MAGE_INTERVAL = 3;
 export const ENEMY_SENTINEL_START_WAVE = 10;
 export const ENEMY_SENTINEL_INTERVAL = 5;
 
+/** Mini-vagues (run/enemyWaveGroups.ts, sim/systems/enemyReinforcements.ts) :
+ *  une vague arrive en G = ceil(total / ENEMY_GROUP_MAX_SIZE) groupes de
+ *  tailles equilibrees. Le premier groupe apparait au debut de la bataille,
+ *  les suivants toutes les
+ *  clamp(BASE - LOG_FACTOR * ln(G), MIN, MAX) secondes (arrondies en ticks),
+ *  sans attendre la mort du groupe precedent, ou apres
+ *  ENEMY_EMPTY_FIELD_SPAWN_SECONDS sans aucun ennemi vivant. Valeurs a
+ *  ajuster apres playtest. */
+export const ENEMY_GROUP_MAX_SIZE = 5;
+export const ENEMY_GROUP_DELAY_BASE_SECONDS = 5.5;
+export const ENEMY_GROUP_DELAY_LOG_FACTOR = 1.2;
+export const ENEMY_GROUP_DELAY_MIN_SECONDS = 0.9;
+export const ENEMY_GROUP_DELAY_MAX_SECONDS = 4.5;
+export const ENEMY_EMPTY_FIELD_SPAWN_SECONDS = 1.0;
+
 // --- Nova de glace / Blizzard (2026-08-14) ---
 // Sort de bataille : impact instantane (aucun projectile, aucun temps de
 // vol) qui immobilise les ennemis d'une zone. Le RAYON n'a pas de valeur

@@ -61,6 +61,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | B3 | La case comme unité de mesure | Active |
 | B4 | Identité du combat automatique | Historique (intention d'origine) / Ouverte (évolution) |
 | B5 | Début de bataille défensif pour le joueur | Active |
+| B6 | Vagues ennemies en mini-groupes | Active (mécanique) / Ouverte (courbe des vagues tardives) |
 | C1 | Grand arbre de talents abandonné | Remplacée |
 | C2 | Exclusivités dans l'arbre de talents | Remplacée (fondateurs) / Active (talents frères) |
 | C3 | Attribution des points de talent | Active (forme actuelle) / Remplacée (formes antérieures) |
@@ -267,6 +268,36 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   scénario » (`CURRENT_STATE.md` §2).
 - **Sources** : `main.ts` (`openBattleWithFormationStep`,
   `holdPlayerUnitsInGuard`), `sim/orders.ts`.
+
+### B6 — Vagues ennemies en mini-groupes
+
+- **Statut** : Active (mécanique). Ouverte : le total des vagues tardives,
+  à rééquilibrer après playtest.
+- **Contexte** : toute la vague apparaissait au même tick (jusqu'à 114
+  ennemis à la vague 20).
+- **Décision** (demande d'Antoine) :
+  - total, composition, niveau et récompenses inchangés ; seule l'arrivée
+    change ;
+  - groupes de **5 au plus**, tailles **équilibrées** (pas de reste du type
+    [5, 1]) ;
+  - types répartis sur toute la vague (unités lourdes étalées, Mage et
+    Sentinelle séparés, premier groupe léger), sans hasard ;
+  - cadence **logarithmique** : `clamp(5,5 − 1,2 × ln G, 0,9 ; 4,5)` s
+    entre deux arrivées ; vagues courtes espacées, longues en pression
+    continue ;
+  - **chevauchement autorisé** : un groupe n'attend pas la mort du
+    précédent ;
+  - **1 s de terrain vide** fait arriver le groupe suivant plus tôt ;
+  - **victoire seulement après tous les groupes** ;
+  - la Mine ne produit pas pendant un temps mort (aucun ennemi, renforts
+    attendus).
+- **Raison connue** : faire monter la pression progressivement sans faire
+  apparaître des dizaines d'ennemis au même tick.
+- **À ne pas faire** : ne pas déduire la fin de vague du seul nombre
+  d'ennemis vivants.
+- **Sources** : `run/enemyWaveGroups.ts`, `sim/systems/enemyReinforcements.ts`,
+  `config/constants.ts`, `main.ts` (`computeEnemyWavePlan`),
+  `CURRENT_STATE.md` §10.
 
 ---
 

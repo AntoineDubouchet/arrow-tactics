@@ -488,10 +488,11 @@ export function awardKillGold(run: RunState, unitId: string, hooks: TalentEconom
  * faction du joueur "en vie" exactement comme une unite, par cette seule
  * propriete generique.
  */
-export function applyBattleOutcome(run: RunState, entities: Entity[]): BattleOutcome {
+export function applyBattleOutcome(run: RunState, entities: Entity[], pendingEnemyGroups = 0): BattleOutcome {
   const enemyAlive = entities.some((e) => e.team === 'enemy' && e.alive && e.countsForDefeat);
   const playerAlive = entities.some((e) => e.team === 'player' && e.alive && e.countsForDefeat);
-  const won = playerAlive && !enemyAlive;
+  // Mini-vagues : pas de victoire tant que des groupes ennemis restent a venir.
+  const won = playerAlive && !enemyAlive && pendingEnemyGroups === 0;
 
   let goldEarned = 0;
   if (won) {
