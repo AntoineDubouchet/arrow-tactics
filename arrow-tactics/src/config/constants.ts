@@ -455,6 +455,36 @@ export interface ObstacleDef {
    *  a chaque rendu. Si absent, orientation fixee par la graine d'aspect
    *  (voir obstacleAppearanceSeed). */
   rotationY?: number;
+  /** Faux : l'obstacle bloque le deplacement mais PAS les tirs (ligne de tir
+   *  des attaques et capacites, voir sim/geometry.ts, findBlockingObstacle).
+   *  Absent = bloque aussi les tirs (comportement de tout obstacle
+   *  collidable). Muraille du joueur (BuildingDef.blocksShots). */
+  blocksShots?: boolean;
+  /** Porte de muraille (BuildingDef.gate) : camp pour lequel l'obstacle est
+   *  un PASSAGE. Ses trajets (A*, ligne droite, contournement) le traversent
+   *  toujours, meme ferme ; il ne le franchit physiquement que si
+   *  `passageOpen`. Toujours bloquant pour l'autre camp. Pose par
+   *  World.spawnBuilding. Absent : bloque toutes les unites. */
+  passableForTeam?: 'player' | 'enemy';
+  /** Porte assez ouverte pour que `passableForTeam` la franchisse
+   *  physiquement (sim/systems/gates.ts). Ne change que par
+   *  World.setGatePassage, qui remplace alors World.obstacles (caches par
+   *  identite de tableau, sim/geometry.ts). */
+  passageOpen?: boolean;
+  /** Vrai : `tilesX`/`tilesZ` sont deja l'emprise APRES rotation (par
+   *  quarts de tour), et le modele est cale sur l'emprise d'origine avant
+   *  d'etre tourne (voir render/buildings.ts). Absent : rotation purement
+   *  visuelle, emprise inchangee (tous les autres obstacles). */
+  footprintFollowsRotation?: boolean;
+  /** Lacet VISUEL ajoute au modele seul, apres `rotationY` (render/
+   *  buildings.ts) : oriente la face exterieure d'une muraille selon son camp
+   *  (BuildingDef.outerFaceTowardHostiles). N'agit ni sur l'emprise, ni sur
+   *  la collision, ni sur `rotationY`. Absent = 0. */
+  modelFacingYaw?: number;
+  /** Extremites d'un segment de muraille qui butent contre le flanc d'un
+   *  segment perpendiculaire (core/wallTrace.ts, wallEndJoins) : le rendu y
+   *  allonge le modele pour fermer visuellement le virage. Purement visuel. */
+  wallJoin?: { minEnd: boolean; maxEnd: boolean };
   /** Graine d'aspect figée (orientation sans rotationY, forme d'un rocher,
    *  hauteur d'un arbre). Absente : dérivée de la position, voir
    *  obstacleAppearanceSeed. Écrite par l'agrandissement de la carte quand

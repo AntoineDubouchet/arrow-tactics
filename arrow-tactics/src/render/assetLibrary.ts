@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import type { ObstacleDef } from '../config/constants';
 
 /**
  * Chargement des modeles de decor (rochers, arbres) : de vrais fichiers .glb,
@@ -331,12 +332,9 @@ const KAYKIT_MODELS = [
  *    scenes de marche, tas de terre/grain, projectile de catapulte — "ils
  *    sont neutres ceux-la" (Antoine), aucune couleur, cle prefixee `neutral_`.
  *
- * EXPLICITEMENT ECARTES de cette passe (dossier `neutral`, memes raisons que
- * les tuiles de terrain deja ecartees plus haut) : murs (`wall_corner_*`,
- * `wall_straight*`) et clotures (`fence_*`) — systeme de pieces CONNECTABLES
- * (segments droits/coins/portes devant s'aligner precisement bord a bord),
- * fondamentalement different d'un obstacle a emprise unique ; demanderait un
- * outil de trace de mur dedie, pas construit ici.
+ * Murs (`wall_*`) et clotures (`fence_*`) du dossier `neutral` : absents de
+ * cette passe .obj, ajoutes depuis en .gltf (pack EXTRA) et charges a la
+ * demande, voir LAZY_KAYKIT_BUILDINGS.
  *
  * Empreintes (tilesX/tilesZ) mesurees par script (lecture directe des lignes
  * "v x y z" de chaque .obj, PAS a l'oeil — meme methode que pour les rochers/
@@ -542,6 +540,96 @@ export function loadEnvironmentAssets(): Promise<EnvironmentAssets> {
     );
   }
   return cachedAssets;
+}
+
+/**
+ * Pack KayKit complet (Medieval Hexagon Pack EXTRA, CC0) : modeles .gltf
+ * copies dans public/models/kaykit/ (a cote de la texture partagee) et
+ * charges A LA DEMANDE, jamais au demarrage — un modele jamais utilise n'a
+ * aucune instance Three.js. Cle (ObstacleDef.buildingModel / propModel) ->
+ * nom de fichier. Les murailles (`neutral_wall_*`) servent aussi aux
+ * murailles jouables (data/buildings.ts), chargees par main.ts au demarrage
+ * via ensureModels. Voir docs/ASSETS.md pour l'inventaire et les exclusions.
+ */
+const LAZY_KAYKIT_BUILDINGS: Readonly<Record<string, string>> = {
+  // Murailles et clotures (dossier « neutral » du pack : visuel neutre).
+  neutral_wall_straight: 'wall_straight',
+  neutral_wall_straight_gate: 'wall_straight_gate',
+  neutral_wall_corner_A_gate: 'wall_corner_A_gate',
+  neutral_wall_corner_A_inside: 'wall_corner_A_inside',
+  neutral_wall_corner_A_outside: 'wall_corner_A_outside',
+  neutral_wall_corner_B_inside: 'wall_corner_B_inside',
+  neutral_wall_corner_B_outside: 'wall_corner_B_outside',
+  neutral_fence_stone_straight: 'fence_stone_straight',
+  neutral_fence_stone_straight_gate: 'fence_stone_straight_gate',
+  neutral_fence_wood_straight: 'fence_wood_straight',
+  neutral_fence_wood_straight_gate: 'fence_wood_straight_gate',
+  // Batiments d'equipe absents du pack FREE.
+  ...Object.fromEntries(
+    ['docks', 'shipyard', 'shrine', 'stables', 'tent', 'tower_cannon', 'townhall', 'watchtower', 'workshop'].flatMap((family) =>
+      ['blue', 'red'].map((color) => [`${color}_${family}`, `building_${family}_${color}`]),
+    ),
+  ),
+  // Relief et forets (pieces de la taille d'une tuile hexagonale).
+  ...Object.fromEntries(
+    [
+      'hill_single_A', 'hill_single_B', 'hill_single_C', 'hills_A', 'hills_B', 'hills_C', 'hills_A_trees', 'hills_B_trees', 'hills_C_trees',
+      'mountain_A', 'mountain_B', 'mountain_C', 'mountain_A_grass', 'mountain_B_grass', 'mountain_C_grass',
+      'mountain_A_grass_trees', 'mountain_B_grass_trees', 'mountain_C_grass_trees',
+      'trees_A_large', 'trees_A_medium', 'trees_A_small', 'trees_B_large', 'trees_B_medium', 'trees_B_small',
+      // Materiel militaire (dossier « units/neutral » du pack, modeles statiques).
+      'cart', 'cart_merchant', 'catapult', 'cannon', 'ship',
+    ].map((name) => [`neutral_${name}`, name]),
+  ),
+};
+
+const LAZY_KAYKIT_PROPS: Readonly<Record<string, string>> = Object.fromEntries(
+  ['anchor', 'boat', 'boatrack', 'cannonball_pallet', 'haybale', 'trough', 'trough_long', 'trees_A_cut', 'trees_B_cut', 'banner'].map((name) => [`kaykit_${name}`, name]),
+);
+
+/** Vrai si `key` designe un modele charge a la demande. */
+export function isLazyModel(key: string): boolean {
+  return key in LAZY_KAYKIT_BUILDINGS || key in LAZY_KAYKIT_PROPS;
+}
+
+/** Charge (une seule fois) les modeles a la demande designes par `keys` et
+ *  les range dans les memes repertoires que le reste du decor
+ *  (buildingsByName / propsByName) : le rendu reste synchrone ensuite. Les
+ *  cles inconnues ou deja chargees sont ignorees. */
+export async function ensureModels(keys: Iterable<string>): Promise<void> {
+  const assets = await loadEnvironmentAssets();
+  await Promise.all(
+    [...new Set(keys)].map(async (key) => {
+      const building = LAZY_KAYKIT_BUILDINGS[key];
+      if (building && !assets.buildingsByName[key]) assets.buildingsByName[key] = await loadKaykitModel(building);
+      const prop = LAZY_KAYKIT_PROPS[key];
+      if (prop && !assets.propsByName[key]) assets.propsByName[key] = await loadKaykitModel(prop);
+    }),
+  );
+}
+
+/** Cles de modele (batiment ou prop) utilisees par des obstacles. */
+export function obstacleModelKeys(obstacles: readonly Pick<ObstacleDef, 'buildingModel' | 'propModel'>[]): string[] {
+  const keys: string[] = [];
+  for (const o of obstacles) {
+    if (o.buildingModel) keys.push(o.buildingModel);
+    if (o.propModel) keys.push(o.propModel);
+  }
+  return keys;
+}
+
+/** Remplacant visuel (boite translucide de l'emprise) d'un modele a la
+ *  demande pas encore charge : jamais d'erreur au rendu si un appelant n'a
+ *  pas attendu ensureModels. */
+export function createMissingModelPlaceholder(width: number, depth: number): THREE.Group {
+  const group = new THREE.Group();
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(width * 0.9, 0.4, depth * 0.9),
+    new THREE.MeshStandardMaterial({ color: 0x8b8577, transparent: true, opacity: 0.4 }),
+  );
+  mesh.position.y = 0.2;
+  group.add(mesh);
+  return group;
 }
 
 export function pickRandom<T>(items: T[], random: () => number = Math.random): T {

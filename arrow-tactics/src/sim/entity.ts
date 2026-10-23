@@ -22,6 +22,25 @@ export interface BuildingAttackState {
   targetId: number | null;
 }
 
+/** Porte de muraille (BuildingDef.gate) — voir sim/systems/gates.ts.
+ *  Reglages figes a l'apparition ; `phase`, `openness` et `closeTimer`
+ *  evoluent au pas fixe. `prevOpenness` = valeur du pas precedent, pour
+ *  l'interpolation du rendu (comme prevX/prevZ). */
+export interface GateState {
+  phase: 'closed' | 'opening' | 'open' | 'closing';
+  /** Ouverture des battants, 0 (fermee) a 1 (grande ouverte). */
+  openness: number;
+  prevOpenness: number;
+  /** Secondes ecoulees sans allie proche, porte ouverte. */
+  closeTimer: number;
+  /** Vrai quand les allies la franchissent physiquement. */
+  passable: boolean;
+  triggerRangeTiles: number;
+  openDurationSeconds: number;
+  closeDelaySeconds: number;
+  passableOpenness: number;
+}
+
 /**
  * Ruee scriptee en cours (voir sim/systems/abilities.ts) — GENERIQUE, pas
  * specifique a la Charge du Cavalier : n'importe quelle future capacite de
@@ -314,6 +333,8 @@ export interface Entity {
    *  autre entite. Distincte de targetId/attackTimer : le ciblage et le
    *  combat generiques des unites ne la lisent jamais. */
   buildingAttack: BuildingAttackState | null;
+  /** Porte de muraille, null pour toute autre entite. */
+  gate: GateState | null;
 }
 
 /** Direction d'avance : le joueur part du bas (+z) et monte vers -z. */

@@ -92,7 +92,7 @@ systèmes de progression.
 
 - **Objectif** : traiter en priorité les entrées de `KNOWN_ISSUES.md` qui
   influencent la planification :
-  - KI-01 (à vérifier), avant d'enrichir les bâtiments ;
+  - KI-01 : résolu avec les murailles ;
   - KI-09, avant d'agrandir l'arbre de talents ;
   - KI-16, qui alourdit chaque build.
 - **Pourquoi** : éviter de construire de nouveaux systèmes sur une base

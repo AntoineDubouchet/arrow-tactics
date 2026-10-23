@@ -31,6 +31,10 @@ export interface MapBuildingPlacement {
   team: 'player' | 'enemy';
   x: number;
   z: number;
+  /** Rotation (radians, quarts de tour) d'un batiment dont l'emprise suit
+   *  la rotation (muraille, BuildingDef.footprintFollowsRotation). Absente
+   *  = 0 ; jamais ecrite pour 0 (cartes existantes inchangees). */
+  rotationY?: number;
 }
 
 /** Types de terrain disponibles pour une cellule — herbe/terre pour

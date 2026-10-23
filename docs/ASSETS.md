@@ -59,7 +59,7 @@ de l'éditeur de maps, voir `EDITOR.md`. Pour les problèmes connus, voir
 | `models/ballista/` | 2 | ~0,02 Mo | .obj, .png | Ancienne baliste |
 | `models/arrow/` | 1 | <0,01 Mo | .obj | Flèche du joueur |
 | `models/nature/` | 110 | ~1 Mo | .glb | Décor Kenney |
-| `models/kaykit/` | 81 | ~0,4 Mo | .gltf, .bin, .png | Décor KayKit (40 modèles + texture partagée) |
+| `models/kaykit/` | 217 | ~4,7 Mo | .gltf, .bin, .png | Décor KayKit : 40 modèles d'origine + 68 du pack EXTRA (§3.5), texture partagée |
 | `models/buildings/` | 129 | ~7,5 Mo | .obj, .mtl, .png | Bâtiments KayKit (64 pièces + texture partagée) |
 | `textures/ground/` | 2 | ~3 Mo | .png | Herbe, terre |
 | `textures/` (racine) | 1 | ~1,5 Mo | .png | `sky_background.png` |
@@ -126,6 +126,79 @@ Quatre unités jouables, toutes des `.glb` avec squelette (`SkinnedMesh`) :
   dans l'éditeur (groupe « KayKit (médiéval) »). Aucun n'est posé sur la carte
   de campagne actuelle.
 
+**Pack complet KayKit (Medieval Hexagon Pack 1.0 EXTRA, CC0)** — source
+locale d'Antoine (dossier hors dépôt, jamais référencé par le jeu). Audit :
+404 modèles `.gltf` ; le pack FREE (221) y est entièrement inclus. Les 86
+modèles déjà présents dans le projet sont identiques au pack (hors fins de
+ligne), sauf 4 versions différentes **non remplacées** : ponts A/B et moulin
+à eau bleu/rouge (décors seulement ; aucun modèle gameplay ne change).
+
+- **68 modèles ajoutés** (`.gltf` + `.bin`, même texture partagée,
+  `LAZY_KAYKIT_BUILDINGS` / `LAZY_KAYKIT_PROPS` de
+  `render/assetLibrary.ts`) :
+  - murailles (7) et clôtures (4) du dossier `neutral` : segment droit et
+    porte = murailles jouables (`data/buildings.ts`) ; angles et clôtures =
+    décors bloquants ;
+  - 9 bâtiments d'équipe absents du FREE, en bleu et rouge (18) : quai,
+    chantier naval, sanctuaire, écuries, tente, tour à canon, hôtel de
+    ville, tour de guet, atelier (décors) ;
+  - relief et forêts (24 bloquants, 2 souches traversables) : buttes,
+    collines, montagnes, bosquets ;
+  - props traversables (7) : ancre, barque, râtelier à barques, palette de
+    boulets, botte de foin, abreuvoirs ;
+  - matériel militaire statique (6) : charrette, charrette marchande,
+    catapulte, canon, navire (bloquants), bannière (traversable).
+- **Chargés à la demande** (§5), jamais au démarrage, sauf les deux
+  murailles jouables.
+- **Échelle** : 1 unité KayKit ≈ 1 case. Les bâtiments se calent sur leur
+  emprise (`cloneScaledToFootprint`, arrondi supérieur de la boîte mesurée
+  avec 0,1 de tolérance) ; les props gardent leur taille native (facteur
+  mesuré). Base au sol et centrage par `recenterOnFootprint`, aucune
+  correction d'orientation nécessaire.
+- **Exclus** : 61 tuiles hexagonales (terrain incompatible avec la grille
+  carrée), 54 bâtiments verts et jaunes (aucune faction dans le jeu), ~131
+  « unités » (pions, chevaux, armes et casques isolés, variantes colorées),
+  2 nuages, 2 icônes d'interface, et les 221 doublons du pack FREE.
+- Les angles de muraille sont pensés pour des bords d'hexagone : mesure
+  géométrique (vue de dessus des sommets), `wall_corner_A_inside` /
+  `_outside` / `_gate` = **120°**, `wall_corner_B_inside` / `_outside` =
+  **60°**. Aucun coin à 90° dans le pack (ni « turn », ni « 90 »). Les virages
+  du tracé sont donc faits de segments droits, avec un raccord visuel
+  (`ObstacleDef.wallJoin`, `render/buildings.ts`) : le segment qui bute
+  contre le flanc d'un segment perpendiculaire est allongé de l'écart exact
+  entre la largeur du modèle (0,8) et sa case (1).
+- **Porte (`wall_straight_gate`)** : le pack ne contient **aucune animation**
+  (aucun bloc `animations` dans les 625 `.gltf`, aucun `AnimationStack` ni
+  `AnimationCurve` dans les 1 250 `.fbx` des packs FREE et EXTRA). Le modèle
+  a deux nœuds séparés, `wall_straight_gate_door_left` (pivot x = +0,45) et
+  `wall_straight_gate_door_right` (pivot x = −0,45), pivots sur les gonds :
+  `BuildingView.setGateOpenness` les tourne d'un quart de tour vers
+  l'intérieur (−Z natif), courbe adoucie, fermeture = même courbe à l'envers
+  (animation maison, validée par Antoine).
+- **Face extérieure des murailles jouables** (segment droit et porte) : dans
+  le modèle, les créneaux sont du côté **+Z** natif et le chemin de ronde à
+  l'arrière. `BuildingDef.outerFaceTowardHostiles` tourne cette face vers le
+  côté d'où viennent les hostiles du camp (`forwardDir`) : demi-tour visuel
+  pour le joueur (`ObstacleDef.modelFacingYaw` = π, posé par
+  `gameplayBuildingObstacle` dans `main.ts`), modèle tel quel pour l'ennemi.
+  Ce lacet s'applique au seul groupe d'orientation du modèle
+  (`render/buildings.ts`). Il ne change ni l'emprise, ni la collision, ni la
+  `rotationY` enregistrée. Un segment vertical (90°) suit la même règle :
+  créneaux vers −X pour le joueur, vers +X pour l'ennemi. Cette règle de camp
+  n'est que **provisoire** (tracé ouvert, segment isolé) :
+- **Enceinte fermée** : à la fermeture d'un tracé, chaque segment (et toute
+  porte posée à la place d'un segment) a ses créneaux tournés vers
+  l'**extérieur** de l'enceinte, quel que soit le sens de dessin
+  (`closedEnclosureFacings`, `core/wallTrace.ts` : test point-dans-polygone
+  sur le polygone des sommets du tracé, une demi-case de part et d'autre du
+  segment). L'orientation est **enregistrée dans `rotationY`** : un quart de
+  tour de même parité que l'axe du segment (0 / 180° horizontal, 90 / 270°
+  vertical), donc même emprise, même collision, même position ; le lacet de
+  camp est compensé (`enclosureRotationY`, `main.ts`). Aucune donnée
+  nouvelle : la sauvegarde existante (`rotationY` si ≠ 0) suffit. Une porte
+  posée à la place d'un mur reprend sa `rotationY` : ses battants s'ouvrent
+  toujours vers l'intérieur.
+
 ### 3.6 Bâtiments KayKit (`models/buildings/`)
 
 - 64 pièces `.obj` + `.mtl` (27 bleues, 27 rouges, 10 neutres) et une texture
@@ -190,6 +263,14 @@ Détail du préchargement et de l'ordre de démarrage : voir `ARCHITECTURE.md`.
     ajouté deux fois à la scène.
   - `THREE.Cache.enabled = true` : la texture KayKit partagée n'est téléchargée
     qu'une fois.
+- **Pack KayKit complet, à la demande** : `ensureModels(keys)` charge une
+  fois les modèles demandés et les range dans `buildingsByName` /
+  `propsByName`, le rendu restant synchrone. Appelé au démarrage pour les
+  bâtiments gameplay (murailles), à l'ouverture de l'éditeur et au
+  chargement d'une carte (`obstacleModelKeys`), au choix d'un gabarit du
+  catalogue, et par `render/board.ts` avant de construire un plateau. Un
+  modèle demandé avant son chargement s'affiche comme une boîte translucide
+  (`createMissingModelPlaceholder`), jamais une erreur.
 - **Unités et flèche** : préchargées au démarrage dans `main.ts`, en parallèle
   de la construction du plateau.
   - Fonctions : `preloadMageModel`, `preloadFantassinModel`,
@@ -339,6 +420,10 @@ Pratique actuelle, telle qu'elle se dégage du code :
   3. ajouter une entrée au tableau d'assets correspondant de
      `editor/editorUI.ts`, rangé dans une catégorie de `DECOR_CATALOG`
      (voir `EDITOR.md` §6).
+- **Modèle KayKit `.gltf` à la demande** : copier `.gltf` + `.bin` dans
+  `public/models/kaykit/`, déclarer la clé dans `LAZY_KAYKIT_BUILDINGS`
+  (obstacle `kind: 'building'`) ou `LAZY_KAYKIT_PROPS` (prop), puis
+  l'entrée du catalogue (`editor/editorUI.ts`).
 - **Bâtiment** : copier les `.obj` / `.mtl` dans `public/models/buildings/`,
   puis déclarer la famille et ses pièces dans `TEAM_BUILDING_FAMILIES` ou
   `NEUTRAL_BUILDING_FAMILIES`. L'emprise en cases se déclare dans le

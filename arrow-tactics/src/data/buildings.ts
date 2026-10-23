@@ -66,6 +66,25 @@ export interface BuildingAttackConfig {
   launchOutset: number;
 }
 
+/** Porte de muraille fonctionnelle (voir sim/systems/gates.ts) : SOURCE
+ *  UNIQUE des reglages d'ouverture automatique. Les unites du camp de la
+ *  porte la comptent toujours comme un passage dans leurs trajets ; elles ne
+ *  la franchissent physiquement qu'une fois assez ouverte. Les hostiles la
+ *  trouvent toujours fermee. */
+export interface GateConfig {
+  /** Distance (cases) entre une unite alliee et l'emprise de la porte a
+   *  partir de laquelle la porte s'ouvre (et reste ouverte). */
+  triggerRangeTiles: number;
+  /** Duree (secondes de simulation) d'une ouverture complete ; la fermeture
+   *  prend la meme duree. */
+  openDurationSeconds: number;
+  /** Delai (secondes) sans allie proche avant que la porte se referme. */
+  closeDelaySeconds: number;
+  /** Ouverture (0 a 1) a partir de laquelle les allies traversent
+   *  physiquement : en dessous, les battants bloquent encore. */
+  passableOpenness: number;
+}
+
 /** Soin de l'armee contre de l'or (Eglise) — voir run/churchHeal.ts.
  *  Efficacite en PV AFFICHES (points) rendus par piece d'or. */
 export interface ArmyHealConfig {
@@ -141,6 +160,34 @@ export interface BuildingDef {
    *  ObstacleDef.scale) ; l'emprise de collision et de placement ne change
    *  pas. Absent = 1. */
   modelScale?: number;
+  /** Vrai : l'emprise tourne avec le batiment par quarts de tour (2x1 debout
+   *  devient 1x2 a 90°) et la rotation se fait par pas de 90° ; voir
+   *  buildingFootprintTiles. Absent : emprise fixe, rotation visuelle par pas
+   *  de 45° (batiments carres). */
+  footprintFollowsRotation?: boolean;
+  /** Faux : l'emprise bloque le deplacement mais pas les tirs (muraille,
+   *  voir ObstacleDef.blocksShots). Absent = bloque aussi les tirs. */
+  blocksShots?: boolean;
+  /** Porte fonctionnelle (wall_gate) : passage pour les unites de son camp,
+   *  ouverture automatique (GateConfig). Absent : l'emprise bloque tout le
+   *  monde (muraille et tous les autres batiments). */
+  gate?: GateConfig;
+  /** Vrai : la face +Z native du modele est sa face EXTERIEURE (creneaux de
+   *  la muraille KayKit, chemin de ronde a l'arriere) ; elle est tournee vers
+   *  le cote d'ou viennent les hostiles du camp proprietaire (forwardDir),
+   *  voir ObstacleDef.modelFacingYaw. Purement visuel : emprise, collision et
+   *  rotation enregistree inchangees. Absent : modele pose tel quel. */
+  outerFaceTowardHostiles?: boolean;
+  /** 'line' : pose par TRACE continu de segments (enceinte avec virages,
+   *  core/wallTrace.ts), en preparation et dans l'editeur. Absent : pose a
+   *  l'unite. */
+  placementMode?: 'line';
+  /** Peut se poser EXACTEMENT a la place d'un batiment de ce type (meme
+   *  emprise, meme axe) : il le remplace (porte dans une ligne de murs). */
+  placeOverBuildingId?: string;
+  /** Groupe du catalogue de l'editeur (« Murailles »...). Absent :
+   *  « Bâtiments ». */
+  editorGroup?: string;
 }
 
 export const BUILDINGS: Record<string, BuildingDef> = {
@@ -337,7 +384,91 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     armyHeal: { hpPerGold: 5, hpPerGoldPerLevel: 2 },
     recruitmentUnlock: { unitId: 'mage', missingBuildingHint: 'Nécessite une Église' },
   },
+  // Muraille : construction d'un camp (modele KayKit du dossier « neutral »,
+  // visuel neutre, jamais teinte). Seul role : bloquer le deplacement de
+  // TOUTES les unites, son camp compris (on passe par une porte ou on
+  // contourne ; les tirs passent, blocksShots). 50 PV, aucune attaque, aucun effet, aucune
+  // population, aucune amelioration. Ne compte pas pour la defaite : un mur
+  // seul ne maintient pas le camp en vie. Segment droit 2 x 1 a l'echelle
+  // native du modele (2,0 x 0,8 x 1,1), pose par lignes (placementMode).
+  // Cout PROVISOIRE (1 or par segment), a reequilibrer apres playtest.
+  wall: {
+    id: 'wall',
+    displayName: 'Muraille',
+    maxHp: 50 * HP_PER_PIP,
+    radius: 1.0,
+    targetable: true,
+    countsForDefeat: false,
+    hpBarHeight: 1.5,
+    cost: 1,
+    buildingModel: 'neutral_wall_straight',
+    footprintTilesX: 2,
+    footprintTilesZ: 1,
+    footprintFollowsRotation: true,
+    blocksShots: false,
+    outerFaceTowardHostiles: true,
+    placementMode: 'line',
+    editorGroup: 'Murailles',
+  },
+  // Porte de muraille : memes PV, cout et emprise que le segment droit, mais
+  // PORTE fonctionnelle (gate) : les unites de son camp la franchissent (elle
+  // s'ouvre a leur approche, battants du modele KayKit animes par le rendu),
+  // les hostiles la trouvent toujours fermee et doivent la detruire. Pose a
+  // l'unite (ou a la place d'un segment de mur), rotation par 90°.
+  wall_gate: {
+    id: 'wall_gate',
+    displayName: 'Porte de muraille',
+    maxHp: 50 * HP_PER_PIP,
+    radius: 1.0,
+    targetable: true,
+    countsForDefeat: false,
+    hpBarHeight: 1.8,
+    cost: 1,
+    buildingModel: 'neutral_wall_straight_gate',
+    footprintTilesX: 2,
+    footprintTilesZ: 1,
+    footprintFollowsRotation: true,
+    blocksShots: false,
+    outerFaceTowardHostiles: true,
+    placeOverBuildingId: 'wall',
+    gate: {
+      triggerRangeTiles: 1.5,
+      openDurationSeconds: 0.5,
+      closeDelaySeconds: 1.0,
+      passableOpenness: 0.6,
+    },
+    editorGroup: 'Murailles',
+  },
 };
+
+/** Vrai si `rotationY` est un quart de tour impair (90°, 270°). */
+function isOddQuarterTurn(rotationY: number): boolean {
+  return Math.abs(Math.round(rotationY / (Math.PI / 2))) % 2 === 1;
+}
+
+/** Emprise reelle (cases) du batiment `buildingId` tourne de `rotationY` :
+ *  inversee a 90° / 270° quand l'emprise suit la rotation
+ *  (BuildingDef.footprintFollowsRotation), sinon toujours celle des donnees. */
+export function buildingFootprintTiles(buildingId: string, rotationY = 0): { tilesX: number; tilesZ: number } {
+  const def = getBuilding(buildingId);
+  const tilesX = def.footprintTilesX ?? 1;
+  const tilesZ = def.footprintTilesZ ?? 1;
+  return def.footprintFollowsRotation && isOddQuarterTurn(rotationY) ? { tilesX: tilesZ, tilesZ: tilesX } : { tilesX, tilesZ };
+}
+
+/** Pas de rotation du batiment en placement : 90° si son emprise suit la
+ *  rotation, sinon 45° (rotation visuelle). */
+/** Vrai si deux batiments centres en (ax, az) et (bx, bz) ont exactement la
+ *  meme emprise (memes cases) — remplacement d'un mur par une porte. */
+export function sameBuildingFootprint(aId: string, ax: number, az: number, aRotationY: number, bId: string, bx: number, bz: number, bRotationY: number): boolean {
+  const a = buildingFootprintTiles(aId, aRotationY);
+  const b = buildingFootprintTiles(bId, bRotationY);
+  return a.tilesX === b.tilesX && a.tilesZ === b.tilesZ && Math.abs(ax - bx) < 1e-6 && Math.abs(az - bz) < 1e-6;
+}
+
+export function buildingRotationStep(buildingId: string): number {
+  return getBuilding(buildingId).footprintFollowsRotation ? Math.PI / 2 : Math.PI / 4;
+}
 
 /** Ids de bâtiments réellement ACHETABLES en boutique de run (2026-08-17) —
  *  filtre générique sur `cost !== undefined`, jamais une liste recopiée à la

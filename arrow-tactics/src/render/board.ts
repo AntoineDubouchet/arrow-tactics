@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { COLORS, PLACEMENT_ROWS, TILE } from '../config/constants';
 import { cellKey, computeMapCellBounds, resolveMapCells, type MapDef, type TerrainCellDef } from '../config/mapDef';
 import { resolveMapTerritory, type TerritoryCell, type TerritoryTeam } from '../config/territory';
-import { loadEnvironmentAssets } from './assetLibrary';
+import { ensureModels, loadEnvironmentAssets, obstacleModelKeys } from './assetLibrary';
 import { box } from './meshHelpers';
 import { buildObstacleMesh } from './obstacleFactory';
 import { buildCellGridLines, buildTerrainCellsView } from './terrainCells';
@@ -87,6 +87,8 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   // fois et reutilises (clones) pour chaque obstacle, jamais rechargee
   // individuellement.
   const environmentAssets = await loadEnvironmentAssets();
+  // Modeles a la demande utilises par cette carte (pack KayKit complet).
+  await ensureModels(obstacleModelKeys(map.obstacles));
   const obstacles = new THREE.Group();
   for (const obstacle of map.obstacles) {
     obstacles.add(buildObstacleMesh(obstacle, environmentAssets));

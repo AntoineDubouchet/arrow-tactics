@@ -607,6 +607,36 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
     survie ne lit pas ce champ.
   - **La Baliste n'y figure pas** : unique et toujours présente, elle garde
     son outil dédié ci-dessous et sa seule source, `ballista`.
+- **Murailles** (groupe **« Murailles »**, juste après « Bâtiments » ; groupe
+  lu dans `BuildingDef.editorGroup`) : Muraille (segment droit 2×1) et
+  Porte de muraille, les constructions jouables du joueur.
+  - **Muraille** : **tracé continu**, comme en préparation
+    (`CURRENT_STATE.md` §6) — premier clic = point de départ, chaque clic
+    pose une portion (axe dominant, tout ou rien), clic sur le point de
+    départ (ou une case voisine alignée) = enceinte fermée. Pas de règle de
+    territoire ni d'or dans l'éditeur.
+  - **Historique** : **une entrée par portion validée** (Ctrl+Z retire la
+    dernière portion seule, Ctrl+Y la rétablit). Échap, clic droit, Ctrl+Z /
+    Ctrl+Y et tout changement d'outil abandonnent d'abord la portion non
+    construite (aperçu, case en attente) ; Échap une seconde fois revient à
+    l'outil Sélection.
+  - **Enceinte fermée** : créneaux de tous ses segments vers l'extérieur
+    (dans les deux sens de dessin), enregistrés dans `rotationY` (90, 180 ou
+    270° possibles) ; l'entrée d'historique de la portion de fermeture
+    inclut ce changement (Ctrl+Z rend l'orientation provisoire).
+  - **Porte de muraille** : pose à l'unité ; **R** tourne l'outil d'un quart
+    de tour (2×1 ↔ 1×2). Posée exactement sur un segment de mur, elle le
+    remplace en reprenant son orientation (une seule entrée d'historique). La rotation est enregistrée
+    (`rotationY` dans `MapDef.buildings`, écrite seulement si elle n'est pas
+    nulle : les anciennes cartes restent identiques).
+  - Dans « Tester le scénario » : vrais murs et portes (50 PV, camp de la
+    carte, collision, ouverture des portes, destruction).
+- **Décors du pack KayKit complet** (chargés à la demande au premier choix) :
+  catégories « Relief et forêts » (buttes, collines, montagnes, bosquets),
+  « Murailles et clôtures » (angles de muraille, décoratifs car pensés pour
+  des hexagones ; clôtures) et « Militaire » ; nouveaux bâtiments d'équipe
+  dans « Structures décoratives » et nouveaux props dans « Accessoires »
+  (`ASSETS.md` §3.5).
 
 **La Baliste**
 

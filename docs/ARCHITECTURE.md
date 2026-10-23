@@ -54,7 +54,7 @@ Le dépôt a deux niveaux :
 
 | Dossier | Rôle |
 |---|---|
-| `core/` | Boucle à pas fixe, petites maths, RNG à graine, calcul pur du déplacement d'unités sur la grille (`gridGroupMove.ts`) |
+| `core/` | Boucle à pas fixe, petites maths, RNG à graine, calcul pur du déplacement d'unités sur la grille (`gridGroupMove.ts`), découpage pur du tracé de murailles (`wallTrace.ts`) |
 | `config/` | Constantes de réglage, types `ObstacleDef`, format de map `MapDef`, territoire par cases (`territory.ts`), arène du Mode survie (`maps/survivalArena.ts`) |
 | `data/` | Définitions déclaratives : unités, bâtiments, objets, talents, capacités, upgrades (avec quelques lookups et calculs purs) |
 | `sim/` | Simulation de bataille |
@@ -77,7 +77,7 @@ Dépendances observées dans le code :
 | `ui/` | `config`, `core`, `data`, `run` (calculs d'affichage), `render`, types de `sim` |
 | `editor/` | `config`, `data` (catalogue des unités), `render` (fabriques de meshes), types de `sim` |
 | `audio/` | `run/userSettings` |
-| `main.ts` | tout, dont `core/gridGroupMove.ts` pour le déplacement d'unités de l'éditeur et de la préparation |
+| `main.ts` | tout, dont `core/gridGroupMove.ts` pour le déplacement d'unités de l'éditeur et de la préparation, et `core/wallTrace.ts` pour le tracé de murailles |
 
 Règle forte, vérifiée : **`sim/` n'importe jamais `three`, `render/`, `ui/`,
 `editor/` ni `audio/`**. Elle n'accède ni au DOM, ni à `localStorage`, ni à
@@ -321,7 +321,47 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 - **Emprise** : l'`ObstacleDef` du bâtiment est ajoutée à `World.obstacles`
   (même référence que `Entity.footprintObstacle`). Elle bloque ainsi
   mouvement, ligne de tir et pathfinding. Elle est retirée à la mort par
-  `releaseDeadBuildingFootprints`, juste après `deathSystem`.
+  `releaseDeadBuildingFootprints`, juste après `deathSystem`. Ajout et
+  retrait **remplacent** le tableau `World.obstacles` (jamais de mutation en
+  place) : les bornes sont mises en cache par identité de tableau
+  (`sim/geometry.ts`).
+  - `blocksShots: false` (muraille) : l'emprise bloque le déplacement mais pas
+    la ligne de tir (`findBlockingObstacle(..., forShot)`, utilisé par
+    `combatSystem` ; la trajectoire de Charge et la poursuite restent
+    bloquées).
+  - `passableForTeam` / `passageOpen` (porte de muraille, `BuildingDef.gate`) :
+    `World.spawnBuilding` pose le camp de la porte ; `gateSystem`
+    (`sim/systems/gates.ts`, au pas fixe avant le mouvement) fait évoluer
+    `Entity.gate` (fermée / ouverture / ouverte / fermeture, `openness`) et
+    ouvre ou ferme le passage par `World.setGatePassage`, qui **remplace**
+    `World.obstacles`. Deux listes par camp, en cache par identité de
+    tableau (`sim/geometry.ts`) :
+    - `obstaclesBlockingTeam` (trajets : A*, ligne droite, contournement) :
+      sans les portes du camp, même fermées ;
+    - `obstaclesCollidingTeam` (collision, trajectoire de Charge) : sans les
+      portes du camp seulement si `passageOpen`.
+    Sans porte, les deux camps partagent la même liste. Les murs n'ont aucun
+    passage : ils bloquent tout le monde.
+  - `footprintFollowsRotation` (muraille) : `tilesX` / `tilesZ` sont l'emprise
+    déjà tournée par quarts de tour (`buildingFootprintTiles`) ; le rendu
+    cale le modèle sur l'emprise d'origine avant de le tourner.
+  - Orientation d'une enceinte fermée : `closedEnclosureFacings`
+    (`core/wallTrace.ts`) donne la direction de l'extérieur de chaque
+    segment ; `main.ts` l'enregistre dans `rotationY` (même parité de quart de
+    tour, emprise inchangée) — préparation et éditeur (même entrée
+    d'historique que la portion de fermeture).
+  - Champs purement visuels d'une muraille : `modelFacingYaw` (face
+    extérieure vers les hostiles) et `wallJoin` (raccord des virages,
+    `wallEndJoins` de `core/wallTrace.ts`), posés par
+    `gameplayBuildingObstacle` (`main.ts`). Les battants d'une porte sont
+    animés par `BuildingView.setGateOpenness` d'après `Entity.gate`
+    (interpolé entre deux pas).
+- **Tracé de murailles** : `core/wallTrace.ts` (pur) découpe chaque portion
+  en segments 2 × 1 (cases appariées le long du tracé, case en attente,
+  fermeture) ; utilisé par le mode Muraille de la préparation et par
+  l'éditeur (`main.ts`).
+- **Ciblage** : un bâtiment n'acquiert jamais de cible (`targetingSystem`) ;
+  la Tour tire par `buildingAttack`.
 - **Survie d'un camp** : `countsForDefeat` (porté par la `BuildingDef`) fait
   compter un bâtiment dans `countCombatants`.
 - **Production** (Caserne, Camp d'archerie) : une `BuildingDef` avec

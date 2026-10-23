@@ -41,7 +41,7 @@ export function combatSystem(entities: Entity[], dt: number, rng: Rng, obstacles
 
     // target.footprintObstacle (2026-08-16) : un batiment ne doit jamais
     // bloquer sa PROPRE ligne de tir vers lui-meme, voir geometry.ts.
-    const blocked = findBlockingObstacle(e.x, e.z, target.x, target.z, obstacles, target.footprintObstacle);
+    const blocked = findBlockingObstacle(e.x, e.z, target.x, target.z, obstacles, target.footprintObstacle, true);
     e.attackTimer = e.stats.attackCooldown;
 
     if (blocked) {

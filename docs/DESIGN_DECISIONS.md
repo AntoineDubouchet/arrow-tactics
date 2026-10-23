@@ -73,6 +73,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Forge et Or, niveau de production des unités) / Remplacée (Runes, améliorations permanentes, amélioration globale de la Mine et de la Caserne, absence de surcoût de production) |
 | D6 | Améliorations de la Mine et de la Caserne propres à chaque bâtiment | Active |
 | D7 | Départ de run, population et bâtiments de recrutement | Active |
+| D8 | Murailles du joueur | Active (mécanique) / Ouverte (coût) |
 | E1 | Manipulation directe pendant le placement | Active |
 | E2 | Collision des décors : emprise rectangulaire, props traversables | Active |
 | E3 | Rotation des décors dans l'éditeur | Remplacée (W/E) / Active (anneau et Ctrl+molette) |
@@ -626,6 +627,43 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Sources** : `data/buildings.ts`, `run/recruitment.ts`,
   `sim/systems/buildingProduction.ts`, `run/runState.ts`,
   `config/constants.ts`, `CURRENT_STATE.md` §2, §4 et §6.
+
+### D8 — Murailles du joueur
+
+- **Statut** : Active (mécanique). Ouverte : le coût par segment.
+- **Décision** (demande d'Antoine, choix tranchés avec lui) :
+  - murailles KayKit du dossier « neutral » = constructions du **joueur**
+    (visuel non teinté), 50 PV, rôle unique : bloquer le déplacement ;
+  - segment droit **2 × 1** à l'échelle native, pose par **tracé continu**
+    (une portion par clic, axe dominant, tout ou rien par portion, fermeture
+    sur le point de départ ; préparation et éditeur) ;
+  - un **mur** bloque **les deux camps** (on contourne ou on passe par une
+    porte) ; les tirs passent ;
+  - une **porte** est un passage pour **son** camp seulement : ouverture
+    automatique à l'approche d'un allié, trajets alliés à travers même
+    fermée, collision seulement une fois assez ouverte ; toujours fermée pour
+    l'adversaire, qui doit la détruire. Remplaçable sur un segment de mur
+    (prix de la porte, mur non remboursé) ;
+  - virages en segments droits (aucun coin KayKit à 90°) ;
+  - enceinte fermée : créneaux vers l'**extérieur**, déterminé par la seule
+    géométrie du tracé (ni camp, ni position des ennemis, ni nord/sud) ;
+    tracé ouvert : orientation provisoire de camp ;
+  - les ennemis les ciblent **comme tout bâtiment** (cible la plus proche),
+    sans IA dédiée ;
+  - elles ne comptent pas pour la défaite ;
+  - coût **provisoire** : 1 or par segment (`BuildingDef.cost`).
+- **Raison connue** : construire des enceintes sans multiplier les clics et
+  sans nouvelle IA.
+- **Historique** : une première version laissait les alliés traverser les
+  murs (règle par équipe) ; remplacée à la demande d'Antoine par des murs
+  bloquants pour tous et des portes par équipe.
+- **Animation de porte** : le pack KayKit n'a **aucun** clip ; les deux
+  battants du modèle sont tournés par code (décision d'Antoine, `ASSETS.md`).
+- **À ne pas faire** : ne pas ajouter d'attaque, d'aura ou d'effet aux
+  murailles sans nouvelle décision.
+- **Sources** : `data/buildings.ts`, `core/wallTrace.ts`, `main.ts` (mode
+  Muraille), `sim/systems/gates.ts`, `sim/geometry.ts`, `CURRENT_STATE.md`
+  §6.
 
 ---
 

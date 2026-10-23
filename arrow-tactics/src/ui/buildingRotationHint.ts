@@ -18,6 +18,12 @@ export class BuildingRotationHint {
     this.setVisible(false);
   }
 
+  /** Texte de l'indication (rotation, ou etape et cout d'une ligne de
+   *  murailles). */
+  setText(text: string): void {
+    this.root.textContent = text;
+  }
+
   setVisible(visible: boolean): void {
     this.root.style.display = visible ? '' : 'none';
   }

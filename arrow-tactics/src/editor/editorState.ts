@@ -23,7 +23,7 @@ import {
   type TerritoryIndex,
   type TerritoryTeam,
 } from '../config/territory';
-import { getBuilding } from '../data/buildings';
+import { buildingFootprintTiles, buildingRotationStep, getBuilding, sameBuildingFootprint } from '../data/buildings';
 import type { Team } from '../sim/entity';
 
 /**
@@ -77,6 +77,9 @@ export interface EditorBuilding {
   team: Team;
   x: number;
   z: number;
+  /** Rotation d'un batiment dont l'emprise suit la rotation (muraille),
+   *  voir MapBuildingPlacement.rotationY. */
+  rotationY?: number;
 }
 
 /** Une selection d'UNITES est un ensemble ordonne d'unites, toujours
@@ -100,7 +103,7 @@ export type EditorTool =
   | { type: 'place-obstacle'; template: PlacementTemplate }
   | { type: 'place-unit'; unitId: string }
   /** Pose de batiments gameplay de scenario (reste actif, comme les unites). */
-  | { type: 'place-building'; buildingId: string }
+  | { type: 'place-building'; buildingId: string; rotationY?: number }
   | { type: 'add-cell'; terrain: TerrainType }
   | { type: 'remove-cell' }
   /** Pinceau de territoire : `team` peint la case pour ce camp, `null`
@@ -139,23 +142,18 @@ export interface EditorObjectsSnapshot {
   selection: EditorSelection;
 }
 
-/** Taille d'emprise (cases) d'un batiment gameplay, lue dans sa BuildingDef. */
-function buildingFootprint(buildingId: string): { tilesX: number; tilesZ: number } {
-  const def = getBuilding(buildingId);
-  return { tilesX: def.footprintTilesX ?? 1, tilesZ: def.footprintTilesZ ?? 1 };
-}
-
 /** Centre cale sur la grille de l'emprise d'un batiment dont le centre
  *  tomberait pres de (x, z) : coin de case entier, centre = coin + taille / 2
- *  (meme convention que le placement des batiments en preparation). */
-export function snapBuildingCenter(buildingId: string, x: number, z: number): { x: number; z: number } {
-  const { tilesX, tilesZ } = buildingFootprint(buildingId);
+ *  (meme convention que le placement des batiments en preparation). Emprise
+ *  tournee selon `rotationY` quand elle suit la rotation (muraille). */
+export function snapBuildingCenter(buildingId: string, x: number, z: number, rotationY = 0): { x: number; z: number } {
+  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
   return { x: Math.round(x - tilesX / 2) + tilesX / 2, z: Math.round(z - tilesZ / 2) + tilesZ / 2 };
 }
 
 /** Rectangle de l'emprise d'un batiment centre en (x, z). */
-export function buildingBoundsAt(buildingId: string, x: number, z: number): ObstacleBounds {
-  const { tilesX, tilesZ } = buildingFootprint(buildingId);
+export function buildingBoundsAt(buildingId: string, x: number, z: number, rotationY = 0): ObstacleBounds {
+  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
   return { minX: x - tilesX / 2, maxX: x + tilesX / 2, minZ: z - tilesZ / 2, maxZ: z + tilesZ / 2 };
 }
 
@@ -284,7 +282,7 @@ export class EditorState {
       }
     }
     if (this.obstacles.some((o) => isCollidableObstacle(o) && boundsOverlap(b, obstacleBounds(o)))) return false;
-    if (this.buildings.some((bd) => boundsOverlap(b, buildingBoundsAt(bd.buildingId, bd.x, bd.z)))) return false;
+    if (this.buildings.some((bd) => boundsOverlap(b, buildingBoundsAt(bd.buildingId, bd.x, bd.z, bd.rotationY)))) return false;
     return !this.units.some((u) => u.x > b.minX && u.x < b.maxX && u.z > b.minZ && u.z < b.maxZ);
   }
 
@@ -386,7 +384,7 @@ export class EditorState {
     // Case necessaire sous la Baliste ou sous un batiment de scenario.
     if (this.isCellUnderBallista(x, z)) return false;
     const cell = { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
-    if (this.buildings.some((b) => boundsOverlap(cell, buildingBoundsAt(b.buildingId, b.x, b.z)))) return false;
+    if (this.buildings.some((b) => boundsOverlap(cell, buildingBoundsAt(b.buildingId, b.x, b.z, b.rotationY)))) return false;
 
     const occupiedByUnit = this.units.some((u) => Math.floor(u.x) === x && Math.floor(u.z) === z);
     if (occupiedByUnit) return false;
@@ -641,7 +639,7 @@ export class EditorState {
   buildingAt(x: number, z: number): EditorBuilding | null {
     return (
       this.buildings.find((b) => {
-        const r = buildingBoundsAt(b.buildingId, b.x, b.z);
+        const r = buildingBoundsAt(b.buildingId, b.x, b.z, b.rotationY);
         return x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ;
       }) ?? null
     );
@@ -654,14 +652,14 @@ export class EditorState {
    *  chevauche, et aucune unite n'a son centre dedans. Pas de regle de
    *  territoire : l'editeur cree des scenarios librement. SOURCE UNIQUE de la
    *  pose et de son apercu. */
-  canPlaceBuildingAt(buildingId: string, x: number, z: number, ignoreBuildingId?: number): boolean {
-    const r = buildingBoundsAt(buildingId, x, z);
+  canPlaceBuildingAt(buildingId: string, x: number, z: number, ignoreBuildingId?: number, rotationY = 0): boolean {
+    const r = buildingBoundsAt(buildingId, x, z, rotationY);
     for (let cz = Math.floor(r.minZ); cz < r.maxZ; cz++) {
       for (let cx = Math.floor(r.minX); cx < r.maxX; cx++) {
         if (!this.hasCellAt(cx, cz)) return false;
       }
     }
-    if (this.buildings.some((b) => b.id !== ignoreBuildingId && boundsOverlap(r, buildingBoundsAt(b.buildingId, b.x, b.z)))) return false;
+    if (this.buildings.some((b) => b.id !== ignoreBuildingId && boundsOverlap(r, buildingBoundsAt(b.buildingId, b.x, b.z, b.rotationY)))) return false;
     if (boundsOverlap(r, this.ballistaBoundsAt(this.ballista.x, this.ballista.z))) return false;
     if (this.obstacles.some((o) => isCollidableObstacle(o) && boundsOverlap(r, obstacleBounds(o)))) return false;
     return !this.units.some((u) => u.x > r.minX && u.x < r.maxX && u.z > r.minZ && u.z < r.maxZ);
@@ -673,11 +671,50 @@ export class EditorState {
   placeBuildingAt(x: number, z: number): EditorBuilding | null {
     if (this.tool.type !== 'place-building') return null;
     const buildingId = this.tool.buildingId;
-    const center = snapBuildingCenter(buildingId, x, z);
-    if (!this.canPlaceBuildingAt(buildingId, center.x, center.z)) return null;
-    const building: EditorBuilding = { id: this.nextId++, buildingId, team: 'player', x: center.x, z: center.z };
+    const rotationY = this.tool.rotationY ?? 0;
+    const center = snapBuildingCenter(buildingId, x, z, rotationY);
+    const replaced = this.replaceableBuildingAt(buildingId, center.x, center.z, rotationY);
+    if (!this.canPlaceBuildingAt(buildingId, center.x, center.z, replaced?.id, rotationY)) return null;
+    // Porte posee exactement sur un segment de mur : elle le remplace et
+    // reprend son orientation (meme exterieur).
+    if (replaced) this.buildings = this.buildings.filter((b) => b !== replaced);
+    const finalRotationY = replaced ? replaced.rotationY ?? 0 : rotationY;
+    const building: EditorBuilding = { id: this.nextId++, buildingId, team: 'player', x: center.x, z: center.z, ...(finalRotationY ? { rotationY: finalRotationY } : {}) };
     this.buildings.push(building);
     return building;
+  }
+
+  /** Batiment que `buildingId` centre en (x, z) REMPLACERAIT
+   *  (BuildingDef.placeOverBuildingId : porte posee exactement sur un
+   *  segment de mur, meme emprise), ou null. */
+  replaceableBuildingAt(buildingId: string, x: number, z: number, rotationY = 0): EditorBuilding | null {
+    const over = getBuilding(buildingId).placeOverBuildingId;
+    if (!over) return null;
+    return this.buildings.find((b) => b.buildingId === over && sameBuildingFootprint(buildingId, x, z, rotationY, b.buildingId, b.x, b.z, b.rotationY ?? 0)) ?? null;
+  }
+
+  /** Change la rotation enregistree de batiments existants (orientation
+   *  d'une enceinte fermee). Nouveaux objets, jamais une mutation : les
+   *  instantanes d'historique partagent les anciens. */
+  setBuildingRotations(rotations: ReadonlyMap<number, number>): void {
+    if (rotations.size === 0) return;
+    this.buildings = this.buildings.map((b) => {
+      const r = rotations.get(b.id);
+      if (r === undefined) return b;
+      const { rotationY: _old, ...rest } = b;
+      return r ? { ...rest, rotationY: r } : rest;
+    });
+  }
+
+  /** Pose d'un coup plusieurs segments du meme batiment (portion d'un trace
+   *  de murailles, core/wallTrace.ts), centres deja cales : tout ou rien.
+   *  Faux (rien ne change) si un seul segment est invalide. */
+  placeBuildingPieces(buildingId: string, pieces: readonly { x: number; z: number; rotationY: number }[]): boolean {
+    if (!pieces.every((p) => this.canPlaceBuildingAt(buildingId, p.x, p.z, undefined, p.rotationY))) return false;
+    for (const p of pieces) {
+      this.buildings.push({ id: this.nextId++, buildingId, team: 'player', x: p.x, z: p.z, ...(p.rotationY ? { rotationY: p.rotationY } : {}) });
+    }
+    return true;
   }
 
   get selectedBuilding(): EditorBuilding | null {
@@ -686,8 +723,18 @@ export class EditorState {
     return this.buildings.find((b) => b.id === sel.id) ?? null;
   }
 
+  /** Tourne d'un pas l'outil de pose de batiment, si l'emprise du batiment
+   *  suit la rotation (muraille : quarts de tour). Faux sinon (rien ne
+   *  change). */
+  rotateBuildingTool(): boolean {
+    if (this.tool.type !== 'place-building' || !getBuilding(this.tool.buildingId).footprintFollowsRotation) return false;
+    const next = ((this.tool.rotationY ?? 0) + buildingRotationStep(this.tool.buildingId)) % (Math.PI * 2);
+    this.tool = { ...this.tool, rotationY: next };
+    return true;
+  }
+
   private toEditorBuilding(b: MapBuildingPlacement): EditorBuilding {
-    return { id: this.nextId++, buildingId: b.buildingId, team: b.team, x: b.x, z: b.z };
+    return { id: this.nextId++, buildingId: b.buildingId, team: b.team, x: b.x, z: b.z, ...(b.rotationY ? { rotationY: b.rotationY } : {}) };
   }
 
   /** Déplace librement l'obstacle sélectionné (position continue, plus de

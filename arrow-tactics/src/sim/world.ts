@@ -19,6 +19,7 @@ import { buildingProductionSystem, type ProductionSpawnEvent } from './systems/b
 import { buildingAttackSystem, type BuildingAttackEvent, type BuildingProjectile } from './systems/buildingAttack';
 import { combatSystem, type CombatEvent } from './systems/combat';
 import { deathSystem } from './systems/death';
+import { gateSystem } from './systems/gates';
 import {
   createEnemyReinforcementState,
   pendingEnemyGroupCount,
@@ -312,6 +313,7 @@ export class World {
       productionRemaining: 0,
       productionWaitingForPopulation: false,
       buildingAttack: null,
+      gate: null,
     };
     this.entities.push(entity);
     this.entityById.set(entity.id, entity);
@@ -460,14 +462,48 @@ export class World {
             targetId: null,
           }
         : null,
+      // Porte de muraille : fermee a l'apparition (sim/systems/gates.ts).
+      gate: def.gate
+        ? {
+            phase: 'closed',
+            openness: 0,
+            prevOpenness: 0,
+            closeTimer: 0,
+            passable: false,
+            triggerRangeTiles: def.gate.triggerRangeTiles,
+            openDurationSeconds: def.gate.openDurationSeconds,
+            closeDelaySeconds: def.gate.closeDelaySeconds,
+            passableOpenness: def.gate.passableOpenness,
+          }
+        : null,
     };
     this.entities.push(entity);
     this.entityById.set(entity.id, entity);
     if (footprint) {
-      this.obstacles.push(footprint);
+      // Nouveau tableau (jamais une mutation en place) : les bornes des
+      // obstacles sont mises en cache par identite de tableau (sim/geometry.ts,
+      // KI-01).
+      this.obstacles = [...this.obstacles, footprint];
       this.buildingFootprints.set(entity.id, footprint);
     }
+    // Porte de muraille : passage pour son camp (trajets toujours, collision
+    // seulement ouverte, voir ObstacleDef.passableForTeam / passageOpen).
+    if (footprint && def.gate) {
+      footprint.passableForTeam = team;
+      footprint.passageOpen = false;
+    }
     return entity;
+  }
+
+  /** Ouvre ou ferme physiquement le passage d'une porte pour son camp (voir
+   *  sim/systems/gates.ts). Remplace World.obstacles par un nouveau tableau,
+   *  jamais une mutation seule : les listes par camp et leurs bornes sont en
+   *  cache par identite de tableau (sim/geometry.ts, KI-01). */
+  setGatePassage(entity: Entity, open: boolean): void {
+    const footprint = entity.footprintObstacle;
+    if (!footprint || footprint.passageOpen === open) return;
+    footprint.passageOpen = open;
+    this.obstacles = [...this.obstacles];
   }
 
   /** Lookup O(1) par id — voir `entityById`. `undefined` si l'id n'existe
@@ -485,13 +521,17 @@ export class World {
    *  aujourd'hui), pas les dizaines d'obstacles de decor. */
   private releaseDeadBuildingFootprints(): void {
     if (this.buildingFootprints.size === 0) return;
+    const released = new Set<ObstacleDef>();
     for (const [id, obstacle] of this.buildingFootprints) {
       const entity = this.entityById.get(id);
       if (!entity || entity.alive) continue;
-      const idx = this.obstacles.indexOf(obstacle);
-      if (idx !== -1) this.obstacles.splice(idx, 1);
+      released.add(obstacle);
       this.buildingFootprints.delete(id);
     }
+    // Nouveau tableau plutot qu'un splice : un tableau modifie en place
+    // garderait ses bornes en cache (sim/geometry.ts), et l'emprise d'un
+    // batiment detruit continuerait de bloquer le deplacement (KI-01).
+    if (released.size > 0) this.obstacles = this.obstacles.filter((o) => !released.has(o));
   }
 
   /** Nombre d'entites VIVANTES d'une equipe qui COMPTENT pour sa survie
@@ -647,6 +687,8 @@ export class World {
     resolveOrders(this.entities, lookup, this.orderEvents);
 
     targetingSystem(this.entities, dt);
+    // Portes de muraille : etat d'ouverture du pas, avant tout deplacement.
+    gateSystem(this.entities, dt, (gate, open) => this.setGatePassage(gate, open));
     // Avant movementSystem : une charge qui vient de se declencher (ou qui se
     // poursuit) doit controler entierement x/z ce tick — movementSystem se
     // contente ensuite de l'ignorer (voir son garde-fou `if (e.dash) continue`).

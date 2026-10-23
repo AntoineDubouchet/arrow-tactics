@@ -1228,6 +1228,12 @@ export class Screens {
       return `${costLine} Permettra d’améliorer l’armée.`;
     }
     const def = getBuilding(buildingId);
+    // Muraille, porte : bloquent le deplacement, laissent passer les tirs.
+    if (def.blocksShots === false) {
+      const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
+      const placement = def.placementMode === 'line' ? ' Pose en ligne : un clic de départ, un clic de fin (coût par segment).' : ' Battants fermés : bloque comme un mur.';
+      return `${costLine} Bloque le déplacement ; les tirs passent par-dessus. ${size} · ${formatGold(def.maxHp / HP_PER_PIP)} PV.${placement}`;
+    }
     // Caserne, Camp d'archerie : unite debloquee et production de niveau 1.
     if (def.production) {
       const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;

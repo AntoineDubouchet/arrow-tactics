@@ -265,6 +265,14 @@ const KAYKIT_PROP_ASSETS: AssetEntry[] = [
   prop('KayKit — Tente (0.61 case)', 'kaykit_tent', 0.717),
   prop('KayKit — Râtelier d’armes (0.24 case)', 'kaykit_weaponrack', 0.278),
   prop('KayKit — Brouette (0.60 case)', 'kaykit_wheelbarrow', 0.702),
+  // Pack KayKit complet (EXTRA), charges a la demande ; traversables.
+  prop('KayKit — Ancre (0.22 case)', 'kaykit_anchor', 0.259),
+  prop('KayKit — Barque (0.60 case)', 'kaykit_boat', 0.706),
+  prop('KayKit — Râtelier à barques (0.39 case)', 'kaykit_boatrack', 0.459),
+  prop('KayKit — Palette de boulets (0.34 case)', 'kaykit_cannonball_pallet', 0.4),
+  prop('KayKit — Botte de foin (0.40 case)', 'kaykit_haybale', 0.471),
+  prop('KayKit — Abreuvoir (0.20 case)', 'kaykit_trough', 0.235),
+  prop('KayKit — Abreuvoir long (0.38 case)', 'kaykit_trough_long', 0.447),
 ];
 
 /**
@@ -289,11 +297,9 @@ const KAYKIT_PROP_ASSETS: AssetEntry[] = [
  * juste la couleur — "l'équivalent rouge pour l'adversaire") et NEUTRAL (10
  * elements sans camp : ponts, ruine, échafaudage, estrades, parcelles de
  * terre/céréales, projectile de catapulte — "ils sont neutres ceux-là").
- * Murs et clôtures du meme dossier source (`wall_*`/`fence_*`) EXCLUS de
- * cette passe : systeme de pieces connectables (segments/coins/portes
- * devant s'aligner bord a bord), pas un obstacle a emprise unique — memes
- * raisons deja documentees pour les tuiles de terrain (etape 5 du chantier
- * editeur, pas encore construite).
+ * Murs et clotures du meme dossier source (`wall_*`/`fence_*`) : voir
+ * WALL_DECOR_ASSETS/FENCE_ASSETS (decors) et le groupe « Murailles »
+ * (constructions de scenario, data/buildings.ts).
  */
 function building(label: string, buildingModel: string, tilesX: number, tilesZ: number): AssetEntry {
   return { label, template: { kind: 'building', tilesX, tilesZ, buildingModel } };
@@ -318,6 +324,16 @@ const BLUE_BUILDING_ASSETS: AssetEntry[] = [
   building('Moulin à eau (bleu)', 'blue_watermill', 2, 2),
   building('Puits (bleu)', 'blue_well', 1, 1),
   building('Moulin à vent (bleu)', 'blue_windmill', 2, 1),
+  // Pack KayKit complet (EXTRA), charges a la demande.
+  building('Quai (bleu)', 'blue_docks', 2, 1),
+  building('Chantier naval (bleu)', 'blue_shipyard', 2, 2),
+  building('Sanctuaire (bleu)', 'blue_shrine', 2, 2),
+  building('Écuries (bleu)', 'blue_stables', 2, 3),
+  building('Tente (bleu)', 'blue_tent', 2, 2),
+  building('Tour à canon (bleu)', 'blue_tower_cannon', 1, 2),
+  building('Hôtel de ville (bleu)', 'blue_townhall', 2, 2),
+  building('Tour de guet (bleu)', 'blue_watchtower', 1, 1),
+  building('Atelier (bleu)', 'blue_workshop', 2, 2),
 ];
 
 const RED_BUILDING_ASSETS: AssetEntry[] = [
@@ -339,6 +355,16 @@ const RED_BUILDING_ASSETS: AssetEntry[] = [
   building('Moulin à eau (rouge)', 'red_watermill', 2, 2),
   building('Puits (rouge)', 'red_well', 1, 1),
   building('Moulin à vent (rouge)', 'red_windmill', 2, 1),
+  // Pack KayKit complet (EXTRA), charges a la demande.
+  building('Quai (rouge)', 'red_docks', 2, 1),
+  building('Chantier naval (rouge)', 'red_shipyard', 2, 2),
+  building('Sanctuaire (rouge)', 'red_shrine', 2, 2),
+  building('Écuries (rouge)', 'red_stables', 2, 3),
+  building('Tente (rouge)', 'red_tent', 2, 2),
+  building('Tour à canon (rouge)', 'red_tower_cannon', 1, 2),
+  building('Hôtel de ville (rouge)', 'red_townhall', 2, 2),
+  building('Tour de guet (rouge)', 'red_watchtower', 1, 1),
+  building('Atelier (rouge)', 'red_workshop', 2, 2),
 ];
 
 /** `dirt`/`grain` mesures quasi plats (hauteur native 0.09/0.39) — probablement
@@ -347,6 +373,73 @@ const RED_BUILDING_ASSETS: AssetEntry[] = [
  *  avec le reste du lot plutot que deviner un traitement special non demande
  *  — a reclasser en `kind: 'prop'` (traversable) si Antoine juge que ces
  *  deux-la ne devraient pas bloquer le mouvement. */
+/** Pack KayKit complet (EXTRA) : pieces de murailles du dossier « neutral »
+ *  pensees pour des bords d'hexagone. Les angles (120°) ne se raccordent
+ *  pas a angle droit sur la grille carree : poses comme DECORS bloquants,
+ *  sans PV ni camp. Le segment droit et la porte sont de vraies
+ *  constructions (groupe « Murailles », data/buildings.ts). */
+const WALL_DECOR_ASSETS: AssetEntry[] = [
+  building('Angle de muraille A — intérieur', 'neutral_wall_corner_A_inside', 2, 2),
+  building('Angle de muraille A — extérieur', 'neutral_wall_corner_A_outside', 2, 2),
+  building('Angle de muraille A — avec porte', 'neutral_wall_corner_A_gate', 2, 2),
+  building('Angle de muraille B — intérieur', 'neutral_wall_corner_B_inside', 1, 2),
+  building('Angle de muraille B — extérieur', 'neutral_wall_corner_B_outside', 1, 2),
+];
+
+/** Clotures (pack EXTRA) : decors bloquants d'une case, portail ferme. */
+const FENCE_ASSETS: AssetEntry[] = [
+  building('Clôture en pierre', 'neutral_fence_stone_straight', 1, 1),
+  building('Clôture en pierre — portail', 'neutral_fence_stone_straight_gate', 1, 1),
+  building('Clôture en bois', 'neutral_fence_wood_straight', 1, 1),
+  building('Clôture en bois — portail', 'neutral_fence_wood_straight_gate', 1, 1),
+];
+
+/** Relief et forets (pack EXTRA) : pieces de la taille d'une tuile
+ *  hexagonale, decors bloquants. Souches traversables (props). */
+const HILL_ASSETS: AssetEntry[] = [
+  building('Butte A', 'neutral_hill_single_A', 2, 1),
+  building('Butte B', 'neutral_hill_single_B', 1, 2),
+  building('Butte C', 'neutral_hill_single_C', 1, 2),
+  building('Collines A', 'neutral_hills_A', 2, 2),
+  building('Collines B', 'neutral_hills_B', 2, 2),
+  building('Collines C', 'neutral_hills_C', 2, 2),
+  building('Collines boisées A', 'neutral_hills_A_trees', 2, 2),
+  building('Collines boisées B', 'neutral_hills_B_trees', 2, 2),
+  building('Collines boisées C', 'neutral_hills_C_trees', 2, 2),
+];
+const MOUNTAIN_ASSETS: AssetEntry[] = [
+  building('Montagne A', 'neutral_mountain_A', 2, 2),
+  building('Montagne B', 'neutral_mountain_B', 2, 2),
+  building('Montagne C', 'neutral_mountain_C', 2, 2),
+  building('Montagne herbeuse A', 'neutral_mountain_A_grass', 2, 2),
+  building('Montagne herbeuse B', 'neutral_mountain_B_grass', 2, 2),
+  building('Montagne herbeuse C', 'neutral_mountain_C_grass', 2, 2),
+  building('Montagne boisée A', 'neutral_mountain_A_grass_trees', 2, 2),
+  building('Montagne boisée B', 'neutral_mountain_B_grass_trees', 2, 2),
+  building('Montagne boisée C', 'neutral_mountain_C_grass_trees', 2, 2),
+];
+const GROVE_ASSETS: AssetEntry[] = [
+  building('Bosquet A — grand', 'neutral_trees_A_large', 2, 2),
+  building('Bosquet A — moyen', 'neutral_trees_A_medium', 2, 2),
+  building('Bosquet A — petit', 'neutral_trees_A_small', 2, 2),
+  building('Bosquet B — grand', 'neutral_trees_B_large', 2, 2),
+  building('Bosquet B — moyen', 'neutral_trees_B_medium', 2, 2),
+  building('Bosquet B — petit', 'neutral_trees_B_small', 2, 2),
+  prop('KayKit — Souches A (1.68 case)', 'kaykit_trees_A_cut', 1.976),
+  prop('KayKit — Souches B (1.46 case)', 'kaykit_trees_B_cut', 1.718),
+];
+
+/** Materiel militaire (dossier « units/neutral » du pack EXTRA, modeles
+ *  statiques) : vehicules bloquants, banniere traversable. */
+const MILITARY_ASSETS: AssetEntry[] = [
+  building('Charrette', 'neutral_cart', 1, 2),
+  building('Charrette marchande', 'neutral_cart_merchant', 1, 2),
+  building('Catapulte', 'neutral_catapult', 1, 1),
+  building('Canon', 'neutral_cannon', 1, 1),
+  building('Navire', 'neutral_ship', 1, 3),
+  prop('KayKit — Bannière (0.17 case)', 'kaykit_banner', 0.2),
+];
+
 const NEUTRAL_BUILDING_ASSETS: AssetEntry[] = [
   building('Pont A', 'neutral_bridge_A', 2, 2),
   building('Pont B', 'neutral_bridge_B', 2, 2),
@@ -406,6 +499,24 @@ const DECOR_CATALOG: CatalogCategory[] = [
   { label: 'Bois', open: false, sections: [{ assets: WOOD_ASSETS }] },
   { label: 'Accessoires', open: false, sections: [{ assets: KAYKIT_PROP_ASSETS }] },
   { label: 'Nature', open: false, sections: [{ assets: KAYKIT_NATURE_ASSETS }] },
+  {
+    label: 'Relief et forêts',
+    open: false,
+    sections: [
+      { label: 'Collines', assets: HILL_ASSETS },
+      { label: 'Montagnes', assets: MOUNTAIN_ASSETS },
+      { label: 'Bosquets', assets: GROVE_ASSETS },
+    ],
+  },
+  {
+    label: 'Murailles et clôtures',
+    open: false,
+    sections: [
+      { label: 'Angles de muraille (décor)', assets: WALL_DECOR_ASSETS },
+      { label: 'Clôtures', assets: FENCE_ASSETS },
+    ],
+  },
+  { label: 'Militaire', open: false, sections: [{ assets: MILITARY_ASSETS }] },
   {
     label: 'Structures décoratives',
     open: false,
@@ -871,8 +982,17 @@ export class EditorUI {
     // Batiments GAMEPLAY du scenario (jamais des decors) : ceux qu'un joueur
     // peut construire, lus dans data/buildings.ts. La Baliste garde son outil
     // dedie (unique, toujours presente, MapDef.ballista).
-    browser.appendChild(this.groupHeader('Bâtiments'));
-    for (const buildingId of listBuyableBuildingIds()) browser.appendChild(this.buildingAssetCard(buildingId, handlers.onSelectBuilding));
+    // Groupe de chaque construction : BuildingDef.editorGroup (« Murailles »),
+    // « Bâtiments » par defaut, dans l'ordre des donnees.
+    const buildingGroups = new Map<string, string[]>();
+    for (const buildingId of listBuyableBuildingIds()) {
+      const group = getBuilding(buildingId).editorGroup ?? 'Bâtiments';
+      buildingGroups.set(group, [...(buildingGroups.get(group) ?? []), buildingId]);
+    }
+    for (const [group, ids] of buildingGroups) {
+      browser.appendChild(this.groupHeader(group));
+      for (const buildingId of ids) browser.appendChild(this.buildingAssetCard(buildingId, handlers.onSelectBuilding));
+    }
 
     // Decors (E2) : recherche + categories repliables.
     browser.appendChild(this.groupHeader('Décors'));

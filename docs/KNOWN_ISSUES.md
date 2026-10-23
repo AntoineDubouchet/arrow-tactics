@@ -23,7 +23,6 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 
 | ID | Titre | Statut |
 |---|---|---|
-| KI-01 | Cache des bornes d'obstacles et emprises de bâtiments modifiées en place | À vérifier |
 | KI-02 | Placement en jeu sans test direct des cellules | Dette (atténuée) |
 | KI-03 | Bâtiment potentiellement inatteignable | À vérifier |
 | KI-04 | Contrat implicite « ordre de spawn = ordre de l'armée » | Dette |
@@ -96,8 +95,13 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 ### KI-01 — Cache des bornes d'obstacles et emprises de bâtiments modifiées en place
 
-- **Statut** : À vérifier. Hypothèse tirée de la lecture du code, non
-  reproduite.
+- **Statut** : **Résolu** (confirmé puis corrigé avec les murailles : une
+  muraille détruite continuait de repousser les unités). `spawnBuilding` et
+  `releaseDeadBuildingFootprints` remplacent désormais le tableau
+  `World.obstacles`. Entrée conservée pour l'historique ci-dessous ; à
+  retirer au prochain tri.
+- **Statut d'origine** : À vérifier. Hypothèse tirée de la lecture du code,
+  non reproduite.
 - **Risque** : après la destruction d'un bâtiment en cours de bataille :
   - son emprise pourrait continuer à bloquer physiquement les unités ;
   - la ligne de tir pourrait lire des bornes décalées pour d'autres

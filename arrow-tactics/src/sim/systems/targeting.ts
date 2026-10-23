@@ -84,6 +84,14 @@ export function targetingSystem(entities: Entity[], dt: number): void {
   }
 
   for (const e of alive) {
+    // Un batiment n'acquiert jamais de cible : portee et aggro nulles, et la
+    // Tour tire par son propre systeme (buildingAttack). Sans ce garde-fou, un
+    // ennemi a l'interieur de son emprise (ou une Provocation) lui donnait
+    // une cible et une attaque a 0 degat.
+    if (e.isBuilding) {
+      e.targetId = null;
+      continue;
+    }
     // Provocation (2026-08-14) : decompte du minuteur, PUIS forcage de cible
     // si toujours actif et la source vivante — voir le commentaire de
     // fonction pour le detail. Ecrit AVANT tout le reste du ciblage normal,

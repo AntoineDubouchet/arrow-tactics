@@ -25,11 +25,20 @@ export class BuildingView {
   private flashTimer = 0;
   private destroyed = false;
   private readonly debris: RadialParticle[] = [];
+  /** Battants d'une porte de muraille (noeuds KayKit `*_door_left` /
+   *  `*_door_right`, pivots deja sur les gonds) et leur lacet d'origine. */
+  private readonly gateLeaves: { node: THREE.Object3D; baseY: number; sign: number }[] = [];
 
   constructor(
     private readonly mesh: THREE.Object3D,
     private readonly vfxGroup: THREE.Group,
   ) {
+    mesh.traverse((obj) => {
+      // Le pack KayKit n'a AUCUN clip d'ouverture : animation maison, rotation
+      // des deux battants vers l'interieur (-Z natif, face exterieure +Z).
+      if (/_door_left$/.test(obj.name)) this.gateLeaves.push({ node: obj, baseY: obj.rotation.y, sign: -1 });
+      else if (/_door_right$/.test(obj.name)) this.gateLeaves.push({ node: obj, baseY: obj.rotation.y, sign: 1 });
+    });
     mesh.traverse((obj) => {
       const m = obj as THREE.Mesh;
       if (!m.isMesh) return;
@@ -89,10 +98,21 @@ export class BuildingView {
     if (this.debris.length > 0) tickRadialParticles(this.debris, this.vfxGroup, dt, 0.7, 4, 0.9);
   }
 
+  /** Porte de muraille : pose les battants d'apres l'ouverture de la
+   *  simulation (0 fermee, 1 grande ouverte, deja interpolee entre deux pas,
+   *  voir GateState). Quart de tour adouci ; la fermeture rejoue la meme
+   *  courbe a l'envers. Sans effet sur un autre batiment. */
+  setGateOpenness(openness: number): void {
+    const t = Math.min(1, Math.max(0, openness));
+    const angle = t * t * (3 - 2 * t) * (Math.PI / 2);
+    for (const leaf of this.gateLeaves) leaf.node.rotation.y = leaf.baseY + leaf.sign * angle;
+  }
+
   /** Remet le bâtiment à son état visuel de départ — à appeler à chaque
    *  nouvelle bataille (le mesh unique est réutilisé d'une bataille à
    *  l'autre, jamais reconstruit). */
   reset(): void {
+    this.setGateOpenness(0);
     this.destroyed = false;
     this.mesh.visible = true;
     this.flashTimer = 0;

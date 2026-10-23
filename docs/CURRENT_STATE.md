@@ -489,7 +489,71 @@ Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
   PV. Un bâtiment détruit en bataille disparaît de la run à la fin de la
   vague. Plusieurs exemplaires de chaque bâtiment sont possibles.
 - **Survie du camp** : ces bâtiments comptent pour la défaite
-  (`countsForDefeat`), comme les unités et la Baliste.
+  (`countsForDefeat`), comme les unités et la Baliste — sauf les murailles.
+
+**Murailles** (`wall`, `wall_gate` dans `data/buildings.ts` ; modèles KayKit
+du dossier « neutral », visuel neutre non teinté, mais constructions du
+**joueur**) :
+
+- **Muraille** (segment droit) et **Porte de muraille** : 50 PV, emprise
+  2 × 1 à l'échelle native du modèle, coût **provisoire** 1 or par segment.
+  Aucune attaque, aucun effet, aucune population, aucune amélioration ; ne
+  comptent pas pour la défaite.
+- **Muraille** : bloque le déplacement de **toutes** les unités, son camp
+  compris (contourner ou passer par une porte). Les **tirs passent**
+  par-dessus (`blocksShots: false`), pour le mur comme pour la porte.
+- **Porte de muraille** (`BuildingDef.gate`, `sim/systems/gates.ts`) : vraie
+  porte de son camp.
+  - Ses unités la comptent toujours comme un passage dans leurs trajets, même
+    fermée (pas de détour) ; elle s'ouvre quand l'une d'elles est à moins de
+    **1,5 case** de son emprise, en **0,5 s** ; les unités ne la franchissent
+    physiquement qu'à partir de **60 %** d'ouverture (avant, elles attendent
+    contre les battants) ; elle reste ouverte tant qu'une unité alliée est
+    proche ou dedans, puis se referme **1 s** après le dernier passage (en
+    0,5 s), jamais sur une unité. Réglages centralisés dans `data/buildings.ts`.
+  - États fermée / ouverture / ouverte / fermeture, au pas fixe, sans hasard :
+    la simulation décide, le rendu anime les deux battants du modèle.
+  - Pour le camp adverse, elle reste **toujours fermée**, même ouverte pour un
+    allié : il ne peut que l'attaquer. Détruite (0 PV), le passage est libre
+    pour tout le monde.
+- **Ennemis** : un mur ou une porte est ciblable comme tout bâtiment (cible
+  la plus proche dans l'aggro) ; une enceinte fermée est donc attaquée,
+  jamais un blocage éternel. Détruit (0 PV), il disparaît et sa case
+  redevient franchissable.
+- **Tracé continu** (mode Muraille de la préparation ; même tracé dans
+  l'éditeur, voir `EDITOR.md`) : choisir « Muraille » en boutique ; le
+  premier clic fixe le point de départ, chaque clic suivant construit la
+  **portion** de l'ancre au point cliqué (horizontale ou verticale selon
+  l'**axe dominant**, jamais de diagonale) puis son extrémité devient la
+  nouvelle ancre : A, B, C, D, A trace un carré fermé à 4 virages.
+  - Aperçu de la portion (segments futurs, virage, case en attente), vert ou
+    rouge, nombre de segments et coût. Tout ou rien par portion : une portion
+    invalide (hors territoire, obstacle, bâtiment, unité, or insuffisant) ne
+    pose rien, le reste du tracé est intact.
+  - **Fermeture** : un clic sur le point de départ ou une case voisine (si
+    l'ancre lui est alignée) se cale sur lui, pose le dernier côté et termine
+    le tracé (« ferme l'enceinte ») ; le mode reste actif.
+  - **Virages** : le pack n'a pas de coin à 90° ; un virage est fait de
+    segments droits (les cases du tracé sont appariées deux à deux, une paire
+    peut enjamber le virage ; selon le sens de dessin, la case de coin est
+    portée par l'un ou l'autre côté). L'enceinte est étanche ; le rendu
+    prolonge légèrement le segment qui bute contre un segment perpendiculaire
+    pour fermer visuellement l'angle (petit effet de pilastre, ~0,1 case).
+  - **Créneaux** : tant que le tracé est ouvert, orientation provisoire de
+    camp (vers l'ennemi). À la **fermeture**, tous les segments de l'enceinte
+    (portes comprises) tournent leurs créneaux vers l'**extérieur**, quel que
+    soit le sens de dessin ; seule la rotation enregistrée change (`ASSETS.md`
+    §3.5). Une porte posée sur un mur reprend son orientation.
+  - Une portion d'un nombre impair de cases laisse sa dernière case **en
+    attente** (contour sans modèle, non payée) : elle est construite avec la
+    portion suivante.
+  - **Échap / clic droit** pendant un tracé : annule seulement ce qui n'est
+    pas construit (aperçu, case en attente). Les portions déjà validées sont
+    payées et restent (on peut les déplacer ou les vendre comme tout
+    bâtiment). Sans tracé en cours, Échap / clic droit quittent le mode.
+- **Porte** : outil séparé, posée à l'unité (Ctrl + molette : 90°). Posée
+  **exactement** sur un segment de mur (même emprise), elle le **remplace** :
+  mur — porte — mur sans trou ; on paie la porte, le mur n'est pas remboursé.
 
 | | Mine | Caserne | Camp d'archerie | Maison | Forge | Tour | Église |
 |---|---|---|---|---|---|---|---|

@@ -15,7 +15,7 @@ import {
   type ObstacleDef,
 } from '../../config/constants';
 import { clamp } from '../../core/math';
-import { findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, segmentIntersectsBox } from '../geometry';
+import { findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, obstaclesBlockingTeam, obstaclesCollidingTeam, segmentIntersectsBox } from '../geometry';
 import { forwardDir, type Entity } from '../entity';
 import { finishOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
 import { buildPathGrid, findPath, type PathGrid } from '../pathfinding';
@@ -123,9 +123,24 @@ export function movementSystem(
   // (voir pursueNeutralWithPathfinding, updateStuckState) — construite avant
   // updateStuckState, qui peut avoir besoin d'un premier calcul de chemin
   // des ce tick si un blocage prolonge vient d'etre detecte.
-  const pathGrid = buildPathGrid(obstacles, boardWidth, boardHeight);
+  // Obstacles et grille PAR CAMP : une porte de muraille est un passage pour
+  // les TRAJETS de son camp, meme fermee (ObstacleDef.passableForTeam) ; la
+  // COLLISION (etape 3) ne la laisse franchir qu'ouverte. Sans porte, les
+  // deux camps partagent la meme liste et la meme grille.
+  const teamObstacles = (e: Entity): ObstacleDef[] => obstaclesBlockingTeam(obstacles, e.team);
+  const sharedGrid = buildPathGrid(obstacles, boardWidth, boardHeight);
+  const teamGrids = new Map<ObstacleDef[], PathGrid>([[obstacles, sharedGrid]]);
+  const teamGrid = (e: Entity): PathGrid => {
+    const list = teamObstacles(e);
+    let grid = teamGrids.get(list);
+    if (!grid) {
+      grid = buildPathGrid(list, boardWidth, boardHeight);
+      teamGrids.set(list, grid);
+    }
+    return grid;
+  };
 
-  updateStuckState(movable, byId, dt, obstacles, pathGrid, orderEvents);
+  updateStuckState(movable, byId, dt, teamObstacles, teamGrid, orderEvents);
 
   // Rayon max une seule fois (les rayons ne changent pas pendant la
   // resolution) : taille de cellule de la grille de separation — voir
@@ -198,7 +213,7 @@ export function movementSystem(
       // qui suspend l'ordre sans l'effacer — l'unite poursuit alors la
       // Sentinelle normalement, et reprend son trajet ensuite.
       if (e.order.type === 'move' && e.tauntSourceId === null) {
-        followMoveOrder(e, e.order, obstacles, pathGrid, subDt, orderEvents);
+        followMoveOrder(e, e.order, teamObstacles(e), teamGrid(e), subDt, orderEvents);
         continue;
       }
 
@@ -214,7 +229,7 @@ export function movementSystem(
           e.steerZ = null;
           continue;
         }
-        pursueNeutralWithPathfinding(e, obstacles, subDt);
+        pursueNeutralWithPathfinding(e, teamObstacles(e), subDt);
         continue;
       }
 
@@ -230,7 +245,7 @@ export function movementSystem(
         continue;
       }
 
-      const routeFound = pursueTargetWithPathfinding(e, target, obstacles, pathGrid, subDt);
+      const routeFound = pursueTargetWithPathfinding(e, target, teamObstacles(e), teamGrid(e), subDt);
       // Attaque ciblee vers une cible sans aucune route (A* ne trouve rien,
       // plateau deconnecte) : l'ordre echoue au lieu de laisser l'unite
       // tourner indefiniment avec l'evitement local. Une poursuite autonome
@@ -247,7 +262,7 @@ export function movementSystem(
     // 3. Collision avec les obstacles
     // Une unite est un cercle (rayon = stats.radius), un obstacle un
     // rectangle exact (voir OBSTACLES).
-    for (const e of movable) resolveObstacleCollisions(e, obstacles);
+    for (const e of movable) resolveObstacleCollisions(e, obstaclesCollidingTeam(obstacles, e.team));
   }
 
   // 4. Confinement au plateau
@@ -373,11 +388,13 @@ function updateStuckState(
   movable: Entity[],
   byId: Map<number, Entity>,
   dt: number,
-  obstacles: ObstacleDef[],
-  grid: PathGrid,
+  obstaclesFor: (e: Entity) => ObstacleDef[],
+  gridFor: (e: Entity) => PathGrid,
   orderEvents: OrderEndEvent[],
 ): void {
   for (const e of movable) {
+    const obstacles = obstaclesFor(e);
+    const grid = gridFor(e);
     if (e.rootTimer > 0) {
       // Rootee : ne bouge pas et ne peut rien y faire, inutile d'evaluer un
       // blocage — evite aussi qu'une manoeuvre de degagement se retrouve

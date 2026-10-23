@@ -22,6 +22,42 @@ import { obstacleBounds, type ObstacleBounds, type ObstacleDef } from '../config
  */
 const boundsCache = new WeakMap<ObstacleDef[], ObstacleBounds[]>();
 
+/** Listes filtrees par camp, mises en cache par reference de tableau (meme
+ *  principe que boundsCache) : la liste reste stable tant que World.obstacles
+ *  ne change pas, et ses bornes restent donc en cache elles aussi. */
+const teamObstaclesCache = new WeakMap<ObstacleDef[], Map<string, ObstacleDef[]>>();
+
+function cachedTeamList(obstacles: ObstacleDef[], key: string, isPassage: (o: ObstacleDef) => boolean): ObstacleDef[] {
+  let byKey = teamObstaclesCache.get(obstacles);
+  if (!byKey) {
+    byKey = new Map();
+    teamObstaclesCache.set(obstacles, byKey);
+  }
+  let list = byKey.get(key);
+  if (!list) {
+    list = obstacles.some(isPassage) ? obstacles.filter((o) => !isPassage(o)) : obstacles;
+    byKey.set(key, list);
+  }
+  return list;
+}
+
+/** Obstacles dont les TRAJETS d'une unite du camp `team` doivent tenir
+ *  compte (A*, ligne droite, contournement) : tous, sauf les portes de ce
+ *  camp (`passableForTeam === team`), comptees comme un passage meme
+ *  fermees — l'unite y va, la porte s'ouvre a son approche. Renvoie le
+ *  tableau d'origine s'il n'y a rien a retirer. */
+export function obstaclesBlockingTeam(obstacles: ObstacleDef[], team: string): ObstacleDef[] {
+  return cachedTeamList(obstacles, 'path:' + team, (o) => o.passableForTeam === team);
+}
+
+/** Obstacles qui arretent PHYSIQUEMENT une unite du camp `team` (collision,
+ *  ruee de Charge) : tous, sauf les portes de ce camp assez ouvertes
+ *  (`passageOpen`). Une porte qui s'ouvre ou se ferme remplace
+ *  World.obstacles (World.setGatePassage) : le cache reste exact. */
+export function obstaclesCollidingTeam(obstacles: ObstacleDef[], team: string): ObstacleDef[] {
+  return cachedTeamList(obstacles, 'body:' + team, (o) => o.passableForTeam === team && o.passageOpen === true);
+}
+
 export function getObstacleBoundsList(obstacles: ObstacleDef[]): ObstacleBounds[] {
   let cached = boundsCache.get(obstacles);
   if (!cached) {
@@ -128,6 +164,10 @@ export function segmentIntersectsBox(
  * propre rectangle de la cible, qui se declare donc "bloquant" pour
  * n'importe quel tir/poursuite qui la vise, empechant tout hit reel. `null`/
  * absent : comportement inchange, aucun obstacle exclu.
+ *
+ * `forShot` : test d'une LIGNE DE TIR (attaque, capacite) plutot que d'un
+ * trajet ; les obstacles `blocksShots === false` (murailles) sont alors
+ * transparents. Absent : tout obstacle bloque (deplacement, poursuite).
  */
 export function findBlockingObstacle(
   ax: number,
@@ -136,6 +176,7 @@ export function findBlockingObstacle(
   bz: number,
   obstacles: ObstacleDef[],
   ignore?: ObstacleDef | null,
+  forShot = false,
 ): { impactX: number; impactZ: number; centerX: number; centerZ: number } | null {
   const dx = bx - ax;
   const dz = bz - az;
@@ -143,6 +184,7 @@ export function findBlockingObstacle(
   const boundsList = getObstacleBoundsList(obstacles);
   for (let i = 0; i < obstacles.length; i++) {
     if (ignore && obstacles[i] === ignore) continue;
+    if (forShot && obstacles[i]!.blocksShots === false) continue;
     const bounds = boundsList[i]!;
     const hit = segmentIntersectsBox(ax, az, dx, dz, bounds);
     if (hit === null) continue;

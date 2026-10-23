@@ -47,7 +47,7 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
     // pose : ecrits seulement s'il y en a, une map sans batiment reste
     // identique a avant ce champ.
     ...(state.buildings.length > 0
-      ? { buildings: state.buildings.map(({ buildingId, team, x, z }) => ({ buildingId, team, x, z })) }
+      ? { buildings: state.buildings.map(({ buildingId, team, x, z, rotationY }) => ({ buildingId, team, x, z, ...(rotationY ? { rotationY } : {}) })) }
       : {}),
   };
 }
@@ -122,10 +122,12 @@ function readBuildings(entries: unknown[]): MapBuildingPlacement[] {
   const buildings: MapBuildingPlacement[] = [];
   for (const entry of entries) {
     if (typeof entry !== 'object' || entry === null) continue;
-    const { buildingId, team, x, z } = entry as Record<string, unknown>;
+    const { buildingId, team, x, z, rotationY } = entry as Record<string, unknown>;
     if (typeof buildingId !== 'string' || BUILDINGS[buildingId]?.footprintTilesX === undefined) continue;
     if ((team !== 'player' && team !== 'enemy') || !isFinitePoint({ x, z })) continue;
-    buildings.push({ buildingId, team, x: x as number, z: z as number });
+    // Rotation optionnelle (muraille) : ignoree si elle n'est pas un nombre fini.
+    const rotation = typeof rotationY === 'number' && Number.isFinite(rotationY) && rotationY !== 0 ? { rotationY } : {};
+    buildings.push({ buildingId, team, x: x as number, z: z as number, ...rotation });
   }
   if (buildings.length < entries.length) console.warn(`Bâtiments : ${entries.length - buildings.length} entrée(s) invalide(s) ignorée(s).`);
   return buildings;

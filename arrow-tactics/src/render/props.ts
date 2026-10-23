@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { obstacleCenter, TILE, type ObstacleDef } from '../config/constants';
-import { cloneScaledTo, type EnvironmentAssets } from './assetLibrary';
+import { cloneScaledTo, createMissingModelPlaceholder, isLazyModel, type EnvironmentAssets } from './assetLibrary';
 
 /**
  * Prop independant : un seul modele .glb (buche, souche, champignon,
@@ -17,6 +17,12 @@ export function createPropObstacle(def: ObstacleDef, assets: EnvironmentAssets, 
   const footprint = Math.min(width, depth) * 0.85 * (def.scale ?? 1);
 
   const prototype = assets.propsByName[def.propModel ?? ''];
+  if (!prototype && isLazyModel(def.propModel ?? '')) {
+    // Modele a la demande pas encore charge (voir ensureModels).
+    const placeholder = createMissingModelPlaceholder(width, depth);
+    placeholder.position.set(centerX, 0, centerZ);
+    return placeholder;
+  }
   if (!prototype) throw new Error(`Prop inconnu : ${def.propModel}`);
 
   const prop = cloneScaledTo(prototype, footprint, 'width');
