@@ -496,6 +496,11 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     entrée est neutre ; neutre n'est pas un `TerritoryTeam`. Le type est un
     littéral local, structurellement identique à `Team` (`config/`
     n'importe jamais `sim/`) ;
+  - `MapDef.buildings?` (`MapBuildingPlacement` : `buildingId`, `team`,
+    centre `x`, `z`) : bâtiments gameplay de scénario de l'éditeur,
+    séparés des décors (`obstacles`) et de la Baliste (`ballista`) ; absent
+    = aucun. Instanciés par `setupTestBattle` (« Tester le scénario ») via
+    `World.spawnBuilding`, au niveau 1 ; ignorés par le Mode survie ;
   - `MapDef.territory?` : absent = repli historique ; `[]` = territoire
     explicitement vide, sans repli. `resolveMapTerritory(map, spawnDepth)`
     est la **seule** source du repli (`deriveLegacyTerritory` : bandes de
@@ -684,11 +689,11 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
 | Fichier | Rôle |
 |---|---|
-| `editor/editorState.ts` | État pur : obstacles, unités, cellules, territoire explicite (`territory`, `undefined` tant qu'il n'a pas été modifié) avec index résolu en cache (`territoryOwnerAt`, invalidé à chaque changement de cellule ou de territoire), position de la Baliste (`ballista`, `ballistaExplicit`), sélection, outil actif ; instantanés pour l'historique (`objectsSnapshot`, `mapShapeSnapshot`, `territorySnapshot`) |
+| `editor/editorState.ts` | État pur : obstacles, unités, bâtiments de scénario (`buildings`, emprise lue dans `data/buildings.ts`, `canPlaceBuildingAt`), cellules, territoire explicite (`territory`, `undefined` tant qu'il n'a pas été modifié) avec index résolu en cache (`territoryOwnerAt`, invalidé à chaque changement de cellule ou de territoire), position de la Baliste (`ballista`, `ballistaExplicit`), sélection, outil actif ; instantanés pour l'historique (`objectsSnapshot`, `mapShapeSnapshot`, `territorySnapshot`) |
 | `editor/editorScene.ts` | Construction des meshes (réutilise les fabriques du jeu), fantômes des outils de pose, aperçus de cellule, anneau de sélection des décors (doré) et de la Baliste (couleur de son camp, fixée par `main.ts`) |
 | `editor/editorUI.ts` | Interface DOM : barre du haut, colonne de gauche (outils, catalogue `DECOR_CATALOG`, recherche), panneau de propriétés, ligne d'état, panneaux repliables, mesure de l'espace libre (`getViewportInsets`) |
 | `editor/history.ts` | Pile de commandes undo/redo (`{undo, redo}`) ; la coalescence d'un geste en une commande est faite par l'appelant |
-| `editor/mapSerializer.ts` | `MapDef` ↔ JSON (export par téléchargement, import par fichier) ; `territory` et `ballista` écrits seulement s'ils sont explicites |
+| `editor/mapSerializer.ts` | `MapDef` ↔ JSON (export par téléchargement, import par fichier) ; `territory` et `ballista` écrits seulement s'ils sont explicites, `buildings` seulement s'il y en a |
 
 L'orchestration reste dans `main.ts` :
 

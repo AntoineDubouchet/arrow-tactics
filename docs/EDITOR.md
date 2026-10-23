@@ -12,8 +12,9 @@ enregistrée depuis l'éditeur. Le Mode survie part de son arène officielle,
 exportée de l'éditeur puis intégrée au code (`SURVIVAL_BASE_MAP`, voir
 `CURRENT_STATE.md` §11) : il en utilise le terrain, les décors, le
 territoire et la position de la Baliste. Une carte de l'éditeur sert à
-« Tester le scénario » (§15) ; ses unités (`playerUnits`, `enemyUnits`) ne
-définissent ni l'armée de départ ni les vagues d'une run.
+« Tester le scénario » (§15) ; ses unités (`playerUnits`, `enemyUnits`) et
+ses bâtiments de scénario (`buildings`, §16) ne définissent ni l'armée de
+départ, ni les bâtiments, ni les vagues d'une run.
 
 ## Sommaire
 
@@ -187,8 +188,9 @@ la carte (`MapDef.territory`, §14) et sert :
 
 - **Pose** : choisir une unité du bestiaire, puis cliquer. L'unité est
   alignée au **centre d'une case**, avec un aperçu de case vert ou rouge et
-  un fantôme du modèle. Après la pose, l'outil revient à Sélection et l'unité
-  posée est sélectionnée.
+  un fantôme du modèle. La pose est **continue** : l'outil et son aperçu
+  restent actifs, chaque clic valide pose une nouvelle unité ; clic droit ou
+  Échap reviennent à Sélection.
 - **Camp** : celui du **territoire de la case** (§4) au moment de la pose ou
   du déplacement. Il n'y a pas de choix de camp séparé.
   - territoire joueur → unité du joueur ;
@@ -200,7 +202,7 @@ la carte (`MapDef.territory`, §14) et sert :
   - sur un obstacle bloquant (seule la case du centre de l'obstacle compte,
     **KI-20**) ;
   - sur une autre unité ;
-  - dans l'empreinte de la Baliste (§16).
+  - dans l'empreinte de la Baliste ou d'un bâtiment de scénario (§16).
 
   Les déplacements d'unités appliquent les mêmes règles (§8).
 - **Unités anciennes** : une unité chargée, ou laissée par un changement de
@@ -362,7 +364,8 @@ ouverte au départ) :
 ## 10. Supprimer
 
 - **Suppr**, **Retour arrière** ou le bouton **« Supprimer (Suppr) »**
-  suppriment la sélection : un décor, une unité ou un groupe.
+  suppriment la sélection : un décor, une unité, un groupe ou un bâtiment
+  de scénario.
 - La suppression est **annulable** : Ctrl+Z restaure les objets et la
   sélection.
 - **La Baliste ne se supprime pas** : Suppr est sans effet sur elle, tout
@@ -373,8 +376,8 @@ ouverte au départ) :
 - **Raccourcis** : **Ctrl+Z** pour annuler, **Ctrl+Y** ou **Ctrl+Maj+Z** pour
   rétablir.
 - **Opérations historisées**, une entrée par geste :
-  - pose d'une unité ou d'un décor ;
-  - suppression d'un décor, d'une unité ou d'un groupe ;
+  - pose d'une unité, d'un bâtiment de scénario ou d'un décor ;
+  - suppression d'un décor, d'une unité, d'un groupe ou d'un bâtiment ;
   - déplacement d'unités (une entrée pour tout le groupe, positions et
     camps) ;
   - déplacement d'un décor au gizmo ;
@@ -495,8 +498,9 @@ Différences avec la partie :
   reste non enregistrée jusqu'au premier Enregistrer.
 - **Règle** : la carte est non enregistrée quand son **export** diffère de
   celui de la référence. L'ordre des cases et du territoire ne compte pas.
-  - Comptent : unités (pose, suppression, déplacement, camp), décors
-    (position, rotation), cases, Taille, territoire, Baliste.
+  - Comptent : unités (pose, suppression, déplacement, camp), bâtiments de
+    scénario (pose, suppression), décors (position, rotation), cases,
+    Taille, territoire, Baliste.
   - Ne comptent pas : sélection, caméra, recherche, catégories ouvertes,
     outil actif, panneaux repliés, valeur tapée dans Taille sans Appliquer,
     « Tester le scénario ».
@@ -551,6 +555,11 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
 - **Ce que fait le test** : il lance une **vraie bataille** sur la carte en
   cours d'édition, avec ses unités (`playerUnits`, `enemyUnits`) et les
   mêmes règles qu'en partie. Aucune confirmation n'est demandée.
+- **Bâtiments de scénario** (`buildings`, §16) : chacun devient un **vrai
+  bâtiment** à sa position, au **niveau 1** (PV, collision, sélection, fiche
+  « Nom — Niv. 1 », fonction : la Tour tire, la Caserne produit, la Maison
+  compte pour la population…). La Mine n'y produit pas d'or (le test n'a pas
+  de run).
 - **Baliste** : une **vraie** Baliste est créée, comme en partie. C'est un
   bâtiment de simulation avec ses PV (de base : le test n'applique aucune
   amélioration de Forge), sa collision et sa destruction : HUD
@@ -566,8 +575,7 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
   même si elle a été détruite.
 - **Ce que le test ne fait pas** :
   - il n'utilise ni l'or, ni l'armée, ni les bâtiments d'une run ;
-  - il n'accorde aucune récompense de méta-progression ;
-  - il ne crée **ni Mine ni Caserne**, voir **KI-07**.
+  - il n'accorde aucune récompense de méta-progression.
 
 ## 16. Structures décoratives, bâtiments gameplay et Baliste
 
@@ -575,9 +583,28 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
   bleus, rouges et neutres) : ce sont de **simples obstacles**. Ils bloquent
   le passage et la ligne de tir, mais ne peuvent être ni ciblés, ni détruits,
   ni produire quoi que ce soit. Leur teinte est purement visuelle.
-- **Mine, Caserne et Forge** (bâtiments gameplay) : elles n'existent qu'en
-  partie, achetées et posées par le joueur. On ne peut pas les placer depuis
-  l'éditeur.
+- **Bâtiments de scénario** (groupe **« Bâtiments »** de la bibliothèque,
+  juste après « Unités ») : Mine, Caserne, Forge, Maison, Tour, Église, les
+  vrais bâtiments gameplay (liste et emprises lues dans `data/buildings.ts`).
+  - **Pose continue** : choisir un bâtiment, puis cliquer autant de fois que
+    voulu ; l'aperçu montre son emprise réelle (2×2, 3×3…), verte ou rouge,
+    et le modèle. Clic droit ou Échap reviennent à Sélection.
+  - **Pose refusée** si une case de l'emprise manque (hors du plateau ou
+    trou), ou si elle chevauche un autre bâtiment de scénario, la Baliste, un
+    décor bloquant ou le centre d'une unité. **Aucune règle de territoire** :
+    l'éditeur crée des scénarios, contrairement à la préparation du Mode
+    survie.
+  - Camp : **joueur** pour cette première version (le format prévoit
+    `team`).
+  - Sélection au clic (anneau à la couleur du camp, panneau de propriétés),
+    suppression, annuler / rétablir et état non enregistré comme les autres
+    objets. Aucune unité ne peut être posée dans leur emprise, ni aucune case
+    supprimée dessous.
+  - Enregistrés dans `MapDef.buildings` (`buildingId`, `team`, centre
+    `x`, `z`), séparés des décors ; champ absent = aucun bâtiment. Le Mode
+    survie ne lit pas ce champ.
+  - **La Baliste n'y figure pas** : unique et toujours présente, elle garde
+    son outil dédié ci-dessous et sa seule source, `ballista`.
 
 **La Baliste**
 
@@ -637,7 +664,6 @@ joueur, et sa position fait partie de la carte (`ballista`, §14).
 
 Détaillées dans `KNOWN_ISSUES.md` :
 
-- **KI-07** : « Tester le scénario » ne crée ni Mine ni Caserne.
 - **KI-02** : le placement en jeu ne teste pas directement les cases.
 - **KI-20** : certaines règles ne testent que la **case centrale** d'un
   obstacle (suppression d'une case, pose et déplacement d'unités, pose et

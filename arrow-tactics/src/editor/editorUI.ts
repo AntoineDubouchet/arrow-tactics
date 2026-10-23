@@ -1,9 +1,10 @@
 import { isCollidableObstacle, obstacleCenter, type ObstacleDef } from '../config/constants';
 import type { TerrainType } from '../config/mapDef';
 import type { TerritoryTeam } from '../config/territory';
+import { getBuilding, listBuyableBuildingIds } from '../data/buildings';
 import { UNITS } from '../data/units';
 import { teamColor } from '../render/unitSelectionRing';
-import type { EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate } from './editorState';
+import type { EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate } from './editorState';
 
 export interface EditorUIHandlers {
   /** Bouton "Sélection" (outil par défaut) — même effet qu'Échap ou le clic
@@ -14,6 +15,8 @@ export interface EditorUIHandlers {
    *  ici, il est deduit de la position au moment de la pose (voir
    *  EditorState.placeUnitAt). */
   onSelectUnit: (unitId: string) => void;
+  /** Bâtiment gameplay choisi dans l'onglet « Bâtiments » (pose continue). */
+  onSelectBuilding: (buildingId: string) => void;
   /** Outil "Ajouter case" (2026-08-16, chantier map irrégulière) — reste
    *  actif après chaque clic (tampon répétable), contrairement au placement
    *  d'obstacle/unité (voir EditorState.addCell). */
@@ -504,7 +507,8 @@ export type PropertiesSubject =
   | { kind: 'obstacle'; obstacle: EditorObstacle; rotationRad: number }
   /** `territory` : proprietaire actuel de la case de chaque unite. */
   | { kind: 'units'; units: { unit: EditorUnit; territory: TerritoryTeam | null }[] }
-  | { kind: 'ballista'; x: number; z: number };
+  | { kind: 'ballista'; x: number; z: number }
+  | { kind: 'building'; building: EditorBuilding };
 
 interface PropertiesView {
   name: string;
@@ -586,6 +590,25 @@ function describeProperties(subject: PropertiesSubject): PropertiesView {
         sections: [
           { label: 'Composition', rows: [...byType].map(([id, n]) => [UNITS[id]?.name ?? id, `×${n}`] as [string, string]), notes: [] },
           { label: 'Camp', rows: campRows, notes: [teamNote] },
+        ],
+        actions: ['delete'],
+      };
+    }
+    case 'building': {
+      const b = subject.building;
+      const def = getBuilding(b.buildingId);
+      return {
+        name: def.displayName,
+        kind: 'Bâtiment du scénario',
+        technicalId: def.id,
+        sections: [
+          { label: 'Camp', rows: [['Camp', teamName(b.team)]], notes: [] },
+          { label: 'Position', rows: [['X', formatCoord(b.x)], ['Z', formatCoord(b.z)]], notes: [] },
+          {
+            label: 'Emprise',
+            rows: [['Taille', `${def.footprintTilesX ?? 1}×${def.footprintTilesZ ?? 1}`]],
+            notes: ['Vrai bâtiment au niveau 1 dans « Tester le scénario » ; ignoré par le Mode survie.'],
+          },
         ],
         actions: ['delete'],
       };
@@ -678,6 +701,7 @@ export class EditorUI {
   private readonly territoryButton: HTMLButtonElement;
   private readonly territoryValueButtons = new Map<TerritoryTeam | null, HTMLButtonElement>();
   private readonly unitCards = new Map<string, HTMLButtonElement>();
+  private readonly buildingCards = new Map<string, HTMLButtonElement>();
   private readonly assetCards = new Map<PlacementTemplate, { button: HTMLButtonElement; label: string }>();
   /** Camp que reprend le bouton "Peindre le territoire" : le dernier choisi. */
   private territoryValue: TerritoryTeam | null = 'player';
@@ -844,6 +868,12 @@ export class EditorUI {
     browser.appendChild(this.categoryHeader('Bestiaire'));
     for (const unit of UNIT_ASSETS) browser.appendChild(this.unitAssetCard(unit, handlers.onSelectUnit));
 
+    // Batiments GAMEPLAY du scenario (jamais des decors) : ceux qu'un joueur
+    // peut construire, lus dans data/buildings.ts. La Baliste garde son outil
+    // dedie (unique, toujours presente, MapDef.ballista).
+    browser.appendChild(this.groupHeader('Bâtiments'));
+    for (const buildingId of listBuyableBuildingIds()) browser.appendChild(this.buildingAssetCard(buildingId, handlers.onSelectBuilding));
+
     // Decors (E2) : recherche + categories repliables.
     browser.appendChild(this.groupHeader('Décors'));
     this.searchInput = document.createElement('input');
@@ -987,7 +1017,14 @@ export class EditorUI {
       case 'place-unit': {
         const card = this.unitCards.get(tool.unitId);
         if (card) active.push(card);
-        status = `Outil : Unité — ${UNITS[tool.unitId]?.name ?? tool.unitId} · Clic : poser (camp = territoire de la case, neutre interdit) · Échap : Sélection`;
+        status = `Outil : Unité — ${UNITS[tool.unitId]?.name ?? tool.unitId} · Clic : poser (l'outil reste actif ; camp = territoire de la case, neutre interdit) · Clic droit ou Échap : Sélection`;
+        break;
+      }
+      case 'place-building': {
+        const card = this.buildingCards.get(tool.buildingId);
+        if (card) active.push(card);
+        const def = getBuilding(tool.buildingId);
+        status = `Outil : Bâtiment — ${def.displayName} (${def.footprintTilesX ?? 1}×${def.footprintTilesZ ?? 1}) · Clic : poser (l'outil reste actif) · Clic droit ou Échap : Sélection`;
         break;
       }
       case 'place-obstacle': {
@@ -1254,6 +1291,18 @@ export class EditorUI {
     return button;
   }
 
+  private buildingAssetCard(buildingId: string, onSelect: (buildingId: string) => void): HTMLElement {
+    const def = getBuilding(buildingId);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'editor-asset-card';
+    button.textContent = def.displayName;
+    button.title = `${def.footprintTilesX ?? 1}×${def.footprintTilesZ ?? 1}`;
+    button.addEventListener('click', () => onSelect(buildingId));
+    this.buildingCards.set(buildingId, button);
+    return button;
+  }
+
   private unitAssetCard(unit: UnitAssetEntry, onSelect: (unitId: string) => void): HTMLElement {
     const button = document.createElement('button');
     button.type = 'button';
@@ -1276,6 +1325,8 @@ function selectStatus(selection: EditorSelection): string {
       const count = selection.kind === 'unit' ? 1 : selection.ids.length;
       return `Outil : Sélection — ${count} unité${count > 1 ? 's' : ''} · Clic au sol : déplacer (camp = territoire d'arrivée) · Suppr : supprimer · Échap : désélectionner`;
     }
+    case 'building':
+      return 'Outil : Sélection — bâtiment du scénario · Suppr : supprimer · Échap : désélectionner';
     case 'ballista':
       return 'Outil : Sélection — Baliste · Clic au sol : déplacer (3×3 en territoire joueur) · Échap : désélectionner';
   }

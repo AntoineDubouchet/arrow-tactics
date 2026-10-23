@@ -48,7 +48,15 @@ import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMov
 import { getBuilding } from './data/buildings';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
 import { getUnit, type UnitStats } from './data/units';
-import { EDITOR_BALLISTA_OWNER, EditorState, type EditorMapShapeSnapshot, type EditorObjectsSnapshot, type EditorTool } from './editor/editorState';
+import {
+  EDITOR_BALLISTA_OWNER,
+  EditorState,
+  buildingBoundsAt,
+  snapBuildingCenter,
+  type EditorMapShapeSnapshot,
+  type EditorObjectsSnapshot,
+  type EditorTool,
+} from './editor/editorState';
 import { EditorHistory } from './editor/history';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
@@ -395,15 +403,22 @@ function clearOwnedBuildingViews(): void {
  *  quelconque dans sa zone, pas necessairement alignee sur un coin de bloc
  *  pair). */
 function ownedBuildingObstacle(owned: OwnedBuilding): ObstacleDef {
-  const def = getBuilding(owned.buildingId);
+  return gameplayBuildingObstacle(owned.buildingId, owned.x, owned.z, owned.rotationY ?? 0);
+}
+
+/** Emprise de collision et modele d'un batiment GAMEPLAY centre en (x, z) :
+ *  la meme pour un batiment possede, un batiment de scenario de l'editeur
+ *  et son instance dans « Tester le scénario ». */
+function gameplayBuildingObstacle(buildingId: string, x: number, z: number, rotationY = 0): ObstacleDef {
+  const def = getBuilding(buildingId);
   return {
     kind: 'building',
     buildingModel: def.buildingModel,
     tilesX: def.footprintTilesX ?? 1,
     tilesZ: def.footprintTilesZ ?? 1,
-    x: owned.x,
-    z: owned.z,
-    rotationY: owned.rotationY ?? 0,
+    x,
+    z,
+    rotationY,
     scale: def.modelScale,
   };
 }
@@ -882,6 +897,19 @@ function setupTestBattle(): void {
     rememberPlayerUnitLevel(spawned, level);
   }
   for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z);
+  // Batiments gameplay du scenario (editeur, MapDef.buildings) : de VRAIES
+  // entites au niveau 1 (PV, collision, fonction), apres les unites comme
+  // les batiments possedes en vraie bataille.
+  clearScenarioBuildingMeshes();
+  for (const placed of currentMap.buildings ?? []) {
+    const obstacle = gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z);
+    const entity = world.spawnBuilding(getBuilding(placed.buildingId), placed.team, placed.x, placed.z, obstacle);
+    const mesh = buildObstacleMesh(obstacle, environmentAssets);
+    renderer.scene.add(mesh);
+    scenarioBuildingMeshes.push(mesh);
+    buildingViewsByEntityId.set(entity.id, new BuildingView(mesh, buildingVfxGroup));
+    scenarioBuildingEntityIds.add(entity.id);
+  }
   // Apres les unites, comme en vraie bataille (voir onValidatePlacement).
   spawnBallistaBuilding();
   // Apres la Baliste : son empreinte compte dans le pas d'ouverture.
@@ -1657,15 +1685,28 @@ const ownedBuildingIndexByEntityId = new Map<number, number>();
 /** Niveau propre d'un batiment possede de la bataille en cours, ou null
  *  (Baliste, batiment hors run). */
 function battleOwnedBuildingLevel(entity: Entity): number | null {
+  if (scenarioBuildingEntityIds.has(entity.id)) return 0;
   const index = ownedBuildingIndexByEntityId.get(entity.id);
   const owned = index !== undefined ? currentRun.buildings[index] : undefined;
   return owned ? ownedBuildingLevel(owned) : null;
+}
+
+/** Batiments de scenario (MapDef.buildings) de « Tester le scénario » : ids
+ *  d'entite (niveau 1 dans la fiche) et maillages, retires au retour a
+ *  l'editeur. */
+const scenarioBuildingEntityIds = new Set<number>();
+const scenarioBuildingMeshes: THREE.Object3D[] = [];
+
+function clearScenarioBuildingMeshes(): void {
+  for (const mesh of scenarioBuildingMeshes) renderer.scene.remove(mesh);
+  scenarioBuildingMeshes.length = 0;
 }
 
 function forgetBattleBuildings(): void {
   ballistaEntityId = null;
   buildingViewsByEntityId.clear();
   ownedBuildingIndexByEntityId.clear();
+  scenarioBuildingEntityIds.clear();
   battleUnitLevels.clear();
   ballistaBuildingView.reset();
 }
@@ -2026,6 +2067,8 @@ function resetEditorWithMap(map: MapDef): void {
   editorUnitsGroup.clear();
   editorUnitMeshes.clear();
   editorUnitMeshTeams.clear();
+  editorBuildingsGroup.clear();
+  editorBuildingMeshes.clear();
   clearEditorGhost();
   transformControls.detach();
   editorHistory.clear();
@@ -2086,7 +2129,11 @@ const editorUnitRings = new Map<number, THREE.Mesh>();
 const editorObjectsGroup = new THREE.Group();
 const editorUnitsGroup = new THREE.Group();
 const editorGhostGroup = new THREE.Group();
-renderer.scene.add(editorObjectsGroup, editorUnitsGroup, editorGhostGroup);
+/** Batiments gameplay du scenario (onglet « Bâtiments ») : groupe et
+ *  maillages propres, distincts des decors (editorObjectsGroup). */
+const editorBuildingsGroup = new THREE.Group();
+const editorBuildingMeshes = new Map<number, THREE.Object3D>();
+renderer.scene.add(editorObjectsGroup, editorUnitsGroup, editorBuildingsGroup, editorGhostGroup);
 
 // Sol/grille/zones PROPRES a l'editeur, distincts de ceux de la partie en
 // cours (board.group) : necessaire pour le redimensionnement (Antoine,
@@ -2404,7 +2451,11 @@ function deleteEditorSelection(): void {
   if (!editorState) return;
   const before = editorState.objectsSnapshot();
   editorState.deleteSelected();
-  if (editorState.obstacles.length !== before.obstacles.length || editorState.units.length !== before.units.length) {
+  if (
+    editorState.obstacles.length !== before.obstacles.length ||
+    editorState.units.length !== before.units.length ||
+    editorState.buildings.length !== before.buildings.length
+  ) {
     pushEditorObjectsCommand(before, editorState.objectsSnapshot());
   }
   refreshEditorObjects();
@@ -2470,6 +2521,12 @@ const editorUI = new EditorUI({
   onSelectUnit: (unitId) => {
     if (!editorState) return;
     editorState.setTool({ type: 'place-unit', unitId });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
+  onSelectBuilding: (buildingId) => {
+    if (!editorState) return;
+    editorState.setTool({ type: 'place-building', buildingId });
     clearEditorGhost();
     refreshEditorObjects();
   },
@@ -2664,13 +2721,37 @@ function refreshEditorObjects(): void {
     editorUnitRings.set(id, attachUnitSelectionRing(unitMesh, unit.team, getUnit(unit.unitId).stats.radius));
   }
 
+  // Batiments gameplay du scenario : un maillage par batiment (le modele du
+  // jeu), tague pour le clic (findEditorBuildingId).
+  const liveBuildingIds = new Set(editorState.buildings.map((b) => b.id));
+  for (const [id, mesh] of editorBuildingMeshes) {
+    if (liveBuildingIds.has(id)) continue;
+    editorBuildingsGroup.remove(mesh);
+    editorBuildingMeshes.delete(id);
+  }
+  for (const b of editorState.buildings) {
+    if (editorBuildingMeshes.has(b.id)) continue;
+    const mesh = buildObstacleMesh(gameplayBuildingObstacle(b.buildingId, b.x, b.z), editorAssets);
+    mesh.userData['editorBuildingId'] = b.id;
+    editorBuildingMeshes.set(b.id, mesh);
+    editorBuildingsGroup.add(mesh);
+  }
+
   // Baliste du brouillon : le modele (partage avec le jeu, voir
   // ballistaPlatform) suit la position de l'editeur, la seule enregistree.
   repositionBallista(editorState.ballista);
 
   const selectedObstacle = editorState.selectedObstacle;
+  const selectedBuilding = editorState.selectedBuilding;
   const ballistaSelected = editorState.selection?.kind === 'ballista';
-  editorSelectionRing.visible = selectedObstacle !== null || ballistaSelected;
+  editorSelectionRing.visible = selectedObstacle !== null || ballistaSelected || selectedBuilding !== null;
+  if (selectedBuilding) {
+    // Meme convention d'echelle que les decors, sur l'emprise reelle.
+    const def = getBuilding(selectedBuilding.buildingId);
+    editorSelectionRing.position.set(selectedBuilding.x, 0.02, selectedBuilding.z);
+    editorSelectionRing.scale.setScalar(Math.max(def.footprintTilesX ?? 1, def.footprintTilesZ ?? 1) * 0.7);
+    editorSelectionRingMaterial.color.setHex(teamColor(selectedBuilding.team));
+  }
   if (selectedObstacle) {
     const center = obstacleCenter(selectedObstacle);
     editorSelectionRing.position.set(center.x, 0.02, center.z);
@@ -2714,6 +2795,8 @@ function editorPropertiesSubject(state: EditorState): PropertiesSubject {
     return { kind: 'units', units: units.map((unit) => ({ unit, territory: state.territoryOwnerAt(unit.x, unit.z) })) };
   }
   if (state.selection?.kind === 'ballista') return { kind: 'ballista', x: state.ballista.x, z: state.ballista.z };
+  const building = state.selectedBuilding;
+  if (building) return { kind: 'building', building };
   return { kind: 'none' };
 }
 
@@ -2757,6 +2840,8 @@ function exitEditor(): void {
   editorUnitMeshes.clear();
   editorUnitMeshTeams.clear();
   editorUnitRings.clear();
+  editorBuildingsGroup.clear();
+  editorBuildingMeshes.clear();
   editorBoardGroup.clear();
   editorBoardGroup.visible = false;
   clearEditorGhost();
@@ -2795,6 +2880,7 @@ async function testScenario(): Promise<void> {
   editorBoardGroup.visible = false;
   editorObjectsGroup.visible = false;
   editorUnitsGroup.visible = false;
+  editorBuildingsGroup.visible = false;
   editorGhostGroup.visible = false;
   clearEditorGhost();
   editorSelectionRing.visible = false;
@@ -2841,6 +2927,7 @@ function returnToEditorAfterTest(): void {
   battleOver = false;
 
   world.clear();
+  clearScenarioBuildingMeshes();
   // Remet aussi le modele de la Baliste a neuf si elle a ete detruite pendant
   // le test (voir forgetBattleBuildings).
   forgetBattleBuildings();
@@ -2883,6 +2970,7 @@ function returnToEditorAfterTest(): void {
   editorBoardGroup.visible = true;
   editorObjectsGroup.visible = true;
   editorUnitsGroup.visible = true;
+  editorBuildingsGroup.visible = true;
   // Masque par testScenario : sans cette ligne, plus aucun apercu de
   // l'editeur (fantomes, cases, pinceau, Baliste) ne s'affichait apres un test.
   editorGhostGroup.visible = true;
@@ -2893,6 +2981,16 @@ function returnToEditorAfterTest(): void {
   // editorState n'a jamais ete touche pendant le test : on retrouve
   // exactement la configuration de depart, comme demande.
   refreshEditorObjects();
+}
+
+/** Id du batiment de scenario de l'editeur dont fait partie l'objet touche
+ *  (tag pose par refreshEditorObjects), ou null. */
+function findEditorBuildingId(object: THREE.Object3D | null): number | null {
+  for (let current = object; current; current = current.parent) {
+    const id = current.userData['editorBuildingId'];
+    if (typeof id === 'number') return id;
+  }
+  return null;
 }
 
 /** Remonte la hierarchie Three.js depuis l'objet touche jusqu'au groupe qui
@@ -2962,6 +3060,21 @@ function updateEditorGhost(x: number, z: number): void {
     const combined = new THREE.Group();
     combined.add(buildCellPreview(cellX, cellZ, valid));
     if (team) combined.add(buildUnitGhost(editorState.tool.unitId, team, unitX, unitZ));
+    editorGhost = combined;
+    editorGhostGroup.add(editorGhost);
+  } else if (editorState.tool.type === 'place-building') {
+    // Emprise REELLE du batiment (BuildingDef), centre cale sur la grille :
+    // chaque case verte si la pose est possible, rouge sinon (meme regle que
+    // le clic, canPlaceBuildingAt), plus le modele du jeu en fantome.
+    const buildingId = editorState.tool.buildingId;
+    const center = snapBuildingCenter(buildingId, x, z);
+    const valid = editorState.canPlaceBuildingAt(buildingId, center.x, center.z);
+    const bounds = buildingBoundsAt(buildingId, center.x, center.z);
+    const combined = new THREE.Group();
+    for (let cz = Math.floor(bounds.minZ); cz < bounds.maxZ; cz++) {
+      for (let cx = Math.floor(bounds.minX); cx < bounds.maxX; cx++) combined.add(buildCellPreview(cx, cz, valid));
+    }
+    combined.add(buildGhost(gameplayBuildingObstacle(buildingId, center.x, center.z), center.x, center.z, editorAssets));
     editorGhost = combined;
     editorGhostGroup.add(editorGhost);
   } else if (editorState.tool.type === 'add-cell') {
@@ -3114,11 +3227,22 @@ function handleEditorClick(event: MouseEvent): void {
     return;
   }
 
+  // Pose CONTINUE (unites, batiments de scenario) : l'outil et son apercu
+  // restent actifs apres chaque pose ; clic droit ou Echap reviennent a la
+  // Selection.
   if (editorState.tool.type === 'place-unit') {
     const before = editorState.objectsSnapshot();
     if (editorState.placeUnitAt(snapToTileCenter(groundHit.x), snapToTileCenter(groundHit.z))) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
-    clearEditorGhost();
     refreshEditorObjects();
+    updateEditorGhost(groundHit.x, groundHit.z);
+    return;
+  }
+
+  if (editorState.tool.type === 'place-building') {
+    const before = editorState.objectsSnapshot();
+    if (editorState.placeBuildingAt(groundHit.x, groundHit.z)) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
+    refreshEditorObjects();
+    updateEditorGhost(groundHit.x, groundHit.z);
     return;
   }
 
@@ -3140,6 +3264,8 @@ function handleEditorClick(event: MouseEvent): void {
 
   if (picked?.kind === 'ballista') {
     editorState.select({ kind: 'ballista' });
+  } else if (picked?.kind === 'building') {
+    editorState.select({ kind: 'building', id: picked.id });
   } else if (picked?.kind === 'obstacle') {
     editorState.select({ kind: 'obstacle', id: picked.id });
   } else if (picked === null && !event.shiftKey && editorState.selection?.kind === 'ballista') {
@@ -3169,19 +3295,26 @@ function handleEditorClick(event: MouseEvent): void {
  *  pour le sol : ce qu'un clic de l'outil selection viserait. En cas de
  *  double hit (rare, objets tres proches), le plus proche de la camera
  *  plutot qu'une priorite arbitraire. */
-function pickEditorObjectAt(event: MouseEvent): { kind: 'ballista' } | { kind: 'obstacle'; id: number } | { kind: 'unit'; id: number } | null {
+function pickEditorObjectAt(
+  event: MouseEvent,
+): { kind: 'ballista' } | { kind: 'obstacle'; id: number } | { kind: 'unit'; id: number } | { kind: 'building'; id: number } | null {
   setRaycasterFromEvent(event);
   const obstacleHit = raycaster.intersectObjects(editorObjectsGroup.children, true)[0];
   const unitHit = raycaster.intersectObjects(editorUnitsGroup.children, true)[0];
+  const buildingHit = raycaster.intersectObjects(editorBuildingsGroup.children, true)[0];
   // La Baliste (modele partage avec le jeu, voir ballistaPlatform) est aussi
   // cliquable directement.
   const ballistaHit = raycaster.intersectObject(ballistaPlatform, true)[0];
-  const hit = [obstacleHit, unitHit, ballistaHit].reduce<THREE.Intersection | undefined>(
+  const hit = [obstacleHit, unitHit, buildingHit, ballistaHit].reduce<THREE.Intersection | undefined>(
     (best, h) => (h && (!best || h.distance < best.distance) ? h : best),
     undefined,
   );
   if (!hit) return null;
   if (hit === ballistaHit) return { kind: 'ballista' };
+  if (hit === buildingHit) {
+    const buildingId = findEditorBuildingId(hit.object);
+    if (buildingId !== null) return { kind: 'building', id: buildingId };
+  }
   const obstacleId = findEditorObstacleId(hit.object);
   if (obstacleId !== null) return { kind: 'obstacle', id: obstacleId };
   const unitId = findEditorUnitId(hit.object);

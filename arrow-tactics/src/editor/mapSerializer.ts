@@ -1,4 +1,5 @@
-import type { MapDef } from '../config/mapDef';
+import type { MapBuildingPlacement, MapDef } from '../config/mapDef';
+import { BUILDINGS } from '../data/buildings';
 import type { TerritoryCell } from '../config/territory';
 import type { EditorState } from './editorState';
 
@@ -42,6 +43,12 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
     // une map qui n'en avait pas reste sans champ — le repli des bandes
     // historiques n'est jamais materialise par un simple enregistrement.
     ...(state.territory !== undefined ? { territory: state.territory.map((c) => ({ x: c.x, z: c.z, team: c.team })) } : {}),
+    // Batiments gameplay de scenario (voir MapDef.buildings), dans l'ordre de
+    // pose : ecrits seulement s'il y en a, une map sans batiment reste
+    // identique a avant ce champ.
+    ...(state.buildings.length > 0
+      ? { buildings: state.buildings.map(({ buildingId, team, x, z }) => ({ buildingId, team, x, z })) }
+      : {}),
   };
 }
 
@@ -103,7 +110,25 @@ export async function loadMapDefFromFile(file: File): Promise<MapDef> {
     // tableau (meme vide), entrees invalides ecartees ; absent ou d'un autre
     // type -> pas de champ, donc repli sur les bandes historiques.
     ...(Array.isArray(data.territory) ? { territory: readTerritory(data.territory) } : {}),
+    // `buildings` OPTIONNEL (voir MapDef.buildings) : absent -> aucun
+    // batiment de scenario ; entrees invalides ecartees.
+    ...(Array.isArray(data.buildings) ? { buildings: readBuildings(data.buildings) } : {}),
   };
+}
+
+/** Batiments de scenario valides : batiment gameplay connu et posable (emprise
+ *  definie), camp joueur ou ennemi, centre fini. */
+function readBuildings(entries: unknown[]): MapBuildingPlacement[] {
+  const buildings: MapBuildingPlacement[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { buildingId, team, x, z } = entry as Record<string, unknown>;
+    if (typeof buildingId !== 'string' || BUILDINGS[buildingId]?.footprintTilesX === undefined) continue;
+    if ((team !== 'player' && team !== 'enemy') || !isFinitePoint({ x, z })) continue;
+    buildings.push({ buildingId, team, x: x as number, z: z as number });
+  }
+  if (buildings.length < entries.length) console.warn(`Bâtiments : ${entries.length - buildings.length} entrée(s) invalide(s) ignorée(s).`);
+  return buildings;
 }
 
 /** Garde les seules entrees bien formees (x/z entiers, camp connu), copiees

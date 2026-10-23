@@ -8,6 +8,7 @@ import {
   DEFAULT_MAP,
   resolveMapCells,
   snapBallistaOrigin,
+  type MapBuildingPlacement,
   type MapDef,
   type MapUnitPlacement,
   type TerrainCellDef,
@@ -22,6 +23,7 @@ import {
   type TerritoryIndex,
   type TerritoryTeam,
 } from '../config/territory';
+import { getBuilding } from '../data/buildings';
 import type { Team } from '../sim/entity';
 
 /**
@@ -65,6 +67,18 @@ export interface EditorUnit {
   z: number;
 }
 
+/** Batiment GAMEPLAY de scenario (onglet « Bâtiments », voir
+ *  MapDef.buildings) : vrai batiment de data/buildings.ts, distinct des
+ *  decors. (x, z) = centre de son emprise (BuildingDef.footprintTiles*),
+ *  calee sur la grille ; camp joueur pour cette premiere version. */
+export interface EditorBuilding {
+  id: number;
+  buildingId: string;
+  team: Team;
+  x: number;
+  z: number;
+}
+
 /** Une selection d'UNITES est un ensemble ordonne d'unites, toujours
  *  normalise par selectUnits : une seule unite = `unit`, deux ou plus =
  *  `unit-group` (jamais un groupe a un membre). `ids[0]` sert d'ANCRE pour
@@ -74,6 +88,8 @@ export type EditorSelection =
   | { kind: 'obstacle'; id: number }
   | { kind: 'unit'; id: number }
   | { kind: 'unit-group'; ids: number[] }
+  /** Batiment gameplay de scenario. */
+  | { kind: 'building'; id: number }
   /** La Baliste (unique, toujours presente) : deplacable, jamais supprimee
    *  ni tournee. */
   | { kind: 'ballista' }
@@ -83,6 +99,8 @@ export type EditorTool =
   | { type: 'select' }
   | { type: 'place-obstacle'; template: PlacementTemplate }
   | { type: 'place-unit'; unitId: string }
+  /** Pose de batiments gameplay de scenario (reste actif, comme les unites). */
+  | { type: 'place-building'; buildingId: string }
   | { type: 'add-cell'; terrain: TerrainType }
   | { type: 'remove-cell' }
   /** Pinceau de territoire : `team` peint la case pour ce camp, `null`
@@ -117,7 +135,28 @@ export interface EditorUnitState {
 export interface EditorObjectsSnapshot {
   obstacles: EditorObstacle[];
   units: EditorUnit[];
+  buildings: EditorBuilding[];
   selection: EditorSelection;
+}
+
+/** Taille d'emprise (cases) d'un batiment gameplay, lue dans sa BuildingDef. */
+function buildingFootprint(buildingId: string): { tilesX: number; tilesZ: number } {
+  const def = getBuilding(buildingId);
+  return { tilesX: def.footprintTilesX ?? 1, tilesZ: def.footprintTilesZ ?? 1 };
+}
+
+/** Centre cale sur la grille de l'emprise d'un batiment dont le centre
+ *  tomberait pres de (x, z) : coin de case entier, centre = coin + taille / 2
+ *  (meme convention que le placement des batiments en preparation). */
+export function snapBuildingCenter(buildingId: string, x: number, z: number): { x: number; z: number } {
+  const { tilesX, tilesZ } = buildingFootprint(buildingId);
+  return { x: Math.round(x - tilesX / 2) + tilesX / 2, z: Math.round(z - tilesZ / 2) + tilesZ / 2 };
+}
+
+/** Rectangle de l'emprise d'un batiment centre en (x, z). */
+export function buildingBoundsAt(buildingId: string, x: number, z: number): ObstacleBounds {
+  const { tilesX, tilesZ } = buildingFootprint(buildingId);
+  return { minX: x - tilesX / 2, maxX: x + tilesX / 2, minZ: z - tilesZ / 2, maxZ: z + tilesZ / 2 };
 }
 
 /** Ce que modifie le changement de taille (voir setSize), pour l'annuler. */
@@ -136,6 +175,8 @@ function copySelection(selection: EditorSelection): EditorSelection {
 export class EditorState {
   obstacles: EditorObstacle[];
   units: EditorUnit[];
+  /** Batiments gameplay de scenario (voir EditorBuilding). */
+  buildings: EditorBuilding[];
   /** Taille du brouillon en cours d'edition (en cases) — independante de la
    *  taille du plateau reellement en jeu tant que la carte n'est pas
    *  sauvegardee/testee (voir main.ts, rebuildEditorBoard). Modifiable via
@@ -186,6 +227,7 @@ export class EditorState {
       ...source.playerUnits.map((u) => this.toEditorUnit(u, 'player')),
       ...source.enemyUnits.map((u) => this.toEditorUnit(u, 'enemy')),
     ];
+    this.buildings = (source.buildings ?? []).map((b) => this.toEditorBuilding(b));
     this.width = source.width;
     this.height = source.height;
     this.cellMap = buildCellIndex(resolveMapCells(source));
@@ -242,6 +284,7 @@ export class EditorState {
       }
     }
     if (this.obstacles.some((o) => isCollidableObstacle(o) && boundsOverlap(b, obstacleBounds(o)))) return false;
+    if (this.buildings.some((bd) => boundsOverlap(b, buildingBoundsAt(bd.buildingId, bd.x, bd.z)))) return false;
     return !this.units.some((u) => u.x > b.minX && u.x < b.maxX && u.z > b.minZ && u.z < b.maxZ);
   }
 
@@ -340,8 +383,10 @@ export class EditorState {
    *  l'outil (Part AF), pour ne jamais diverger. */
   canRemoveCell(x: number, z: number): boolean {
     if (!this.cellMap.has(cellKey(x, z))) return false;
-    // Case necessaire sous la Baliste.
+    // Case necessaire sous la Baliste ou sous un batiment de scenario.
     if (this.isCellUnderBallista(x, z)) return false;
+    const cell = { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
+    if (this.buildings.some((b) => boundsOverlap(cell, buildingBoundsAt(b.buildingId, b.x, b.z)))) return false;
 
     const occupiedByUnit = this.units.some((u) => Math.floor(u.x) === x && Math.floor(u.z) === z);
     if (occupiedByUnit) return false;
@@ -562,6 +607,7 @@ export class EditorState {
     // Case neutre : interdite aux unites (le camp vient du territoire).
     if (this.territoryOwnerAt(x, z) === null) return false;
     if (this.isInsideBallista(x, z)) return false;
+    if (this.buildingAt(x, z) !== null) return false;
 
     const onObstacle = this.obstacles.some((o) => {
       if (!isCollidableObstacle(o)) return false;
@@ -585,9 +631,63 @@ export class EditorState {
     if (!team) return null;
     const unit: EditorUnit = { id: this.nextId++, unitId: this.tool.unitId, team, x, z };
     this.units.push(unit);
-    this.tool = { type: 'select' };
-    this.selection = { kind: 'unit', id: unit.id };
+    // Pose CONTINUE : l'outil reste actif pour l'unite suivante (clic droit
+    // ou Echap pour revenir a la selection).
     return unit;
+  }
+
+  /** Batiment de scenario dont l'emprise contient le point (x, z) (bord
+   *  exclu), ou null. */
+  buildingAt(x: number, z: number): EditorBuilding | null {
+    return (
+      this.buildings.find((b) => {
+        const r = buildingBoundsAt(b.buildingId, b.x, b.z);
+        return x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ;
+      }) ?? null
+    );
+  }
+
+  /** Vrai si le batiment `buildingId` peut etre centre en (x, z) (centre
+   *  deja cale, voir snapBuildingCenter), selon son emprise REELLE : toutes
+   *  les cases existent (ni hors du plateau ni au-dessus d'un trou), aucun
+   *  autre batiment de scenario, ni la Baliste, ni un decor COLLIDABLE ne la
+   *  chevauche, et aucune unite n'a son centre dedans. Pas de regle de
+   *  territoire : l'editeur cree des scenarios librement. SOURCE UNIQUE de la
+   *  pose et de son apercu. */
+  canPlaceBuildingAt(buildingId: string, x: number, z: number, ignoreBuildingId?: number): boolean {
+    const r = buildingBoundsAt(buildingId, x, z);
+    for (let cz = Math.floor(r.minZ); cz < r.maxZ; cz++) {
+      for (let cx = Math.floor(r.minX); cx < r.maxX; cx++) {
+        if (!this.hasCellAt(cx, cz)) return false;
+      }
+    }
+    if (this.buildings.some((b) => b.id !== ignoreBuildingId && boundsOverlap(r, buildingBoundsAt(b.buildingId, b.x, b.z)))) return false;
+    if (boundsOverlap(r, this.ballistaBoundsAt(this.ballista.x, this.ballista.z))) return false;
+    if (this.obstacles.some((o) => isCollidableObstacle(o) && boundsOverlap(r, obstacleBounds(o)))) return false;
+    return !this.units.some((u) => u.x > r.minX && u.x < r.maxX && u.z > r.minZ && u.z < r.maxZ);
+  }
+
+  /** Pose un batiment de l'outil actif, centre cale pres de (x, z). L'outil
+   *  reste actif (pose continue). Null (rien ne change) si la position est
+   *  invalide. */
+  placeBuildingAt(x: number, z: number): EditorBuilding | null {
+    if (this.tool.type !== 'place-building') return null;
+    const buildingId = this.tool.buildingId;
+    const center = snapBuildingCenter(buildingId, x, z);
+    if (!this.canPlaceBuildingAt(buildingId, center.x, center.z)) return null;
+    const building: EditorBuilding = { id: this.nextId++, buildingId, team: 'player', x: center.x, z: center.z };
+    this.buildings.push(building);
+    return building;
+  }
+
+  get selectedBuilding(): EditorBuilding | null {
+    const sel = this.selection;
+    if (sel?.kind !== 'building') return null;
+    return this.buildings.find((b) => b.id === sel.id) ?? null;
+  }
+
+  private toEditorBuilding(b: MapBuildingPlacement): EditorBuilding {
+    return { id: this.nextId++, buildingId: b.buildingId, team: b.team, x: b.x, z: b.z };
   }
 
   /** Déplace librement l'obstacle sélectionné (position continue, plus de
@@ -669,7 +769,7 @@ export class EditorState {
 
   /** Voir EditorObjectsSnapshot. */
   objectsSnapshot(): EditorObjectsSnapshot {
-    return { obstacles: [...this.obstacles], units: [...this.units], selection: copySelection(this.selection) };
+    return { obstacles: [...this.obstacles], units: [...this.units], buildings: [...this.buildings], selection: copySelection(this.selection) };
   }
 
   /** Remet les objets et la selection exactement dans un etat capture par
@@ -677,6 +777,7 @@ export class EditorState {
   restoreObjects(snapshot: EditorObjectsSnapshot): void {
     this.obstacles = [...snapshot.obstacles];
     this.units = [...snapshot.units];
+    this.buildings = [...snapshot.buildings];
     this.selection = copySelection(snapshot.selection);
   }
 
@@ -710,6 +811,8 @@ export class EditorState {
       this.obstacles = this.obstacles.filter((o) => o.id !== sel.id);
     } else if (sel.kind === 'unit') {
       this.units = this.units.filter((u) => u.id !== sel.id);
+    } else if (sel.kind === 'building') {
+      this.buildings = this.buildings.filter((b) => b.id !== sel.id);
     } else {
       const ids = new Set(sel.ids);
       this.units = this.units.filter((u) => !ids.has(u.id));

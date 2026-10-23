@@ -927,7 +927,16 @@ carte exportée de l'éditeur puis intégrée au code (§11).
   - La Baliste y est un **vrai bâtiment** (PV, collision, destruction, état
     `DÉTRUITE` du HUD), à la position de la carte : modèle, origine des tirs,
     bâtiment et collision coïncident exactement.
-  - Ni Mine ni Caserne ne sont créées (`KNOWN_ISSUES.md`, KI-07).
+  - Les bâtiments de scénario de la carte y deviennent de vrais
+    bâtiments, au niveau 1 (voir ci-dessous).
+- **Bâtiments de scénario** : groupe « Bâtiments » de la bibliothèque (Mine,
+  Caserne, Forge, Maison, Tour, Église) ; pose continue selon l'emprise réelle
+  du bâtiment, refusée hors du plateau, sur un trou, sur un autre bâtiment,
+  la Baliste, un décor bloquant ou une unité, sans règle de territoire ;
+  camp joueur ; enregistrés dans `MapDef.buildings` (absent = aucun),
+  ignorés par le Mode survie. La Baliste garde son outil dédié.
+- **Pose d'unités** : continue, l'outil reste actif après chaque pose ; clic
+  droit ou Échap reviennent à Sélection.
 
 ## 17. Audio
 

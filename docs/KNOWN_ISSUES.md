@@ -27,7 +27,6 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-02 | Placement en jeu sans test direct des cellules | Dette (atténuée) |
 | KI-03 | Bâtiment potentiellement inatteignable | À vérifier |
 | KI-04 | Contrat implicite « ordre de spawn = ordre de l'armée » | Dette |
-| KI-07 | « Tester le scénario » sans Mine ni Caserne | Dette |
 | KI-09 | Descriptions de talents aux valeurs codées en dur | Dette |
 | KI-10 | Commentaire inexact du bouton d'achat ×5 | Dette |
 | KI-11 | Nom trompeur `MAGE_UNLOCK_WAVE` | Dette |
@@ -42,7 +41,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-26 | Arbres et props pivotent autour de l'origine de leur modèle | Dette (lecture du code) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
-(c'est le cas de KI-05, KI-06, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19 et
+(c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19 et
 KI-25).
 
 Retirées lors de la refonte de l'éditeur, résolues côté code :
@@ -55,6 +54,17 @@ Retirées lors de la refonte de l'éditeur, résolues côté code :
   tête de l'écouteur `keydown` de `main.ts` (`isTypingInField`) ignore tous
   les raccourcis du jeu et de l'éditeur quand le focus est dans un champ ;
   seul Échap fait sortir du champ, puis garde son rôle habituel.
+
+Retirée avec les bâtiments de scénario de l'éditeur, résolue côté code :
+
+- **KI-07** (« Tester le scénario » sans Mine ni Caserne) : la carte peut
+  désormais contenir des bâtiments gameplay de scénario (`MapDef.buildings`,
+  groupe « Bâtiments » de l'éditeur) — Mine, Caserne, Forge, Maison, Tour,
+  Église. `setupTestBattle` les instancie comme de vrais bâtiments au
+  niveau 1 (PV, collision, sélection et fiche, fonction : la Tour tire, la
+  Caserne produit…), en plus des unités de la carte et de la Baliste
+  (`EDITOR.md` §15-§16). La Mine n'y produit pas d'or, le test n'ayant pas
+  de run.
 
 Retirée avec l'arène du Mode survie, résolue côté code :
 
@@ -178,26 +188,6 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 - **Piste** : un identifiant explicite reliant `OwnedUnit` et entité.
 
 ## B. Éditeur de maps
-
-### KI-07 — « Tester le scénario » sans Mine ni Caserne
-
-- **Statut** : Dette (limitation), partiellement résolue.
-- **Résolu** : la **Baliste** est désormais un vrai bâtiment en test (PV,
-  collision, destruction), à la position de la carte (`MapDef.ballista`, ou
-  le repli historique) — voir `EDITOR.md` §15-§16.
-- **Symptôme restant** : aucune Mine ni Caserne n'est créée pendant un test
-  depuis l'éditeur ; ces bâtiments ne peuvent pas y être testés.
-- **Code concerné** :
-  - `setupTestBattle` (`main.ts`) ne fait apparaître que les unités de la
-    carte et la Baliste ;
-  - `MapDef` ne connaît que la position de la Baliste, aucun autre bâtiment
-    gameplay.
-- **Impact actuel** : limite les tests d'équilibrage des bâtiments achetables
-  faits dans l'éditeur.
-- **Vérification** : lancer un test et constater qu'aucune Mine ni Caserne
-  n'apparaît.
-- **Piste** : une métadonnée optionnelle sur les obstacles
-  `kind: 'building'`, ou une option du test.
 
 ### KI-20 — Validation partielle des positions dans l'éditeur
 

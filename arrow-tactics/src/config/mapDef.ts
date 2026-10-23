@@ -20,6 +20,19 @@ export interface MapUnitPlacement {
   z: number;
 }
 
+/** Batiment GAMEPLAY de scenario (onglet « Bâtiments » de l'editeur) : un
+ *  vrai batiment de data/buildings.ts, instancie par « Tester le scénario »
+ *  avec ses PV, sa collision et sa fonction, au niveau 1. Distinct des
+ *  decors (`obstacles`, y compris les batiments purement visuels) et de la
+ *  Baliste (`ballista`). (x, z) = centre de l'emprise, meme convention que
+ *  OwnedBuilding. Le Mode survie ne lit pas ce champ. */
+export interface MapBuildingPlacement {
+  buildingId: string;
+  team: 'player' | 'enemy';
+  x: number;
+  z: number;
+}
+
 /** Types de terrain disponibles pour une cellule — herbe/terre pour
  *  l'instant (2026-08-16, chantier map irreguliere), extensible plus tard
  *  (peinture de terrain, voir CLAUDE.md etape 5 du chantier editeur). */
@@ -79,6 +92,9 @@ export interface MapDef {
    *  bandes historiques, voir resolveMapTerritory. Present mais vide (`[]`) =
    *  territoire explicitement vide, jamais remplace par le repli. */
   territory?: TerritoryCell[];
+  /** Batiments gameplay de scenario (voir MapBuildingPlacement). OPTIONNEL :
+   *  absent = aucun batiment de scenario (toute map anterieure). */
+  buildings?: MapBuildingPlacement[];
 }
 
 /** Cle stable d'une cellule — sert de cle de Map/Set (lookup O(1) "cette
