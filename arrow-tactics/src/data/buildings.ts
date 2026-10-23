@@ -39,6 +39,29 @@ export interface SpawnerBuildingConfig {
   minIntervalSeconds: number;
 }
 
+/** Attaque automatique d'un batiment defensif (Tour) — voir
+ *  sim/systems/buildingAttack.ts. Valeurs de NIVEAU 1 ; le gain par niveau
+ *  propre au batiment s'ajoute (run/buildingUpgradeEffects.ts). */
+export interface BuildingAttackConfig {
+  /** Degats par fleche, echelle INTERNE (x10, comme UnitStats.damage). */
+  damage: number;
+  /** Degats ajoutes par niveau d'amelioration du batiment, echelle interne. */
+  damagePerLevel: number;
+  /** Portee (cases), meme convention que UnitStats.attackRange : a portee si
+   *  distance <= portee + rayon de la cible. */
+  rangeTiles: number;
+  /** Temps entre deux tirs (secondes de simulation). */
+  cooldownSeconds: number;
+  /** Vitesse de la fleche (cases/s) : duree de vol = distance / vitesse. */
+  projectileSpeed: number;
+  /** Point de depart VISUEL de la fleche, jamais lu par la simulation :
+   *  hauteur (monde) sous l'avant-toit du modele, et decalage horizontal
+   *  depuis le centre du batiment vers la cible (bord du fut), pour qu'elle
+   *  ne sorte ni du sol, ni du centre, ni du toit. */
+  launchHeight: number;
+  launchOutset: number;
+}
+
 export interface BuildingDef {
   id: string;
   displayName: string;
@@ -86,6 +109,18 @@ export interface BuildingDef {
   /** Population maximale ajoutee tant que le batiment existe (Maison, voir
    *  data/population.ts). Absent = aucun effet sur la population. */
   populationBonus?: number;
+  /** Prix de base de l'amelioration PROPRE a chaque exemplaire (niveau 0 -> 1),
+   *  double a chaque niveau (run/buildingUpgrades.ts). Absent = batiment non
+   *  ameliorable depuis sa fiche. */
+  upgradeGoldCostBase?: number;
+  /** PV max ajoutes par niveau d'amelioration, echelle interne. Absent = 0. */
+  hpPerLevel?: number;
+  /** Attaque automatique (Tour). Absent = batiment passif. */
+  attack?: BuildingAttackConfig;
+  /** Facteur de taille VISUELLE du modele par rapport a son emprise (voir
+   *  ObstacleDef.scale) ; l'emprise de collision et de placement ne change
+   *  pas. Absent = 1. */
+  modelScale?: number;
 }
 
 export const BUILDINGS: Record<string, BuildingDef> = {
@@ -112,6 +147,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_mine',
     footprintTilesX: 2,
     footprintTilesZ: 2,
+    upgradeGoldCostBase: 25,
   },
   // "25 HP" (Antoine) -> 250 interne.
   ballista: {
@@ -155,6 +191,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_barracks',
     footprintTilesX: 3,
     footprintTilesZ: 3,
+    upgradeGoldCostBase: 25,
     // REFONTE 2026-08-17 (meme jour, retour d'Antoine apres test) : base
     // 10s -> 5s ("il faut invoquer un fantassin toutes les 5 secondes"),
     // plancher 2s -> 1s ("ne peut pas descendre en dessous de 1 seconde") —
@@ -205,6 +242,43 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintTilesX: 2,
     footprintTilesZ: 2,
     populationBonus: 5,
+  },
+  // Tour defensive : tire automatiquement des fleches sur l'unite ennemie la
+  // plus proche a portee (sim/systems/buildingAttack.ts). Valeurs de
+  // PLAYTEST, a reequilibrer :
+  //  - portee 8 > Archer (6) : depasse les archers sans approcher la Baliste,
+  //    qui n'a pas de portee ;
+  //  - 1 tir / 2,5 s : plus lent qu'un Archer (2,0 s) et que la Baliste
+  //    (2,31 s), compense par des degats eleves (4, contre 1,2 et 2) ;
+  //  - fleche a 18 cases/s : ~0,45 s de vol a portee max.
+  tower: {
+    id: 'tower',
+    displayName: 'Tour',
+    maxHp: 15 * HP_PER_PIP,
+    radius: 1.0,
+    targetable: true,
+    countsForDefeat: true,
+    hpBarHeight: 3.4,
+    cost: 10,
+    buildingModel: 'blue_tower_A',
+    footprintTilesX: 2,
+    footprintTilesZ: 2,
+    // Ajuste a l'emprise 2 × 2, le modele ferait 3,8 de haut, plus haut que
+    // la Caserne (3,14) et la tour de la Baliste (3,24) : ramene a ~3,0.
+    modelScale: 0.8,
+    upgradeGoldCostBase: 5,
+    hpPerLevel: 5 * HP_PER_PIP,
+    attack: {
+      damage: 4 * HP_PER_PIP,
+      damagePerLevel: 2 * HP_PER_PIP,
+      rangeTiles: 8,
+      cooldownSeconds: 2.5,
+      projectileSpeed: 18,
+      // Modele a l'echelle 0,8 : fut jusqu'a ~2,3, avant-toit vers 2,4-2,5,
+      // pointe du toit vers 3,0 ; fut d'environ 1,2 de large.
+      launchHeight: 2.15,
+      launchOutset: 0.65,
+    },
   },
 };
 

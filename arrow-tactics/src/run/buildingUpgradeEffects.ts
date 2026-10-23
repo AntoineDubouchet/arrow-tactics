@@ -20,3 +20,18 @@ import { getBuilding } from '../data/buildings';
 export function getEffectiveBuildingCost(buildingId: string): number {
   return getBuilding(buildingId).cost ?? 0;
 }
+
+/** PV max d'un batiment possede a son niveau PROPRE (interne x10) : base +
+ *  niveau x BuildingDef.hpPerLevel (Tour : 15, 20, 25... PV). Egal a la base
+ *  pour un batiment sans gain de PV par niveau. */
+export function effectiveBuildingMaxHp(buildingId: string, level: number): number {
+  const def = getBuilding(buildingId);
+  return def.maxHp + level * (def.hpPerLevel ?? 0);
+}
+
+/** Degats par tir d'un batiment defensif a son niveau PROPRE (interne x10) :
+ *  base + niveau x gain (Tour : 4, 6, 8... points). 0 sans attaque. */
+export function effectiveBuildingAttackDamage(buildingId: string, level: number): number {
+  const attack = getBuilding(buildingId).attack;
+  return attack ? attack.damage + level * attack.damagePerLevel : 0;
+}

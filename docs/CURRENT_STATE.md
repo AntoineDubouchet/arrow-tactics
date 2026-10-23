@@ -18,7 +18,7 @@ contient ni intentions de design ni décisions futures.
 3. Unités
 4. Déblocage des unités
 5. La Baliste (tour du joueur)
-6. Bâtiments gameplay : Mine, Caserne et Forge
+6. Bâtiments gameplay : Mine, Caserne, Forge et Tour
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -254,6 +254,9 @@ en bataille. Elle n'existe pas dans l'éditeur.
     production, ou « En attente » quand le lot attend des cases libres ;
   - **Forge** : PV et emprise. En préparation, la fiche porte le bouton
     **« Ouvrir la Forge »** (§14) ; en bataille, aucun bouton ;
+  - **Tour** : « Tour — Niv. N », PV, dégâts, portée, cadence (« 1 tir /
+    2.5 s ») et emprise. En préparation, aussi l'effet du niveau suivant
+    (« +5 PV, +2 dégâts ») et le bouton **« Améliorer — N or »** (§6) ;
   - **Baliste** : PV, dégâts par carreau, recharge, carreaux par volée.
     Aucune portée, le tir n'en a pas. En préparation : PV max / max,
     « Mode : Automatique au début de la bataille » et « Prête pour la
@@ -413,11 +416,12 @@ AUTO), `main.ts`.
   - en petit, le nombre d'unités sélectionnées (ligne masquée quand rien
     n'est sélectionné).
 
-## 6. Bâtiments gameplay : Mine, Caserne et Forge
+## 6. Bâtiments gameplay : Mine, Caserne, Forge et Tour
 
 Sources : `data/buildings.ts`, `data/mineUpgrade.ts`, `run/buildingUpgrades.ts`,
 `run/mineUpgradeEffects.ts`, `run/barracksUpgradeEffects.ts`,
-`run/buildingUpgradeEffects.ts`, `sim/systems/barracksSystem.ts`, `main.ts`.
+`run/buildingUpgradeEffects.ts`, `sim/systems/barracksSystem.ts`,
+`sim/systems/buildingAttack.ts` (tir de la Tour), `render/projectiles.ts`, `main.ts`.
 
 Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 
@@ -431,28 +435,33 @@ Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 - **Persistance** : les bâtiments restent d'une vague à l'autre, avec leurs
   PV. Un bâtiment détruit en bataille disparaît de la run à la fin de la
   vague. Plusieurs exemplaires de chaque bâtiment sont possibles.
-- **Survie du camp** : les trois bâtiments comptent pour la défaite
+- **Survie du camp** : ces bâtiments comptent pour la défaite
   (`countsForDefeat`), comme les unités et la Baliste.
 
-| | Mine | Caserne | Forge |
-|---|---|---|---|
-| Coût en partie | 20 | 25 | 10 |
-| PV / emprise | 15 / 2×2 | 25 / 3×3 | 15 / 2×2 |
-| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Produit des Fantassins (voir ci-dessous) | Accès à la boutique des améliorations de la run (§14) ; aucun effet passif |
+| | Mine | Caserne | Forge | Tour |
+|---|---|---|---|---|
+| Coût en partie | 20 | 25 | 10 | 10 |
+| PV / emprise | 15 / 2×2 | 25 / 3×3 | 15 / 2×2 | 15 / 2×2 |
+| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Produit des Fantassins (voir ci-dessous) | Accès à la boutique des améliorations de la run (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) |
 
 Le coût d'achat est fixe : il ne dépend d'aucune amélioration (une Mine
 coûte toujours 20, une Caserne toujours 25).
 
-**Amélioration de la Mine et de la Caserne** :
+**Amélioration de la Mine, de la Caserne et de la Tour** :
 
-- chaque Mine et chaque Caserne a son **propre niveau**
+- chaque Mine, Caserne et Tour a son **propre niveau**
   (`OwnedBuilding.level`), affiché à partir de « Niv. 1 » ; deux bâtiments
   du même type peuvent avoir des niveaux différents ;
 - il s'achète depuis la fiche du bâtiment, en préparation seulement
-  (« Améliorer la mine — N or », « Améliorer la caserne — N or » ; bouton
-  désactivé si l'or manque). Il n'agit que sur ce bâtiment ;
-- prix : 25 / 50 / 100 / 200… or, compté par bâtiment
-  (`run/buildingUpgrades.ts`) ;
+  (« Améliorer la mine — N or », « Améliorer la caserne — N or »,
+  « Améliorer — N or » pour la Tour ; bouton désactivé si l'or manque). Il
+  n'agit que sur ce bâtiment ;
+- prix : base × 2^niveau, la base étant propre au bâtiment
+  (`BuildingDef.upgradeGoldCostBase`) : 25 / 50 / 100 / 200… or pour la
+  Mine et la Caserne, 5 / 10 / 20 / 40… pour la Tour. Indépendant du prix
+  des améliorations d'unités à la Forge ;
+- un niveau qui augmente les PV max (Tour) augmente aussi les PV actuels du
+  même écart : les PV manquants restent les mêmes ;
 - le niveau suit le bâtiment d'une vague à l'autre, et disparaît avec lui
   s'il est détruit.
 
@@ -481,6 +490,26 @@ Production de la Caserne :
   d'ouverture (§2).
 - **Persistance** : ils **ne rejoignent pas** l'armée qui persiste entre les
   vagues.
+
+Tir de la Tour (modèle `blue_tower_A`, affiché à 0,8 de son emprise
+pour rester à la hauteur de la Caserne et de la tour de la Baliste) :
+
+- **Valeurs** (provisoires, playtest), centralisées dans
+  `BuildingDef.attack` : 4 dégâts au niveau 1, +2 et +5 PV par niveau
+  (15 PV · 4 dégâts, puis 20 · 6, 25 · 8, 30 · 10…) ; portée 8 cases
+  (Archer : 6 ; la Baliste n'en a pas) ; 1 tir toutes les 2,5 s (Archer :
+  2,0 s ; Baliste : 2,31 s).
+- **Ciblage** : l'unité ennemie vivante la plus proche à portée (jamais un
+  bâtiment ; égalité tranchée par l'id), conservée tant qu'elle reste
+  vivante et à portée ; sinon la plus proche suivante. Aucun mode manuel.
+- **Flèche** : vrai projectile simulé (18 cases/s), qui part sous
+  l'avant-toit, du côté de la cible, et suit sa cible comme une flèche
+  d'Archer. Les dégâts s'appliquent **à l'impact**, si la cible vit encore ;
+  morte entre-temps, la flèche est perdue. Pas de jet de raté ni de ligne de
+  tir : déterministe.
+- **Destruction** : une Tour détruite ne tire plus et oublie sa cible ; ses
+  flèches déjà en vol arrivent normalement.
+- La Tour n'apporte aucune population.
 
 La Forge (modèle `blue_blacksmith`) est un vrai bâtiment : ciblable,
 destructible, collidable. Elle n'a ni production ni revenu ; toutes les

@@ -16,6 +16,7 @@ import {
 } from './playerArrow';
 import { abilitySystem, type AbilityEvent, type BlastProjectile } from './systems/abilities';
 import { barracksSystem, type BarracksSpawnEvent } from './systems/barracksSystem';
+import { buildingAttackSystem, type BuildingAttackEvent, type BuildingProjectile } from './systems/buildingAttack';
 import { combatSystem, type CombatEvent } from './systems/combat';
 import { deathSystem } from './systems/death';
 import { movementSystem } from './systems/movement';
@@ -78,6 +79,13 @@ export class World {
   areaEffectEvents: AreaEffectTickEvent[] = [];
   /** Fleche du joueur : cooldown + vols en cours, voir sim/playerArrow.ts. */
   playerArrow: PlayerArrowState = createPlayerArrowState();
+  /** Fleches des batiments defensifs (Tour) EN VOL — voir
+   *  sim/systems/buildingAttack.ts. Persistent d'un tick a l'autre. */
+  buildingProjectiles: BuildingProjectile[] = [];
+  /** Tirs et impacts des batiments defensifs au dernier step — vide et
+   *  repeuple a chaque tick, comme combatEvents. */
+  buildingAttackEvents: BuildingAttackEvent[] = [];
+  private nextBuildingProjectileId = 1;
   /** Projectiles d'ombre EN VOL (talent "Soins excédentaires", 2026-08-15) —
    *  voir sim/systems/shadowProjectiles.ts. Persiste d'un tick a l'autre,
    *  comme `blasts`/`iceNovaZones` : homing sur la position ACTUELLE de leur
@@ -289,6 +297,7 @@ export class World {
       spawnUnitId: null,
       spawnCount: null,
       spawnWaitingForPopulation: false,
+      buildingAttack: null,
     };
     this.entities.push(entity);
     this.entityById.set(entity.id, entity);
@@ -299,8 +308,9 @@ export class World {
    * Spawn d'un BATIMENT GAMEPLAY (Mine, Baliste — 2026-08-16, voir
    * data/buildings.ts) : contrairement a spawn() ci-dessus, ne passe JAMAIS
    * par getUnit()/data/units.ts — un batiment n'est pas une unite (pas de
-   * deplacement, pas de portee d'attaque, pas de ciblage propre), voir
-   * BuildingDef pour le detail des champs consommes. `stats` est construit
+   * deplacement ; un batiment defensif tire via `buildingAttack`, jamais via
+   * le ciblage ou le combat des unites), voir BuildingDef pour le detail des
+   * champs consommes. `stats` est construit
    * directement ici avec des valeurs neutres (aggroRange=0 garantit qu'il ne
    * verrouille jamais de cible lui-meme, moveSpeed=0 combine au filtre
    * `isBuilding` de movementSystem garantit l'immobilite) — targetingSystem/
@@ -351,6 +361,7 @@ export class World {
     maxHpOverride?: number,
     spawnIntervalOverride?: number,
     spawnCountOverride?: number,
+    attackDamageOverride?: number,
   ): Entity {
     const effectiveMaxHp = maxHpOverride ?? def.maxHp;
     const effectiveSpawnInterval = def.spawner ? (spawnIntervalOverride ?? def.spawner.baseIntervalSeconds) : null;
@@ -435,6 +446,19 @@ export class World {
       spawnUnitId: def.spawner?.unitId ?? null,
       spawnCount: effectiveSpawnCount,
       spawnWaitingForPopulation: false,
+      // Batiment defensif (Tour) : degats EFFECTIFS du niveau propre du
+      // batiment (attackDamageOverride), base sinon. Premier tir des qu'une
+      // cible est a portee.
+      buildingAttack: def.attack
+        ? {
+            damage: attackDamageOverride ?? def.attack.damage,
+            rangeTiles: def.attack.rangeTiles,
+            cooldownSeconds: def.attack.cooldownSeconds,
+            projectileSpeed: def.attack.projectileSpeed,
+            timer: 0,
+            targetId: null,
+          }
+        : null,
     };
     this.entities.push(entity);
     this.entityById.set(entity.id, entity);
@@ -494,6 +518,9 @@ export class World {
     this.areaEffectEvents = [];
     this.playerArrow = createPlayerArrowState();
     this.playerArrowEvents = [];
+    this.buildingProjectiles = [];
+    this.buildingAttackEvents = [];
+    this.nextBuildingProjectileId = 1;
     this.shadowProjectiles = [];
     this.shadowProjectileEvents = [];
     this.barracksSpawnEvents = [];
@@ -606,6 +633,7 @@ export class World {
     this.abilityEvents = abilitySystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.blasts, this.time);
     movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents);
     this.combatEvents = combatSystem(this.entities, dt, this.rng, this.obstacles);
+    this.buildingAttackEvents = buildingAttackSystem(this.entities, lookup, this.buildingProjectiles, dt, () => this.nextBuildingProjectileId++);
     this.areaEffectEvents = tickPersistentAreaEffects(this.iceNovaZones, dt, this.entities);
     this.playerArrowEvents = stepPlayerArrow(this.playerArrow, dt, this.entities);
     this.shadowProjectileEvents = advanceShadowProjectiles(this.shadowProjectiles, dt, this.entities, this.rng);

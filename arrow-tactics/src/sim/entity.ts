@@ -5,6 +5,23 @@ import type { UnitOrder } from './orders';
 
 export type Team = 'player' | 'enemy';
 
+/** Attaque automatique d'un batiment defensif (Tour) — voir
+ *  sim/systems/buildingAttack.ts. Valeurs EFFECTIVES (niveau du batiment
+ *  compris), figees a son apparition ; seuls `timer` et `targetId`
+ *  evoluent pendant la bataille. */
+export interface BuildingAttackState {
+  /** Degats par fleche, echelle interne (x10). */
+  damage: number;
+  rangeTiles: number;
+  cooldownSeconds: number;
+  /** Vitesse de la fleche (cases/s). */
+  projectileSpeed: number;
+  /** Secondes avant le prochain tir possible. */
+  timer: number;
+  /** Cible conservee tant qu'elle reste valide et a portee. */
+  targetId: number | null;
+}
+
 /**
  * Ruee scriptee en cours (voir sim/systems/abilities.ts) — GENERIQUE, pas
  * specifique a la Charge du Cavalier : n'importe quelle future capacite de
@@ -313,6 +330,10 @@ export interface Entity {
    *  (voir barracksSystem) : affiche par la fiche, jamais lu par la
    *  simulation elle-meme. */
   spawnWaitingForPopulation: boolean;
+  /** Attaque automatique d'un batiment defensif (Tour), null pour toute
+   *  autre entite. Distincte de targetId/attackTimer : le ciblage et le
+   *  combat generiques des unites ne la lisent jamais. */
+  buildingAttack: BuildingAttackState | null;
 }
 
 /** Direction d'avance : le joueur part du bas (+z) et monte vers -z. */

@@ -1185,6 +1185,13 @@ export class Screens {
     if (buildingId === 'forge') {
       return `${costLine} Permettra d’améliorer l’armée.`;
     }
+    // Batiment defensif (Tour) : valeurs de niveau 1, lues dans ses donnees.
+    const def = getBuilding(buildingId);
+    if (def.attack) {
+      const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
+      const stats = `${size} · ${formatGold(def.maxHp / HP_PER_PIP)} PV · ${formatGold(def.attack.damage / HP_PER_PIP)} dégâts · portée ${formatGold(def.attack.rangeTiles)} cases`;
+      return `${costLine} Bâtiment défensif automatique à longue portée. ${stats}. S’améliore depuis sa fiche.`;
+    }
     const populationBonus = buildingPopulationBonus(buildingId);
     if (populationBonus > 0) {
       return `${costLine} +${populationBonus} population maximale tant qu’elle reste debout.`;

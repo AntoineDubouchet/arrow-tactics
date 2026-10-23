@@ -14,6 +14,7 @@ import {
 } from './ballistaStats';
 import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
 import { effectiveBarracksSpawnCount, effectiveBarracksSpawnInterval } from './barracksUpgradeEffects';
+import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp } from './buildingUpgradeEffects';
 import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isUpgradableBuilding } from './buildingUpgrades';
 import { getUnitUpgradeDef } from '../data/unitUpgrades';
@@ -424,6 +425,15 @@ function footprintRows(buildingId: string): EntityInfoRow[] {
   return [{ label: 'Emprise', value: `${def.footprintTilesX} × ${def.footprintTilesZ} cases` }];
 }
 
+/** Attaque d'un batiment defensif (Tour) : degats (points), portee, cadence. */
+function attackRows(damage: number, rangeTiles: number, cooldownSeconds: number): EntityInfoRow[] {
+  return [
+    { label: 'Dégâts', value: formatPoints(damage) },
+    { label: 'Portée', value: formatRange(rangeTiles) },
+    { label: 'Cadence', value: `1 tir / ${formatSeconds(cooldownSeconds)}` },
+  ];
+}
+
 /** Population maximale apportee par le batiment (Maison). */
 function populationBonusRows(buildingId: string): EntityInfoRow[] {
   const bonus = getBuilding(buildingId).populationBonus;
@@ -438,12 +448,18 @@ function ownedBuildingRows(buildingId: string, level: number, upgrades: Readonly
     const unitId = def.spawner.unitId;
     return barracksRows(unitId, effectiveBarracksSpawnInterval(level), effectiveBarracksSpawnCount(level), currentProductionLevel(upgrades, unitId));
   }
+  if (def.attack) return attackRows(effectiveBuildingAttackDamage(def.id, level), def.attack.rangeTiles, def.attack.cooldownSeconds);
   return populationBonusRows(def.id);
 }
 
-/** Effet du prochain niveau, en une ligne (Mine, Caserne). */
+/** Effet du prochain niveau, en une ligne (Mine, Caserne, Tour). */
 function nextLevelRow(buildingId: string, level: number): EntityInfoRow {
   const label = `Niv. ${displayedUpgradeLevel(level + 1)}`;
+  if (getBuilding(buildingId).attack) {
+    const hpGain = effectiveBuildingMaxHp(buildingId, level + 1) - effectiveBuildingMaxHp(buildingId, level);
+    const damageGain = effectiveBuildingAttackDamage(buildingId, level + 1) - effectiveBuildingAttackDamage(buildingId, level);
+    return { label, value: `+${formatPoints(hpGain)} PV, +${formatPoints(damageGain)} dégâts` };
+  }
   if (buildingId === 'mine') {
     const { min, max } = mineGoldRange(level + 1);
     return { label, value: `${min} à ${max} or` };
@@ -467,12 +483,12 @@ export function placementBuildingInfo(owned: { buildingId: string; hp: number; l
   if (def.id === 'forge') actions = [{ id: 'openForge', label: 'Ouvrir la Forge', enabled: true }];
   if (upgradable) {
     rows.push(nextLevelRow(def.id, level));
-    const cost = buildingUpgradeGoldCost(level);
+    const cost = buildingUpgradeGoldCost(def.id, level);
     const enabled = gold >= cost;
     actions = [{ id: 'upgradeBuilding', label: `${UPGRADE_LABELS[def.id] ?? 'Améliorer'} — ${formatNumber(cost)} or`, enabled, hint: enabled ? undefined : 'Or insuffisant' }];
   }
   const title = titleWithLevel(def.displayName, upgradable ? level : playerLevel('player', progress.upgrades, def.id));
-  return { kind: 'building', buildingId: def.id, title, team: 'player', hp: hpOf(owned.hp, def.maxHp), rows, sections: [], status: null, actions };
+  return { kind: 'building', buildingId: def.id, title, team: 'player', hp: hpOf(owned.hp, effectiveBuildingMaxHp(def.id, level)), rows, sections: [], status: null, actions };
 }
 
 /** Bâtiment en bataille : PV et production lus sur l'entite. `ownedLevel` :
@@ -492,6 +508,9 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
       const waiting = entity.spawnWaitingForPopulation ? 'Population pleine' : 'En attente';
       rows.push({ label: 'Prochaine production', value: entity.spawnTimer > 0 ? formatRemaining(entity.spawnTimer) : waiting });
     }
+  } else if (entity.buildingAttack) {
+    const attack = entity.buildingAttack;
+    rows = attackRows(attack.damage, attack.rangeTiles, attack.cooldownSeconds);
   } else rows = populationBonusRows(def.id);
   rows.push(...footprintRows(def.id));
   const level = isUpgradableBuilding(def.id) ? ownedLevel : playerLevel(entity.team, progress.upgrades, def.id);

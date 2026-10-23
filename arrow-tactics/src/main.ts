@@ -120,7 +120,7 @@ import { mineProductionIntervalSeconds, rollMineGold } from './run/mineUpgradeEf
 import { ownedBuildingLevel, upgradeOwnedBuilding } from './run/buildingUpgrades';
 import { createBattleSummary, defeatedLines, recordEnemyDefeated, recordGoldEarned } from './run/battleSummary';
 import { Rng } from './core/rng';
-import { getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
+import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp, getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './run/playerUnitStats';
 import {
   effectivePlayerArrowCooldown,
@@ -403,6 +403,7 @@ function ownedBuildingObstacle(owned: OwnedBuilding): ObstacleDef {
     x: owned.x,
     z: owned.z,
     rotationY: owned.rotationY ?? 0,
+    scale: def.modelScale,
   };
 }
 
@@ -1580,6 +1581,9 @@ function onValidatePlacement(): void {
     // (Mine), World.spawnBuilding retombe alors sur la base (sans effet).
     const spawnIntervalOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnInterval(ownedBuildingLevel(owned)) : undefined;
     const spawnCountOverride = owned.buildingId === 'barracks' ? effectiveBarracksSpawnCount(ownedBuildingLevel(owned)) : undefined;
+    // PV max et degats du niveau PROPRE au batiment (Tour) ; egaux a la base
+    // pour un batiment sans gain par niveau.
+    const level = ownedBuildingLevel(owned);
     const entity = world.spawnBuilding(
       getBuilding(owned.buildingId),
       'player',
@@ -1587,9 +1591,10 @@ function onValidatePlacement(): void {
       owned.z,
       ownedBuildingObstacle(owned),
       owned.hp,
-      undefined,
+      effectiveBuildingMaxHp(owned.buildingId, level),
       spawnIntervalOverride,
       spawnCountOverride,
+      effectiveBuildingAttackDamage(owned.buildingId, level),
     );
     const view = ownedBuildingViews[i]!.view;
     view.reset();
@@ -4621,7 +4626,7 @@ function updateBuildingPlacementGhost(x: number, z: number): void {
   }
   if (def.buildingModel) {
     const ghost = buildGhost(
-      { kind: 'building', buildingModel: def.buildingModel, tilesX, tilesZ, rotationY: buildingPlacementMode.rotationY },
+      { kind: 'building', buildingModel: def.buildingModel, tilesX, tilesZ, rotationY: buildingPlacementMode.rotationY, scale: def.modelScale },
       cornerX + tilesX / 2,
       cornerZ + tilesZ / 2,
       environmentAssets,
@@ -4923,6 +4928,12 @@ const loop = new Loop(
     // reel des tirs reste cadence a SIM_STEP pres, jamais au framerate.
     attemptAutoFire();
     attemptBallistaAutoFire(dt);
+
+    // Fleches des batiments defensifs (Tour) : flash sur la cible touchee a
+    // l'impact, comme un coup d'Archer.
+    for (const event of world.buildingAttackEvents) {
+      if (event.kind === 'impact' && event.hit) playHitFlash(event.targetId);
+    }
 
     for (const event of world.combatEvents) {
       // Lookup O(1) (World.getById, 2026-08-13) plutot qu'une recherche
@@ -5449,6 +5460,19 @@ const loop = new Loop(
       if (!entity) return undefined;
       return unitViews.getPosition(id) ?? { x: entity.x, z: entity.z };
     });
+    projectiles.syncSimulated(
+      world.buildingProjectiles.map((p) => {
+        const attacker = world.getById(p.attackerId);
+        const attack = attacker ? getBuilding(attacker.unitId).attack : undefined;
+        return { ...p, fromY: attack?.launchHeight ?? 0, fromOutset: attack?.launchOutset ?? 0, team: attacker?.team ?? 'player' };
+      }),
+      alpha,
+      (id) => {
+        const entity = world.getById(id);
+        if (!entity) return undefined;
+        return unitViews.getPosition(id) ?? { x: entity.x, z: entity.z };
+      },
+    );
     playerArrowView.sync(world.playerArrow.flights, alpha);
     telegraphView.sync(world.entities);
     fireballView.sync(world.blasts, realDt);
@@ -5535,8 +5559,9 @@ const loop = new Loop(
         // position enregistree n'est plus la bonne.
         if (buildingPlacementMode?.movingIndex === i) return;
         const def = getBuilding(owned.buildingId);
-        if (i !== selectedBuildingIndex && owned.hp >= def.maxHp) return;
-        shownBuildings.push({ x: owned.x, z: owned.z, hp: owned.hp, maxHp: def.maxHp, radius: def.radius, hpBarHeight: def.hpBarHeight });
+        const maxHp = effectiveBuildingMaxHp(owned.buildingId, ownedBuildingLevel(owned));
+        if (i !== selectedBuildingIndex && owned.hp >= maxHp) return;
+        shownBuildings.push({ x: owned.x, z: owned.z, hp: owned.hp, maxHp, radius: def.radius, hpBarHeight: def.hpBarHeight });
       });
       // La Baliste repart toujours a pleins PV (spawnBallistaBuilding) :
       // en preparation, sa barre n'apparait que si elle est selectionnee.

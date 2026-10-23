@@ -199,8 +199,9 @@ voir §9.
     provocation (`tauntTimer`) la force en priorité ;
   - balayage direct par camp, avec une grille spatiale (`sim/spatialGrid.ts`)
     au-delà d'un seuil d'entités vivantes ;
-  - un bâtiment a une portée d'aggro nulle : il ne cible jamais, mais il est
-    ciblable.
+  - un bâtiment a une portée d'aggro nulle : ce système ne lui donne jamais
+    de cible, mais il est ciblable. Les bâtiments défensifs (Tour) ont leur
+    propre ciblage, voir §9.
 - **Déplacement** (`sim/systems/movement.ts`) :
   - les bâtiments sont filtrés une seule fois en tête de système ;
   - pour une cible verrouillée : ligne directe si elle est dégagée, sinon un
@@ -266,9 +267,10 @@ La simulation émet des **faits** ; `main.ts` décide des réactions (visuelles,
 
 - **Tableaux d'événements, vidés et remplis à chaque tick** :
   `combatEvents`, `abilityEvents`, `areaEffectEvents`, `playerArrowEvents`,
-  `shadowProjectileEvents`, `barracksSpawnEvents`.
+  `shadowProjectileEvents`, `barracksSpawnEvents`, `buildingAttackEvents`.
 - **État lu directement par le rendu** : `entities`, `blasts`,
-  `shadowProjectiles`, `playerArrow.flights`, `iceNovaZones`.
+  `shadowProjectiles`, `playerArrow.flights`, `buildingProjectiles`,
+  `iceNovaZones`.
 
 Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
@@ -294,6 +296,13 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   `Entity` (`isBuilding: true`), créée par `World.spawnBuilding` depuis une
   `BuildingDef` (`data/buildings.ts`), jamais depuis `data/units.ts`. Ses stats
   sont neutres : aggro, vitesse et dégâts nuls.
+- **Tir** (Tour) : une `BuildingDef` avec `attack` donne à l'entité un
+  `buildingAttack` (dégâts du niveau propre, portée, cadence, cible).
+  `sim/systems/buildingAttack.ts` (après `combatSystem`) choisit l'unité
+  ennemie la plus proche à portée, tire des flèches simulées
+  (`World.buildingProjectiles`) et applique les dégâts à l'impact via
+  `applyDamageToEntity`. Le rendu (`Projectiles.syncSimulated`) les affiche
+  avec le modèle de flèche de l'Archer.
 - **Emprise** : l'`ObstacleDef` du bâtiment est ajoutée à `World.obstacles`
   (même référence que `Entity.footprintObstacle`). Elle bloque ainsi
   mouvement, ligne de tir et pathfinding. Elle est retirée à la mort par

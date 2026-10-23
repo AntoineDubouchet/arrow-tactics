@@ -6,6 +6,23 @@ import type { Team } from '../sim/entity';
 const HEIGHT = 0.62;
 const ARC_HEIGHT = 0.3;
 
+/** Fleche SIMULEE d'un batiment defensif (Tour, voir
+ *  sim/systems/buildingAttack.ts), telle que le rendu la lit. */
+export interface SimulatedBolt {
+  id: number;
+  fromX: number;
+  fromZ: number;
+  /** Hauteur de depart et decalage vers la cible depuis le centre du
+   *  batiment (BuildingAttackConfig.launchHeight / launchOutset). */
+  fromY: number;
+  fromOutset: number;
+  targetId: number;
+  prevElapsed: number;
+  elapsed: number;
+  duration: number;
+  team: Team;
+}
+
 type Bolt = {
   mesh: THREE.Group;
   fromX: number;
@@ -43,6 +60,8 @@ type Bolt = {
 export class Projectiles {
   readonly group = new THREE.Group();
   private readonly bolts: Bolt[] = [];
+  /** Fleches simulees (Tour), par id de vol. */
+  private readonly simulatedBolts = new Map<number, THREE.Group>();
 
   spawn(fromX: number, fromZ: number, toX: number, toZ: number, duration: number, team: Team, targetId: number | null = null): void {
     const mesh = buildBolt(team);
@@ -83,9 +102,49 @@ export class Projectiles {
     }
   }
 
+  /** Fleches des batiments defensifs : meme modele que celles de l'Archer,
+   *  mais l'avancement vient de la SIMULATION (elapsed / duration, interpole
+   *  par `alpha` comme les unites) : l'impact visible coincide avec les
+   *  degats, appliques a l'arrivee. Depart a `fromY` (creneaux), descente
+   *  vers la hauteur de vol habituelle a la cible, suivie a sa position
+   *  actuelle comme une fleche d'Archer ; inclinee selon la trajectoire. */
+  syncSimulated(flights: readonly SimulatedBolt[], alpha: number, resolveTargetPosition: (id: number) => { x: number; z: number } | undefined): void {
+    const alive = new Set<number>();
+    for (const f of flights) {
+      alive.add(f.id);
+      let mesh = this.simulatedBolts.get(f.id);
+      if (!mesh) {
+        mesh = buildBolt(f.team);
+        this.simulatedBolts.set(f.id, mesh);
+        this.group.add(mesh);
+      }
+      const target = resolveTargetPosition(f.targetId);
+      const toX = target?.x ?? f.fromX;
+      const toZ = target?.z ?? f.fromZ;
+      const t = Math.min(1, lerp(f.prevElapsed, f.elapsed, alpha) / f.duration);
+      // Depart au bord du fut, du cote de la cible.
+      const len = Math.hypot(toX - f.fromX, toZ - f.fromZ) || 1;
+      const outset = Math.min(f.fromOutset, len);
+      const startX = f.fromX + ((toX - f.fromX) / len) * outset;
+      const startZ = f.fromZ + ((toZ - f.fromZ) / len) * outset;
+      mesh.position.set(lerp(startX, toX, t), lerp(f.fromY, HEIGHT, t) + Math.sin(t * Math.PI) * ARC_HEIGHT, lerp(startZ, toZ, t));
+      const dx = toX - startX;
+      const dz = toZ - startZ;
+      const dy = HEIGHT - f.fromY + Math.PI * Math.cos(t * Math.PI) * ARC_HEIGHT;
+      mesh.rotation.set(Math.atan2(dy, Math.hypot(dx, dz)), Math.atan2(-dx, -dz), 0, 'YXZ');
+    }
+    for (const [id, mesh] of this.simulatedBolts) {
+      if (alive.has(id)) continue;
+      this.group.remove(mesh);
+      this.simulatedBolts.delete(id);
+    }
+  }
+
   clear(): void {
     for (const b of this.bolts) this.group.remove(b.mesh);
     this.bolts.length = 0;
+    for (const mesh of this.simulatedBolts.values()) this.group.remove(mesh);
+    this.simulatedBolts.clear();
   }
 }
 
