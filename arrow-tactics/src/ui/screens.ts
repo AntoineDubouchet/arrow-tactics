@@ -425,20 +425,17 @@ export class Screens {
    *  refreshShop selon `run.gold >= 5 * coutEffectif` ET (pour un
    *  consommable) la capacite d'inventoire pour 5 exemplaires de plus. */
   private readonly shopUnitBuyFiveEls = new Map<string, HTMLButtonElement>();
-  /** Niveau de production courant de chaque unite (« Niv. 2 »), a cote du
-   *  nom, cle par unitId — reecrit dans refreshShop. */
-  private readonly shopUnitLevelEls = new Map<string, HTMLElement>();
-  /** Ligne complete (bouton simple + ×5) du Mage — c'est CETTE ligne qui est
-   *  masquee tant que le Mage n'est pas debloque (voir refreshShop), pas
-   *  seulement le bouton d'achat simple, sinon le ×5 resterait visible et
-   *  cliquable pour une unite verrouillee. */
-  private readonly shopMageRow: HTMLElement;
-  /** Meme principe que shopMageRow, pour la Sentinelle (2026-08-15, systeme
-   *  generique de deblocage par victoire — voir data/units.ts,
-   *  playerUnlockMode). Avant cette refonte, la Sentinelle etait TOUJOURS
-   *  visible (jamais reservee) — desormais gouvernee par la MEME regle
-   *  generique que le Mage, voir refreshShop. */
-  private readonly shopSentinelRow: HTMLElement;
+  /** Ligne complete (bouton simple + ×5) de chaque unite, cle par unitId :
+   *  c'est la ligne entiere qui est masquee quand l'unite n'est pas
+   *  recrutable structurellement (voir refreshShop). */
+  private readonly shopUnitRows = new Map<string, HTMLElement>();
+  /** Categories (onglets) de la boutique et leurs elements : une categorie
+   *  sans element visible disparait entierement (voir refreshShopCategories). */
+  private readonly shopCategories: { id: ShopTab; tab: HTMLButtonElement; panel: HTMLElement; items: HTMLElement[] }[] = [];
+  private activeShopTab: ShopTab = 'units';
+  /** Boutons portant un raccourci clavier, dans l'ordre des touches (voir
+   *  refreshShopShortcuts). */
+  private shopShortcutButtons: HTMLButtonElement[] = [];
   /** Boutique de la FORGE (ameliorations de la run, en Or ; id interne
    *  historique `unitUpgradeShop`) — voir data/unitUpgrades.ts. */
   private readonly unitUpgradeShop: HTMLElement;
@@ -610,6 +607,8 @@ export class Screens {
     const archerRow = this.unitPurchaseRow(archerDef, handlers.onBuyArcher, () => handlers.onBuyFive('archer'));
     this.shopBuyFantassin = fantassinRow.button;
     this.shopBuyArcher = archerRow.button;
+    this.shopUnitRows.set('fantassin', fantassinRow.row);
+    this.shopUnitRows.set('archer', archerRow.row);
     // Mage (2026-08-11) : achetable des le debut a l'epoque, DESORMAIS
     // reserve jusqu'a MAGE_UNLOCK_WAVE (2026-08-13, voir refreshShop) — la
     // ligne ENTIERE (bouton + ×5) est masquee tant qu'il n'est pas debloque,
@@ -617,14 +616,14 @@ export class Screens {
     const mageDef = getUnit('mage');
     const mageRow = this.unitPurchaseRow(mageDef, handlers.onBuyMage, () => handlers.onBuyFive('mage'));
     this.shopBuyMage = mageRow.button;
-    this.shopMageRow = mageRow.row;
+    this.shopUnitRows.set('mage', mageRow.row);
     // Sentinelle (2026-08-14, tank lourd) — RESERVEE depuis le 2026-08-15
     // (systeme generique de deblocage par victoire, voir refreshShop) :
     // auparavant toujours visible, jamais reservee par vague.
     const sentinelDef = getUnit('sentinel');
     const sentinelRow = this.unitPurchaseRow(sentinelDef, handlers.onBuySentinel, () => handlers.onBuyFive('sentinel'));
     this.shopBuySentinel = sentinelRow.button;
-    this.shopSentinelRow = sentinelRow.row;
+    this.shopUnitRows.set('sentinel', sentinelRow.row);
     // Parchemin de soin — "ACHAT x5" (2026-08-15, chantier polish/
     // equilibrage, demande explicite d'Antoine) : meme unitPurchaseRow que
     // les unites (bouton simple + ×5), le prix affiche/desactive suit
@@ -657,13 +656,7 @@ export class Screens {
     this.shopUndoLastPurchase = this.button('Annuler le dernier achat', handlers.onUndoLastUnitPurchase) as HTMLButtonElement;
     this.shopUndoLastPurchase.classList.add('shop-undo-button');
 
-    this.shopPanelUnits = this.shopTabPanel([
-      fantassinRow.row,
-      archerRow.row,
-      this.shopMageRow,
-      this.shopSentinelRow,
-      this.shopUndoLastPurchase,
-    ]);
+    this.shopPanelUnits = this.shopTabPanel([...this.shopUnitRows.values(), this.shopUndoLastPurchase]);
 
     // Nova de glace (2026-08-14) : premier VRAI parchemin de bataille — le
     // prix vient de data/items.ts (ITEMS.ice_nova.cost), jamais recopie ici
@@ -721,6 +714,13 @@ export class Screens {
     const shopTabs = document.createElement('div');
     shopTabs.className = 'shop-tabs';
     shopTabs.append(this.shopTabUnits, this.shopTabBuildings, this.shopTabBattleScrolls);
+    // Tiroirs contextuels : seuls les elements achetables comptent (pas le
+    // bouton « Annuler le dernier achat »).
+    this.shopCategories.push(
+      { id: 'units', tab: this.shopTabUnits, panel: this.shopPanelUnits, items: [...this.shopUnitRows.values()] },
+      { id: 'buildings', tab: this.shopTabBuildings, panel: this.shopPanelBuildings, items: buildingRows },
+      { id: 'battle-scrolls', tab: this.shopTabBattleScrolls, panel: this.shopPanelBattleScrolls, items: [healRow.row, iceNovaRow.row] },
+    );
 
     // Bouton de DEBUG (2026-08-17, voir ScreenHandlers.onDebugAddGold) — A
     // RETIRER une fois les tests termines, demande explicite d'Antoine ("ce
@@ -1091,9 +1091,6 @@ export class Screens {
       if (noRoom) lines.push(`Population insuffisante (${population.used} / ${population.max}, ${unitPopulationCost(unitId) * count} requise)`);
       button.title = lines.join('\n');
     };
-    for (const [unitId, levelEl] of this.shopUnitLevelEls) {
-      levelEl.textContent = `Niv. ${displayedUpgradeLevel(currentProductionLevel(run.upgrades, unitId))}`;
-    }
     gateUnit(this.shopBuyFantassin, 'fantassin', costFantassin, 1);
     gateUnit(this.shopBuyArcher, 'archer', costArcher, 1);
     gateUnit(this.shopBuyMage, 'mage', costMage, 1);
@@ -1119,13 +1116,14 @@ export class Screens {
     const sentinelFiveEl = this.shopUnitBuyFiveEls.get('sentinel');
     if (sentinelFiveEl) gateUnit(sentinelFiveEl, 'sentinel', costSentinel, 5);
 
-    // Mage/Sentinelle reserves tant qu'ils n'ont pas ete vaincus au moins une
-    // fois comme ennemis (2026-08-15, systeme GENERIQUE — voir data/units.ts,
-    // playerUnlockMode/run/metaProgress.ts, canPlayerRecruitUnit) — la ligne
-    // ENTIERE (bouton simple + ×5) est MASQUEE tant que l'unite n'est pas
-    // debloquee ("elle ne doit afficher que les unités qui sont achetables").
-    this.shopMageRow.style.display = canPlayerRecruitUnit(progress, 'mage') ? '' : 'none';
-    this.shopSentinelRow.style.display = canPlayerRecruitUnit(progress, 'sentinel') ? '' : 'none';
+    // Une unite n'est affichee que si elle est recrutable structurellement :
+    // debloquee par la progression (canPlayerRecruitUnit, Mage/Sentinelle) ET
+    // batiment requis possede (run/recruitment.ts). L'or et la population ne
+    // la masquent jamais : bouton visible mais desactive (gateUnit).
+    for (const [unitId, row] of this.shopUnitRows) {
+      const recruitable = canPlayerRecruitUnit(progress, unitId) && missingRecruitmentBuildingHint(run, unitId) === null;
+      row.style.display = recruitable ? '' : 'none';
+    }
 
     // Parchemin de soin — cout EFFECTIF (2026-08-15, chantier polish/
     // equilibrage) : base + niveau d'amelioration permanente x 0.5 (voir
@@ -1187,6 +1185,22 @@ export class Screens {
     }
 
     this.shopUndoLastPurchase.disabled = !canUndoLastPurchase;
+    this.refreshShopCategories();
+  }
+
+  /** Tiroirs contextuels : une categorie sans aucun element visible n'est pas
+   *  affichee (ni onglet, ni panneau vide) ; si c'etait la categorie ouverte,
+   *  la premiere categorie visible s'ouvre a sa place. */
+  private refreshShopCategories(): void {
+    for (const category of this.shopCategories) {
+      const visible = category.items.some((item) => item.style.display !== 'none');
+      category.tab.style.display = visible ? '' : 'none';
+    }
+    const isVisible = (id: ShopTab): boolean => this.shopCategories.some((c) => c.id === id && c.tab.style.display !== 'none');
+    if (!isVisible(this.activeShopTab)) {
+      const first = this.shopCategories.find((c) => isVisible(c.id));
+      this.setShopTab(first ? first.id : this.activeShopTab);
+    } else this.setShopTab(this.activeShopTab);
   }
 
   /** Texte descriptif DYNAMIQUE d'un bâtiment achetable (2026-08-17) — la
@@ -1639,13 +1653,54 @@ export class Screens {
 
   /** Bascule quel onglet de la boutique est visible (2026-08-11) — voir le
    *  constructeur pour la construction des onglets/panneaux. */
-  private setShopTab(tab: 'units' | 'buildings' | 'battle-scrolls'): void {
-    this.shopTabUnits.classList.toggle('shop-tab--active', tab === 'units');
-    this.shopTabBuildings.classList.toggle('shop-tab--active', tab === 'buildings');
-    this.shopTabBattleScrolls.classList.toggle('shop-tab--active', tab === 'battle-scrolls');
-    this.shopPanelUnits.classList.toggle('shop-tab-content--active', tab === 'units');
-    this.shopPanelBuildings.classList.toggle('shop-tab-content--active', tab === 'buildings');
-    this.shopPanelBattleScrolls.classList.toggle('shop-tab-content--active', tab === 'battle-scrolls');
+  private setShopTab(tab: ShopTab): void {
+    this.activeShopTab = tab;
+    for (const category of this.shopCategories) {
+      const active = category.id === tab && category.tab.style.display !== 'none';
+      category.tab.classList.toggle('shop-tab--active', active);
+      category.panel.classList.toggle('shop-tab-content--active', active);
+    }
+    this.refreshShopShortcuts();
+  }
+
+  /** Raccourcis 1 a 6 : les premiers boutons d'achat REELLEMENT affiches de
+   *  l'onglet ouvert, dans l'ordre du DOM (jamais un objet fixe). Un element
+   *  masque (unite sans batiment, onglet vide) ne reserve aucun numero. Badge
+   *  dans un coin du bouton, et ligne « Raccourci : N » dans l'infobulle
+   *  native quand le bouton en a une (unites). */
+  private refreshShopShortcuts(): void {
+    for (const button of this.shopShortcutButtons) {
+      button.querySelector('.shop-shortcut-badge')?.remove();
+      button.title = button.title.replace(/\nRaccourci : \d$/, '');
+    }
+    const category = this.shopCategories.find((c) => c.id === this.activeShopTab && c.tab.style.display !== 'none');
+    const displayed = category
+      ? [...category.panel.querySelectorAll<HTMLButtonElement>('.shop-item-button')].filter((b) => isDisplayedWithin(b, category.panel))
+      : [];
+    this.shopShortcutButtons = displayed.slice(0, SHOP_SHORTCUT_CODES.length);
+    this.shopShortcutButtons.forEach((button, i) => {
+      const badge = document.createElement('span');
+      badge.className = 'shop-shortcut-badge';
+      badge.textContent = String(i + 1);
+      badge.setAttribute('aria-hidden', 'true');
+      button.appendChild(badge);
+      if (button.title) button.title += `\nRaccourci : ${i + 1}`;
+    });
+  }
+
+  /** Touches Digit1 a Digit6 (code physique : memes touches en AZERTY) quand
+   *  la boutique est ouverte : meme action que le clic principal du bouton
+   *  (achat ×1 pour une unite, jamais ×5). Ignore l'appui maintenu, les
+   *  modificateurs et un bouton desactive. Vrai si la touche est consommee
+   *  par la boutique. L'appelant ecarte deja la saisie dans un champ. */
+  handleShopShortcut(event: KeyboardEvent): boolean {
+    const index = SHOP_SHORTCUT_CODES.indexOf(event.code);
+    if (index < 0 || !this.isShopOpen()) return false;
+    if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return false;
+    if (event.repeat) return true;
+    const button = this.shopShortcutButtons[index];
+    if (button && !button.disabled) button.click();
+    return true;
   }
 
   private tabButton(label: string, onClick: () => void): HTMLButtonElement {
@@ -2145,16 +2200,9 @@ export class Screens {
     onBuyFive: () => void,
     iconItemId?: string,
   ): { row: HTMLElement; button: HTMLButtonElement } {
+    // Bouton compact : nom et prix. Le niveau, les stats et la population
+    // d'une unite sont dans son infobulle (voir refreshShop, gateUnit).
     const button = this.shopItemButton(def.name, def.cost, onBuyOne, def.id, iconItemId);
-    // Unite : niveau de production courant a cote du nom. Les places de
-    // population ne sont plus affichees sur le bouton, seulement dans son
-    // infobulle (voir refreshShop).
-    if (def.populationCost !== undefined) {
-      const level = document.createElement('span');
-      level.className = 'shop-item-level';
-      button.querySelector('.shop-item-name-group')?.appendChild(level);
-      this.shopUnitLevelEls.set(def.id, level);
-    }
 
     const five = document.createElement('button');
     five.type = 'button';
@@ -2172,6 +2220,23 @@ export class Screens {
     row.append(button, five);
     return { row, button };
   }
+}
+
+/** Categories (onglets) de la boutique de run. */
+type ShopTab = 'units' | 'buildings' | 'battle-scrolls';
+
+/** Touches des raccourcis de la boutique, dans l'ordre des emplacements
+ *  (KeyboardEvent.code : rang superieur du clavier, quelle que soit la
+ *  disposition). */
+const SHOP_SHORTCUT_CODES = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'];
+
+/** Vrai si aucun element entre `el` (compris) et `container` n'est masque
+ *  par `display: none`. */
+function isDisplayedWithin(el: HTMLElement, container: HTMLElement): boolean {
+  for (let node: HTMLElement | null = el; node && node !== container; node = node.parentElement) {
+    if (node.style.display === 'none') return false;
+  }
+  return true;
 }
 
 /** Stats d'une unite produite, sur une ligne (« 8 PV · Attaque 2 · Pop. 1 »). */

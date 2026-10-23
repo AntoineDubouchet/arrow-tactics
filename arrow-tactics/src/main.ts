@@ -6280,6 +6280,9 @@ window.addEventListener('keydown', (event) => {
     (event.target as HTMLElement).blur();
   }
 
+  // Raccourcis 1 a 6 de la boutique (seulement quand elle est ouverte).
+  if (screens.handleShopShortcut(event)) return;
+
   // Undo/Redo de l'editeur (2026-08-16, Part U) — Ctrl+Z / Ctrl+Y (et
   // Ctrl+Maj+Z, convention alternative courante), UNIQUEMENT en mode
   // editeur : pas de conflit possible avec le reste du jeu, qui n'a pas de
