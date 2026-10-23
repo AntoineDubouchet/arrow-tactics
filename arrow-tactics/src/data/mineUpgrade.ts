@@ -11,6 +11,9 @@
 export interface MineProductionDef {
   /** Secondes de bataille entre deux productions d'une meme Mine. */
   intervalSeconds: number;
+  /** Productions au plus par Mine et par manche (compteur propre a chaque
+   *  Mine, remis a zero a chaque bataille). */
+  maxProductionsPerWave: number;
   /** Bornes (incluses) de la tranche au niveau interne 0. */
   baseMinGold: number;
   baseMaxGold: number;
@@ -20,6 +23,7 @@ export interface MineProductionDef {
 
 export const MINE_PRODUCTION: MineProductionDef = {
   intervalSeconds: 5,
+  maxProductionsPerWave: 5,
   baseMinGold: 3,
   baseMaxGold: 7,
   rangeStepPerLevel: 2,

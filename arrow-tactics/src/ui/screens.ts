@@ -433,9 +433,6 @@ export class Screens {
    *  sans element visible disparait entierement (voir refreshShopCategories). */
   private readonly shopCategories: { id: ShopTab; tab: HTMLButtonElement; panel: HTMLElement; items: HTMLElement[] }[] = [];
   private activeShopTab: ShopTab = 'units';
-  /** Boutons portant un raccourci clavier, dans l'ordre des touches (voir
-   *  refreshShopShortcuts). */
-  private shopShortcutButtons: HTMLButtonElement[] = [];
   /** Boutique de la FORGE (ameliorations de la run, en Or ; id interne
    *  historique `unitUpgradeShop`) — voir data/unitUpgrades.ts. */
   private readonly unitUpgradeShop: HTMLElement;
@@ -994,6 +991,12 @@ export class Screens {
    *  main.ts, openShopFromPlacement) plutot que de toujours rouvrir. */
   isShopOpen(): boolean {
     return this.shop.classList.contains('screen-overlay--visible');
+  }
+
+  /** Vrai si un ecran (boutique, Forge, pause, fin de vague, Game Over...)
+   *  recouvre le jeu. */
+  hasVisibleOverlay(): boolean {
+    return document.querySelector('.screen-overlay.screen-overlay--visible') !== null;
   }
 
   /** Vrai si la boutique de la Forge est affichee (voir main.ts : Echap la
@@ -1660,47 +1663,6 @@ export class Screens {
       category.tab.classList.toggle('shop-tab--active', active);
       category.panel.classList.toggle('shop-tab-content--active', active);
     }
-    this.refreshShopShortcuts();
-  }
-
-  /** Raccourcis 1 a 6 : les premiers boutons d'achat REELLEMENT affiches de
-   *  l'onglet ouvert, dans l'ordre du DOM (jamais un objet fixe). Un element
-   *  masque (unite sans batiment, onglet vide) ne reserve aucun numero. Badge
-   *  dans un coin du bouton, et ligne « Raccourci : N » dans l'infobulle
-   *  native quand le bouton en a une (unites). */
-  private refreshShopShortcuts(): void {
-    for (const button of this.shopShortcutButtons) {
-      button.querySelector('.shop-shortcut-badge')?.remove();
-      button.title = button.title.replace(/\nRaccourci : \d$/, '');
-    }
-    const category = this.shopCategories.find((c) => c.id === this.activeShopTab && c.tab.style.display !== 'none');
-    const displayed = category
-      ? [...category.panel.querySelectorAll<HTMLButtonElement>('.shop-item-button')].filter((b) => isDisplayedWithin(b, category.panel))
-      : [];
-    this.shopShortcutButtons = displayed.slice(0, SHOP_SHORTCUT_CODES.length);
-    this.shopShortcutButtons.forEach((button, i) => {
-      const badge = document.createElement('span');
-      badge.className = 'shop-shortcut-badge';
-      badge.textContent = String(i + 1);
-      badge.setAttribute('aria-hidden', 'true');
-      button.appendChild(badge);
-      if (button.title) button.title += `\nRaccourci : ${i + 1}`;
-    });
-  }
-
-  /** Touches Digit1 a Digit6 (code physique : memes touches en AZERTY) quand
-   *  la boutique est ouverte : meme action que le clic principal du bouton
-   *  (achat ×1 pour une unite, jamais ×5). Ignore l'appui maintenu, les
-   *  modificateurs et un bouton desactive. Vrai si la touche est consommee
-   *  par la boutique. L'appelant ecarte deja la saisie dans un champ. */
-  handleShopShortcut(event: KeyboardEvent): boolean {
-    const index = SHOP_SHORTCUT_CODES.indexOf(event.code);
-    if (index < 0 || !this.isShopOpen()) return false;
-    if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return false;
-    if (event.repeat) return true;
-    const button = this.shopShortcutButtons[index];
-    if (button && !button.disabled) button.click();
-    return true;
   }
 
   private tabButton(label: string, onClick: () => void): HTMLButtonElement {
@@ -2224,20 +2186,6 @@ export class Screens {
 
 /** Categories (onglets) de la boutique de run. */
 type ShopTab = 'units' | 'buildings' | 'battle-scrolls';
-
-/** Touches des raccourcis de la boutique, dans l'ordre des emplacements
- *  (KeyboardEvent.code : rang superieur du clavier, quelle que soit la
- *  disposition). */
-const SHOP_SHORTCUT_CODES = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'];
-
-/** Vrai si aucun element entre `el` (compris) et `container` n'est masque
- *  par `display: none`. */
-function isDisplayedWithin(el: HTMLElement, container: HTMLElement): boolean {
-  for (let node: HTMLElement | null = el; node && node !== container; node = node.parentElement) {
-    if (node.style.display === 'none') return false;
-  }
-  return true;
-}
 
 /** Stats d'une unite produite, sur une ligne (« 8 PV · Attaque 2 · Pop. 1 »). */
 function formatUnitStats(summary: UnitProductionSummary): string {

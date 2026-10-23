@@ -2,6 +2,18 @@ import { getItem, ITEM_CATEGORY_ORDER } from '../data/items';
 import { INVENTORY_CAPACITY, type OwnedItem } from '../run/runState';
 import { createItemIcon } from './itemIcons';
 
+/** Touches des raccourcis de l'inventaire (KeyboardEvent.code : rang
+ *  superieur du clavier, quelle que soit la disposition, AZERTY compris),
+ *  dans l'ordre des emplacements de la PREMIERE ligne (6 emplacements par
+ *  ligne, voir .inventory-bar). */
+const INVENTORY_SHORTCUT_CODES = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'];
+
+/** Emplacement (position visuelle) associe a la touche `code`, null sinon. */
+export function inventoryShortcutSlot(code: string): number | null {
+  const index = INVENTORY_SHORTCUT_CODES.indexOf(code);
+  return index >= 0 ? index : null;
+}
+
 export interface InventoryBarHandlers {
   /** Clic sur un emplacement occupe — n'arme/n'utilise rien lui-meme,
    *  main.ts decide (utilisable seulement pendant la bataille, voir
@@ -110,6 +122,7 @@ export class InventoryBar {
         const realIndex = this.slotRealIndex[i];
         if (realIndex !== null && realIndex !== undefined) handlers.onSelectSlot(realIndex);
       });
+      this.addShortcutLabel(slot, i);
       this.root.appendChild(slot);
       this.slots.push(slot);
       this.slotRealIndex.push(null);
@@ -128,6 +141,28 @@ export class InventoryBar {
     this.root.style.display = visible ? 'flex' : 'none';
   }
 
+  isVisible(): boolean {
+    return this.root.style.display !== 'none';
+  }
+
+  /** Raccourci clavier : meme action qu'un clic sur l'emplacement visuel
+   *  `position` (rien s'il est vide). */
+  activateSlot(position: number): void {
+    const slot = this.slots[position];
+    if (slot && !slot.disabled) slot.click();
+  }
+
+  /** Numero de touche dans le coin des emplacements de la premiere ligne,
+   *  vides compris (re-ajoute a chaque refresh, qui vide l'emplacement). */
+  private addShortcutLabel(slot: HTMLButtonElement, position: number): void {
+    if (position >= INVENTORY_SHORTCUT_CODES.length) return;
+    const label = document.createElement('span');
+    label.className = 'inventory-slot-key';
+    label.textContent = String(position + 1);
+    label.setAttribute('aria-hidden', 'true');
+    slot.appendChild(label);
+  }
+
   /** Reconstruit l'affichage des emplacements depuis l'inventaire actuel —
    *  a appeler apres tout achat/utilisation/vague. Un emplacement visuel =
    *  une PILE (voir buildDisplayStacks, chantier stack 2026-08-14), pas
@@ -137,6 +172,7 @@ export class InventoryBar {
 
     this.slots.forEach((slot, visualIndex) => {
       slot.innerHTML = '';
+      this.addShortcutLabel(slot, visualIndex);
       const stack = stacks[visualIndex] ?? null;
       const realIndex = stack?.representativeRealIndex ?? null;
       this.slotRealIndex[visualIndex] = realIndex;

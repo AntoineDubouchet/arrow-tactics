@@ -15,7 +15,7 @@ import {
 import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp } from './buildingUpgradeEffects';
 import { churchHealCost, churchHealHpPerGold } from './churchHeal';
-import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
+import { mineGoldRange, mineMaxProductionsPerWave, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isBuildingAtMaxLevel, isUpgradableBuilding } from './buildingUpgrades';
 import { getUnitUpgradeDef } from '../data/unitUpgrades';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
@@ -400,12 +400,15 @@ export function battleGroupInfo(entities: readonly Entity[], levelOf: (entity: E
 
 // --- Mine, Caserne et Camp d'archerie --------------------------------------
 
-/** Niveau interne propre au batiment (Mine, Caserne). */
-function mineRows(level: number): EntityInfoRow[] {
+/** Niveau interne propre au batiment (Mine, Caserne). `produced` :
+ *  productions deja faites dans la bataille en cours, null hors bataille. */
+function mineRows(level: number, produced: number | null = null): EntityInfoRow[] {
   const { min, max } = mineGoldRange(level);
+  const cap = mineMaxProductionsPerWave();
   return [
     { label: 'Production', value: `${min} à ${max} or` },
     { label: 'Fréquence', value: `toutes les ${formatSeconds(mineProductionIntervalSeconds())}` },
+    produced === null ? { label: 'Par manche', value: `${cap} productions au plus` } : { label: 'Productions', value: `${produced} / ${cap}` },
   ];
 }
 
@@ -548,10 +551,10 @@ export function placementBuildingInfo(
  *  niveau propre d'une Mine ou d'une Caserne possedee (null sinon) ; le
  *  revenu de la Mine n'est pas une donnee de simulation (verse par main.ts
  *  tant que la Mine est vivante), il se deduit de ce niveau. */
-export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, ownedLevel: number | null = null): BuildingInfo {
+export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, ownedLevel: number | null = null, mineProductions: number | null = null): BuildingInfo {
   const def = getBuilding(entity.unitId);
   let rows: EntityInfoRow[] = [];
-  if (def.id === 'mine') rows = mineRows(ownedLevel ?? 0);
+  if (def.id === 'mine') rows = mineRows(ownedLevel ?? 0, mineProductions);
   else if (def.production) {
     rows = productionRows(def.id, ownedLevel ?? 0);
     // Quota de la manche pas encore produit : il attend une place de

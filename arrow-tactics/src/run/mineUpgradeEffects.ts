@@ -24,3 +24,8 @@ export function rollMineGold(level: number, random: () => number): number {
 export function mineProductionIntervalSeconds(): number {
   return MINE_PRODUCTION.intervalSeconds;
 }
+
+/** Productions au plus par Mine et par manche. */
+export function mineMaxProductionsPerWave(): number {
+  return MINE_PRODUCTION.maxProductionsPerWave;
+}

@@ -487,23 +487,10 @@ img {
    (2026-08-11, demande d'Antoine : "l'icône de gold à côté de chaque
    prix"). */
 .shop-item-button {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-}
-
-/* Raccourci clavier (1 a 6) dans le coin superieur gauche du bouton, sans
-   toucher au nom ni au prix. */
-.shop-shortcut-badge {
-  position: absolute;
-  top: 2px;
-  left: 4px;
-  font-size: 9px;
-  line-height: 1;
-  color: var(--ink-dim);
-  pointer-events: none;
 }
 
 /* Ligne d'achat d'une unite : bouton simple + "×5" (2026-08-13, demande
@@ -1289,6 +1276,18 @@ img {
   border: 1px solid var(--edge);
   border-radius: 6px;
   cursor: pointer;
+}
+
+/* Touche du raccourci (1 a 6) d'un emplacement de la premiere ligne, vide
+   ou non. */
+.inventory-slot-key {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--ink-dim);
+  pointer-events: none;
 }
 
 /* Pastille de quantite (2026-08-14, chantier stack — voir inventoryBar.ts,

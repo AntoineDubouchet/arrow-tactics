@@ -255,7 +255,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintTilesX: 2,
     footprintTilesZ: 2,
   },
-  // Maison : +5 de population maximale tant qu'elle existe (voir
+  // Maison : +2 de population maximale tant qu'elle existe (voir
   // data/population.ts). Cout et PV PROVISOIRES, non encore fixes par le
   // design : a reequilibrer.
   house: {
@@ -275,7 +275,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintTilesX: 2,
     footprintTilesZ: 2,
     modelScale: 0.8,
-    populationBonus: 5,
+    populationBonus: 2,
   },
   // Tour defensive : tire automatiquement des fleches sur l'unite ennemie la
   // plus proche a portee (sim/systems/buildingAttack.ts). Valeurs de

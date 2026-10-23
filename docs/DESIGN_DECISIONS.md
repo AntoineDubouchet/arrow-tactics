@@ -567,7 +567,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   fiche et d'amélioration ; la Forge doit tendre vers les améliorations
   d'unités (D5).
 - **Aujourd'hui** : Mine : 3 à 7 or toutes les 5 s au niveau 1, +2 / +2 par
-  niveau ; Caserne et Camp d'archerie : voir D7. Ces valeurs sont de
+  niveau, 5 productions au plus par Mine et par manche ; Caserne et Camp
+  d'archerie : voir D7. Ces valeurs sont de
   l'équilibrage, pas une décision.
 - **Sources** : `run/buildingUpgrades.ts`, `run/mineUpgradeEffects.ts`,
   `data/buildings.ts`, `CURRENT_STATE.md` §6.
@@ -583,7 +584,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - **départ** : 20 or, **4 Fantassins** de niveau 1, population maximale
     **5** (`PLAYER_BASE_POPULATION`), aucun bâtiment. La run commence donc à
     **4 / 5** ;
-  - **Maison** : 5 or, +5 de population maximale, aucune Maison gratuite.
+  - **Maison** : 5 or, +2 de population maximale (5, 7, 9…), aucune Maison
+    gratuite.
     Avec une seule place libre au départ, elle est la première réponse à la
     contrainte de population ;
   - **recrutement** : un bâtiment possédé est requis pour recruter

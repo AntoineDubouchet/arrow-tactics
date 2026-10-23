@@ -125,7 +125,7 @@ import {
 import { HEAL_SCROLL_UPGRADE } from './data/healScrollUpgrade';
 import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
 import { computePlayerIceNovaUpgradeEffects, effectiveIceNovaCost } from './run/iceNovaUpgradeEffects';
-import { mineProductionIntervalSeconds, rollMineGold } from './run/mineUpgradeEffects';
+import { mineMaxProductionsPerWave, mineProductionIntervalSeconds, rollMineGold } from './run/mineUpgradeEffects';
 import { ownedBuildingLevel, upgradeOwnedBuilding } from './run/buildingUpgrades';
 import { createBattleSummary, defeatedLines, recordEnemyDefeated, recordGoldEarned } from './run/battleSummary';
 import { Rng } from './core/rng';
@@ -186,7 +186,7 @@ import { GoldHud } from './ui/goldHud';
 import { CombatOverlay, type PlacementBuildingHpSubject } from './ui/combatOverlay';
 import { spawnCoinPopup } from './ui/coinPopup';
 import { DebugPanel } from './ui/debug';
-import { InventoryBar } from './ui/inventoryBar';
+import { InventoryBar, inventoryShortcutSlot } from './ui/inventoryBar';
 import { PlacementPanel } from './ui/placementPanel';
 import { Screens, type WaveResult } from './ui/screens';
 import { SellZone } from './ui/sellZone';
@@ -667,6 +667,10 @@ const belowAutoHealThreshold = new Set<number>();
  *  par id d'entite. Vide a chaque world.clear() (memes sites que
  *  rewardedEnemyDeaths). */
 const mineProductionTimers = new Map<number, number>();
+/** Productions deja faites par chaque Mine pendant la bataille en cours, par
+ *  id d'entite (plafond mineMaxProductionsPerWave). Videe avec
+ *  mineProductionTimers : le compteur repart de 0 a chaque manche. */
+const mineProductionCounts = new Map<number, number>();
 /** Tirage du montant de chaque production : RNG a graine, re-semee a chaque
  *  debut de bataille reelle depuis la graine du World (deterministe), jamais
  *  Math.random. */
@@ -870,6 +874,7 @@ function setupTestBattle(): void {
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
   mineProductionTimers.clear();
+  mineProductionCounts.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
   combatOverlay.clear();
@@ -1580,6 +1585,7 @@ function onValidatePlacement(): void {
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
   mineProductionTimers.clear();
+  mineProductionCounts.clear();
   mineGoldRng = new Rng((world.seed ^ 0x9e3779b9) >>> 0);
   battleSummary = createBattleSummary();
   pendingArrowSpawns.length = 0;
@@ -2962,6 +2968,7 @@ function returnToEditorAfterTest(): void {
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
   mineProductionTimers.clear();
+  mineProductionCounts.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
   combatOverlay.clear();
@@ -3717,6 +3724,14 @@ function fireArrowIfReady(aimX: number = playerAimX, aimZ: number = playerAimZ):
   if (fired) playBallistaShot(ballista);
 }
 
+/** Combat actif, temps en marche : ni pause (menu ou timeScale 0), ni
+ *  transition de fin de vague (battleOver, timeScale 0), ni hors bataille
+ *  (placement, editeur, menu). Seul etat ou une commande clavier du joueur
+ *  (tir, ordre, vitesse) peut agir sur la simulation. */
+function isBattleTimeRunning(): boolean {
+  return inBattlePhase() && !pauseMenuOpen && loop.timeScale > 0;
+}
+
 /** La Baliste ne tire que pendant un combat actif, temps en marche : jamais en
  *  pause (menu ou timeScale 0), pendant la transition de fin de vague
  *  (battleOver) ni hors bataille (placement, editeur, menu). Le clavier
@@ -3724,7 +3739,7 @@ function fireArrowIfReady(aimX: number = playerAimX, aimZ: number = playerAimZ):
  *  garde-fou est indispensable : sans lui, une volee preparee pendant la
  *  pause partirait a la reprise. */
 function canFireBallista(): boolean {
-  return inBattlePhase() && !pauseMenuOpen && loop.timeScale > 0;
+  return isBattleTimeRunning();
 }
 
 /** Q maintenu (2026-08-13, talent "Tir rapide" : "le joueur peut maintenir
@@ -3836,7 +3851,9 @@ function currentEntityInfo(): EntityInfoViewModel | null {
       const inspected = world.getById(battleInspectedEntityId);
       if (!inspected) return null;
       if (inspected.id === ballistaEntityId) return battleBallistaInfo(inspected, currentBallistaStatus(), playerProgression(), ballistaFireMode);
-      return battleBuildingInfo(inspected, playerProgression(), battleOwnedBuildingLevel(inspected));
+      // Productions de la Mine dans cette manche (aucune en « Tester le scénario »).
+      const mineProductions = inspected.unitId === 'mine' && !inTestMode ? (mineProductionCounts.get(inspected.id) ?? 0) : null;
+      return battleBuildingInfo(inspected, playerProgression(), battleOwnedBuildingLevel(inspected), mineProductions);
     }
     const aliveEntities = (ids: number[]): Entity[] => ids.map((id) => world.getById(id)).filter((e): e is Entity => e !== undefined && e.alive);
     // Ennemis inspectes (jamais dans battleSelection, donc jamais commandes) :
@@ -4071,7 +4088,7 @@ function resetBattleControls(): void {
  *  fin de vague (timeScale 0, battleOver) ni hors bataille. Empeche de mettre
  *  le jeu en pause pour programmer un ordre execute a la reprise. */
 function canIssueRtsOrder(): boolean {
-  return inBattlePhase() && !pauseMenuOpen && loop.timeScale > 0;
+  return isBattleTimeRunning();
 }
 
 /** Clic droit seul en bataille, en attente de son relachement : il
@@ -5289,12 +5306,17 @@ const loop = new Loop(
     if (inBattlePhase() && !inTestMode && !waitingForReinforcements) {
       for (const e of world.entities) {
         if (e.team !== 'player' || !e.alive || !e.isBuilding || e.unitId !== 'mine') continue;
+        // Plafond par Mine et par manche : une Mine qui a tout produit reste
+        // inactive jusqu'a la bataille suivante.
+        const produced = mineProductionCounts.get(e.id) ?? 0;
+        if (produced >= mineMaxProductionsPerWave()) continue;
         const elapsed = (mineProductionTimers.get(e.id) ?? 0) + dt;
         if (elapsed < mineProductionIntervalSeconds()) {
           mineProductionTimers.set(e.id, elapsed);
           continue;
         }
         mineProductionTimers.set(e.id, elapsed - mineProductionIntervalSeconds());
+        mineProductionCounts.set(e.id, produced + 1);
         const amount = rollMineGold(battleOwnedBuildingLevel(e) ?? 0, () => mineGoldRng.next());
         currentRun.gold = roundGold(currentRun.gold + amount);
         combatOverlay.spawnGoldText(e.x, e.z, amount);
@@ -5949,6 +5971,7 @@ function quitToMenu(): void {
   rewardedEnemyDeaths.clear();
   belowAutoHealThreshold.clear();
   mineProductionTimers.clear();
+  mineProductionCounts.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
   combatOverlay.clear();
@@ -6280,8 +6303,15 @@ window.addEventListener('keydown', (event) => {
     (event.target as HTMLElement).blur();
   }
 
-  // Raccourcis 1 a 6 de la boutique (seulement quand elle est ouverte).
-  if (screens.handleShopShortcut(event)) return;
+  // Raccourcis 1 a 6 : premiere ligne de l'inventaire, meme action qu'un clic
+  // sur l'emplacement (armInventorySlot verifie objet et phase). Seulement
+  // quand l'inventaire est affiche et qu'aucun ecran ne le recouvre ; un
+  // appui maintenu n'agit qu'une fois.
+  const inventorySlot = inventoryShortcutSlot(event.code);
+  if (inventorySlot !== null && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !inEditorMode && inventoryBar.isVisible() && !screens.hasVisibleOverlay()) {
+    if (!event.repeat) inventoryBar.activateSlot(inventorySlot);
+    return;
+  }
 
   // Undo/Redo de l'editeur (2026-08-16, Part U) — Ctrl+Z / Ctrl+Y (et
   // Ctrl+Maj+Z, convention alternative courante), UNIQUEMENT en mode
@@ -6422,7 +6452,9 @@ window.addEventListener('keydown', (event) => {
       break;
     case 'x':
     case 'X':
-      loop.timeScale = loop.timeScale === 2 ? 1 : 2;
+      // Vitesse x2 / x1 seulement quand le temps de bataille avance deja :
+      // jamais une reprise apres la fin de bataille, en pause ou hors combat.
+      if (isBattleTimeRunning()) loop.timeScale = loop.timeScale === 2 ? 1 : 2;
       break;
     case 'q':
     case 'Q':

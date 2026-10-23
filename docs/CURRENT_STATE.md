@@ -68,14 +68,15 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
      vague 1.
 
    **Début de run** : 20 or, 4 Fantassins, Pop. 4 / 5, aucun bâtiment.
-   Une seule place est libre : une Maison (5 or, +5 population) est le
+   Une seule place est libre : une Maison (5 or, +2 population) est le
    premier levier. Recruter exige un bâtiment (§4) : Fantassin → Caserne,
    Archer → Camp d'archerie, Mage → Église. Maison + Caserne ou Maison +
    Camp d'archerie tiennent dans les 20 or ; Caserne + Camp d'archerie
    (30 or) non.
 
    **Population** (`data/population.ts`, `run/population.ts`) : maximum
-   5 + 5 par Maison possédée (en bataille, par Maison vivante) ; chaque
+   5 + 2 par Maison possédée (5, 7, 9, 11…) ; en bataille, par Maison
+   vivante ; chaque
    unité en occupe `populationCost` (Fantassin et Archer 1, Mage 3,
    Sentinelle 5). Affichée par le HUD « Pop. N / M » et dans la boutique.
    Un recrutement qui dépasserait le maximum est refusé ; la production
@@ -494,7 +495,7 @@ Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 |---|---|---|---|---|---|---|---|
 | Coût en partie | 20 | 15 | 15 | 5 | 10 | 20 | 35 |
 | PV / emprise | 15 / 2×2 | 25 / 3×3 | 25 / 3×3 | 10 / 2×2 | 15 / 2×2 | 15 / 2×2 | 15 / 2×2 |
-| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Débloque le recrutement des Fantassins et en produit (voir ci-dessous) | Débloque le recrutement des Archers et en produit (voir ci-dessous) | +5 population maximale (§2) | Accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; débloque le recrutement du Mage (§4) ; accès aux améliorations des parchemins et de Soins excédentaires (voir ci-dessous et §14) |
+| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Débloque le recrutement des Fantassins et en produit (voir ci-dessous) | Débloque le recrutement des Archers et en produit (voir ci-dessous) | +2 population maximale (§2) | Accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; débloque le recrutement du Mage (§4) ; accès aux améliorations des parchemins et de Soins excédentaires (voir ci-dessous et §14) |
 
 Le coût d'achat est fixe : il ne dépend d'aucune amélioration (une Mine
 coûte toujours 20, une Caserne toujours 15).
@@ -528,6 +529,11 @@ Production de la Mine :
 - le tirage est pseudo-aléatoire et déterministe (générateur à graine,
   re-semé depuis la graine de la bataille) ;
 - « +N or » s'affiche au-dessus de la Mine ;
+- **5 productions au plus par Mine et par manche** (`maxProductionsPerWave`,
+  `data/mineUpgrade.ts`) : chaque Mine a son propre compteur, remis à 0 à
+  chaque bataille ; une fois à 5, elle ne produit plus jusqu'à la manche
+  suivante. Sa fiche indique « Par manche : 5 productions au plus » en
+  préparation, « Productions : N / 5 » en bataille ;
 - la minuterie est **en pause** quand aucun ennemi n'est en vie alors que
   des renforts sont attendus (temps mort entre deux groupes, §10) ; elle
   reprend dès l'arrivée du groupe ;
@@ -624,7 +630,8 @@ Gains :
 - or de départ (§2) ;
 - **kill ennemi** : `KILL_REWARD`, versé en temps réel ; +1 avec Butin de
   guerre ;
-- **Mines** : une production toutes les 5 s pendant la bataille (§6) ;
+- **Mines** : une production toutes les 5 s pendant la bataille, 5 au plus
+  par Mine et par manche (§6) ;
 - **victoire** : +5 (`WAVE_CLEAR_BONUS`) ; rien à la défaite ;
 - **ventes** d'unités.
 
@@ -667,6 +674,13 @@ Sources : `data/items.ts`, `run/runState.ts` (`INVENTORY_CAPACITY`,
   une pile.
 - **Utilisation** : cliquer sur l'emplacement arme l'objet, puis un clic
   cible. Échap ou clic droit désarme sans consommer.
+- **Raccourcis 1 à 6** : les six emplacements de la première ligne (numéro
+  dans leur coin, vides compris) répondent aux touches du rang supérieur du
+  clavier (`KeyboardEvent.code` `Digit1` à `Digit6`, mêmes touches en
+  AZERTY). Une touche fait exactement comme un clic sur l'emplacement (même
+  vérification de phase) ; un emplacement vide ne fait rien. Ignorées en
+  appui maintenu, avec Maj / Ctrl / Alt, pendant une saisie, dans l'éditeur
+  et quand un écran recouvre le jeu (boutique, Forge, pause, fin de vague).
 
 | Objet | Coût en partie | Utilisable | Effet de base |
 |---|---|---|---|
