@@ -262,8 +262,8 @@ en bataille. Elle n'existe pas dans l'éditeur.
     niveau suivant (« +5 PV, +2 PV par or ») et les boutons **« Soigner
     l'armée — N or »**, **« Améliorer — N or »** et **« Améliorations de
     l'Église »** (§6, §14). En bataille, « En préparation uniquement » ;
-  - **Baliste** : PV, dégâts par carreau, recharge, carreaux par volée.
-    Aucune portée, le tir n'en a pas. En préparation : PV max / max,
+  - **Baliste** : PV, dégâts par carreau, portée (« 18 cases »), recharge,
+    carreaux par volée. En préparation : PV max / max,
     « Mode : Automatique au début de la bataille » et « Prête pour la
     bataille ». En bataille : PV de l'entité, mode de tir (« Automatique ·
     Cible : Ennemi le plus proche » ou « Manuel · Tir : Q vers le
@@ -360,7 +360,12 @@ AUTO), `main.ts`.
   - Valeurs de base : 2 dégâts, recharge d'environ 2,31 s
     (`PLAYER_ARROW_COOLDOWN = 3 / 1.3`).
   - Vitesse 13,5 cases/s, rayon d'impact 0,63.
-  - Aucune portée maximale.
+  - **Portée maximale fixe de 18 cases** (`PLAYER_ARROW_RANGE`), la même en
+    AUTO et en MANUEL, mesurée du centre de la Baliste au point visé : la
+    moitié de la profondeur de l'arène (36 cases). Depuis sa position, elle
+    porte un peu au-delà du milieu du terrain, sans atteindre la zone de
+    départ ennemie. Un tir hors de portée est refusé sans toucher à la
+    recharge.
   - Le tir est refusé pendant la recharge et tant que la volée précédente
     est encore en vol.
   - La Baliste ne tire jamais hors bataille, en pause ni pendant la
@@ -372,11 +377,14 @@ AUTO), `main.ts`.
   et la **même recharge** de la simulation : changer de mode ne modifie
   jamais la recharge et ne donne aucun tir supplémentaire.
 - **Mode AUTO** (`sim/ballistaAuto.ts`, décidé à chaque pas fixe) :
-  - cible l'unité ennemie vivante valide la plus proche de la Baliste
-    (jamais un bâtiment ; égalité tranchée par l'id) ;
-  - une cible acquise est conservée tant qu'elle reste valide ; à sa mort,
-    la plus proche suivante est choisie ;
-  - aucune portée maximale n'est appliquée, comme pour le tir manuel ;
+  - cible l'unité ennemie vivante valide la plus proche de la Baliste **dans
+    sa portée** (jamais un bâtiment ; égalité tranchée par l'id) ; personne
+    à portée : aucun tir ;
+  - une cible acquise est conservée tant qu'elle reste valide et à portée ;
+    à sa mort ou si elle sort de portée, la plus proche suivante à portée
+    est choisie ;
+  - un point anticipé au-delà de la portée n'est pas tiré : la Baliste
+    attend le pas suivant ;
   - tir anticipé déterministe : la vitesse de la cible est celle observée
     au dernier pas fixe (`(x − prevX) / dt`, plafonnée à 2 × sa vitesse
     de marche) ; la prédiction résout l'interception carreau / cible en
@@ -389,6 +397,8 @@ AUTO), `main.ts`.
 - **Mode MANUEL** : aucun tir automatique. Un appui sur **Q** tire vers le
   point du sol sous le curseur, recalculé au moment de l'appui (la caméra a
   pu bouger depuis le dernier mouvement de souris).
+  - Point visé au-delà de la portée : tir refusé, recharge intacte ; le
+    réticule devient rouge.
   - Q est sans effet quand le focus est dans un champ de saisie. La
     répétition automatique du clavier ne déclenche pas de tir.
   - Tirer ne modifie ni la sélection des unités, ni un rectangle de
@@ -446,7 +456,7 @@ Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 
 | | Mine | Caserne | Forge | Tour | Église |
 |---|---|---|---|---|---|
-| Coût en partie | 20 | 25 | 10 | 10 | 15 |
+| Coût en partie | 20 | 25 | 10 | 20 | 15 |
 | PV / emprise | 15 / 2×2 | 25 / 3×3 | 15 / 2×2 | 15 / 2×2 | 15 / 2×2 |
 | Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Produit des Fantassins (voir ci-dessous) | Accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; accès aux améliorations des parchemins et de Soins excédentaires (voir ci-dessous et §14) |
 
@@ -502,8 +512,9 @@ pour rester à la hauteur de la Caserne et de la tour de la Baliste) :
 
 - **Valeurs** (provisoires, playtest), centralisées dans
   `BuildingDef.attack` : 4 dégâts au niveau 1, +2 et +5 PV par niveau
-  (15 PV · 4 dégâts, puis 20 · 6, 25 · 8, 30 · 10…) ; portée 8 cases
-  (Archer : 6 ; la Baliste n'en a pas) ; 1 tir toutes les 2,5 s (Archer :
+  (15 PV · 4 dégâts, puis 20 · 6, 25 · 8, 30 · 10…) ; portée 12 cases,
+  que les niveaux ne changent pas (Archer : 6 ; Baliste : 18) ; 1 tir
+  toutes les 2,5 s (Archer :
   2,0 s ; Baliste : 2,31 s).
 - **Ciblage** : l'unité ennemie vivante la plus proche à portée (jamais un
   bâtiment ; égalité tranchée par l'id), conservée tant qu'elle reste

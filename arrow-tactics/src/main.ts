@@ -16,6 +16,7 @@ import {
   MACHINE_GUN_FALLBACK_TARGET_OFFSET,
   MACHINE_GUN_ORIGIN_OFFSET,
   MACHINE_GUN_SECONDARY_TARGET_RADIUS,
+  PLAYER_ARROW_RANGE,
   GRID_MOVE_SEARCH_RADIUS,
   type ObstacleDef,
   PLACEMENT_GOLD_WARNING_RATIO,
@@ -1249,6 +1250,14 @@ renderer.scene.add(unitMovePreview.group);
 /** Reticule de vise au sol pour la fleche du joueur : suit la souris pendant
  *  la bataille, s'assombrit pendant le cooldown pour signaler qu'un tir n'est
  *  pas encore possible (voir updateAimReticle). */
+/** Vrai si le point (x, z) est a portee de la Baliste (PLAYER_ARROW_RANGE). */
+function isBallistaAimInRange(x: number, z: number): boolean {
+  return dist(playerArrowOrigin.x, playerArrowOrigin.z, x, z) <= PLAYER_ARROW_RANGE;
+}
+
+/** Teinte du reticule quand le point vise est hors de portee. */
+const AIM_RETICLE_OUT_OF_RANGE_COLOR = 0xd9534f;
+
 function createAimReticle(): THREE.Mesh {
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.28, 0.4, 24),
@@ -3668,6 +3677,10 @@ function isBallistaDestroyed(): boolean {
 function fireArrowIfReady(aimX: number = playerAimX, aimZ: number = playerAimZ): void {
   // Baliste detruite : verifie AVANT tout calcul de tir.
   if (isBallistaDestroyed()) return;
+  // Hors de portee (AUTO comme MANUEL) : tir refuse, la recharge n'est ni
+  // consommee ni remise a zero. En AUTO, un point anticipe au-dela de la
+  // portee attend simplement le pas suivant.
+  if (!isBallistaAimInRange(aimX, aimZ)) return;
   // Meme valeur de degats EFFECTIVE pour les 3 carreaux (talent Tir rapide +
   // amelioration Baliste deja inclus) — jamais reduite/partagee entre eux
   // (demande explicite : "chaque carreau = degats normaux de la Baliste").
@@ -3758,7 +3771,7 @@ function setBallistaFireMode(mode: BallistaFireMode): void {
 function attemptBallistaAutoFire(dt: number): void {
   if (ballistaFireMode !== 'auto' || !canFireBallista() || isBallistaDestroyed()) return;
   const current = ballistaAutoTargetId !== null ? world.getById(ballistaAutoTargetId) : undefined;
-  const target = selectBallistaAutoTarget(world.entities, playerArrowOrigin.x, playerArrowOrigin.z, current);
+  const target = selectBallistaAutoTarget(world.entities, playerArrowOrigin.x, playerArrowOrigin.z, current, PLAYER_ARROW_RANGE);
   ballistaAutoTargetId = target?.id ?? null;
   if (!target) return;
   const arrow = world.playerArrow;
@@ -5773,7 +5786,10 @@ const loop = new Loop(
       aimReticle.position.x = playerAimX;
       aimReticle.position.z = playerAimZ;
       const ready = world.playerArrow.cooldown <= 0 && world.playerArrow.flights.length === 0;
-      (aimReticle.material as THREE.MeshBasicMaterial).opacity = ready ? 0.55 : 0.15;
+      const reticleMaterial = aimReticle.material as THREE.MeshBasicMaterial;
+      reticleMaterial.opacity = ready ? 0.55 : 0.15;
+      // Hors de portee : reticule rouge, le tir sera refuse.
+      reticleMaterial.color.setHex(isBallistaAimInRange(playerAimX, playerAimZ) ? COLORS.playerArrowAccent : AIM_RETICLE_OUT_OF_RANGE_COLOR);
 
       // La baliste suit le curseur en continu pendant la bataille, meme
       // convention de cap que le reste du rendu (voir UnitViews.computeFacing) :

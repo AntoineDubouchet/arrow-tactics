@@ -242,26 +242,28 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     displayName: 'Maison',
     maxHp: 10 * HP_PER_PIP,
     // Emprise 2 × 2 (1 × 1 a l'origine, trop petite) : rayon aligne sur les
-    // autres batiments 2 × 2 (Mine, Forge) ; modele mis a l'echelle de
-    // l'emprise (2,18 de haut), barre de PV juste au-dessus du toit.
+    // autres batiments 2 × 2 (Mine, Forge). Modele affiche a 0,8 de son
+    // emprise (1,74 de haut au lieu de 2,18 : il paraissait trop gros), barre
+    // de PV juste au-dessus du toit ; l'emprise reste 2 × 2.
     radius: 1.0,
     targetable: true,
     countsForDefeat: true,
-    hpBarHeight: 2.5,
+    hpBarHeight: 2.1,
     cost: 5,
     buildingModel: 'blue_home_A',
     footprintTilesX: 2,
     footprintTilesZ: 2,
+    modelScale: 0.8,
     populationBonus: 5,
   },
   // Tour defensive : tire automatiquement des fleches sur l'unite ennemie la
   // plus proche a portee (sim/systems/buildingAttack.ts). Valeurs de
   // PLAYTEST, a reequilibrer :
-  //  - portee 8 > Archer (6) : depasse les archers sans approcher la Baliste,
-  //    qui n'a pas de portee ;
+  //  - portee 12 (8 a l'origine, +50 %) : defense de moyenne portee, au-dela
+  //    des Archers (6) mais en deca de la Baliste (18, PLAYER_ARROW_RANGE) ;
   //  - 1 tir / 2,5 s : plus lent qu'un Archer (2,0 s) et que la Baliste
   //    (2,31 s), compense par des degats eleves (4, contre 1,2 et 2) ;
-  //  - fleche a 18 cases/s : ~0,45 s de vol a portee max.
+  //  - fleche a 18 cases/s : ~0,7 s de vol a portee max.
   tower: {
     id: 'tower',
     displayName: 'Tour',
@@ -270,7 +272,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 3.4,
-    cost: 10,
+    cost: 20,
     buildingModel: 'blue_tower_A',
     footprintTilesX: 2,
     footprintTilesZ: 2,
@@ -282,7 +284,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     attack: {
       damage: 4 * HP_PER_PIP,
       damagePerLevel: 2 * HP_PER_PIP,
-      rangeTiles: 8,
+      rangeTiles: 12,
       cooldownSeconds: 2.5,
       projectileSpeed: 18,
       // Modele a l'echelle 0,8 : fut jusqu'a ~2,3, avant-toit vers 2,4-2,5,

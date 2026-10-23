@@ -1,4 +1,4 @@
-import { HP_PER_PIP } from '../config/constants';
+import { HP_PER_PIP, PLAYER_ARROW_RANGE } from '../config/constants';
 import { findAbility } from '../data/abilities';
 import { getBuilding } from '../data/buildings';
 import { getUnit, UNITS, type UnitStats } from '../data/units';
@@ -568,13 +568,14 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
 function ballistaRows(progress: PlayerProgression): EntityInfoRow[] {
   return [
     { label: 'Dégâts / carreau', value: formatPoints(effectivePlayerArrowDamage(progress)) },
+    { label: 'Portée', value: formatRange(PLAYER_ARROW_RANGE) },
     { label: 'Recharge', value: formatSeconds(effectivePlayerArrowCooldown(progress)) },
     { label: 'Carreaux / volée', value: String(playerArrowBoltsPerVolley(progress.talents)) },
   ];
 }
 
 /** Baliste en preparation : elle reapparait toujours a pleins PV, en mode
- *  AUTO, au debut de la bataille. Aucune portee : le tir n'en a pas. */
+ *  AUTO, au debut de la bataille. */
 export function placementBallistaInfo(progress: PlayerProgression): BallistaInfo {
   const maxHp = effectiveBallistaMaxHp(progress.upgrades);
   return {

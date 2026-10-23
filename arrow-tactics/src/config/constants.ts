@@ -830,6 +830,13 @@ export const PLAYER_ARROW_ARC_HEIGHT = 3.5;
  *  precision (vise libre, pas de verrouillage sur cible). Monte 0.55 -> 0.63
  *  (2026-08-11, demande d'Antoine : "les fleches sont trop dur a toucher"). */
 export const PLAYER_ARROW_HIT_RADIUS = 0.63;
+/** Portee maximale de la Baliste du joueur (cases), en AUTO comme en MANUEL :
+ *  distance du centre de la Baliste au point vise (MANUEL) ou a la cible
+ *  (AUTO). Valeur FIXE, independante de la taille de la carte : la moitie de
+ *  la profondeur de l'arene du Mode survie (36 cases) — depuis sa position
+ *  (z = 15,5), elle porte 2,5 cases au-dela du milieu du terrain et reste a
+ *  6,5 cases de la zone de depart ennemie. */
+export const PLAYER_ARROW_RANGE = 18;
 /** Distance (en cases) entre la baliste du joueur et le coin (+X, +Z) du
  *  plateau — la position elle-meme est calculee depuis la taille REELLE du
  *  plateau (voir config/mapDef.ts, computePlayerArrowOrigin), pas une

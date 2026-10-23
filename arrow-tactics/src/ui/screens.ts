@@ -1074,9 +1074,17 @@ export class Screens {
     const gateUnit = (button: HTMLButtonElement, unitId: string, cost: number, count: number): void => {
       const noRoom = !roomFor(unitId, count);
       button.disabled = run.gold < cost * count || noRoom;
-      // Infobulle : stats de la prochaine unite, puis la raison d'un refus.
+      // Infobulle : stats de la prochaine unite, une par ligne (population
+      // comprise : le bouton ne l'affiche plus), puis la raison d'un refus.
       const summary = unitProductionSummary(unitId, currentProductionLevel(run.upgrades, unitId));
-      const lines = [`${getUnit(unitId).name} — Niv. ${displayedUpgradeLevel(summary.productionLevel)} : ${formatUnitStats(summary)}, ${formatGold(summary.cost)} or`];
+      const lines = [
+        `${getUnit(unitId).name} — Niv. ${displayedUpgradeLevel(summary.productionLevel)}`,
+        `${formatGold(summary.hp)} PV`,
+        `${summary.attackLabel} ${formatGold(summary.attack)}`,
+        ...(summary.tauntShield !== null ? [`Bouclier ${formatGold(summary.tauntShield)} / ennemi`] : []),
+        `Population : ${summary.population}`,
+        `${formatGold(summary.cost)} or`,
+      ];
       if (noRoom) lines.push(`Population insuffisante (${population.used} / ${population.max}, ${unitPopulationCost(unitId) * count} requise)`);
       button.title = lines.join('\n');
     };
@@ -2134,17 +2142,14 @@ export class Screens {
     iconItemId?: string,
   ): { row: HTMLElement; button: HTMLButtonElement } {
     const button = this.shopItemButton(def.name, def.cost, onBuyOne, def.id, iconItemId);
-    // Unite : niveau de production courant et places de population, a cote
-    // du nom.
+    // Unite : niveau de production courant a cote du nom. Les places de
+    // population ne sont plus affichees sur le bouton, seulement dans son
+    // infobulle (voir refreshShop).
     if (def.populationCost !== undefined) {
       const level = document.createElement('span');
       level.className = 'shop-item-level';
       button.querySelector('.shop-item-name-group')?.appendChild(level);
       this.shopUnitLevelEls.set(def.id, level);
-      const population = document.createElement('span');
-      population.className = 'shop-item-population';
-      population.textContent = `Pop. ${def.populationCost}`;
-      button.querySelector('.shop-item-name-group')?.appendChild(population);
     }
 
     const five = document.createElement('button');

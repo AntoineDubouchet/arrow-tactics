@@ -10,30 +10,36 @@ import type { Entity } from './entity';
  */
 
 /** Cible valide en AUTO : unite ennemie vivante. Les batiments ennemis
- *  eventuels sont exclus (la Baliste ne vise que des unites). Aucune
- *  portee : le tir de la Baliste n'en a pas (decision d'Antoine), toute
- *  unite ennemie de la carte est donc a portee. */
+ *  eventuels sont exclus (la Baliste ne vise que des unites). */
 export function isValidBallistaAutoTarget(e: Entity | undefined): e is Entity {
   return e !== undefined && e.alive && e.team === 'enemy' && !e.isBuilding;
 }
 
+/** Vrai si `e` est a portee de la Baliste centree en (originX, originZ) :
+ *  distance de centre a centre <= `rangeTiles` (PLAYER_ARROW_RANGE). */
+export function isWithinBallistaRange(e: Entity, originX: number, originZ: number, rangeTiles: number): boolean {
+  return dist(originX, originZ, e.x, e.z) <= rangeTiles;
+}
+
 /**
- * Cible AUTO : la cible courante est CONSERVEE tant qu'elle reste valide
- * (pas d'oscillation entre deux ennemis presque equidistants) ; sinon,
- * l'unite ennemie valide la plus proche de la Baliste, egalite tranchee par
- * id croissant (stable). null si aucune cible valide.
+ * Cible AUTO : la cible courante est CONSERVEE tant qu'elle reste valide et
+ * a portee (pas d'oscillation entre deux ennemis presque equidistants) ;
+ * sinon, l'unite ennemie valide la plus proche de la Baliste DANS sa portee,
+ * egalite tranchee par id croissant (stable). null si aucune cible valide a
+ * portee.
  */
 export function selectBallistaAutoTarget(
   entities: readonly Entity[],
   originX: number,
   originZ: number,
   current: Entity | undefined,
+  rangeTiles: number,
 ): Entity | null {
-  if (isValidBallistaAutoTarget(current)) return current;
+  if (isValidBallistaAutoTarget(current) && isWithinBallistaRange(current, originX, originZ, rangeTiles)) return current;
   let best: Entity | null = null;
   let bestDist = Infinity;
   for (const e of entities) {
-    if (!isValidBallistaAutoTarget(e)) continue;
+    if (!isValidBallistaAutoTarget(e) || !isWithinBallistaRange(e, originX, originZ, rangeTiles)) continue;
     const d = dist(originX, originZ, e.x, e.z);
     if (d < bestDist || (d === bestDist && best !== null && e.id < best.id)) {
       best = e;

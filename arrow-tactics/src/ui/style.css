@@ -653,12 +653,6 @@ img {
 }
 
 /* Places de population d'une unite, a cote de son nom dans la boutique. */
-.shop-item-population {
-  margin-left: 8px;
-  font-size: 11px;
-  opacity: 0.7;
-}
-
 /* Niveau de production courant de l'unite (« Niv. 2 »), voir refreshShop. */
 .shop-item-level {
   margin-left: 8px;
