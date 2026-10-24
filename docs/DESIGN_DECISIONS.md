@@ -644,10 +644,18 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     fermée, collision seulement une fois assez ouverte ; toujours fermée pour
     l'adversaire, qui doit la détruire. Remplaçable sur un segment de mur
     (prix de la porte, mur non remboursé) ;
-  - virages en segments droits (aucun coin KayKit à 90°) ;
-  - enceinte fermée : créneaux vers l'**extérieur**, déterminé par la seule
-    géométrie du tracé (ni camp, ni position des ennemis, ni nord/sud) ;
-    tracé ouvert : orientation provisoire de camp ;
+  - virages = vraies pièces de coin KayKit `wall_corner_B_outside` /
+    `_inside` (arc de 120° ajusté dans une case, choix d'Antoine), emprise
+    1 × 1, comptées comme un segment ;
+  - longueur EXACTE demandée (choix d'Antoine, remplace l'aimantage) :
+    tronçon impair complété par un demi-segment d'une case (`wall_half`,
+    segment KayKit comprimé à mi-longueur, le pack n'ayant aucun mur d'une
+    case) ; ½ or par case droite ; extrémités d'un tracé ouvert finalisées en
+    pièces droites à la sortie du tracé ;
+  - créneaux vers l'**extérieur** : enceinte fermée = intérieur du
+    polygone ; tracé ouvert = côté de la Baliste (portion la plus proche),
+    un seul côté pour tout le tracé — **priorité à la continuité**, jamais un
+    bras retourné au passage d'un coin (décision d'Antoine) ;
   - les ennemis les ciblent **comme tout bâtiment** (cible la plus proche),
     sans IA dédiée ;
   - elles ne comptent pas pour la défaite ;

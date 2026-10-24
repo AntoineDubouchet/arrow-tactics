@@ -481,6 +481,12 @@ export interface ObstacleDef {
    *  (BuildingDef.outerFaceTowardHostiles). N'agit ni sur l'emprise, ni sur
    *  la collision, ni sur `rotationY`. Absent = 0. */
   modelFacingYaw?: number;
+  /** Modele a echelle native et pose fixe (BuildingDef.nativeModelPose,
+   *  virage de muraille) au lieu d'etre cale sur l'emprise. Purement visuel. */
+  nativeModelPose?: { yaw: number; offsetX: number; offsetZ: number };
+  /** Longueur visuelle du modele le long de X rapportee a l'emprise
+   *  (BuildingDef.modelLengthScale, demi-segment de muraille). Absent = 1. */
+  modelLengthScale?: number;
   /** Extremites d'un segment de muraille qui butent contre le flanc d'un
    *  segment perpendiculaire (core/wallTrace.ts, wallEndJoins) : le rendu y
    *  allonge le modele pour fermer visuellement le virage. Purement visuel. */

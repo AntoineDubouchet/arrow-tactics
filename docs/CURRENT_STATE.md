@@ -526,31 +526,51 @@ du dossier « neutral », visuel neutre non teinté, mais constructions du
   **portion** de l'ancre au point cliqué (horizontale ou verticale selon
   l'**axe dominant**, jamais de diagonale) puis son extrémité devient la
   nouvelle ancre : A, B, C, D, A trace un carré fermé à 4 virages.
-  - Aperçu de la portion (segments futurs, virage, case en attente), vert ou
-    rouge, nombre de segments et coût. Tout ou rien par portion : une portion
-    invalide (hors territoire, obstacle, bâtiment, unité, or insuffisant) ne
-    pose rien, le reste du tracé est intact.
+  - **Structure** : tronçons droits et **virages** (une case, vraie pièce
+    de coin KayKit) à chaque changement de direction : `ligne — virage —
+    ligne`. Un carré fermé = 4 côtés + 4 virages.
+  - **Longueur exacte** : une portion couvre exactement les cases demandées
+    (clic de A à B = toutes les cases de A à B). Un tronçon droit est fait de
+    segments 2 × 1 et, s'il a un nombre impair de cases, d'un **demi-segment**
+    d'une case (`wall_half`), placé de préférence à une extrémité ouverte,
+    sinon contre un virage. Un second clic sur la case de départ pose une
+    muraille d'une case.
+  - **Cases en attente** (contour sans modèle) pendant le tracé : l'ancre
+    (virage ou prolongement droit, décidé au clic suivant), le point de
+    départ (virage à la fermeture) et au plus une case de leur tronçon. Elles
+    sont payées avec leur portion.
+  - **Fin du tracé sans fermeture** (Échap, clic droit, autre bâtiment choisi
+    en boutique, sortie du mode, début de bataille) : les cases en attente
+    deviennent des pièces droites — une ligne, un L ou un U ouverts restent
+    complets.
+  - Aperçu de la portion **avant** le clic : segments, virage qui prendra la
+    jonction précédente (et virages D et A à la fermeture), cases en
+    attente ; vert ou rouge, nombre de cases et coût. Tout ou rien par
+    portion : une portion invalide (hors territoire, obstacle, bâtiment,
+    unité, or insuffisant) ne pose rien, le reste du tracé est intact.
   - **Fermeture** : un clic sur le point de départ ou une case voisine (si
-    l'ancre lui est alignée) se cale sur lui, pose le dernier côté et termine
-    le tracé (« ferme l'enceinte ») ; le mode reste actif.
-  - **Virages** : le pack n'a pas de coin à 90° ; un virage est fait de
-    segments droits (les cases du tracé sont appariées deux à deux, une paire
-    peut enjamber le virage ; selon le sens de dessin, la case de coin est
-    portée par l'un ou l'autre côté). L'enceinte est étanche ; le rendu
-    prolonge légèrement le segment qui bute contre un segment perpendiculaire
-    pour fermer visuellement l'angle (petit effet de pilastre, ~0,1 case).
-  - **Créneaux** : tant que le tracé est ouvert, orientation provisoire de
-    camp (vers l'ennemi). À la **fermeture**, tous les segments de l'enceinte
-    (portes comprises) tournent leurs créneaux vers l'**extérieur**, quel que
-    soit le sens de dessin ; seule la rotation enregistrée change (`ASSETS.md`
-    §3.5). Une porte posée sur un mur reprend son orientation.
-  - Une portion d'un nombre impair de cases laisse sa dernière case **en
-    attente** (contour sans modèle, non payée) : elle est construite avec la
-    portion suivante.
-  - **Échap / clic droit** pendant un tracé : annule seulement ce qui n'est
-    pas construit (aperçu, case en attente). Les portions déjà validées sont
-    payées et restent (on peut les déplacer ou les vendre comme tout
-    bâtiment). Sans tracé en cours, Échap / clic droit quittent le mode.
+    l'ancre lui est alignée) se cale sur lui, pose le dernier côté et les
+    virages D et A, et termine le tracé (« ferme l'enceinte ») ; le mode
+    reste actif. Elle exige un virage en A (sinon aperçu rouge).
+  - **Coût** (provisoire, inchangé : 1 or le segment 2 × 1) : ½ or par case
+    droite (segment, demi-segment ou case en attente), 1 or par virage
+    (compté comme un segment). La finalisation d'un tracé ouvert ne coûte
+    rien de plus ; un re-découpage d'un tronçon n'est jamais facturé deux
+    fois. Un virage a 50 PV (pièce complète), un demi-segment 25 PV (même
+    densité qu'un segment : 25 PV par case) ; tous deux bloquent les deux
+    camps, laissent passer les tirs ; emprise 1 × 1.
+  - **Créneaux vers l'extérieur** : un seul côté intérieur pour tout le
+    tracé (continuité). Enceinte fermée : l'intérieur du polygone (dans les
+    deux sens de dessin). Tracé ouvert : le côté de la **Baliste** par
+    rapport à la portion la plus proche d'elle. Les segments droits ont leurs
+    créneaux à l'opposé ; un virage qui tourne autour de l'intérieur prend
+    la variante `outside` (créneaux sur le côté bombé), un virage rentrant la
+    variante `inside`. Tout le tracé est réorienté à chaque portion validée
+    (seules rotation et variante de virage changent). Une porte posée sur un
+    mur reprend son orientation (`ASSETS.md` §3.5).
+  - **Échap / clic droit** pendant un tracé : termine le tracé (aperçu de la
+    portion suivante abandonné, cases en attente construites) ; le mode
+    reste actif. Sans tracé en cours, Échap / clic droit quittent le mode.
 - **Porte** : outil séparé, posée à l'unité (Ctrl + molette : 90°). Posée
   **exactement** sur un segment de mur (même emprise), elle le **remplace** :
   mur — porte — mur sans trou ; on paie la porte, le mur n'est pas remboursé.

@@ -345,21 +345,26 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - `footprintFollowsRotation` (muraille) : `tilesX` / `tilesZ` sont l'emprise
     déjà tournée par quarts de tour (`buildingFootprintTiles`) ; le rendu
     cale le modèle sur l'emprise d'origine avant de le tourner.
-  - Orientation d'une enceinte fermée : `closedEnclosureFacings`
-    (`core/wallTrace.ts`) donne la direction de l'extérieur de chaque
-    segment ; `main.ts` l'enregistre dans `rotationY` (même parité de quart de
-    tour, emprise inchangée) — préparation et éditeur (même entrée
-    d'historique que la portion de fermeture).
+  - Orientation du tracé : `traceInteriorSign` (polygone fermé, sinon
+    Baliste) et `wallPieceFacing` (`core/wallTrace.ts`) ; `main.ts`
+    (`planTracedWallLeg`, `reorientTracedBuildings`) l'enregistre dans
+    `rotationY` et dans le `buildingId` du virage — préparation et éditeur
+    (même entrée d'historique que la portion).
+  - `nativeModelPose` (virage de muraille) : modèle à échelle native et pose
+    fixe dans la case, au lieu d'être calé sur l'emprise.
   - Champs purement visuels d'une muraille : `modelFacingYaw` (face
     extérieure vers les hostiles) et `wallJoin` (raccord des virages,
     `wallEndJoins` de `core/wallTrace.ts`), posés par
     `gameplayBuildingObstacle` (`main.ts`). Les battants d'une porte sont
     animés par `BuildingView.setGateOpenness` d'après `Entity.gate`
     (interpolé entre deux pas).
-- **Tracé de murailles** : `core/wallTrace.ts` (pur) découpe chaque portion
-  en segments 2 × 1 (cases appariées le long du tracé, case en attente,
-  fermeture) ; utilisé par le mode Muraille de la préparation et par
-  l'éditeur (`main.ts`).
+- **Tracé de murailles** : `core/wallTrace.ts` (pur) calcule la disposition
+  COMPLÈTE d'un tracé (`traceLayout` : virages, segments 2 × 1,
+  demi-segments, cases en attente ; modes `open`, `final`, `closed`) ;
+  valider une portion ou terminer le tracé (`finalizeWallTrace`) = passer
+  d'une disposition à l'autre (`main.ts` : `wallTraceStep`, pièces retirées
+  / posées, coût par case). Utilisé par le mode Muraille de la préparation
+  et par l'éditeur.
 - **Ciblage** : un bâtiment n'acquiert jamais de cible (`targetingSystem`) ;
   la Tour tire par `buildingAttack`.
 - **Survie d'un camp** : `countsForDefeat` (porté par la `BuildingDef`) fait

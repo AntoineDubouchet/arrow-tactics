@@ -76,13 +76,30 @@ export function createBuildingObstacle(def: ObstacleDef, assets: EnvironmentAsse
   // faisait pivoter autour de l'origine de son fichier, donc sortir de son
   // emprise. La racine porte position et rotation enregistrees (l'editeur les
   // reecrit, voir refreshEditorObjects) sans toucher a la correction.
-  const model = cloneScaledToFootprint(prototype, fitWidth * scale, fitDepth * scale);
+  // Virage de muraille : echelle native et pose fixe dans la case de coin
+  // (BuildingDef.nativeModelPose), jamais cale sur l'emprise.
+  const pose = def.nativeModelPose;
+  // Demi-segment de muraille : cale sur une emprise plus longue puis
+  // comprime le long de X (ObstacleDef.modelLengthScale).
+  const lengthScale = def.modelLengthScale ?? 1;
+  const model = pose ? prototype.clone(true) : cloneScaledToFootprint(prototype, (fitWidth * scale) / lengthScale, fitDepth * scale);
+  if (pose) {
+    model.position.set(pose.offsetX, 0, pose.offsetZ);
+    model.rotation.y = pose.yaw;
+  }
   const oriented = new THREE.Group();
   // Correction native du modele + lacet visuel du camp (face exterieure d'une
   // muraille vers les hostiles, ObstacleDef.modelFacingYaw) : un demi-tour
   // autour du centre laisse le modele dans son emprise.
   oriented.rotation.y = (BUILDING_MODEL_ROTATION_OFFSET[def.buildingModel ?? ''] ?? 0) + (def.modelFacingYaw ?? 0);
-  oriented.add(model);
+  if (lengthScale !== 1) {
+    const squashed = new THREE.Group();
+    squashed.scale.x = lengthScale;
+    squashed.add(model);
+    oriented.add(squashed);
+  } else {
+    oriented.add(model);
+  }
   const building = new THREE.Group();
   building.add(wallJoinGroup(def, model, oriented, fitWidth * scale, fitDepth * scale));
   // Pas de rotation aleatoire par defaut (contrairement aux props/arbres,

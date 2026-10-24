@@ -45,7 +45,22 @@ import { populationOfEntities } from './data/population';
 import { canRecruitWithinPopulation, runPopulation } from './run/population';
 import { PopulationHud } from './ui/populationHud';
 import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMoveMember } from './core/gridGroupMove';
-import { advanceWallTrace, closedEnclosureFacings, planWallTraceLeg, startWallTrace, traceCellAt, wallEndJoins, type WallJoinPiece, type WallTrace, type WallTraceLeg, type WallTracePiece } from './core/wallTrace';
+import {
+  advanceWallTrace,
+  finalizeWallTrace,
+  planWallTraceLeg,
+  startWallTrace,
+  traceCellAt,
+  traceInteriorSign,
+  wallEndJoins,
+  wallPieceFacing,
+  type TraceCell,
+  type TraceLayout,
+  type WallJoinPiece,
+  type WallTrace,
+  type WallTraceLeg,
+  type WallTracePiece,
+} from './core/wallTrace';
 import { BUILDINGS, buildingFootprintTiles, buildingRotationStep, getBuilding, sameBuildingFootprint, unitsProducedPerWave } from './data/buildings';
 import { hasRecruitmentBuilding } from './run/recruitment';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
@@ -421,28 +436,119 @@ function teamFacingYaw(team: Team): number {
 }
 
 /** `rotationY` qui tourne la face exterieure (creneaux, +Z natif) d'un
- *  segment de muraille vers (outwardX, outwardZ) — enceinte fermee
- *  (closedEnclosureFacings). Le lacet de camp s'ajoute au rendu : il est
- *  compense ici. Toujours un quart de tour exact de meme parite que l'axe du
- *  segment : emprise, collision et position inchangees (un demi-tour garde
- *  la meme emprise). */
-function enclosureRotationY(outwardX: number, outwardZ: number, team: Team): number {
+ *  segment de muraille vers (outwardX, outwardZ). Le lacet de camp s'ajoute
+ *  au rendu : il est compense ici. Toujours un quart de tour exact de meme
+ *  parite que l'axe du segment : emprise, collision et position inchangees
+ *  (un demi-tour garde la meme emprise). */
+function outwardRotationY(outwardX: number, outwardZ: number, team: Team): number {
   const quarter = Math.PI / 2;
   const turns = Math.round((Math.atan2(outwardX, outwardZ) - teamFacingYaw(team)) / quarter);
   return (((turns % 4) + 4) % 4) * quarter;
 }
 
-/** Enceinte fermee : nouvelle `rotationY` de chaque batiment pose qui occupe
- *  l'emprise d'un segment du trace (mur, ou porte posee a sa place). */
-function enclosureRotations<T extends PlacedBuildingRef>(trace: WallTrace, leg: WallTraceLeg, buildingId: string, placed: readonly T[], team: Team): Map<T, number> {
-  const rotations = new Map<T, number>();
-  for (const f of closedEnclosureFacings(trace, leg)) {
-    const x = f.piece.cornerX + f.piece.tilesX / 2;
-    const z = f.piece.cornerZ + f.piece.tilesZ / 2;
-    const target = placed.find((b) => getBuilding(b.buildingId).footprintFollowsRotation && sameBuildingFootprint(buildingId, x, z, f.piece.rotationY, b.buildingId, b.x, b.z, b.rotationY ?? 0));
-    if (target) rotations.set(target, enclosureRotationY(f.outwardX, f.outwardZ, team));
+/** Piece de trace devenue batiment concret : mur, demi-segment
+ *  (BuildingDef.traceHalf) ou variante de virage (BuildingDef.traceCorners),
+ *  coin de grille et rotation enregistree. */
+interface TracedWallPiece {
+  kind: WallTracePiece['kind'];
+  buildingId: string;
+  cornerX: number;
+  cornerZ: number;
+  tilesX: number;
+  tilesZ: number;
+  rotationY: number;
+}
+
+/** Oriente une piece du trace `wallId` pour son cote interieur
+ *  (core/wallTrace.ts, wallPieceFacing) : creneaux dehors. */
+function tracedWallPiece(wallId: string, piece: WallTracePiece, interiorSign: number, team: Team): TracedWallPiece {
+  const facing = wallPieceFacing(piece, interiorSign);
+  const base = { kind: piece.kind, cornerX: piece.cornerX, cornerZ: piece.cornerZ, tilesX: piece.tilesX, tilesZ: piece.tilesZ };
+  const def = getBuilding(wallId);
+  if (facing.kind === 'corner') {
+    return { ...base, buildingId: def.traceCorners ? def.traceCorners[facing.variant] : wallId, rotationY: facing.rotationY };
   }
-  return rotations;
+  return { ...base, buildingId: piece.kind === 'half' ? def.traceHalf ?? wallId : wallId, rotationY: outwardRotationY(facing.outwardX, facing.outwardZ, team) };
+}
+
+/** Passage d'une disposition de trace a une autre (core/wallTrace.ts) :
+ *  pieces retirees (troncon re-apparie), pieces posees, orientation de TOUTES
+ *  les pieces apres (le cote interieur peut changer), cases en attente
+ *  (contour d'apercu) et cout. */
+interface WallTraceStep {
+  removed: TracedWallPiece[];
+  added: TracedWallPiece[];
+  all: TracedWallPiece[];
+  waiting: TraceCell[];
+  cost: number;
+}
+
+/** Cout d'une disposition, en segments de mur : une case droite vaut un
+ *  demi-segment (segment 2 x 1 = 1, demi-segment = 1/2, case EN ATTENTE =
+ *  1/2, payee des que sa portion est validee), un virage compte comme un
+ *  segment. La finalisation d'un trace ouvert ne coute donc rien de plus. */
+function wallLayoutCost(layout: TraceLayout): number {
+  let units = layout.waiting.length / 2;
+  for (const p of layout.pieces) units += p.kind === 'half' ? 0.5 : 1;
+  return units;
+}
+
+function wallTraceStep(wallId: string, before: TraceLayout, after: TraceLayout, interiorSign: number, team: Team): WallTraceStep {
+  const orient = (p: WallTracePiece): TracedWallPiece => tracedWallPiece(wallId, p, interiorSign, team);
+  const key = (p: WallTracePiece): string => `${p.kind}:${p.cornerX},${p.cornerZ},${p.tilesX},${p.tilesZ}`;
+  const beforeKeys = new Set(before.pieces.map(key));
+  const afterKeys = new Set(after.pieces.map(key));
+  return {
+    removed: before.pieces.filter((p) => !afterKeys.has(key(p))).map(orient),
+    added: after.pieces.filter((p) => !beforeKeys.has(key(p))).map(orient),
+    all: after.pieces.map(orient),
+    waiting: after.waiting,
+    cost: roundGold(getEffectiveBuildingCost(wallId) * (wallLayoutCost(after) - wallLayoutCost(before))),
+  };
+}
+
+/** Portion de trace vers le curseur, orientee. Interieur : polygone si la
+ *  portion ferme l'enceinte, sinon cote de `reference` (la Baliste du
+ *  joueur). */
+function planTracedWallLeg(wallId: string, trace: WallTrace, x: number, z: number, reference: { x: number; z: number } | null, team: Team): { leg: WallTraceLeg; step: WallTraceStep } {
+  const leg = planWallTraceLeg(trace, x, z);
+  const vertices = leg.closes ? trace.vertices : [...trace.vertices, leg.end];
+  const sign = traceInteriorSign(vertices, [...trace.dirs, leg.dir], leg.closes, reference);
+  return { leg, step: wallTraceStep(wallId, leg.before, leg.after, sign, team) };
+}
+
+/** Trace termine sans fermeture : ses cases en attente deviennent des
+ *  pieces droites (meme orientation que le reste du trace). */
+function finalizeTracedWall(wallId: string, trace: WallTrace, reference: { x: number; z: number } | null, team: Team): WallTraceStep {
+  const { before, after } = finalizeWallTrace(trace);
+  return wallTraceStep(wallId, before, after, traceInteriorSign(trace.vertices, trace.dirs, false, reference), team);
+}
+
+/** Batiment pose qui porte une piece de trace : meme emprise, meme famille
+ *  (virage, demi-segment, ou segment droit — mur ou porte posee a sa place). */
+function isTracedBuildingFor(b: PlacedBuildingRef, p: TracedWallPiece): boolean {
+  const def = getBuilding(b.buildingId);
+  const family = def.nativeModelPose ? 'corner' : def.modelLengthScale ? 'half' : 'straight';
+  return family === p.kind && sameBuildingFootprint(p.buildingId, p.cornerX + p.tilesX / 2, p.cornerZ + p.tilesZ / 2, p.rotationY, b.buildingId, b.x, b.z, b.rotationY ?? 0);
+}
+
+/** Reoriente les batiments deja poses d'un trace (nouvelle liste, jamais une
+ *  mutation : les instantanes d'historique de l'editeur partagent les
+ *  anciens objets). Un mur ou une porte a la meme emprise qu'un segment prend
+ *  sa rotation ; un virage peut changer de variante. */
+function reorientTracedBuildings<T extends PlacedBuildingRef>(placed: readonly T[], pieces: readonly TracedWallPiece[]): T[] {
+  return placed.map((b) => {
+    const p = pieces.find((q) => isTracedBuildingFor(b, q));
+    if (!p) return b;
+    const buildingId = getBuilding(b.buildingId).nativeModelPose ? p.buildingId : b.buildingId;
+    if (buildingId === b.buildingId && (b.rotationY ?? 0) === p.rotationY) return b;
+    return { ...b, buildingId, rotationY: p.rotationY };
+  });
+}
+
+/** Batiments a retirer pour un passage de disposition (pieces re-appariees). */
+function tracedBuildingsToRemove<T extends PlacedBuildingRef>(placed: readonly T[], step: WallTraceStep): T[] {
+  return step.removed.flatMap((p) => placed.filter((b) => isTracedBuildingFor(b, p)));
 }
 
 /** Batiment pose (possede, de scenario ou de l'editeur) : ce qu'il faut pour
@@ -490,6 +596,8 @@ function gameplayBuildingObstacle(
     scale: def.modelScale,
     ...(def.footprintFollowsRotation ? { footprintFollowsRotation: true } : {}),
     ...(def.blocksShots === false ? { blocksShots: false } : {}),
+    ...(def.nativeModelPose ? { nativeModelPose: def.nativeModelPose } : {}),
+    ...(def.modelLengthScale ? { modelLengthScale: def.modelLengthScale } : {}),
     // Face exterieure (+Z natif du modele) vers les hostiles : -Z pour le
     // joueur (demi-tour), +Z pour l'ennemi (modele tel quel).
     ...(def.outerFaceTowardHostiles ? { modelFacingYaw: teamFacingYaw(team) } : {}),
@@ -2854,7 +2962,7 @@ function refreshEditorObjects(): void {
     // Un segment de muraille dont les virages changent (voisin pose ou
     // retire) est reconstruit : son raccord visuel en depend.
     const obstacle = gameplayBuildingObstacle(b.buildingId, b.x, b.z, b.rotationY ?? 0, b.team, editorState.buildings);
-    const joinKey = JSON.stringify([obstacle.wallJoin ?? null, b.rotationY ?? 0]);
+    const joinKey = JSON.stringify([obstacle.wallJoin ?? null, b.buildingId, b.rotationY ?? 0]);
     const existing = editorBuildingMeshes.get(b.id);
     if (existing && existing.userData['wallJoinKey'] === joinKey) continue;
     if (existing) editorBuildingsGroup.remove(existing);
@@ -3000,6 +3108,7 @@ function exitEditor(): void {
  */
 async function testScenario(): Promise<void> {
   if (!editorState || !editorAssets) return;
+  finishEditorWallTrace();
   const testMap = exportMapDef(editorState, editorBaseMap);
 
   // Masque l'editeur (mais garde editorState intact) et bascule dans les
@@ -3209,17 +3318,19 @@ function updateEditorGhost(x: number, z: number): void {
     if (trace || getBuilding(buildingId).placementMode === 'line') {
       // Trace de murailles : segment au repos avant le premier clic, puis la
       // portion de l'ancre au curseur (segments, virage, case en attente).
-      const leg = trace ? planWallTraceLeg(trace, x, z) : null;
-      const pieces = leg ? leg.pieces : [wallRestPiece(buildingId, x, z, rotationY)];
+      const plan = trace ? planTracedWallLeg(buildingId, trace, x, z, editorState.ballista, 'player') : null;
+      const pieces = plan ? plan.step.added : [wallRestPiece(buildingId, x, z, rotationY)];
       const centers = editorTracePieceCenters(pieces);
-      const valid = (leg ? leg.usable : true) && centers.every((c) => editorState!.canPlaceBuildingAt(buildingId, c.x, c.z, undefined, c.rotationY));
+      const valid = plan
+        ? plan.leg.usable && editorState.canReplaceBuildingPieces(tracedBuildingsToRemove(editorState.buildings, plan.step).map((b) => b.id), centers, editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))
+        : centers.every((c) => editorState!.canPlaceBuildingAt(c.buildingId, c.x, c.z, undefined, c.rotationY));
       const group = new THREE.Group();
       const assets = editorAssets;
       pieces.forEach((p, i) => {
         for (let dz = 0; dz < p.tilesZ; dz++) for (let dx = 0; dx < p.tilesX; dx++) group.add(buildCellPreview(p.cornerX + dx, p.cornerZ + dz, valid));
-        group.add(buildGhost(gameplayBuildingObstacle(buildingId, centers[i]!.x, centers[i]!.z, p.rotationY), centers[i]!.x, centers[i]!.z, assets));
+        group.add(buildGhost(gameplayBuildingObstacle(p.buildingId, centers[i]!.x, centers[i]!.z, p.rotationY), centers[i]!.x, centers[i]!.z, assets));
       });
-      if (leg?.pending) group.add(buildCellPreview(leg.pending.x, leg.pending.z, valid));
+      for (const c of plan?.step.waiting ?? []) group.add(buildCellPreview(c.x, c.z, valid));
       editorGhost = group;
       editorGhostGroup.add(editorGhost);
       return;
@@ -3326,16 +3437,41 @@ function brushAt(x: number, z: number): void {
 let editorWallTrace: { buildingId: string; trace: WallTrace } | null = null;
 
 /** Trace de l'editeur s'il correspond encore a l'outil actif (sinon il est
- *  abandonne). */
+ *  termine : changement d'outil). */
 function activeEditorWallTrace(): WallTrace | null {
   const tool = editorState?.tool;
-  if (!editorWallTrace || tool?.type !== 'place-building' || tool.buildingId !== editorWallTrace.buildingId) editorWallTrace = null;
+  if (editorWallTrace && (tool?.type !== 'place-building' || tool.buildingId !== editorWallTrace.buildingId)) finishEditorWallTrace();
   return editorWallTrace?.trace ?? null;
 }
 
+/** Termine le trace de l'editeur sans le fermer (Echap, clic droit,
+ *  changement d'outil, Tester le scenario) : ses cases en attente deviennent
+ *  des pieces droites, en une entree d'historique. */
+function finishEditorWallTrace(): void {
+  const current = editorWallTrace;
+  editorWallTrace = null;
+  if (!current || !editorState) return;
+  const step = finalizeTracedWall(current.buildingId, current.trace, editorState.ballista, 'player');
+  if (step.added.length === 0 && step.removed.length === 0) return;
+  const before = editorState.objectsSnapshot();
+  const removedIds = tracedBuildingsToRemove(editorState.buildings, step).map((b) => b.id);
+  const placeable = step.added.filter((p) => editorState!.canReplaceBuildingPieces(removedIds, editorTracePieceCenters([p]), []));
+  if (!editorState.replaceBuildingPieces(removedIds, editorTracePieceCenters(placeable), [])) return;
+  editorState.buildings = reorientTracedBuildings(editorState.buildings, step.all);
+  pushEditorObjectsCommand(before, editorState.objectsSnapshot());
+  refreshEditorObjects();
+}
+
 /** Centres des segments d'une portion de trace (pose de l'editeur). */
-function editorTracePieceCenters(pieces: readonly WallTracePiece[]): { x: number; z: number; rotationY: number }[] {
-  return pieces.map((p) => ({ x: p.cornerX + p.tilesX / 2, z: p.cornerZ + p.tilesZ / 2, rotationY: p.rotationY }));
+function editorTracePieceCenters(pieces: readonly TracedWallPiece[]): { buildingId: string; x: number; z: number; rotationY: number }[] {
+  return pieces.map((p) => ({ buildingId: p.buildingId, x: p.cornerX + p.tilesX / 2, z: p.cornerZ + p.tilesZ / 2, rotationY: p.rotationY }));
+}
+
+/** Cases en attente d'une etape, vues comme des demi-segments (elles le
+ *  deviendront si le trace s'arrete) : elles doivent etre posables. */
+function waitingHalfPieces(wallId: string, step: WallTraceStep): TracedWallPiece[] {
+  const halfId = getBuilding(wallId).traceHalf ?? wallId;
+  return step.waiting.map((c) => ({ kind: 'half', buildingId: halfId, cornerX: c.x, cornerZ: c.z, tilesX: 1, tilesZ: 1, rotationY: 0 }));
 }
 
 /** Termine le trait en cours : une entree d'historique s'il a change quelque
@@ -3423,13 +3559,14 @@ function handleEditorClick(event: MouseEvent): void {
     if (!trace) {
       editorWallTrace = { buildingId, trace: startWallTrace(traceCellAt(groundHit.x, groundHit.z)) };
     } else {
-      const leg = planWallTraceLeg(trace, groundHit.x, groundHit.z);
+      const plan = planTracedWallLeg(buildingId, trace, groundHit.x, groundHit.z, editorState.ballista, 'player');
+      const leg = plan.leg;
       const before = editorState.objectsSnapshot();
-      if (leg.usable && editorState.placeBuildingPieces(buildingId, editorTracePieceCenters(leg.pieces))) {
-        // Enceinte fermee : creneaux vers l'exterieur (meme entree d'historique).
-        const rotations = enclosureRotations(trace, leg, buildingId, editorState.buildings, 'player');
-        editorState.setBuildingRotations(new Map([...rotations].map(([b, r]) => [b.id, r])));
-        if (leg.pieces.length > 0) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
+      const removedIds = tracedBuildingsToRemove(editorState.buildings, plan.step).map((b) => b.id);
+      if (leg.usable && editorState.replaceBuildingPieces(removedIds, editorTracePieceCenters(plan.step.added), editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))) {
+        // Creneaux de tout le trace vers l'exterieur (meme entree d'historique).
+        editorState.buildings = reorientTracedBuildings(editorState.buildings, plan.step.all);
+        pushEditorObjectsCommand(before, editorState.objectsSnapshot());
         const next = advanceWallTrace(trace, leg);
         editorWallTrace = next ? { buildingId, trace: next } : null;
       }
@@ -4900,21 +5037,66 @@ function canPlaceBuildingAt(buildingId: string, cornerX: number, cornerZ: number
 /** Segment de muraille sous le curseur avant le premier clic du trace,
  *  oriente selon `restRotationY` (Ctrl+molette). Partage par la preparation
  *  et l'editeur. */
-function wallRestPiece(buildingId: string, x: number, z: number, restRotationY: number): WallTracePiece {
+function wallRestPiece(buildingId: string, x: number, z: number, restRotationY: number): TracedWallPiece {
   const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, restRotationY);
   const cell = traceCellAt(x, z);
-  return { cornerX: cell.x, cornerZ: cell.z, tilesX, tilesZ, rotationY: tilesX >= tilesZ ? 0 : Math.PI / 2 };
+  return { kind: 'straight', buildingId, cornerX: cell.x, cornerZ: cell.z, tilesX, tilesZ, rotationY: tilesX >= tilesZ ? 0 : Math.PI / 2 };
 }
 
-/** Portion de trace posable : or suffisant pour tous les segments (cout
- *  d'un segment x nombre, BuildingDef.cost) et chaque segment valide selon
- *  la regle de toute construction du joueur (canPlaceBuildingAt :
- *  territoire joueur, cases existantes, ni obstacle, ni batiment, ni unite).
- *  Tout ou rien. */
-function wallLineStatus(buildingId: string, segments: WallTracePiece[]): { cost: number; affordable: boolean; placeable: boolean } {
-  const cost = roundGold(getEffectiveBuildingCost(buildingId) * segments.length);
-  const placeable = segments.every((s) => canPlaceBuildingAt(buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY));
-  return { cost, affordable: currentRun.gold >= cost, placeable };
+/** Execute `check` comme si les batiments `removed` n'existaient plus (piece
+ *  re-appariee par le trace), puis les remet en place. */
+function withoutOwnedBuildings<R>(removed: readonly OwnedBuilding[], check: () => R): R {
+  if (removed.length === 0) return check();
+  const saved = [...currentRun.buildings];
+  currentRun.buildings.splice(0, saved.length, ...saved.filter((b) => !removed.includes(b)));
+  try {
+    return check();
+  } finally {
+    currentRun.buildings.splice(0, currentRun.buildings.length, ...saved);
+  }
+}
+
+/** Etape de trace posable : or suffisant (cout de l'etape, voir
+ *  wallLayoutCost) et chaque nouvelle piece ET chaque case en attente
+ *  valides selon la regle de toute construction du joueur
+ *  (canPlaceBuildingAt : territoire joueur, cases existantes, ni obstacle,
+ *  ni batiment, ni unite). Tout ou rien. */
+function wallLineStatus(buildingId: string, step: WallTraceStep): { cost: number; affordable: boolean; placeable: boolean } {
+  const halfId = getBuilding(buildingId).traceHalf ?? buildingId;
+  const placeable = withoutOwnedBuildings(tracedBuildingsToRemove(currentRun.buildings, step), () =>
+    step.added.every((s) => canPlaceBuildingAt(s.buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY)) && step.waiting.every((c) => canPlaceBuildingAt(halfId, c.x, c.z, undefined, 0)),
+  );
+  return { cost: step.cost, affordable: currentRun.gold >= step.cost, placeable };
+}
+
+/** Applique une etape de trace aux batiments du joueur : retire les pieces
+ *  re-appariees, pose les nouvelles, reoriente tout le trace, debite (ou
+ *  rembourse) l'or. */
+function applyOwnedWallStep(step: WallTraceStep): void {
+  const removed = tracedBuildingsToRemove(currentRun.buildings, step);
+  const kept = currentRun.buildings.filter((b) => !removed.includes(b));
+  for (const s of step.added) {
+    kept.push({ buildingId: s.buildingId, x: s.cornerX + s.tilesX / 2, z: s.cornerZ + s.tilesZ / 2, hp: getBuilding(s.buildingId).maxHp, rotationY: s.rotationY });
+  }
+  currentRun.buildings.splice(0, currentRun.buildings.length, ...reorientTracedBuildings(kept, step.all));
+  currentRun.gold = Math.max(0, roundGold(currentRun.gold - step.cost));
+  if (step.cost > 0) spawnCoinPopup(screens.shopGoldElement, -step.cost);
+}
+
+/** Termine le trace en cours de la preparation (Echap, clic droit, sortie du
+ *  mode) : ses cases en attente, deja payees, deviennent des pieces droites.
+ *  Une case devenue invalide entre-temps reste vide et est remboursee. */
+function finishOwnedWallTrace(): void {
+  const mode = buildingPlacementMode;
+  if (!mode?.trace) return;
+  const step = finalizeTracedWall(mode.buildingId, mode.trace, playerArrowOrigin, 'player');
+  mode.trace = null;
+  const placeable = withoutOwnedBuildings(tracedBuildingsToRemove(currentRun.buildings, step), () =>
+    step.added.filter((s) => canPlaceBuildingAt(s.buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY)),
+  );
+  const refundUnits = step.added.filter((s) => !placeable.includes(s)).reduce((sum, s) => sum + (s.kind === 'half' ? 0.5 : 1), 0);
+  applyOwnedWallStep({ ...step, added: placeable, cost: roundGold(step.cost - getEffectiveBuildingCost(mode.buildingId) * refundUnits) });
+  refreshOwnedBuildingViews();
 }
 
 /** Clic sur un bouton "Bâtiments" de la boutique : entre en mode de
@@ -4927,6 +5109,9 @@ function requestPlaceBuilding(buildingId: string): void {
   // partagee avec l'affichage boutique ET confirmBuildingPlacement plus bas).
   if (currentRun.gold < getEffectiveBuildingCost(buildingId)) return;
   disarmItem();
+  // Changement d'outil pendant un trace de murailles : ses extremites deja
+  // payees sont construites.
+  finishOwnedWallTrace();
   buildingPlacementMode = { buildingId, rotationY: 0, movingIndex: null, trace: null };
   buildingRotationHint.setText(placementHintText(buildingId, null));
   buildingRotationHint.setVisible(true);
@@ -4964,6 +5149,7 @@ function requestMoveBuilding(index: number): void {
   const owned = currentRun.buildings[index];
   if (!owned) return;
   disarmItem();
+  finishOwnedWallTrace();
   selectedBuildingIndex = null;
   placementBallistaSelected = false;
   updateBuildingSelectionRing();
@@ -4998,6 +5184,8 @@ function rotateBuildingPlacement(direction: number): void {
  *  un bâtiment SANS avoir encore franchi le seuil de glisser. */
 function cancelBuildingPlacement(): void {
   buildingClickCandidate = null;
+  // Trace de murailles en cours : ses extremites deja payees sont construites.
+  finishOwnedWallTrace();
   if (buildingPlacementMode?.movingIndex !== null && buildingPlacementMode?.movingIndex !== undefined) {
     const view = ownedBuildingViews[buildingPlacementMode.movingIndex];
     if (view) view.mesh.visible = true;
@@ -5007,13 +5195,13 @@ function cancelBuildingPlacement(): void {
   buildingRotationHint.setVisible(false);
 }
 
-/** Annule le trace de murailles en cours (Echap / clic droit) : seule la
- *  portion non construite disparait (apercu, case en attente) ; les
- *  portions deja validees, payees et posees, restent. Le mode Muraille reste
- *  actif pour un nouveau trace. */
+/** Termine le trace de murailles en cours (Echap / clic droit) : l'apercu
+ *  de la portion suivante disparait ; les cases en attente des portions
+ *  validees (deja payees) deviennent des pieces droites — une ligne ouverte
+ *  reste complete. Le mode Muraille reste actif pour un nouveau trace. */
 function cancelWallTrace(): void {
   if (!buildingPlacementMode) return;
-  buildingPlacementMode.trace = null;
+  finishOwnedWallTrace();
   updateBuildingPlacementGhost(lastBuildingGhostGroundX, lastBuildingGhostGroundZ);
 }
 
@@ -5032,17 +5220,16 @@ function updateBuildingPlacementGhost(x: number, z: number): void {
     // compris, et case en attente), verte si toute la portion est posable.
     if (!mode.trace) {
       const piece = wallRestPiece(mode.buildingId, x, z, mode.rotationY);
-      const status = wallLineStatus(mode.buildingId, [piece]);
-      addBuildingPreview(mode.buildingId, piece.cornerX, piece.cornerZ, piece.rotationY, status.placeable && status.affordable);
+      addBuildingPreview(mode.buildingId, piece.cornerX, piece.cornerZ, piece.rotationY, canPlaceBuildingAt(mode.buildingId, piece.cornerX, piece.cornerZ, undefined, piece.rotationY));
       buildingRotationHint.setText(placementHintText(mode.buildingId, null));
       return;
     }
-    const leg = planWallTraceLeg(mode.trace, x, z);
-    const status = wallLineStatus(mode.buildingId, leg.pieces);
-    const valid = leg.usable && status.placeable && status.affordable;
-    for (const s of leg.pieces) addBuildingPreview(mode.buildingId, s.cornerX, s.cornerZ, s.rotationY, valid);
-    if (leg.pending) buildingPlacementGroup.add(buildCellPreview(leg.pending.x, leg.pending.z, valid));
-    buildingRotationHint.setText(placementHintText(mode.buildingId, { leg, ...status }));
+    const plan = planTracedWallLeg(mode.buildingId, mode.trace, x, z, playerArrowOrigin, 'player');
+    const status = wallLineStatus(mode.buildingId, plan.step);
+    const valid = plan.leg.usable && status.placeable && status.affordable;
+    for (const s of plan.step.added) addBuildingPreview(s.buildingId, s.cornerX, s.cornerZ, s.rotationY, valid);
+    for (const c of plan.step.waiting) buildingPlacementGroup.add(buildCellPreview(c.x, c.z, valid));
+    buildingRotationHint.setText(placementHintText(mode.buildingId, { leg: plan.leg, cells: wallLegCellCount(mode.trace, plan.leg), ...status }));
     return;
   }
   const { tilesX, tilesZ } = buildingFootprintTiles(mode.buildingId, mode.rotationY);
@@ -5082,18 +5269,27 @@ function addBuildingPreview(buildingId: string, cornerX: number, cornerZ: number
   buildingPlacementGroup.add(buildGhost(gameplayBuildingObstacle(buildingId, centerX, centerZ, rotationY), centerX, centerZ, environmentAssets));
 }
 
+/** Cases nouvellement couvertes par une portion de trace : sa longueur, plus
+ *  la case de depart pour la premiere portion, moins la case de depart deja
+ *  couverte pour la fermeture. */
+function wallLegCellCount(trace: WallTrace, leg: WallTraceLeg): number {
+  if (leg.single) return 1;
+  const length = Math.abs(leg.end.x - trace.anchor.x) + Math.abs(leg.end.z - trace.anchor.z);
+  return trace.dirs.length === 0 ? length + 1 : leg.closes ? length - 1 : length;
+}
+
 /** Texte de l'indication de placement : rotation pour un batiment pose a
- *  l'unite ; en mode Muraille, etape de la ligne, nombre de segments et
- *  cout total (cout d'un segment x nombre). */
-function placementHintText(buildingId: string, line: { leg: WallTraceLeg; cost: number; affordable: boolean; placeable: boolean } | null): string {
+ *  l'unite ; en mode Muraille, etape du trace, nombre de cases couvertes par
+ *  la portion et son cout. */
+function placementHintText(buildingId: string, line: { leg: WallTraceLeg; cells: number; cost: number; affordable: boolean; placeable: boolean } | null): string {
   const def = getBuilding(buildingId);
   const rotate = `Ctrl + molette — tourner (${def.footprintFollowsRotation ? 90 : 45}°)`;
   if (def.placementMode !== 'line') return rotate;
   if (!line) return `${def.displayName} : clic — début du tracé · ${rotate} · clic droit / Échap — quitter`;
-  const count = line.leg.pieces.length;
+  const count = line.cells;
   const issue = !line.leg.usable || !line.placeable ? ' · emplacement invalide' : !line.affordable ? ' · or insuffisant' : '';
   const close = line.leg.closes ? ' · ferme l’enceinte' : '';
-  return `${def.displayName} : ${count} segment${count > 1 ? 's' : ''} — ${formatGold(line.cost)} or${issue}${close} · clic — construire · clic droit / Échap — annuler le tracé`;
+  return `${def.displayName} : ${count} case${count > 1 ? 's' : ''} — ${formatGold(line.cost)} or${issue}${close} · clic — construire · clic droit / Échap — annuler le tracé`;
 }
 
 /** Clic de confirmation pendant un placement de batiment : deduit l'or
@@ -5179,26 +5375,14 @@ function confirmWallLine(x: number, z: number): boolean {
     updateBuildingPlacementGhost(x, z);
     return false;
   }
-  const leg = planWallTraceLeg(mode.trace, x, z);
-  const segments = leg.pieces;
-  const status = wallLineStatus(mode.buildingId, segments);
-  if (!leg.usable || !status.placeable || !status.affordable) return false;
-  const def = getBuilding(mode.buildingId);
-  currentRun.gold = Math.max(0, roundGold(currentRun.gold - status.cost));
-  for (const s of segments) {
-    currentRun.buildings.push({
-      buildingId: def.id,
-      x: s.cornerX + s.tilesX / 2,
-      z: s.cornerZ + s.tilesZ / 2,
-      hp: def.maxHp,
-      rotationY: s.rotationY,
-    });
-  }
-  if (status.cost > 0) spawnCoinPopup(screens.shopGoldElement, -status.cost);
-  // Enceinte fermee : creneaux de TOUS ses segments vers l'exterieur (seule
-  // la rotation enregistree change, voir enclosureRotationY).
-  for (const [owned, rotationY] of enclosureRotations(mode.trace, leg, mode.buildingId, currentRun.buildings, 'player')) owned.rotationY = rotationY;
-  mode.trace = advanceWallTrace(mode.trace, leg);
+  const plan = planTracedWallLeg(mode.buildingId, mode.trace, x, z, playerArrowOrigin, 'player');
+  const status = wallLineStatus(mode.buildingId, plan.step);
+  if (!plan.leg.usable || !status.placeable || !status.affordable) return false;
+  // Pieces nouvelles et re-appariees, creneaux de TOUT le trace vers
+  // l'exterieur (seules rotation et variante de virage changent pour les
+  // pieces deja posees), or de l'etape.
+  applyOwnedWallStep(plan.step);
+  mode.trace = advanceWallTrace(mode.trace, plan.leg);
   refreshOwnedBuildingViews();
   updateBuildingPlacementGhost(x, z);
   return true;
@@ -6716,9 +6900,9 @@ window.addEventListener('keydown', (event) => {
         // le brouillon reste intact (voir returnToEditorAfterTest).
         returnToEditorAfterTest();
       } else if (inEditorMode && editorState && activeEditorWallTrace()) {
-        // Trace de murailles en cours : Echap n'annule que la portion non
-        // construite ; l'outil reste actif.
-        editorWallTrace = null;
+        // Trace de murailles en cours : Echap le termine (extremites
+        // construites) ; l'outil reste actif.
+        finishEditorWallTrace();
         clearEditorGhost();
       } else if (inEditorMode && editorState) {
         if (editorState.tool.type !== 'select') {
@@ -6923,7 +7107,7 @@ canvas.addEventListener('mousedown', (event) => {
   // ici pour "ne pas ouvrir le menu contextuel".
   if (inEditorMode && editorState) {
     if (activeEditorWallTrace()) {
-      editorWallTrace = null;
+      finishEditorWallTrace();
       clearEditorGhost();
     } else if (editorState.tool.type !== 'select') {
       editorState.setTool({ type: 'select' });

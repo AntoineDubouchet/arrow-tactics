@@ -613,17 +613,24 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
   - **Muraille** : **tracé continu**, comme en préparation
     (`CURRENT_STATE.md` §6) — premier clic = point de départ, chaque clic
     pose une portion (axe dominant, tout ou rien), clic sur le point de
-    départ (ou une case voisine alignée) = enceinte fermée. Pas de règle de
-    territoire ni d'or dans l'éditeur.
+    départ (ou une case voisine alignée) = enceinte fermée. Mêmes virages
+    KayKit automatiques, longueur exacte (demi-segments) et orientation
+    (côté de la Baliste du brouillon tant que le tracé est ouvert) qu'en
+    préparation. Échap, clic droit, changement d'outil et « Tester le
+    scénario » terminent le tracé (extrémités construites, une entrée
+    d'historique). Pas de règle de territoire ni d'or dans l'éditeur.
   - **Historique** : **une entrée par portion validée** (Ctrl+Z retire la
-    dernière portion seule, Ctrl+Y la rétablit). Échap, clic droit, Ctrl+Z /
-    Ctrl+Y et tout changement d'outil abandonnent d'abord la portion non
-    construite (aperçu, case en attente) ; Échap une seconde fois revient à
+    dernière portion seule, Ctrl+Y la rétablit), plus une pour la
+    finalisation d'un tracé ouvert. Ctrl+Z / Ctrl+Y pendant un tracé
+    abandonnent d'abord la portion non construite (cases en attente
+    comprises, sans les construire) ; Échap une seconde fois revient à
     l'outil Sélection.
-  - **Enceinte fermée** : créneaux de tous ses segments vers l'extérieur
+  - **Enceinte fermée** : créneaux de toutes ses pièces vers l'extérieur
     (dans les deux sens de dessin), enregistrés dans `rotationY` (90, 180 ou
-    270° possibles) ; l'entrée d'historique de la portion de fermeture
-    inclut ce changement (Ctrl+Z rend l'orientation provisoire).
+    270° possibles) ; virages `wall_corner_outside` / `wall_corner_inside`
+    enregistrés par leur `buildingId`. L'entrée d'historique d'une portion
+    inclut ses virages et la réorientation du tracé (Ctrl+Z retire la
+    fermeture et rend l'orientation du tracé ouvert).
   - **Porte de muraille** : pose à l'unité ; **R** tourne l'outil d'un quart
     de tour (2×1 ↔ 1×2). Posée exactement sur un segment de mur, elle le
     remplace en reprenant son orientation (une seule entrée d'historique). La rotation est enregistrée

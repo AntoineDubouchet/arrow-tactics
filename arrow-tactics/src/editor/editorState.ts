@@ -693,26 +693,28 @@ export class EditorState {
     return this.buildings.find((b) => b.buildingId === over && sameBuildingFootprint(buildingId, x, z, rotationY, b.buildingId, b.x, b.z, b.rotationY ?? 0)) ?? null;
   }
 
-  /** Change la rotation enregistree de batiments existants (orientation
-   *  d'une enceinte fermee). Nouveaux objets, jamais une mutation : les
-   *  instantanes d'historique partagent les anciens. */
-  setBuildingRotations(rotations: ReadonlyMap<number, number>): void {
-    if (rotations.size === 0) return;
-    this.buildings = this.buildings.map((b) => {
-      const r = rotations.get(b.id);
-      if (r === undefined) return b;
-      const { rotationY: _old, ...rest } = b;
-      return r ? { ...rest, rotationY: r } : rest;
-    });
+  /** Vrai si, une fois les batiments `removeIds` retires (pieces d'un trace
+   *  re-appariees), toutes les pieces `add` et les emplacements `free` (cases
+   *  en attente) sont posables. Centres deja cales. */
+  canReplaceBuildingPieces(removeIds: readonly number[], add: readonly { buildingId: string; x: number; z: number; rotationY: number }[], free: readonly { buildingId: string; x: number; z: number; rotationY: number }[]): boolean {
+    const saved = this.buildings;
+    this.buildings = saved.filter((b) => !removeIds.includes(b.id));
+    try {
+      return [...add, ...free].every((p) => this.canPlaceBuildingAt(p.buildingId, p.x, p.z, undefined, p.rotationY));
+    } finally {
+      this.buildings = saved;
+    }
   }
 
-  /** Pose d'un coup plusieurs segments du meme batiment (portion d'un trace
-   *  de murailles, core/wallTrace.ts), centres deja cales : tout ou rien.
-   *  Faux (rien ne change) si un seul segment est invalide. */
-  placeBuildingPieces(buildingId: string, pieces: readonly { x: number; z: number; rotationY: number }[]): boolean {
-    if (!pieces.every((p) => this.canPlaceBuildingAt(buildingId, p.x, p.z, undefined, p.rotationY))) return false;
-    for (const p of pieces) {
-      this.buildings.push({ id: this.nextId++, buildingId, team: 'player', x: p.x, z: p.z, ...(p.rotationY ? { rotationY: p.rotationY } : {}) });
+  /** Etape d'un trace de murailles (core/wallTrace.ts) : retire `removeIds`
+   *  (pieces re-appariees) et pose `add` (segments, demi-segments, virages),
+   *  tout ou rien. Faux (rien ne change) si une seule piece, ou un
+   *  emplacement `free` (case en attente), est invalide. */
+  replaceBuildingPieces(removeIds: readonly number[], add: readonly { buildingId: string; x: number; z: number; rotationY: number }[], free: readonly { buildingId: string; x: number; z: number; rotationY: number }[]): boolean {
+    if (!this.canReplaceBuildingPieces(removeIds, add, free)) return false;
+    this.buildings = this.buildings.filter((b) => !removeIds.includes(b.id));
+    for (const p of add) {
+      this.buildings.push({ id: this.nextId++, buildingId: p.buildingId, team: 'player', x: p.x, z: p.z, ...(p.rotationY ? { rotationY: p.rotationY } : {}) });
     }
     return true;
   }

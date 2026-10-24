@@ -159,14 +159,33 @@ ligne), sauf 4 versions différentes **non remplacées** : ponts A/B et moulin
   carrée), 54 bâtiments verts et jaunes (aucune faction dans le jeu), ~131
   « unités » (pions, chevaux, armes et casques isolés, variantes colorées),
   2 nuages, 2 icônes d'interface, et les 221 doublons du pack FREE.
-- Les angles de muraille sont pensés pour des bords d'hexagone : mesure
-  géométrique (vue de dessus des sommets), `wall_corner_A_inside` /
-  `_outside` / `_gate` = **120°**, `wall_corner_B_inside` / `_outside` =
-  **60°**. Aucun coin à 90° dans le pack (ni « turn », ni « 90 »). Les virages
-  du tracé sont donc faits de segments droits, avec un raccord visuel
-  (`ObstacleDef.wallJoin`, `render/buildings.ts`) : le segment qui bute
-  contre le flanc d'un segment perpendiculaire est allongé de l'écart exact
-  entre la largeur du modèle (0,8) et sa case (1).
+- **Angles de muraille** (pensés pour des hexagones ; mesurés en rendu,
+  vue de dessus) : ce sont des **arcs**. Entrée commune (−1 ; 0) vers +X.
+  - `wall_corner_A_*` : sortie (0,5 ; −0,87) vers −60° — le mur tourne de
+    **60°** (angle intérieur 120°), rayon √3 ≈ 1,73, corde 1,73.
+  - `wall_corner_B_*` : sortie (−0,5 ; −0,87) vers −120° — le mur tourne de
+    **120°** (angle intérieur 60°), rayon ≈ 0,58, corde 1,0.
+  - `*_outside` : créneaux sur le côté **bombé** ; `*_inside` : créneaux sur
+    le côté **concave** (face bombée lisse).
+  - Aucun coin à 90° (ni « turn », ni « 90 »). **Virage du tracé** : arc
+    **B** posé dans la case de jonction, symétrique, extrémités sur l'axe
+    des murs voisins (±15° de cassure, 0,2 case sous les segments droits) :
+    rotation 75°, origine à (sin 15°, −sin 15°) du centre de la case, pour la
+    pose de référence (bras vers −X et +Z) ; les trois autres poses sont des
+    quarts de tour (table `CORNER_ROTATION_BY_ARMS`, `core/wallTrace.ts`).
+    Demi-segment `wall_half` (tronçon impair) : `wall_straight` calé sur deux
+    cases puis comprimé de moitié le long de son axe
+    (`BuildingDef.modelLengthScale` = 0,5) : même hauteur et même épaisseur,
+    créneaux tassés.
+    Bâtiments `wall_corner_outside` / `wall_corner_inside`
+    (`BuildingDef.nativeModelPose` : échelle native, jamais calé sur
+    l'emprise).
+  - **A non utilisé** : sa corde (1,73) le fait entrer de ~0,7 case dans
+    chaque segment droit voisin (créneaux doublés sous l'arc) pour une
+    emprise de jonction d'une case.
+  - Les angles restent posables comme décors dans l'éditeur.
+  - Anciennes cartes (virages en deux segments droits) : raccord visuel
+    conservé (`ObstacleDef.wallJoin`).
 - **Porte (`wall_straight_gate`)** : le pack ne contient **aucune animation**
   (aucun bloc `animations` dans les 625 `.gltf`, aucun `AnimationStack` ni
   `AnimationCurve` dans les 1 250 `.fbx` des packs FREE et EXTRA). Le modèle
@@ -180,24 +199,21 @@ ligne), sauf 4 versions différentes **non remplacées** : ponts A/B et moulin
   l'arrière. `BuildingDef.outerFaceTowardHostiles` tourne cette face vers le
   côté d'où viennent les hostiles du camp (`forwardDir`) : demi-tour visuel
   pour le joueur (`ObstacleDef.modelFacingYaw` = π, posé par
-  `gameplayBuildingObstacle` dans `main.ts`), modèle tel quel pour l'ennemi.
+  `gameplayBuildingObstacle` dans `main.ts`), modèle tel quel pour l'ennemi
+  (lacet de base, compensé quand le tracé enregistre une orientation).
   Ce lacet s'applique au seul groupe d'orientation du modèle
   (`render/buildings.ts`). Il ne change ni l'emprise, ni la collision, ni la
   `rotationY` enregistrée. Un segment vertical (90°) suit la même règle :
-  créneaux vers −X pour le joueur, vers +X pour l'ennemi. Cette règle de camp
-  n'est que **provisoire** (tracé ouvert, segment isolé) :
-- **Enceinte fermée** : à la fermeture d'un tracé, chaque segment (et toute
-  porte posée à la place d'un segment) a ses créneaux tournés vers
-  l'**extérieur** de l'enceinte, quel que soit le sens de dessin
-  (`closedEnclosureFacings`, `core/wallTrace.ts` : test point-dans-polygone
-  sur le polygone des sommets du tracé, une demi-case de part et d'autre du
-  segment). L'orientation est **enregistrée dans `rotationY`** : un quart de
-  tour de même parité que l'axe du segment (0 / 180° horizontal, 90 / 270°
-  vertical), donc même emprise, même collision, même position ; le lacet de
-  camp est compensé (`enclosureRotationY`, `main.ts`). Aucune donnée
-  nouvelle : la sauvegarde existante (`rotationY` si ≠ 0) suffit. Une porte
-  posée à la place d'un mur reprend sa `rotationY` : ses battants s'ouvrent
-  toujours vers l'intérieur.
+  créneaux vers −X pour le joueur, vers +X pour l'ennemi.
+- **Tracé** : chaque pièce a ses créneaux tournés vers l'**extérieur**
+  (`traceInteriorSign` / `wallPieceFacing`, `core/wallTrace.ts` ; enceinte
+  fermée = intérieur du polygone, tracé ouvert = côté de la Baliste).
+  L'orientation est **enregistrée dans `rotationY`** (segment : quart de
+  tour de même parité que son axe, donc même emprise ; virage : rotation de
+  la table) et le **type** de virage dans `buildingId` : une carte
+  sauvegardée garde exactement ses pièces. Une porte posée à la place d'un
+  mur reprend sa `rotationY` : ses battants s'ouvrent toujours vers
+  l'intérieur.
 
 ### 3.6 Bâtiments KayKit (`models/buildings/`)
 

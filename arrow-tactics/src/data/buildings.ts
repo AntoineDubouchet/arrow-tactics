@@ -185,6 +185,23 @@ export interface BuildingDef {
   /** Peut se poser EXACTEMENT a la place d'un batiment de ce type (meme
    *  emprise, meme axe) : il le remplace (porte dans une ligne de murs). */
   placeOverBuildingId?: string;
+  /** Muraille posee par trace : batiments VIRAGES (une case) choisis
+   *  automatiquement a chaque changement de direction (core/wallTrace.ts) —
+   *  `outside` quand le trace tourne autour de son interieur (creneaux sur
+   *  le cote bombe), `inside` pour un virage rentrant. */
+  traceCorners?: { outside: string; inside: string };
+  /** Muraille posee par trace : batiment DEMI-SEGMENT (une case) qui complete
+   *  un troncon droit de longueur impaire (core/wallTrace.ts). */
+  traceHalf?: string;
+  /** Longueur VISUELLE du modele le long de son axe X, rapportee a l'emprise :
+   *  le modele est cale sur une emprise 1/k fois plus longue puis comprime
+   *  de k (demi-segment : k = 0,5). Absent = 1. */
+  modelLengthScale?: number;
+  /** Modele pose a son echelle NATIVE (jamais cale sur l'emprise) : origine
+   *  du modele a (offsetX, offsetZ) du centre de l'emprise, tourne de
+   *  `yaw`, dans le repere du batiment avant `rotationY`. Virage de
+   *  muraille : arc KayKit de 120° ajuste dans la case de coin. */
+  nativeModelPose?: { yaw: number; offsetX: number; offsetZ: number };
   /** Groupe du catalogue de l'editeur (« Murailles »...). Absent :
    *  « Bâtiments ». */
   editorGroup?: string;
@@ -407,6 +424,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintFollowsRotation: true,
     blocksShots: false,
     outerFaceTowardHostiles: true,
+    traceCorners: { outside: 'wall_corner_outside', inside: 'wall_corner_inside' },
+    traceHalf: 'wall_half',
     placementMode: 'line',
     editorGroup: 'Murailles',
   },
@@ -438,6 +457,64 @@ export const BUILDINGS: Record<string, BuildingDef> = {
       passableOpenness: 0.6,
     },
     editorGroup: 'Murailles',
+  },
+  // Demi-segment de muraille : pose UNIQUEMENT par le trace, pour qu'une
+  // portion couvre exactement la longueur demandee (troncon de longueur
+  // impaire, extremite d'un trace ouvert). Le pack n'a aucun mur d'une case :
+  // segment droit KayKit comprime a la moitie de sa longueur (creneaux
+  // tasses). Meme densite de PV qu'un segment (25 PV pour une case, 50 pour
+  // les deux cases d'un segment) ; memes regles ; facture une demi-piece.
+  wall_half: {
+    id: 'wall_half',
+    displayName: 'Muraille',
+    maxHp: 25 * HP_PER_PIP,
+    radius: 0.5,
+    targetable: true,
+    countsForDefeat: false,
+    hpBarHeight: 1.5,
+    buildingModel: 'neutral_wall_straight',
+    footprintTilesX: 1,
+    footprintTilesZ: 1,
+    blocksShots: false,
+    outerFaceTowardHostiles: true,
+    modelLengthScale: 0.5,
+  },
+  // Virages de muraille : poses UNIQUEMENT par le trace (aucun cout propre,
+  // donc ni en boutique ni dans le catalogue de l'editeur ; le trace les
+  // facture comme un segment de mur). Memes PV et memes regles qu'un mur
+  // (bloque les deux camps, tirs traversants, ne compte pas pour la defaite).
+  // Emprise : la seule case de jonction. Modele : arc KayKit « B » (virage
+  // de 120°, rayon 0,58) pose dans cette case, extremites a ±15° des segments
+  // voisins et 0,2 case sous eux ; reference : bras vers -X et +Z, arc bombe
+  // vers le nord-est (rotation 75°, origine a (sin 15°, -sin 15°) du centre).
+  // `outside` : creneaux sur le cote bombe ; `inside` : cote concave.
+  wall_corner_outside: {
+    id: 'wall_corner_outside',
+    displayName: 'Angle de muraille',
+    maxHp: 50 * HP_PER_PIP,
+    radius: 0.5,
+    targetable: true,
+    countsForDefeat: false,
+    hpBarHeight: 1.5,
+    buildingModel: 'neutral_wall_corner_B_outside',
+    footprintTilesX: 1,
+    footprintTilesZ: 1,
+    blocksShots: false,
+    nativeModelPose: { yaw: (75 * Math.PI) / 180, offsetX: Math.sin(Math.PI / 12), offsetZ: -Math.sin(Math.PI / 12) },
+  },
+  wall_corner_inside: {
+    id: 'wall_corner_inside',
+    displayName: 'Angle de muraille',
+    maxHp: 50 * HP_PER_PIP,
+    radius: 0.5,
+    targetable: true,
+    countsForDefeat: false,
+    hpBarHeight: 1.5,
+    buildingModel: 'neutral_wall_corner_B_inside',
+    footprintTilesX: 1,
+    footprintTilesZ: 1,
+    blocksShots: false,
+    nativeModelPose: { yaw: (75 * Math.PI) / 180, offsetX: Math.sin(Math.PI / 12), offsetZ: -Math.sin(Math.PI / 12) },
   },
 };
 
