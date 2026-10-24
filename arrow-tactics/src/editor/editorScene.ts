@@ -136,6 +136,20 @@ export const TERRITORY_ERASE_PREVIEW_COLOR = 0xd4d4d4;
 
 /** `color` (optionnel) remplace le vert/rouge : aperçu du pinceau de
  *  territoire, teinté de la couleur qui sera peinte. */
+/** Petit repere d'extremite de muraille raccordable : pastille au bord de la
+ *  case, du cote du connecteur libre ; plus grande et plus vive quand le
+ *  curseur s'y aimante. */
+export function buildWallEndMarker(x: number, z: number, dirX: number, dirZ: number, highlighted: boolean): THREE.Mesh {
+  const mesh = new THREE.Mesh(
+    new THREE.CircleGeometry(highlighted ? 0.26 : 0.16, 20),
+    new THREE.MeshBasicMaterial({ color: highlighted ? 0xffe08a : 0xe3b341, transparent: true, opacity: highlighted ? 0.95 : 0.75, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(x + 0.5 + dirX * 0.42, 1.25, z + 0.5 + dirZ * 0.42);
+  mesh.renderOrder = 10;
+  return mesh;
+}
+
 export function buildCellPreview(x: number, z: number, valid: boolean, color?: number): THREE.Mesh {
   const mesh = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),

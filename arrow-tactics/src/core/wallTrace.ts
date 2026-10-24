@@ -23,6 +23,16 @@
  * Tous les segments et virages se touchent par une arete entiere : le trace
  * est etanche.
  *
+ * REPRISE d'une muraille existante (`wallNetPiece`, `openWallEnds`,
+ * `wallChainTo`, `resumeWallTrace`) : chaque piece posee a deux CONNECTEURS
+ * (case + direction de sortie) ; un connecteur sans vis-a-vis est une
+ * extremite ouverte. Reprendre une extremite reconstruit la chaine jusqu'a
+ * son autre bout et en fait un trace ordinaire dont l'etat courant est fait
+ * des pieces reelles : la portion suivante est disposee par `traceLayout` sur
+ * le chemin COMPLET, et la difference avec l'existant donne la recomposition
+ * (demi-segment ou segment devenu virage, troncon re-apparie). A geometrie
+ * egale, le resultat est donc celui d'un trace fait en une seule fois.
+ *
  * Pur (aucun etat global, aucun rendu) : coordonnees de CASE entieres
  * (Math.floor du point au sol), comme les coins d'emprise de la pose.
  */
@@ -53,14 +63,24 @@ export interface WallTrace {
   anchor: TraceCell;
   /** Sommets du trace (case de depart puis extremite de chaque portion). */
   vertices: TraceCell[];
-  /** Direction de chaque portion validee. */
+  /** Direction de chaque portion validee (une portion de longueur nulle
+   *  porte la direction d'un connecteur, voir chainPath). */
   dirs: TraceDir[];
+  /** Etat courant : pieces deja posees par le trace (ou reprises d'une
+   *  muraille existante) et cases en attente. */
+  current: TraceLayout;
+  /** Vrai pour une muraille reprise : la case de depart est une extremite
+   *  deja construite (jamais en attente). */
+  startFixed: boolean;
 }
 
-/** Disposition d'un trace : pieces construites et cases en attente. */
+/** Disposition d'un trace : pieces construites et cases en attente.
+ *  `conflict` : deux virages tomberaient sur la meme case (raccord
+ *  impossible, par exemple tourner sur un virage existant). */
 export interface TraceLayout {
   pieces: WallTracePiece[];
   waiting: TraceCell[];
+  conflict?: boolean;
 }
 
 /** `open` : trace en cours (extremites en attente). `final` : trace termine
@@ -84,6 +104,9 @@ export interface WallTraceLeg {
   /** Vrai pour une muraille d'UNE case (second clic sur la case de depart,
    *  avant toute portion) : un demi-segment, et le trace est termine. */
   single: boolean;
+  /** Vrai si la portion rejoint l'extremite d'une AUTRE muraille : les deux
+   *  chaines n'en font plus qu'une, et le trace est termine. */
+  joins: boolean;
 }
 
 export function traceCellAt(x: number, z: number): TraceCell {
@@ -91,7 +114,7 @@ export function traceCellAt(x: number, z: number): TraceCell {
 }
 
 export function startWallTrace(cell: TraceCell): WallTrace {
-  return { first: { ...cell }, anchor: { ...cell }, vertices: [{ ...cell }], dirs: [] };
+  return { first: { ...cell }, anchor: { ...cell }, vertices: [{ ...cell }], dirs: [], current: { pieces: [], waiting: [] }, startFixed: false };
 }
 
 const sameCell = (a: TraceCell, b: TraceCell): boolean => a.x === b.x && a.z === b.z;
@@ -108,7 +131,7 @@ function straightFor(a: TraceCell, b: TraceCell, dir: TraceDir): WallTracePiece 
  * de chaque portion ; en mode `closed`, la derniere portion revient sur le
  * premier sommet, qui n'est pas repete). Voir le commentaire du module.
  */
-export function traceLayout(vertices: readonly TraceCell[], dirs: readonly TraceDir[], mode: TraceLayoutMode): TraceLayout {
+export function traceLayout(vertices: readonly TraceCell[], dirs: readonly TraceDir[], mode: TraceLayoutMode, startFixed = false): TraceLayout {
   if (dirs.length === 0) return { pieces: [], waiting: [] };
   const closed = mode === 'closed';
   // Cases du chemin dans l'ordre, avec la direction de leur portion.
@@ -128,8 +151,10 @@ export function traceLayout(vertices: readonly TraceCell[], dirs: readonly Trace
   // Virages : sommets ou la direction change (et la case de depart d'une
   // enceinte fermee).
   const corners = new Map<number, WallTracePiece>();
+  let conflict = false;
   const addCorner = (index: number, inDir: TraceDir, outDir: TraceDir): void => {
     if (sameDir(inDir, outDir)) return;
+    if (corners.has(index) || (inDir.x === -outDir.x && inDir.z === -outDir.z)) conflict = true;
     const c = path[index]!.cell;
     corners.set(index, { kind: 'corner', cornerX: c.x, cornerZ: c.z, tilesX: 1, tilesZ: 1, inDir, outDir });
   };
@@ -169,7 +194,9 @@ export function traceLayout(vertices: readonly TraceCell[], dirs: readonly Trace
     if (mode === 'open') {
       // Extremites du chemin en attente, et au plus une case de leur troncon
       // (appariee plus tard) : les segments partent du cote deja connu.
-      if (run.startOpen) {
+      // Muraille reprise : la case de depart est deja construite.
+      const startPending = run.startOpen && !startFixed;
+      if (startPending) {
         waiting.push(cells[0]!.cell);
         cells = cells.slice(1);
       }
@@ -177,7 +204,7 @@ export function traceLayout(vertices: readonly TraceCell[], dirs: readonly Trace
         waiting.push(cells[cells.length - 1]!.cell);
         cells = cells.slice(0, -1);
       }
-      if (cells.length % 2 === 1 && (run.startOpen || run.endOpen)) {
+      if (cells.length % 2 === 1 && (startPending || run.endOpen)) {
         if (run.endOpen) {
           waiting.push(cells[cells.length - 1]!.cell);
           cells = cells.slice(0, -1);
@@ -199,22 +226,42 @@ export function traceLayout(vertices: readonly TraceCell[], dirs: readonly Trace
       pair(cells.slice(1));
     }
   }
-  return { pieces, waiting };
+  return { pieces, waiting, ...(conflict ? { conflict: true } : {}) };
 }
 
 /** Portion de l'ancre vers le curseur (x, z), exactement de la longueur
  *  demandee — voir le commentaire du module. Fermeture : au moins deux
  *  portions validees, curseur sur la case de depart ou une case voisine
  *  (8-voisinage), ancre alignee avec elle. */
-export function planWallTraceLeg(trace: WallTrace, cursorX: number, cursorZ: number): WallTraceLeg {
+export function planWallTraceLeg(trace: WallTrace, cursorX: number, cursorZ: number, join: WallPath | null = null): WallTraceLeg {
   const cursor = traceCellAt(cursorX, cursorZ);
   const { anchor, first } = trace;
   const prev = trace.dirs[trace.dirs.length - 1] ?? null;
   const nearFirst = Math.max(Math.abs(cursor.x - first.x), Math.abs(cursor.z - first.z)) <= 1;
-  const closes = trace.dirs.length >= 2 && nearFirst && !sameCell(anchor, first) && (anchor.x === first.x || anchor.z === first.z);
+  const closes = !join && trace.dirs.length >= 2 && nearFirst && !sameCell(anchor, first) && (anchor.x === first.x || anchor.z === first.z);
 
   let dir: TraceDir;
   let length: number;
+  if (join) {
+    // Jonction : la portion finit sur l'extremite de l'autre muraille.
+    const target = join.vertices[0]!;
+    const aligned = anchor.x === target.x || anchor.z === target.z;
+    dir = { x: Math.sign(target.x - anchor.x), z: Math.sign(target.z - anchor.z) };
+    length = aligned ? cellDistance(anchor, target) : 0;
+    const end = { ...target };
+    const backwards = prev !== null && prev.x === -dir.x && prev.z === -dir.z;
+    const after = traceLayout([...trace.vertices, ...join.vertices], [...trace.dirs, dir, ...join.dirs], 'final', trace.startFixed);
+    return {
+      end,
+      dir,
+      closes: false,
+      single: false,
+      joins: true,
+      before: { pieces: [...trace.current.pieces, ...join.current.pieces], waiting: trace.current.waiting },
+      after,
+      usable: aligned && length > 0 && !backwards && !after.conflict,
+    };
+  }
   if (closes) {
     dir = { x: Math.sign(first.x - anchor.x), z: Math.sign(first.z - anchor.z) };
     length = cellDistance(anchor, first);
@@ -235,31 +282,182 @@ export function planWallTraceLeg(trace: WallTrace, cursorX: number, cursorZ: num
   const dirs = [...trace.dirs, dir];
   if (length === 0 && trace.dirs.length === 0) {
     // Muraille d'une case : demi-segment sur la case de depart.
-    return { end, dir, closes: false, single: true, usable: true, before: { pieces: [], waiting: [] }, after: { pieces: [{ kind: 'half', cornerX: first.x, cornerZ: first.z, tilesX: 1, tilesZ: 1, dir }], waiting: [] } };
+    return { end, dir, closes: false, single: true, joins: false, usable: true, before: { pieces: [], waiting: [] }, after: { pieces: [{ kind: 'half', cornerX: first.x, cornerZ: first.z, tilesX: 1, tilesZ: 1, dir }], waiting: [] } };
   }
+  const after = closes ? traceLayout(trace.vertices, dirs, 'closed') : traceLayout([...trace.vertices, end], dirs, 'open', trace.startFixed);
   return {
     single: false,
+    joins: false,
     end,
     dir,
     closes,
-    before: traceLayout(trace.vertices, trace.dirs, 'open'),
-    after: closes ? traceLayout(trace.vertices, dirs, 'closed') : traceLayout([...trace.vertices, end], dirs, 'open'),
-    usable: length > 0 && !backwards && closeOk,
+    before: trace.current,
+    after,
+    usable: length > 0 && !backwards && closeOk && !after.conflict,
   };
 }
 
 /** Trace apres validation de `leg` : null si l'enceinte est fermee (trace
  *  termine), sinon la portion suivante part de son extremite. */
 export function advanceWallTrace(trace: WallTrace, leg: WallTraceLeg): WallTrace | null {
-  if (leg.closes || leg.single) return null;
-  return { first: trace.first, anchor: { ...leg.end }, vertices: [...trace.vertices, { ...leg.end }], dirs: [...trace.dirs, leg.dir] };
+  if (leg.closes || leg.single || leg.joins) return null;
+  return { first: trace.first, anchor: { ...leg.end }, vertices: [...trace.vertices, { ...leg.end }], dirs: [...trace.dirs, leg.dir], current: leg.after, startFixed: trace.startFixed };
 }
 
 /** Trace termine sans fermeture (Echap, clic droit, changement d'outil) :
  *  passage de la disposition en cours a la disposition finale, ou les cases
  *  en attente deviennent des pieces droites. */
 export function finalizeWallTrace(trace: WallTrace): { before: TraceLayout; after: TraceLayout } {
-  return { before: traceLayout(trace.vertices, trace.dirs, 'open'), after: traceLayout(trace.vertices, trace.dirs, 'final') };
+  return { before: trace.current, after: traceLayout(trace.vertices, trace.dirs, 'final') };
+}
+
+// --- Reseau de murailles existant : connecteurs, extremites, chaines --------
+
+/** Connecteur d'une piece : case et direction de sortie. */
+export interface WallConnector {
+  cell: TraceCell;
+  dir: TraceDir;
+}
+
+/** Piece de muraille deja posee vue par ses deux connecteurs. `gate` : porte
+ *  (connecteurs d'un segment droit, jamais recomposee). */
+export interface WallNetPiece {
+  kind: 'straight' | 'half' | 'corner' | 'gate';
+  cornerX: number;
+  cornerZ: number;
+  tilesX: number;
+  tilesZ: number;
+  connectors: [WallConnector, WallConnector];
+}
+
+const DIRS: Readonly<Record<string, TraceDir>> = { W: { x: -1, z: 0 }, E: { x: 1, z: 0 }, N: { x: 0, z: -1 }, S: { x: 0, z: 1 } };
+/** Bras d'un virage selon son quart de tour (inverse de
+ *  CORNER_ROTATION_BY_ARMS). */
+const CORNER_ARMS_BY_QUARTER: readonly (readonly [string, string])[] = [['W', 'S'], ['S', 'E'], ['E', 'N'], ['N', 'W']];
+
+/** Connecteurs d'une piece posee, d'apres son emprise et sa `rotationY` :
+ *  segment / porte / demi-segment = deux connecteurs opposes sur son axe,
+ *  virage = ses deux bras. */
+export function wallNetPiece(kind: WallNetPiece['kind'], cornerX: number, cornerZ: number, tilesX: number, tilesZ: number, rotationY: number): WallNetPiece {
+  const quarter = (((Math.round(rotationY / (Math.PI / 2)) % 4) + 4) % 4);
+  const c0 = { x: cornerX, z: cornerZ };
+  let connectors: [WallConnector, WallConnector];
+  if (kind === 'corner') {
+    const [a, b] = CORNER_ARMS_BY_QUARTER[quarter]!;
+    connectors = [{ cell: c0, dir: DIRS[a]! }, { cell: c0, dir: DIRS[b]! }];
+  } else if (kind === 'half') {
+    connectors = quarter % 2 === 0 ? [{ cell: c0, dir: DIRS.W! }, { cell: c0, dir: DIRS.E! }] : [{ cell: c0, dir: DIRS.N! }, { cell: c0, dir: DIRS.S! }];
+  } else if (tilesX >= tilesZ) {
+    connectors = [{ cell: c0, dir: DIRS.W! }, { cell: { x: cornerX + tilesX - 1, z: cornerZ }, dir: DIRS.E! }];
+  } else {
+    connectors = [{ cell: c0, dir: DIRS.N! }, { cell: { x: cornerX, z: cornerZ + tilesZ - 1 }, dir: DIRS.S! }];
+  }
+  return { kind, cornerX, cornerZ, tilesX, tilesZ, connectors };
+}
+
+/** Extremite ouverte du reseau : piece (index), et son connecteur libre. */
+export interface WallEnd {
+  piece: number;
+  cell: TraceCell;
+  dir: TraceDir;
+}
+
+/** Piece qui presente un connecteur face a `c` (case voisine, direction
+ *  opposee), ou -1. */
+function facingPiece(pieces: readonly WallNetPiece[], c: WallConnector, self: number): number {
+  const nx = c.cell.x + c.dir.x;
+  const nz = c.cell.z + c.dir.z;
+  return pieces.findIndex((p, i) => i !== self && p.connectors.some((k) => k.cell.x === nx && k.cell.z === nz && k.dir.x === -c.dir.x && k.dir.z === -c.dir.z));
+}
+
+/** Toutes les extremites ouvertes : connecteurs sans vis-a-vis compatible. */
+export function openWallEnds(pieces: readonly WallNetPiece[]): WallEnd[] {
+  const ends: WallEnd[] = [];
+  pieces.forEach((p, i) => {
+    for (const c of p.connectors) if (facingPiece(pieces, c, i) < 0) ends.push({ piece: i, cell: { ...c.cell }, dir: { ...c.dir } });
+  });
+  return ends;
+}
+
+/** Chaine reliee a une extremite ouverte, de son AUTRE bout jusqu'a elle :
+ *  cases dans l'ordre, pieces (index), direction d'entree a l'autre bout et
+ *  direction de sortie a l'extremite. Null si la chaine forme une boucle. */
+export interface WallChain {
+  cells: TraceCell[];
+  pieces: number[];
+  startDir: TraceDir;
+  endDir: TraceDir;
+}
+
+export function wallChainTo(pieces: readonly WallNetPiece[], end: WallEnd): WallChain | null {
+  const cells: TraceCell[] = [];
+  const order: number[] = [];
+  let current = end.piece;
+  let entry: WallConnector = { cell: end.cell, dir: end.dir };
+  for (let guard = 0; guard <= pieces.length; guard++) {
+    if (order.includes(current)) return null;
+    const p = pieces[current]!;
+    order.push(current);
+    const exit = p.connectors.find((k) => !(sameCell(k.cell, entry.cell) && sameDir(k.dir, entry.dir)))!;
+    // Cases de la piece, de son connecteur d'entree vers sa sortie.
+    if (sameCell(entry.cell, exit.cell)) cells.push({ ...entry.cell });
+    else cells.push({ ...entry.cell }, { ...exit.cell });
+    const next = facingPiece(pieces, exit, current);
+    if (next < 0) {
+      return { cells: cells.reverse(), pieces: order.reverse(), startDir: { x: -exit.dir.x, z: -exit.dir.z }, endDir: { ...end.dir } };
+    }
+    entry = { cell: { x: exit.cell.x + exit.dir.x, z: exit.cell.z + exit.dir.z }, dir: { x: -exit.dir.x, z: -exit.dir.z } };
+    current = next;
+  }
+  return null;
+}
+
+/** Chemin d'un trace (sommets, directions) pour une suite de cases, avec la
+ *  direction d'entree dans la premiere et de sortie de la derniere : un
+ *  virage a une extremite (connecteur perpendiculaire au chemin) devient une
+ *  portion de longueur nulle, comme une muraille d'une seule case. */
+export interface WallPath {
+  vertices: TraceCell[];
+  dirs: TraceDir[];
+  current: TraceLayout;
+}
+
+export function chainPath(cells: readonly TraceCell[], startDir: TraceDir, endDir: TraceDir, existing: readonly WallTracePiece[]): WallPath {
+  const c0 = cells[0]!;
+  const vertices: TraceCell[] = [{ ...c0 }];
+  const dirs: TraceDir[] = [];
+  const steps: TraceDir[] = [];
+  for (let k = 1; k < cells.length; k++) steps.push({ x: cells[k]!.x - cells[k - 1]!.x, z: cells[k]!.z - cells[k - 1]!.z });
+  if (steps.length === 0 || !sameDir(startDir, steps[0]!)) {
+    dirs.push({ ...startDir });
+    vertices.push({ ...c0 });
+  }
+  for (let k = 0; k < steps.length; k++) {
+    if (k + 1 < steps.length && sameDir(steps[k]!, steps[k + 1]!)) continue;
+    dirs.push({ ...steps[k]! });
+    vertices.push({ ...cells[k + 1]! });
+  }
+  const last = dirs[dirs.length - 1]!;
+  if (!sameDir(last, endDir)) {
+    dirs.push({ ...endDir });
+    vertices.push({ ...cells[cells.length - 1]! });
+  }
+  return { vertices, dirs, current: { pieces: [...existing], waiting: [] } };
+}
+
+/** Trace qui REPREND la muraille `chain` a son extremite (premier clic sur
+ *  une extremite ouverte) : la portion suivante part de cette extremite,
+ *  avec la direction de la muraille existante. */
+export function resumeWallTrace(chain: WallChain, existing: readonly WallTracePiece[]): WallTrace {
+  const path = chainPath(chain.cells, chain.startDir, chain.endDir, existing);
+  return { first: { ...path.vertices[0]! }, anchor: { ...path.vertices[path.vertices.length - 1]! }, vertices: path.vertices, dirs: path.dirs, current: path.current, startFixed: true };
+}
+
+/** Chemin d'une AUTRE muraille vu depuis son extremite `chain` (jonction) :
+ *  de cette extremite vers son autre bout. */
+export function joinWallPath(chain: WallChain, existing: readonly WallTracePiece[]): WallPath {
+  const reversed = [...chain.cells].reverse();
+  return chainPath(reversed, { x: -chain.endDir.x, z: -chain.endDir.z }, { x: -chain.startDir.x, z: -chain.startDir.z }, existing);
 }
 
 // --- Orientation : cote interieur, creneaux dehors ---------------------------

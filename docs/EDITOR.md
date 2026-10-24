@@ -619,6 +619,11 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
     préparation. Échap, clic droit, changement d'outil et « Tester le
     scénario » terminent le tracé (extrémités construites, une entrée
     d'historique). Pas de règle de territoire ni d'or dans l'éditeur.
+  - **Reprise** : comme en préparation (`CURRENT_STATE.md` §6), sur les
+    murailles du camp joueur du brouillon, y compris après un rechargement
+    (extrémités dérivées des pièces) ; chaque portion de reprise est une
+    entrée d'historique normale (Ctrl+Z rend l'extrémité d'origine, même
+    type et même rotation).
   - **Historique** : **une entrée par portion validée** (Ctrl+Z retire la
     dernière portion seule, Ctrl+Y la rétablit), plus une pour la
     finalisation d'un tracé ouvert. Ctrl+Z / Ctrl+Y pendant un tracé

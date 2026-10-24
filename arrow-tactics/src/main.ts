@@ -48,8 +48,16 @@ import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMov
 import {
   advanceWallTrace,
   finalizeWallTrace,
+  joinWallPath,
+  openWallEnds,
   planWallTraceLeg,
+  resumeWallTrace,
   startWallTrace,
+  wallChainTo,
+  wallNetPiece,
+  type WallEnd,
+  type WallNetPiece,
+  type WallPath,
   traceCellAt,
   traceInteriorSign,
   wallEndJoins,
@@ -70,6 +78,7 @@ import {
   EditorState,
   buildingBoundsAt,
   snapBuildingCenter,
+  type EditorBuilding,
   type EditorMapShapeSnapshot,
   type EditorObjectsSnapshot,
   type EditorTool,
@@ -78,6 +87,7 @@ import { EditorHistory } from './editor/history';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
   buildCellPreview,
+  buildWallEndMarker,
   buildGhost,
   buildObstacleView,
   buildUnitGhost,
@@ -481,6 +491,9 @@ interface WallTraceStep {
   all: TracedWallPiece[];
   waiting: TraceCell[];
   cost: number;
+  /** Part du cout qui paie la recomposition de pieces existantes (reprise,
+   *  jonction) au-dela du prix des cases nouvellement couvertes. */
+  joinCost: number;
 }
 
 /** Cout d'une disposition, en segments de mur : une case droite vaut un
@@ -493,27 +506,46 @@ function wallLayoutCost(layout: TraceLayout): number {
   return units;
 }
 
+/** Cases d'une piece de trace. */
+function tracePieceCells(p: { cornerX: number; cornerZ: number; tilesX: number; tilesZ: number }): string[] {
+  const cells: string[] = [];
+  for (let dz = 0; dz < p.tilesZ; dz++) for (let dx = 0; dx < p.tilesX; dx++) cells.push(`${p.cornerX + dx},${p.cornerZ + dz}`);
+  return cells;
+}
+
 function wallTraceStep(wallId: string, before: TraceLayout, after: TraceLayout, interiorSign: number, team: Team): WallTraceStep {
   const orient = (p: WallTracePiece): TracedWallPiece => tracedWallPiece(wallId, p, interiorSign, team);
   const key = (p: WallTracePiece): string => `${p.kind}:${p.cornerX},${p.cornerZ},${p.tilesX},${p.tilesZ}`;
   const beforeKeys = new Set(before.pieces.map(key));
   const afterKeys = new Set(after.pieces.map(key));
+  const unitCost = getEffectiveBuildingCost(wallId);
+  const cost = roundGold(unitCost * (wallLayoutCost(after) - wallLayoutCost(before)));
+  // Prix "neuf" des seules cases nouvellement couvertes (½ par case droite,
+  // 1 par virage) : le reste du cout paie la recomposition de l'existant.
+  const beforeCells = new Set([...before.pieces.flatMap(tracePieceCells), ...before.waiting.map((c) => `${c.x},${c.z}`)]);
+  let freshUnits = after.waiting.filter((c) => !beforeCells.has(`${c.x},${c.z}`)).length / 2;
+  for (const p of after.pieces) {
+    const fresh = tracePieceCells(p).filter((c) => !beforeCells.has(c)).length;
+    freshUnits += p.kind === 'corner' ? fresh : fresh / 2;
+  }
   return {
     removed: before.pieces.filter((p) => !afterKeys.has(key(p))).map(orient),
     added: after.pieces.filter((p) => !beforeKeys.has(key(p))).map(orient),
     all: after.pieces.map(orient),
     waiting: after.waiting,
-    cost: roundGold(getEffectiveBuildingCost(wallId) * (wallLayoutCost(after) - wallLayoutCost(before))),
+    cost,
+    joinCost: Math.max(0, roundGold(cost - unitCost * freshUnits)),
   };
 }
 
 /** Portion de trace vers le curseur, orientee. Interieur : polygone si la
  *  portion ferme l'enceinte, sinon cote de `reference` (la Baliste du
  *  joueur). */
-function planTracedWallLeg(wallId: string, trace: WallTrace, x: number, z: number, reference: { x: number; z: number } | null, team: Team): { leg: WallTraceLeg; step: WallTraceStep } {
-  const leg = planWallTraceLeg(trace, x, z);
-  const vertices = leg.closes ? trace.vertices : [...trace.vertices, leg.end];
-  const sign = traceInteriorSign(vertices, [...trace.dirs, leg.dir], leg.closes, reference);
+function planTracedWallLeg(wallId: string, trace: WallTrace, x: number, z: number, reference: { x: number; z: number } | null, team: Team, join: WallPath | null = null): { leg: WallTraceLeg; step: WallTraceStep } {
+  const leg = planWallTraceLeg(trace, x, z, join);
+  const vertices = join ? [...trace.vertices, ...join.vertices] : leg.closes ? trace.vertices : [...trace.vertices, leg.end];
+  const dirs = join ? [...trace.dirs, leg.dir, ...join.dirs] : [...trace.dirs, leg.dir];
+  const sign = traceInteriorSign(vertices, dirs, leg.closes, reference);
   return { leg, step: wallTraceStep(wallId, leg.before, leg.after, sign, team) };
 }
 
@@ -549,6 +581,90 @@ function reorientTracedBuildings<T extends PlacedBuildingRef>(placed: readonly T
 /** Batiments a retirer pour un passage de disposition (pieces re-appariees). */
 function tracedBuildingsToRemove<T extends PlacedBuildingRef>(placed: readonly T[], step: WallTraceStep): T[] {
   return step.removed.flatMap((p) => placed.filter((b) => isTracedBuildingFor(b, p)));
+}
+
+/** Vrai si l'etape devrait recomposer une PORTE : jamais (raccord refuse,
+ *  il faut prolonger droit d'abord). */
+function wallStepTouchesGate(placed: readonly PlacedBuildingRef[], step: WallTraceStep): boolean {
+  return tracedBuildingsToRemove(placed, step).some((b) => getBuilding(b.buildingId).gate);
+}
+
+/** Famille de reseau d'un batiment pose (murailles), ou null. */
+function wallNetKind(buildingId: string): WallNetPiece['kind'] | null {
+  const def = getBuilding(buildingId);
+  if (def.nativeModelPose) return 'corner';
+  if (def.modelLengthScale) return 'half';
+  if (def.gate) return 'gate';
+  return def.placementMode === 'line' ? 'straight' : null;
+}
+
+/** Reseau de murailles (core/wallTrace.ts) d'une liste de batiments poses :
+ *  connecteurs DERIVES de leur emprise et de leur rotation (aucun etat de
+ *  session : marche apres un rechargement). */
+function wallNetworkOf(placed: readonly PlacedBuildingRef[]): WallNetPiece[] {
+  return placed.flatMap((b) => {
+    const kind = wallNetKind(b.buildingId);
+    if (!kind) return [];
+    const { tilesX, tilesZ } = buildingFootprintTiles(b.buildingId, b.rotationY ?? 0);
+    return [wallNetPiece(kind, b.x - tilesX / 2, b.z - tilesZ / 2, tilesX, tilesZ, b.rotationY ?? 0)];
+  });
+}
+
+/** Piece de trace equivalente a une piece posee (etat courant d'une reprise ;
+ *  une porte compte comme un segment droit). */
+function netTracePiece(p: WallNetPiece): WallTracePiece {
+  const base = { cornerX: p.cornerX, cornerZ: p.cornerZ };
+  if (p.kind === 'corner') return { kind: 'corner', ...base, tilesX: 1, tilesZ: 1, inDir: { x: -p.connectors[0].dir.x, z: -p.connectors[0].dir.z }, outDir: p.connectors[1].dir };
+  if (p.kind === 'half') return { kind: 'half', ...base, tilesX: 1, tilesZ: 1, dir: p.connectors[1].dir };
+  return { kind: 'straight', ...base, tilesX: p.tilesX, tilesZ: p.tilesZ, dir: p.connectors[1].dir };
+}
+
+/** Extremites ouvertes raccordables, hors pieces du trace en cours. */
+function joinableWallEnds(net: readonly WallNetPiece[], trace: WallTrace | null): WallEnd[] {
+  const own = new Set((trace?.current.pieces ?? []).map((p) => `${p.cornerX},${p.cornerZ},${p.tilesX},${p.tilesZ}`));
+  return openWallEnds(net).filter((e) => {
+    const p = net[e.piece]!;
+    return !own.has(`${p.cornerX},${p.cornerZ},${p.tilesX},${p.tilesZ}`);
+  });
+}
+
+/** Extremite sur laquelle le curseur s'aimante : sa case, ou la case libre
+ *  juste apres son connecteur. La plus proche du curseur. */
+function wallEndNear(ends: readonly WallEnd[], x: number, z: number): WallEnd | null {
+  const cell = traceCellAt(x, z);
+  let best: WallEnd | null = null;
+  let bestDistance = Infinity;
+  for (const e of ends) {
+    const onEnd = cell.x === e.cell.x && cell.z === e.cell.z;
+    const beyond = cell.x === e.cell.x + e.dir.x && cell.z === e.cell.z + e.dir.z;
+    if (!onEnd && !beyond) continue;
+    const d = Math.hypot(x - (e.cell.x + 0.5 + e.dir.x * 0.5), z - (e.cell.z + 0.5 + e.dir.z * 0.5));
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = e;
+    }
+  }
+  return best;
+}
+
+/** Trace qui reprend la muraille de l'extremite `end`. */
+function resumeTraceAt(net: readonly WallNetPiece[], end: WallEnd): WallTrace | null {
+  const chain = wallChainTo(net, end);
+  return chain ? resumeWallTrace(chain, chain.pieces.map((i) => netTracePiece(net[i]!))) : null;
+}
+
+/** Jonction possible : extremite d'une AUTRE muraille sous le curseur,
+ *  alignee avec l'ancre du trace. */
+function wallJoinAt(net: readonly WallNetPiece[], trace: WallTrace, x: number, z: number): { end: WallEnd; path: WallPath } | null {
+  const end = wallEndNear(joinableWallEnds(net, trace), x, z);
+  if (!end || (end.cell.x !== trace.anchor.x && end.cell.z !== trace.anchor.z)) return null;
+  const chain = wallChainTo(net, end);
+  return chain ? { end, path: joinWallPath(chain, chain.pieces.map((i) => netTracePiece(net[i]!))) } : null;
+}
+
+/** Reperes des extremites raccordables, l'extremite aimantee en evidence. */
+function addWallEndMarkers(group: THREE.Group, ends: readonly WallEnd[], snapped: WallEnd | null): void {
+  for (const e of ends) group.add(buildWallEndMarker(e.cell.x, e.cell.z, e.dir.x, e.dir.z, e === snapped));
 }
 
 /** Batiment pose (possede, de scenario ou de l'editeur) : ce qu'il faut pour
@@ -3318,13 +3434,20 @@ function updateEditorGhost(x: number, z: number): void {
     if (trace || getBuilding(buildingId).placementMode === 'line') {
       // Trace de murailles : segment au repos avant le premier clic, puis la
       // portion de l'ancre au curseur (segments, virage, case en attente).
-      const plan = trace ? planTracedWallLeg(buildingId, trace, x, z, editorState.ballista, 'player') : null;
-      const pieces = plan ? plan.step.added : [wallRestPiece(buildingId, x, z, rotationY)];
+      const net = wallNetworkOf(editorWallBuildings());
+      const ends = joinableWallEnds(net, trace);
+      const join = trace ? wallJoinAt(net, trace, x, z) : null;
+      const snapped = trace ? join?.end ?? null : wallEndNear(ends, x, z);
+      const plan = trace ? planTracedWallLeg(buildingId, trace, x, z, editorState.ballista, 'player', join?.path ?? null) : null;
+      const pieces = plan ? plan.step.added : snapped ? [] : [wallRestPiece(buildingId, x, z, rotationY)];
       const centers = editorTracePieceCenters(pieces);
+      const halfId = getBuilding(buildingId).traceHalf ?? buildingId;
       const valid = plan
-        ? plan.leg.usable && editorState.canReplaceBuildingPieces(tracedBuildingsToRemove(editorState.buildings, plan.step).map((b) => b.id), centers, editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))
-        : centers.every((c) => editorState!.canPlaceBuildingAt(c.buildingId, c.x, c.z, undefined, c.rotationY));
+        ? plan.leg.usable && !wallStepTouchesGate(editorState.buildings, plan.step) && editorState.canReplaceBuildingPieces(tracedBuildingsToRemove(editorState.buildings, plan.step).map((b) => b.id), centers, editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))
+        : snapped !== null || editorState.canPlaceBuildingAt(halfId, traceCellAt(x, z).x + 0.5, traceCellAt(x, z).z + 0.5, undefined, 0);
       const group = new THREE.Group();
+      addWallEndMarkers(group, ends, snapped);
+      for (const r of plan?.step.removed ?? []) for (const c of tracePieceCells(r)) group.add(buildCellPreview(+c.split(',')[0]!, +c.split(',')[1]!, valid));
       const assets = editorAssets;
       pieces.forEach((p, i) => {
         for (let dz = 0; dz < p.tilesZ; dz++) for (let dx = 0; dx < p.tilesX; dx++) group.add(buildCellPreview(p.cornerX + dx, p.cornerZ + dz, valid));
@@ -3450,7 +3573,7 @@ function activeEditorWallTrace(): WallTrace | null {
 function finishEditorWallTrace(): void {
   const current = editorWallTrace;
   editorWallTrace = null;
-  if (!current || !editorState) return;
+  if (!current || !editorState || current.trace.current.waiting.length === 0) return;
   const step = finalizeTracedWall(current.buildingId, current.trace, editorState.ballista, 'player');
   if (step.added.length === 0 && step.removed.length === 0) return;
   const before = editorState.objectsSnapshot();
@@ -3465,6 +3588,12 @@ function finishEditorWallTrace(): void {
 /** Centres des segments d'une portion de trace (pose de l'editeur). */
 function editorTracePieceCenters(pieces: readonly TracedWallPiece[]): { buildingId: string; x: number; z: number; rotationY: number }[] {
   return pieces.map((p) => ({ buildingId: p.buildingId, x: p.cornerX + p.tilesX / 2, z: p.cornerZ + p.tilesZ / 2, rotationY: p.rotationY }));
+}
+
+/** Murailles du brouillon raccordables par le trace de l'editeur (camp
+ *  joueur, comme les pieces qu'il pose). */
+function editorWallBuildings(): EditorBuilding[] {
+  return (editorState?.buildings ?? []).filter((b) => b.team === 'player');
 }
 
 /** Cases en attente d'une etape, vues comme des demi-segments (elles le
@@ -3556,14 +3685,22 @@ function handleEditorClick(event: MouseEvent): void {
     // par clic (tout ou rien, une entree d'historique), jusqu'a la fermeture.
     const buildingId = editorState.tool.buildingId;
     const trace = activeEditorWallTrace();
+    const net = wallNetworkOf(editorWallBuildings());
     if (!trace) {
-      editorWallTrace = { buildingId, trace: startWallTrace(traceCellAt(groundHit.x, groundHit.z)) };
+      // Premier clic : reprise d'une extremite existante, ou depart sur une
+      // case libre.
+      const snapped = wallEndNear(joinableWallEnds(net, null), groundHit.x, groundHit.z);
+      const cell = traceCellAt(groundHit.x, groundHit.z);
+      const resumed = snapped ? resumeTraceAt(net, snapped) : null;
+      if (resumed) editorWallTrace = { buildingId, trace: resumed };
+      else if (!snapped && editorState.canPlaceBuildingAt(getBuilding(buildingId).traceHalf ?? buildingId, cell.x + 0.5, cell.z + 0.5, undefined, 0)) editorWallTrace = { buildingId, trace: startWallTrace(cell) };
     } else {
-      const plan = planTracedWallLeg(buildingId, trace, groundHit.x, groundHit.z, editorState.ballista, 'player');
+      const join = wallJoinAt(net, trace, groundHit.x, groundHit.z);
+      const plan = planTracedWallLeg(buildingId, trace, groundHit.x, groundHit.z, editorState.ballista, 'player', join?.path ?? null);
       const leg = plan.leg;
       const before = editorState.objectsSnapshot();
       const removedIds = tracedBuildingsToRemove(editorState.buildings, plan.step).map((b) => b.id);
-      if (leg.usable && editorState.replaceBuildingPieces(removedIds, editorTracePieceCenters(plan.step.added), editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))) {
+      if (leg.usable && !wallStepTouchesGate(editorState.buildings, plan.step) && editorState.replaceBuildingPieces(removedIds, editorTracePieceCenters(plan.step.added), editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))) {
         // Creneaux de tout le trace vers l'exterieur (meme entree d'historique).
         editorState.buildings = reorientTracedBuildings(editorState.buildings, plan.step.all);
         pushEditorObjectsCommand(before, editorState.objectsSnapshot());
@@ -5063,9 +5200,11 @@ function withoutOwnedBuildings<R>(removed: readonly OwnedBuilding[], check: () =
  *  ni batiment, ni unite). Tout ou rien. */
 function wallLineStatus(buildingId: string, step: WallTraceStep): { cost: number; affordable: boolean; placeable: boolean } {
   const halfId = getBuilding(buildingId).traceHalf ?? buildingId;
-  const placeable = withoutOwnedBuildings(tracedBuildingsToRemove(currentRun.buildings, step), () =>
-    step.added.every((s) => canPlaceBuildingAt(s.buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY)) && step.waiting.every((c) => canPlaceBuildingAt(halfId, c.x, c.z, undefined, 0)),
-  );
+  const placeable =
+    !wallStepTouchesGate(currentRun.buildings, step) &&
+    withoutOwnedBuildings(tracedBuildingsToRemove(currentRun.buildings, step), () =>
+      step.added.every((s) => canPlaceBuildingAt(s.buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY)) && step.waiting.every((c) => canPlaceBuildingAt(halfId, c.x, c.z, undefined, 0)),
+    );
   return { cost: step.cost, affordable: currentRun.gold >= step.cost, placeable };
 }
 
@@ -5075,8 +5214,20 @@ function wallLineStatus(buildingId: string, step: WallTraceStep): { cost: number
 function applyOwnedWallStep(step: WallTraceStep): void {
   const removed = tracedBuildingsToRemove(currentRun.buildings, step);
   const kept = currentRun.buildings.filter((b) => !removed.includes(b));
+  // Jamais de reparation gratuite : une piece recomposee garde le
+  // pourcentage de PV des cases qu'elle reprend (moyenne par case) ; une case
+  // nouvellement construite part a 100 %.
+  const cellHealth = new Map<string, number>();
+  for (const b of removed) {
+    const { tilesX, tilesZ } = buildingFootprintTiles(b.buildingId, b.rotationY ?? 0);
+    const ratio = b.hp / getBuilding(b.buildingId).maxHp;
+    for (const c of tracePieceCells({ cornerX: b.x - tilesX / 2, cornerZ: b.z - tilesZ / 2, tilesX, tilesZ })) cellHealth.set(c, ratio);
+  }
   for (const s of step.added) {
-    kept.push({ buildingId: s.buildingId, x: s.cornerX + s.tilesX / 2, z: s.cornerZ + s.tilesZ / 2, hp: getBuilding(s.buildingId).maxHp, rotationY: s.rotationY });
+    const cells = tracePieceCells(s);
+    const ratio = cells.reduce((sum, c) => sum + (cellHealth.get(c) ?? 1), 0) / cells.length;
+    const maxHp = getBuilding(s.buildingId).maxHp;
+    kept.push({ buildingId: s.buildingId, x: s.cornerX + s.tilesX / 2, z: s.cornerZ + s.tilesZ / 2, hp: Math.max(1, Math.round(maxHp * ratio)), rotationY: s.rotationY });
   }
   currentRun.buildings.splice(0, currentRun.buildings.length, ...reorientTracedBuildings(kept, step.all));
   currentRun.gold = Math.max(0, roundGold(currentRun.gold - step.cost));
@@ -5089,8 +5240,11 @@ function applyOwnedWallStep(step: WallTraceStep): void {
 function finishOwnedWallTrace(): void {
   const mode = buildingPlacementMode;
   if (!mode?.trace) return;
-  const step = finalizeTracedWall(mode.buildingId, mode.trace, playerArrowOrigin, 'player');
+  const trace = mode.trace;
   mode.trace = null;
+  // Muraille reprise sans nouvelle portion : rien a finaliser.
+  if (trace.current.waiting.length === 0) return;
+  const step = finalizeTracedWall(mode.buildingId, trace, playerArrowOrigin, 'player');
   const placeable = withoutOwnedBuildings(tracedBuildingsToRemove(currentRun.buildings, step), () =>
     step.added.filter((s) => canPlaceBuildingAt(s.buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY)),
   );
@@ -5218,18 +5372,31 @@ function updateBuildingPlacementGhost(x: number, z: number): void {
     // Mode Muraille : avant le premier clic, un segment sous le curseur ;
     // ensuite la PORTION de l'ancre au curseur (segments futurs, virage
     // compris, et case en attente), verte si toute la portion est posable.
+    const net = wallNetworkOf(currentRun.buildings);
     if (!mode.trace) {
-      const piece = wallRestPiece(mode.buildingId, x, z, mode.rotationY);
-      addBuildingPreview(mode.buildingId, piece.cornerX, piece.cornerZ, piece.rotationY, canPlaceBuildingAt(mode.buildingId, piece.cornerX, piece.cornerZ, undefined, piece.rotationY));
-      buildingRotationHint.setText(placementHintText(mode.buildingId, null));
+      // Extremites existantes raccordables : le curseur s'y aimante pour
+      // reprendre la muraille ; ailleurs, le depart doit etre une case libre.
+      const ends = joinableWallEnds(net, null);
+      const snapped = wallEndNear(ends, x, z);
+      addWallEndMarkers(buildingPlacementGroup, ends, snapped);
+      if (!snapped) {
+        const piece = wallRestPiece(mode.buildingId, x, z, mode.rotationY);
+        addBuildingPreview(mode.buildingId, piece.cornerX, piece.cornerZ, piece.rotationY, canPlaceBuildingAt(getBuilding(mode.buildingId).traceHalf ?? mode.buildingId, piece.cornerX, piece.cornerZ, undefined, 0));
+      }
+      buildingRotationHint.setText(placementHintText(mode.buildingId, null, snapped !== null));
       return;
     }
-    const plan = planTracedWallLeg(mode.buildingId, mode.trace, x, z, playerArrowOrigin, 'player');
+    const join = wallJoinAt(net, mode.trace, x, z);
+    addWallEndMarkers(buildingPlacementGroup, joinableWallEnds(net, mode.trace), join?.end ?? null);
+    const plan = planTracedWallLeg(mode.buildingId, mode.trace, x, z, playerArrowOrigin, 'player', join?.path ?? null);
     const status = wallLineStatus(mode.buildingId, plan.step);
     const valid = plan.leg.usable && status.placeable && status.affordable;
+    // Pieces existantes qui seront recomposees : leurs cases, puis le
+    // resultat (virage, segments) en fantome.
+    for (const r of plan.step.removed) for (const c of tracePieceCells(r)) buildingPlacementGroup.add(buildCellPreview(+c.split(',')[0]!, +c.split(',')[1]!, valid));
     for (const s of plan.step.added) addBuildingPreview(s.buildingId, s.cornerX, s.cornerZ, s.rotationY, valid);
     for (const c of plan.step.waiting) buildingPlacementGroup.add(buildCellPreview(c.x, c.z, valid));
-    buildingRotationHint.setText(placementHintText(mode.buildingId, { leg: plan.leg, cells: wallLegCellCount(mode.trace, plan.leg), ...status }));
+    buildingRotationHint.setText(placementHintText(mode.buildingId, { leg: plan.leg, cells: wallLegCellCount(mode.trace, plan.leg), joinCost: plan.step.joinCost, ...status }));
     return;
   }
   const { tilesX, tilesZ } = buildingFootprintTiles(mode.buildingId, mode.rotationY);
@@ -5275,21 +5442,22 @@ function addBuildingPreview(buildingId: string, cornerX: number, cornerZ: number
 function wallLegCellCount(trace: WallTrace, leg: WallTraceLeg): number {
   if (leg.single) return 1;
   const length = Math.abs(leg.end.x - trace.anchor.x) + Math.abs(leg.end.z - trace.anchor.z);
-  return trace.dirs.length === 0 ? length + 1 : leg.closes ? length - 1 : length;
+  return trace.dirs.length === 0 ? length + 1 : leg.closes || leg.joins ? length - 1 : length;
 }
 
 /** Texte de l'indication de placement : rotation pour un batiment pose a
  *  l'unite ; en mode Muraille, etape du trace, nombre de cases couvertes par
  *  la portion et son cout. */
-function placementHintText(buildingId: string, line: { leg: WallTraceLeg; cells: number; cost: number; affordable: boolean; placeable: boolean } | null): string {
+function placementHintText(buildingId: string, line: { leg: WallTraceLeg; cells: number; joinCost: number; cost: number; affordable: boolean; placeable: boolean } | null, resume = false): string {
   const def = getBuilding(buildingId);
   const rotate = `Ctrl + molette — tourner (${def.footprintFollowsRotation ? 90 : 45}°)`;
   if (def.placementMode !== 'line') return rotate;
-  if (!line) return `${def.displayName} : clic — début du tracé · ${rotate} · clic droit / Échap — quitter`;
+  if (!line) return resume ? `${def.displayName} : clic — reprendre la muraille ici · clic droit / Échap — quitter` : `${def.displayName} : clic — début du tracé · ${rotate} · clic droit / Échap — quitter`;
   const count = line.cells;
   const issue = !line.leg.usable || !line.placeable ? ' · emplacement invalide' : !line.affordable ? ' · or insuffisant' : '';
-  const close = line.leg.closes ? ' · ferme l’enceinte' : '';
-  return `${def.displayName} : ${count} case${count > 1 ? 's' : ''} — ${formatGold(line.cost)} or${issue}${close} · clic — construire · clic droit / Échap — annuler le tracé`;
+  const close = line.leg.closes ? ' · ferme l’enceinte' : line.leg.joins ? ' · relie les murailles' : '';
+  const join = line.joinCost > 0 ? ` (dont ${formatGold(line.joinCost)} or de raccord)` : '';
+  return `${def.displayName} : ${count} case${count > 1 ? 's' : ''} — ${formatGold(line.cost)} or${join}${issue}${close} · clic — construire · clic droit / Échap — annuler le tracé`;
 }
 
 /** Clic de confirmation pendant un placement de batiment : deduit l'or
@@ -5370,12 +5538,19 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
 function confirmWallLine(x: number, z: number): boolean {
   const mode = buildingPlacementMode;
   if (!mode) return false;
+  const net = wallNetworkOf(currentRun.buildings);
   if (!mode.trace) {
-    mode.trace = startWallTrace(traceCellAt(x, z));
+    // Premier clic : sur une extremite existante, reprise de cette muraille ;
+    // sinon, depart sur une case libre seulement.
+    const snapped = wallEndNear(joinableWallEnds(net, null), x, z);
+    const cell = traceCellAt(x, z);
+    if (snapped) mode.trace = resumeTraceAt(net, snapped);
+    else if (canPlaceBuildingAt(getBuilding(mode.buildingId).traceHalf ?? mode.buildingId, cell.x, cell.z, undefined, 0)) mode.trace = startWallTrace(cell);
     updateBuildingPlacementGhost(x, z);
     return false;
   }
-  const plan = planTracedWallLeg(mode.buildingId, mode.trace, x, z, playerArrowOrigin, 'player');
+  const join = wallJoinAt(net, mode.trace, x, z);
+  const plan = planTracedWallLeg(mode.buildingId, mode.trace, x, z, playerArrowOrigin, 'player', join?.path ?? null);
   const status = wallLineStatus(mode.buildingId, plan.step);
   if (!plan.leg.usable || !status.placeable || !status.affordable) return false;
   // Pieces nouvelles et re-appariees, creneaux de TOUT le trace vers

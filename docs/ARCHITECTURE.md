@@ -365,6 +365,16 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   d'une disposition à l'autre (`main.ts` : `wallTraceStep`, pièces retirées
   / posées, coût par case). Utilisé par le mode Muraille de la préparation
   et par l'éditeur.
+  - **Reprise** : `wallNetPiece` donne les deux connecteurs (case +
+    direction) d'une pièce posée d'après son emprise et sa `rotationY` ;
+    `openWallEnds` les extrémités ouvertes ; `wallChainTo` la chaîne
+    jusqu'à son autre bout ; `resumeWallTrace` / `joinWallPath` en font un
+    tracé dont l'état courant (`WallTrace.current`) est l'existant réel
+    (`startFixed` : départ déjà construit). Un virage d'extrémité devient
+    une portion de longueur nulle ; deux virages sur une case
+    (`TraceLayout.conflict`) rendent la portion invalide. `main.ts`
+    (`wallNetworkOf`, `wallEndNear`, `wallJoinAt`) branche le tout sur la
+    préparation (PV en pourcentage, `applyOwnedWallStep`) et l'éditeur.
 - **Ciblage** : un bâtiment n'acquiert jamais de cible (`targetingSystem`) ;
   la Tour tire par `buildingAttack`.
 - **Survie d'un camp** : `countsForDefeat` (porté par la `BuildingDef`) fait

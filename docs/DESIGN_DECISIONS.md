@@ -652,6 +652,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     segment KayKit comprimé à mi-longueur, le pack n'ayant aucun mur d'une
     case) ; ½ or par case droite ; extrémités d'un tracé ouvert finalisées en
     pièces droites à la sortie du tracé ;
+  - **reprise** d'une extrémité existante (préparation et éditeur) :
+    connecteurs dérivés des pièces posées (aucun champ de sauvegarde), même
+    découpage qu'un tracé en une fois, coût net, PV en pourcentage
+    conservés ; pas de jonction en T ; une porte n'est jamais recomposée ;
   - créneaux vers l'**extérieur** : enceinte fermée = intérieur du
     polygone ; tracé ouvert = côté de la Baliste (portion la plus proche),
     un seul côté pour tout le tracé — **priorité à la continuité**, jamais un

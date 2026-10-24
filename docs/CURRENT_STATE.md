@@ -543,6 +543,27 @@ du dossier « neutral », visuel neutre non teinté, mais constructions du
     en boutique, sortie du mode, début de bataille) : les cases en attente
     deviennent des pièces droites — une ligne, un L ou un U ouverts restent
     complets.
+  - **Reprise d'une muraille existante** : en mode Muraille, chaque
+    extrémité ouverte des murailles du joueur porte un petit repère doré.
+    Un premier clic sur l'extrémité (ou sur la case libre juste après) s'y
+    aimante (« reprendre la muraille ici ») : le tracé repart de là, avec la
+    direction et l'orientation de la muraille existante. Prolonger tout
+    droit la continue sans jonction ; tourner pose un vrai virage à la place
+    de la pièce terminale. Le dernier clic peut aussi s'aimanter sur
+    l'extrémité d'une AUTRE muraille (« relie les murailles ») ou sur l'autre
+    bout de la muraille reprise (« ferme l'enceinte »).
+  - La disposition est recalculée sur la chaîne COMPLÈTE (même découpage
+    qu'un tracé fait en une fois : à géométrie égale, résultat identique) ;
+    seules les pièces qui changent sont recomposées. **Coût net** :
+    nouvelles pièces − valeur des pièces remplacées (½ or par case droite,
+    1 or par virage), affiché dans l'aperçu (« dont X or de raccord »). **PV**
+    : une pièce recomposée garde le pourcentage de PV des cases qu'elle
+    reprend (jamais de réparation gratuite) ; une case neuve part à 100 %.
+  - **Refusés** : démarrer ou passer sur une muraille ailleurs qu'à une
+    extrémité, une jonction en T au milieu d'un segment, et tout raccord qui
+    transformerait une **porte** (il faut prolonger droit d'abord). Un
+    virage existant en extrémité ne se prolonge que dans l'axe de son bras
+    libre.
   - Aperçu de la portion **avant** le clic : segments, virage qui prendra la
     jonction précédente (et virages D et A à la fermeture), cases en
     attente ; vert ou rouge, nombre de cases et coût. Tout ou rien par
