@@ -283,12 +283,13 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     [5, 1]) ;
   - types répartis sur toute la vague (unités lourdes étalées, Mage et
     Sentinelle séparés, premier groupe léger), sans hasard ;
-  - cadence **logarithmique** : `clamp(5,5 − 1,2 × ln G, 0,9 ; 4,5)` s
-    entre deux arrivées ; vagues courtes espacées, longues en pression
-    continue ;
+  - cadence **logarithmique** : `clamp(5,8 − 1,05 × ln G, 1,3 ; 4,8)` s
+    entre deux arrivées (ajustée en octobre 2026 : plus de respiration en
+    milieu de run, chevauchement conservé en fin de run ; à réévaluer avec
+    la future carte circulaire) ;
   - **chevauchement autorisé** : un groupe n'attend pas la mort du
     précédent ;
-  - **1 s de terrain vide** fait arriver le groupe suivant plus tôt ;
+  - **1,5 s de terrain vide** fait arriver le groupe suivant plus tôt ;
   - **victoire seulement après tous les groupes** ;
   - la Mine ne produit pas pendant un temps mort (aucun ennemi, renforts
     attendus).

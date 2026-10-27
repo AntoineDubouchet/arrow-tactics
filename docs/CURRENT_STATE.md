@@ -846,11 +846,11 @@ ennemis arrivent par groupes :
   au prorata de la place restante ; Fantassins pour compléter. Un Mage et
   une Sentinelle évitent le même groupe ; le premier groupe reste léger.
 - **Cadence** : le premier groupe est présent au lancement ; les suivants
-  arrivent toutes les `clamp(5,5 − 1,2 × ln G, 0,9 ; 4,5)` secondes,
-  arrondies en ticks (30 Hz) : 4,5 s pour 2 groupes, 3,35 s pour 6, 2,86 s
-  pour 9, 1,74 s pour 23. Un groupe **n'attend pas** la mort du précédent
-  (chevauchement).
-- **Terrain vide** : après **1 s** sans aucun ennemi vivant, le groupe
+  arrivent toutes les `clamp(5,8 − 1,05 × ln G, 1,3 ; 4,8)` secondes,
+  arrondies en ticks (30 Hz) : 4,8 s pour 2 groupes, 4,65 s pour 3, 3,92 s
+  pour 6, 3,49 s pour 9, 2,96 s pour 15, 2,51 s pour 23, 1,54 s pour 58.
+  Un groupe **n'attend pas** la mort du précédent (chevauchement).
+- **Terrain vide** : après **1,5 s** sans aucun ennemi vivant, le groupe
   suivant arrive sans attendre son délai ; le délai suivant repart de cette
   arrivée.
 - **Positions** : chaque groupe garde sa formation, centrée au front de la

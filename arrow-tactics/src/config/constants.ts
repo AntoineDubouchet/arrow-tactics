@@ -117,11 +117,11 @@ export const ENEMY_SENTINEL_INTERVAL = 5;
  *  ENEMY_EMPTY_FIELD_SPAWN_SECONDS sans aucun ennemi vivant. Valeurs a
  *  ajuster apres playtest. */
 export const ENEMY_GROUP_MAX_SIZE = 5;
-export const ENEMY_GROUP_DELAY_BASE_SECONDS = 5.5;
-export const ENEMY_GROUP_DELAY_LOG_FACTOR = 1.2;
-export const ENEMY_GROUP_DELAY_MIN_SECONDS = 0.9;
-export const ENEMY_GROUP_DELAY_MAX_SECONDS = 4.5;
-export const ENEMY_EMPTY_FIELD_SPAWN_SECONDS = 1.0;
+export const ENEMY_GROUP_DELAY_BASE_SECONDS = 5.8;
+export const ENEMY_GROUP_DELAY_LOG_FACTOR = 1.05;
+export const ENEMY_GROUP_DELAY_MIN_SECONDS = 1.3;
+export const ENEMY_GROUP_DELAY_MAX_SECONDS = 4.8;
+export const ENEMY_EMPTY_FIELD_SPAWN_SECONDS = 1.5;
 
 // --- Nova de glace / Blizzard (2026-08-14) ---
 // Sort de bataille : impact instantane (aucun projectile, aucun temps de
