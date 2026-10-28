@@ -984,10 +984,22 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
 - **Flanc de pente** : une unité qui entre de biais au pied ne bute pas ; une
   unité poussée contre le milieu ou le haut d'un flanc ne le traverse jamais
   (vérifié en simulation, foule comprise).
-- **Affichage** : plateaux, pentes et falaises en géométrie low-poly, plateaux
-  légèrement plus clairs par niveau ; unités, barres de PV, anneaux,
+- **Affichage** : plateaux, pentes et falaises en géométrie low-poly ;
+  dessus en herbe (ou terre), légèrement plus clairs par niveau (+15 %),
+  pentes légèrement voilées (−18 % à pleine inclinaison, en plus de
+  l'éclairage) ; flancs (falaises, bord de carte, trous) en terre sombre,
+  assombrie vers le pied ; unités, barres de PV, anneaux,
   bâtiments, décors, zones, grille, aperçus et effets suivent la hauteur ;
   le pointage à la souris vise la surface visible.
+- **Surfaces visuelles du sol** (`render/groundSurfaces.ts`) : apparence du
+  dessus des cases, indépendante du relief et sans effet de jeu (passage,
+  trajets, hauteur, territoire). Par défaut, palette **classique** : l'herbe
+  `ground_grass.png` partout, comme avant. Pour comparaison, `?sol=variee`
+  (plaques claires et denses de la même herbe) et `?sol=pixel` (herbes
+  pixelisées A et B, textures 32 × 32 générées, 16 texels par case, pixels
+  nets) dans l'URL. Choix automatique et déterministe par case (bruit sur
+  x, z, plaques de 4 cases) : même sol à chaque chargement, rien
+  d'enregistré dans la carte. Aucune sélection dans l'éditeur.
 
 ## 12. Talents
 
@@ -1140,7 +1152,11 @@ carte exportée de l'éditeur puis intégrée au code (§11).
   liaisons diagonales comblées et signalées en orange ; le pinceau peut
   dépasser de la carte ou chevaucher un trou (seules les cases de terrain
   s'appliquent ; un relief collé au bord ou à un trou s'arrête sur une face
-  verticale) ; tampon refusé seulement si une case à changer est occupée. **Ajustements** : Pente
+  verticale) ; le pinceau suit le curseur dans le vide (plan de travail à
+  la hauteur des cases voisines) : un trait peut commencer
+  hors carte, contourner un coin ou traverser un trou ; un trait resté dans
+  le vide ne fait rien (aucune entrée d'historique) ; tampon refusé
+  seulement si une case à changer est occupée. **Ajustements** : Pente
   (R : tourner), Coin extérieur et Coin intérieur (R : NE → SE → SW → NW).
   Monter / Descendre n'existent plus. Une case portant un bâtiment, la
   Baliste, un obstacle / structure ou une unité ne change pas d'altitude ; un décor ne

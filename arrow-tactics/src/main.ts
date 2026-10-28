@@ -109,8 +109,9 @@ import { ensureModels, loadEnvironmentAssets, obstacleModelKeys, type Environmen
 import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
 import { buildObstacleMesh, obstaclePlacementOffset, placeObstacleMesh } from './render/obstacleFactory';
+import { GROUND_PALETTES, setGroundPalette } from './render/groundSurfaces';
 import { buildCellGridLines, buildTerrainCellsView } from './render/terrainCells';
-import { intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
+import { activeTerrain, intersectSculptSurface, intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
 import { CONCAVE_CORNER_SLOPE_DIRECTIONS, CORNER_SLOPE_DIRECTIONS, isConcaveCornerSlope, reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, SLOPE_DIRECTIONS, type ConcaveCornerSlopeDirection, type CornerShape, type CornerSlopeDirection, type ReliefBrushSize, type ReliefDelta, type SlopeDirection, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
 import { UnitMovePreview, type UnitMovePreviewItem } from './render/unitMovePreview';
 import { DEFAULT_LAUNCH_HEIGHT, PlayerArrowView, preloadPlayerArrowModel } from './render/playerArrowView';
@@ -310,6 +311,13 @@ renderer.setTargetConstraint((x, z) => {
   }
   return clampToCellsDistance(cameraBoundsCells, x, z, CAMERA.maxTargetDistanceFromTerrain);
 });
+
+// Sol : herbe classique par defaut ; `?sol=variee` ou `?sol=pixel` pour
+// comparer les variantes visuelles (render/groundSurfaces.ts), en attendant
+// le choix d'Antoine. Avant toute construction de plateau.
+const groundParam = new URLSearchParams(location.search).get('sol');
+const groundPalette = GROUND_PALETTES.find((p) => p === groundParam);
+if (groundPalette) setGroundPalette(groundPalette);
 
 // Chargement asynchrone : les rochers/arbres viennent de vrais modeles .glb
 // (voir render/assetLibrary.ts), pas de geometrie generee — le reste de
@@ -3552,7 +3560,8 @@ function updateEditorGhost(x: number, z: number): void {
     // Surface finale de tout le trait (cases deja peintes + ce tampon,
     // mesurees sur le terrain du debut du trait) en vert ; liaisons
     // diagonales en orange ; tampon refuse ou a la limite : son carre (dans
-    // la carte) en rouge, raison dans la ligne d'etat. Hors carte : coupe.
+    // la carte) en rouge, raison dans la ligne d'etat. Hors carte : coupe ;
+    // entierement dans le vide : rien (jamais rouge).
     const stroke = reliefStroke;
     const plan = editorState.reliefBrushPlan(x, z, editorState.tool.delta, editorState.tool.size, stroke?.painted ?? new Set(), stroke?.start ?? editorState.reliefStrokeStart());
     editorGhost = buildReliefBrushPreview(plan.cells, plan.status.ok, new Set(plan.bridged));
@@ -3625,6 +3634,23 @@ let reliefStroke: ReliefStroke | null = null;
 /** Taille des pinceaux Surelever / Abaisser (selection « Taille »). */
 let editorReliefSize: ReliefBrushSize = 4;
 
+/** Hauteur du plan de travail des pinceaux de relief loin de toute case :
+ *  celle du dernier point vise (terrain ou plan de travail), pour qu'en
+ *  s'eloignant de la carte le pinceau continue sans sauter. */
+let reliefPlaneY = 0;
+
+/** Pointage des pinceaux de relief (raycaster deja place) : le terrain du
+ *  debut du trait en cours (sinon le terrain affiche), prolonge dans le vide
+ *  par le plan de travail (intersectSculptSurface) — le pinceau garde une
+ *  case de grille partout, meme hors de la carte. Ecrit dans groundHit. */
+function pickReliefPoint(): boolean {
+  if (!editorState) return false;
+  const state = editorState;
+  const hit = intersectSculptSurface(raycaster.ray, groundHit, reliefStroke?.start.field ?? activeTerrain(), (cx, cz) => state.hasCellAt(cx, cz), reliefPlaneY);
+  if (hit !== null) reliefPlaneY = groundHit.y;
+  return hit !== null;
+}
+
 function startReliefStroke(delta: ReliefDelta, size: ReliefBrushSize): void {
   if (!editorState) return;
   if (reliefStroke) endReliefStroke();
@@ -3633,8 +3659,8 @@ function startReliefStroke(delta: ReliefDelta, size: ReliefBrushSize): void {
 
 /** Ajoute au trait le tampon sous (x, z) et, si la souris a saute plusieurs
  *  cases, tous les tampons intermediaires de la grille (aucun trou). Un
- *  tampon refuse (case a changer bloquee : trou, objet, unite…) est ignore :
- *  le reste du trait est conserve. */
+ *  tampon refuse (case a changer bloquee : objet, unite…) ou entierement
+ *  dans le vide est ignore : le reste du trait est conserve. */
 function reliefStrokeAt(x: number, z: number): void {
   const stroke = reliefStroke;
   if (!editorState || !stroke) return;
@@ -3830,8 +3856,9 @@ window.addEventListener('mousemove', (event) => {
   setRaycasterFromEvent(event);
   // Trait de sculpture : on vise le terrain du DEBUT du trait, sinon le
   // relief qui monte sous le curseur intercepte le rayon et le pinceau
-  // derive vers la camera a chaque mouvement.
-  if (!intersectTerrain(raycaster.ray, groundHit, reliefStroke?.start.field)) return;
+  // derive vers la camera a chaque mouvement ; le vide prolonge ce terrain
+  // (pickReliefPoint), le trait n'est jamais interrompu.
+  if (!(reliefStroke ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
   if (reliefStroke) {
     reliefStrokeAt(groundHit.x, groundHit.z);
     updateEditorGhost(groundHit.x, groundHit.z);
@@ -3851,7 +3878,8 @@ window.addEventListener('blur', () => {
 function handleEditorClick(event: MouseEvent): void {
   if (!editorState || !editorAssets) return;
   setRaycasterFromEvent(event);
-  if (!intersectTerrain(raycaster.ray, groundHit)) return;
+  // Pinceaux de relief : un trait peut commencer dans le vide.
+  if (!(editorState.tool.type === 'relief-brush' ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
 
   if (editorState.tool.type === 'place-obstacle') {
     // Placement LIBRE : position exacte du clic, jamais arrondie a une case
@@ -7838,8 +7866,9 @@ window.addEventListener('mousemove', (event) => {
     return;
   }
   setRaycasterFromEvent(event);
-  // Meme cible que le trait de sculpture en cours (terrain de son debut).
-  if (!intersectTerrain(raycaster.ray, groundHit, reliefStroke?.start.field)) return;
+  // Pinceaux de relief : meme pointage que le trait (terrain de son debut,
+  // prolonge dans le vide) ; l'apercu suit le curseur hors de la carte.
+  if (!(editorState.tool.type === 'relief-brush' ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
   updateEditorGhost(groundHit.x, groundHit.z);
 });
 

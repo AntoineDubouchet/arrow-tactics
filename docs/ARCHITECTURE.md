@@ -731,15 +731,27 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     chargés via `riggedGltf.ts`) ;
   - attaques procédurales : `proceduralAttackAnimator.ts`, `proceduralSwing.ts`.
 - **Plateau** : `render/board.ts` (sol, grille, zones), `terrainCells.ts`
-  (une géométrie fusionnée par type de terrain), `textures.ts`.
+  (géométrie du sol : une fusionnée par surface présente, plus une pour
+  tous les flancs), `groundSurfaces.ts` (surfaces visuelles), `textures.ts`.
   - Cases : chaque case n'a que son dessus (deux triangles `cellTriangles` :
     plat, en pente ou en pente de coin, à la hauteur de
     son niveau) et ses faces latérales visibles — vers une voisine plus
     basse (falaise, entre les deux hauteurs) ou vers une case absente (bord,
     trou : jusqu'à −`CELL_THICKNESS`, 0,45). Aucune face cachée, aucune
-    dalle superposée. Une couleur de sommet éclaircit la texture de 15 % par
-    niveau (rien sous y = 0 : carte plate inchangée). Un draw call par type
-    de terrain, géométrie reconstruite avec le plateau.
+    dalle superposée. Forme et apparence séparées : le dessus prend la
+    surface visuelle de la case (`groundSurfaceAt` : palette active,
+    `setGroundPalette`, choisie par `main.ts` d'après `?sol=` ; bruit de
+    valeur déterministe sur x, z, jamais `Math.random`), les flancs une
+    terre commune (`ground_dirt.png`, `FLANK_COLOR`, assombrie vers le
+    pied). UV en coordonnées monde : dessus (x, −z) / cycle de la surface
+    (continu, pente et coin compris), flancs (position le long du bord, y).
+    Couleur de sommet du dessus : +15 % par niveau (rien sous y = 0),
+    −`SLOPE_SHADE` (18 %) proportionnel à l'inclinaison. Matériaux
+    `MeshLambertMaterial` créés à chaque construction (l'éditeur les libère),
+    textures partagées jamais libérées (PNG chargés une fois, herbes
+    pixelisées générées une fois : `DataTexture` 32 × 32, graine fixe,
+    `NearestFilter` en agrandissement). Un draw call par surface présente
+    plus un pour les flancs, géométrie reconstruite avec le plateau.
   - Surface active (`render/terrainSurface.ts`) : le champ de hauteur de la
     carte affichée (brouillon de l'éditeur, sinon `currentMap`), fixé par
     `syncActiveTerrain` (`main.ts`) à chaque image et à chaque changement
@@ -751,7 +763,15 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     seulement), projectiles (départ et arrivée au-dessus de leur sol),
     effets au sol. `intersectTerrain` remplace l'ancien plan y = 0 pour tout
     le pointage à la souris (marche le long du rayon puis bissection ; plan
-    exact sur une carte plate). Flèche de la Baliste terminée : posée à sa
+    exact sur une carte plate). Pinceaux de relief : `intersectSculptSurface`
+    (même marche, `marchToSurface`, jusqu'au bas des flancs) : le vide —
+    hors carte, trou — est transparent pour le terrain et prolongé par un
+    plan de travail à la hauteur des cases voisines (moyenne pondérée par
+    l'inverse du carré de la distance, 2 cases de portée,
+    `nearestCellHeight`), sinon du dernier point visé (`main.ts`,
+    `pickReliefPoint`, `reliefPlaneY`) ; le plan passe devant une case
+    touchée plus loin sur le rayon (face d'un flanc vue depuis le vide).
+    Renvoie 'terrain' ou 'void', jamais d'interruption du trait. Flèche de la Baliste terminée : posée à sa
     pose d'arrivée (`PlayerArrowView.pose(…, 1)`, fichée au sol de l'impact),
     plus à la dernière image affichée, qui pouvait la laisser en l'air.
     Effets au sol (Soin, Nova, Boule de feu) : disques plats à la hauteur de

@@ -186,10 +186,21 @@ La catégorie « Relief » a deux parties :
     n'est jamais créé dans un trou ; il reste infranchissable.
   - Le trait vise le terrain **tel qu'il était à l'appui** : le relief qui
     monte sous le curseur ne fait pas dériver le pinceau.
+  - **Dans le vide** (hors carte, au-dessus d'un trou) : le pinceau suit
+    toujours le curseur, sur un plan de travail à la hauteur des cases de
+    terrain voisines (sortir d'un plateau ne le fait pas sauter ; loin de la
+    carte, il garde sa dernière hauteur). Une case visible au-delà d'un trou
+    reste toujours atteignable. Un
+    trait peut commencer hors de la carte, longer le bord à moitié dans le
+    vide, contourner un coin ou traverser un trou sans être interrompu :
+    seules les cases de terrain sous le pinceau changent. Pinceau
+    entièrement dans le vide : rien n'est affiché ni refusé (ligne d'état
+    « aucune case de terrain sous le pinceau ») ; un trait resté dans le
+    vide ne modifie rien et ne crée aucune entrée d'historique.
   - Un mouvement rapide est interpolé tampon par tampon (aucun trou).
   - **Aperçu** : la surface finale de toutes les cases que le trait change,
     transitions comprises (vert), coupée au bord de la carte ; tampon refusé
-    ou à la limite : son carré dans la carte en rouge. Ligne d'état :
+    ou à la limite : son carré dans la carte en rouge ; rien dans le vide. Ligne d'état :
     « Surélever +1 (4×4) : niveau 0 → 1 », « Abaisser −1 (1×1) : niveau 2 →
     1 »… ou « plusieurs niveaux, une couche de plus chacun ».
   - **Liaison diagonale** : deux zones qui ne se toucheraient que par un

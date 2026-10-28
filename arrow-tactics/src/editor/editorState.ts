@@ -160,7 +160,10 @@ export interface ReliefBrushPlan {
    *  « niveau 0 → 1 », ou une formulation generale si le coeur couvre
    *  plusieurs niveaux. */
   levels: string;
-  status: { ok: true } | { ok: false; reason: string };
+  /** `reason` null : aucune case de terrain sous le pinceau (vide, hors
+   *  carte ou trou) — rien a appliquer, mais rien de refuse non plus
+   *  (apercu vide, jamais rouge). */
+  status: { ok: true } | { ok: false; reason: string | null };
 }
 
 export type EditorTool =
@@ -600,6 +603,9 @@ export class EditorState {
       const [cx, cz] = key.split(',').map(Number) as [number, number];
       return this.hasCellAt(cx, cz);
     });
+    // Pinceau entierement dans le vide : operation neutre (le pinceau suit
+    // le curseur, sans apercu ni refus).
+    if (core.length === 0) return { originX, originZ, core, cells: [], bridged: [], logic: new Map(start.logic), levels: 'aucune case de terrain sous le pinceau', status: { ok: false, reason: null } };
     // Carre visible du pinceau (coeur + couronne), dans la carte : apercu rouge.
     const square: TerrainElevationCellDef[] = [];
     const side = Math.sqrt(reliefBrushCore(size, 0, 0).length);
@@ -621,7 +627,6 @@ export class EditorState {
     }
     const levels = changes.size === 1 ? `niveau ${[...changes][0]}` : changes.size > 1 ? `plusieurs niveaux, une couche ${delta > 0 ? 'de plus' : 'de moins'} chacun` : '';
     const refuse = (reason: string): ReliefBrushPlan => ({ originX, originZ, core, cells: square, bridged: [], logic: new Map(start.logic), levels, status: { ok: false, reason } });
-    if (core.length === 0) return refuse('aucune case de terrain sous le pinceau');
     if (!movable) return refuse(delta > 0 ? `limite atteinte (niveau ${TERRAIN_LEVEL_MAX} maximum)` : `limite atteinte (niveau ${TERRAIN_LEVEL_MIN} minimum)`);
     const result = sculptRelief(this.reliefContext(start), new Set([...painted, ...core]), delta);
     if (result.blocked) {

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { TILE } from '../config/constants';
-import { cellKey, type TerrainCellDef, type TerrainType } from '../config/mapDef';
+import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, EDGE_CORNERS, FLAT_TERRAIN, TERRAIN_ELEVATION_STEP, OPPOSITE_SLOPE_DIRECTION, SLOPE_DIRECTIONS, SLOPE_DIRECTION_VECTORS, type TerrainHeightField } from '../config/terrainElevation';
-import { createDirtTexture, createGrassTexture } from './textures';
+import { GROUND_SURFACES, groundSurfaceAt, type GroundSurfaceId } from './groundSurfaces';
+import { createDirtTexture } from './textures';
 
 /**
  * Rendu des cellules de terrain RÉELLEMENT présentes (2026-08-16, chantier
@@ -14,77 +15,84 @@ import { createDirtTexture, createGrassTexture } from './textures';
  * rebuildEditorBoard) — même fonction, jamais deux façons de dessiner une
  * cellule.
  *
- * Une géométrie FUSIONNÉE PAR TYPE DE TERRAIN (herbe/terre) — un draw call
- * par type quel que soit le nombre de cellules. Relief 2.5D (2026-10-28,
- * config/terrainElevation.ts) : chaque case n'a que son DESSUS (plat ou en
- * pente) et les faces latérales qui se voient — vers une case voisine plus
- * basse (falaise, entre les deux hauteurs) ou vers une case absente (bord du
- * plateau, trou : jusqu'à -CELL_THICKNESS). Aucune face cachée entre deux
- * cases au même niveau, aucune dalle superposée (pas de z-fighting). Carte
- * plate : même rendu que les anciennes dalles instanciées (dessus à y = 0,
- * flancs jusqu'à -CELL_THICKNESS au bord et autour des trous).
+ * FORME et APPARENCE séparées. Forme : relief 2.5D (2026-10-28,
+ * config/terrainElevation.ts) — chaque case n'a que son DESSUS (plat, en
+ * pente ou en pente de coin) et les faces latérales qui se voient — vers une
+ * case voisine plus basse (falaise, entre les deux hauteurs) ou vers une case
+ * absente (bord du plateau, trou : jusqu'à -CELL_THICKNESS). Aucune face
+ * cachée entre deux cases au même niveau, aucune dalle superposée (pas de
+ * z-fighting). Apparence : le dessus prend la SURFACE VISUELLE de la case
+ * (render/groundSurfaces.ts : herbe, variantes, terre), les flancs une terre
+ * plus sombre (FLANK_COLOR), commune à toutes les cases : une falaise se lit
+ * comme une rupture verticale, sans contour. Une géométrie fusionnée par
+ * surface présente plus une pour tous les flancs : un draw call par surface
+ * utilisée sur la carte (plus un), quel que soit le nombre de cases.
  *
- * Compromis assumé (documenté explicitement, pas un oubli) : remplace le
- * relief en STRATES de l'ancien sol (herbe/topsoil/subsoil empilés) par UNE
- * SEULE épaisseur par cellule — empiler 3 strates PAR CELLULE aurait
- * triplé le nombre d'instances pour un gain visuel marginal une fois la
- * carte vue depuis la caméra de jeu inclinée. Chaque cellule affiche aussi
- * la MÊME texture (pas de variation par instance, InstancedMesh ne permet
- * pas facilement une UV différente par instance sans shader dédié) — un
- * détail visuel à revoir plus tard si Antoine le juge trop répétitif une
- * fois vu en jeu.
+ * UV projetées en coordonnées monde : dessus en (x, z) — continu d'une case
+ * à l'autre, pente et coin compris (une pente étire la texture de 12 % dans
+ * le sens de la montée, rien d'absurde sur un coin) — et flancs en (position
+ * le long du bord, y), sans compression verticale quelle que soit leur
+ * hauteur. Une texture d'un cycle par case (herbe classique) donne
+ * exactement le placage d'avant.
+ *
+ * Compromis assumé : UNE SEULE épaisseur par cellule plutôt que les strates
+ * de l'ancien sol (herbe/topsoil/subsoil empilés) ; la terre des flancs en
+ * reprend l'idée.
  */
 
 /** Epaisseur visuelle d'une dalle de terrain (0,3 avant, x1,5 pour un
  *  plateau plus massif vu de cote). La dalle est posee SOUS y = 0 (voir
- *  buildTerrainLayer) : seuls les flancs de bord descendent, la surface
+ *  buildTerrainCellsView) : seuls les flancs de bord descendent, la surface
  *  jouee (unites, decors, grille, zones) ne bouge pas. Purement visuel,
  *  jamais lu par la simulation. */
-const CELL_THICKNESS = 0.45;
+export const CELL_THICKNESS = 0.45;
 
-/** Eclaircissement de la texture par niveau de relief (+15 %), pour lire les
- *  plateaux vus de dessus meme quand leurs falaises sont cachees. */
+/** Eclaircissement du dessus par niveau de relief, pour lire les plateaux
+ *  vus de dessus meme quand leurs falaises sont cachees. */
 const RELIEF_TINT_PER_LEVEL = 0.15;
+
+/** Assombrissement d'une pente (normale inclinee d'un niveau par case) : la
+ *  lumiere reelle marque deja son orientation, ce leger voile la distingue
+ *  d'un plat meme face au soleil. Proportionnel a l'inclinaison reelle. */
+const SLOPE_SHADE = 0.18;
+/** Composante verticale de la normale d'une pente cardinale (un niveau par
+ *  case : pente 1/2). */
+const SLOPE_NORMAL_Y = 1 / Math.hypot(1, TERRAIN_ELEVATION_STEP / TILE);
+
+/** Terre des flancs (multiplie ground_dirt.png, lineaire) : nettement plus
+ *  sombre que le dessus. */
+const FLANK_COLOR: readonly [number, number, number] = [1, 0.9, 0.8];
+/** Assombrissement au pied d'un flanc (haut du flanc : 1) : ombre de contact
+ *  qui ancre la falaise dans le sol. */
+const FLANK_FOOT_SHADE = 0.65;
 
 export interface TerrainCellsView {
   group: THREE.Group;
 }
+
+interface LayerBuffers {
+  positions: number[];
+  normals: number[];
+  uvs: number[];
+  colors: number[];
+}
+
+const newBuffers = (): LayerBuffers => ({ positions: [], normals: [], uvs: [], colors: [] });
 
 export function buildTerrainCellsView(cells: TerrainCellDef[], field: TerrainHeightField = FLAT_TERRAIN): TerrainCellsView {
   const group = new THREE.Group();
   const present = new Set(cells.map((c) => cellKey(c.x, c.z)));
   const hasCell = (x: number, z: number) => present.has(cellKey(x, z));
 
-  const byType = new Map<TerrainType, TerrainCellDef[]>();
-  for (const cell of cells) {
-    const list = byType.get(cell.terrain);
-    if (list) list.push(cell);
-    else byType.set(cell.terrain, [cell]);
-  }
-
-  const grassCells = byType.get('grass');
-  if (grassCells && grassCells.length > 0) group.add(buildTerrainLayer(grassCells, field, hasCell, createGrassTexture()));
-
-  const dirtCells = byType.get('dirt');
-  if (dirtCells && dirtCells.length > 0) group.add(buildTerrainLayer(dirtCells, field, hasCell, createDirtTexture()));
-
-  return { group };
-}
-
-function buildTerrainLayer(cells: TerrainCellDef[], field: TerrainHeightField, hasCell: (x: number, z: number) => boolean, texture: THREE.Texture): THREE.Mesh {
-  // Un seul cycle de texture par face (dessus ou flanc), comme les faces des
-  // anciennes dalles : pas de motif continu sur toute la carte.
-  texture.repeat.set(1, 1);
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const uvs: number[] = [];
-  const colors: number[] = [];
+  const tops = new Map<GroundSurfaceId, LayerBuffers>();
+  const flanks = newBuffers();
   const n = new THREE.Vector3();
   const ab = new THREE.Vector3();
   const ac = new THREE.Vector3();
   // Triangle oriente pour que sa normale geometrique pointe du cote de
-  // `outward` (face avant visible, materiau FrontSide).
-  const pushTriangle = (p: THREE.Vector3[], uv: [number, number][], outward: THREE.Vector3) => {
+  // `outward` (face avant visible, materiau FrontSide) ; `shade` : couleur
+  // de sommet (multiplie la texture) selon sa hauteur et la normale.
+  const pushTriangle = (out: LayerBuffers, p: THREE.Vector3[], uv: [number, number][], outward: THREE.Vector3, shade: (y: number, normal: THREE.Vector3) => number) => {
     ab.subVectors(p[1]!, p[0]!);
     ac.subVectors(p[2]!, p[0]!);
     n.crossVectors(ab, ac);
@@ -93,14 +101,18 @@ function buildTerrainLayer(cells: TerrainCellDef[], field: TerrainHeightField, h
     n.normalize();
     if (n.dot(outward) < 0) n.negate();
     for (const i of order) {
-      positions.push(p[i]!.x, p[i]!.y, p[i]!.z);
-      // Lisibilite du relief : chaque niveau eclaircit legerement la texture
-      // (rien sous y = 0 : carte plate inchangee).
-      const tint = 1 + RELIEF_TINT_PER_LEVEL * (Math.max(0, p[i]!.y) / TERRAIN_ELEVATION_STEP);
-      colors.push(tint, tint, tint);
-      normals.push(n.x, n.y, n.z);
-      uvs.push(uv[i]![0], uv[i]![1]);
+      out.positions.push(p[i]!.x, p[i]!.y, p[i]!.z);
+      const s = shade(p[i]!.y, n);
+      out.colors.push(s, s, s);
+      out.normals.push(n.x, n.y, n.z);
+      out.uvs.push(uv[i]![0], uv[i]![1]);
     }
+  };
+  // Dessus : eclairci par niveau (rien sous y = 0 : carte plate inchangee),
+  // pentes legerement voilees.
+  const topShade = (y: number, normal: THREE.Vector3) => {
+    const tilt = Math.min(1, Math.max(0, (1 - normal.y) / (1 - SLOPE_NORMAL_Y)));
+    return (1 + RELIEF_TINT_PER_LEVEL * (Math.max(0, y) / TERRAIN_ELEVATION_STEP)) * (1 - SLOPE_SHADE * tilt);
   };
   const up = new THREE.Vector3(0, 1, 0);
   for (const cell of cells) {
@@ -111,10 +123,14 @@ function buildTerrainLayer(cells: TerrainCellDef[], field: TerrainHeightField, h
     const z1 = cell.z + TILE;
     // Dessus : les deux triangles de la case (cellTriangles, meme diagonale
     // que la hauteur gameplay heightAt), plats, en pente ou en pente de coin.
+    const surface = groundSurfaceAt(cell.terrain, cell.x, cell.z);
+    let top = tops.get(surface);
+    if (!top) tops.set(surface, (top = newBuffers()));
+    const tiles = GROUND_SURFACES[surface].tiles;
     const point = (i: number) => new THREE.Vector3(i % 2 === 0 ? x0 : x1, h[i]!, i < 2 ? z0 : z1);
-    const uvOf = (i: number): [number, number] => [i % 2, i < 2 ? 1 : 0];
+    const uvOf = (i: number): [number, number] => [(i % 2 === 0 ? x0 : x1) / tiles, -(i < 2 ? z0 : z1) / tiles];
     for (const tri of cellTriangles(field.slopeAt(cell.x, cell.z))) {
-      pushTriangle(tri.map(point), tri.map(uvOf), up);
+      pushTriangle(top, tri.map(point), tri.map(uvOf), up, topShade);
     }
     // Flancs visibles.
     const corner = (i: number): [number, number] => [i % 2 === 0 ? x0 : x1, i < 2 ? z0 : z1];
@@ -137,21 +153,44 @@ function buildTerrainLayer(cells: TerrainCellDef[], field: TerrainHeightField, h
       const outward = new THREE.Vector3(v.dx, 0, v.dz);
       const minY = Math.min(bottom0, bottom1);
       const span = Math.max(top0, top1) - minY || 1;
-      const vOf = (y: number) => (y - minY) / span;
+      const flankShade = (y: number) => FLANK_FOOT_SHADE + (1 - FLANK_FOOT_SHADE) * ((y - minY) / span);
+      // u : position le long du bord (monde), v : hauteur (monde).
+      const along = v.dx === 0 ? (x: number) => x : (_x: number, z: number) => z;
+      const u0 = along(ax, az);
+      const u1 = along(bx, bz);
       const pTop0 = new THREE.Vector3(ax, top0, az);
       const pTop1 = new THREE.Vector3(bx, top1, bz);
       const pBot0 = new THREE.Vector3(ax, bottom0, az);
       const pBot1 = new THREE.Vector3(bx, bottom1, bz);
-      pushTriangle([pTop0, pBot0, pTop1], [[0, vOf(top0)], [0, vOf(bottom0)], [1, vOf(top1)]], outward);
-      pushTriangle([pTop1, pBot0, pBot1], [[1, vOf(top1)], [0, vOf(bottom0)], [1, vOf(bottom1)]], outward);
+      pushTriangle(flanks, [pTop0, pBot0, pTop1], [[u0, top0], [u0, bottom0], [u1, top1]], outward, flankShade);
+      pushTriangle(flanks, [pTop1, pBot0, pBot1], [[u1, top1], [u0, bottom0], [u1, bottom1]], outward, flankShade);
     }
   }
+  // Ordre stable des meshes (ordre des surfaces du catalogue), flancs en
+  // dernier.
+  for (const id of Object.keys(GROUND_SURFACES) as GroundSurfaceId[]) {
+    const top = tops.get(id);
+    if (!top) continue;
+    const def = GROUND_SURFACES[id];
+    const material = new THREE.MeshLambertMaterial({ map: def.texture(), vertexColors: true });
+    material.color.setRGB(def.color[0], def.color[1], def.color[2], THREE.LinearSRGBColorSpace);
+    group.add(layerMesh(top, material));
+  }
+  if (flanks.positions.length > 0) {
+    const material = new THREE.MeshLambertMaterial({ map: createDirtTexture(), vertexColors: true });
+    material.color.setRGB(FLANK_COLOR[0], FLANK_COLOR[1], FLANK_COLOR[2], THREE.LinearSRGBColorSpace);
+    group.add(layerMesh(flanks, material));
+  }
+  return { group };
+}
+
+function layerMesh(buffers: LayerBuffers, material: THREE.Material): THREE.Mesh {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ map: texture, vertexColors: true }));
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(buffers.positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(buffers.normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(buffers.uvs, 2));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(buffers.colors, 3));
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;
   return mesh;
 }

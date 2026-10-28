@@ -924,9 +924,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - donnée persistante minimale : `MapDef.reliefLogic`, seulement les cases
     dont la couche diffère de celle déduite du relief (niveau d'une case
     plate, bas d'une pente) ;
-  - pendant un trait, le pinceau vise le terrain du début du trait ; un
-    curseur placé loin au-delà du bord (le rayon passe derrière la carte)
-    peut ne toucher aucune case.
+  - pendant un trait, le pinceau vise le terrain du début du trait ; dans
+    le vide (hors carte, trou), il suit un plan de travail à la hauteur des
+    cases voisines ; un pinceau entièrement dans le vide est
+    neutre (ni aperçu, ni refus, ni entrée d'historique).
 - **Choix d'implémentation à valider** (pris pendant le chantier) :
   - une case portant un objet (bâtiment, Baliste, obstacle / structure,
     unité) ne change pas d'altitude dans l'éditeur (règle recommandée par
@@ -945,7 +946,17 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - falaises sans épaisseur (segments) : une pente d'une case laisse passer
     exactement un Fantassin (rayon 0,5) ;
   - les plateaux sont éclaircis de 15 % par niveau pour rester lisibles vus
-    du dessus.
+    du dessus ;
+  - lisibilité sans grille : flancs (falaises, bord, trous) en terre sombre
+    assombrie vers le pied, au lieu de l'herbe ; pentes voilées de 18 % à
+    pleine inclinaison (sinon une pente face au soleil se confond avec un
+    plat) ; éclairage de la scène inchangé ;
+  - surfaces visuelles du sol séparées du relief (`render/groundSurfaces.ts`),
+    choix automatique déterministe par case, rien d'enregistré ; palette
+    **classique** par défaut ; palettes `variee` et `pixel` seulement pour
+    comparaison (`?sol=`). **Ouvert** : palette à garder, et une éventuelle
+    peinture manuelle des surfaces dans l'éditeur (donnée optionnelle et
+    clairsemée), non commencée.
 - **Conséquences acceptées** : une falaise n'arrête aucun tir ; un
   plateau sans rampe est hors d'atteinte du corps à corps (seuls les tirs
   l'atteignent).
