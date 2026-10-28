@@ -1,11 +1,13 @@
 import * as THREE from 'three';
-import { COLORS, PLACEMENT_ROWS, TILE } from '../config/constants';
+import { COLORS, obstacleCenter, PLACEMENT_ROWS, TILE } from '../config/constants';
 import { cellKey, computeMapCellBounds, resolveMapCells, type MapDef, type TerrainCellDef } from '../config/mapDef';
+import { FLAT_TERRAIN, resolveMapHeightField, type TerrainHeightField } from '../config/terrainElevation';
 import { resolveMapTerritory, type TerritoryCell, type TerritoryTeam } from '../config/territory';
 import { ensureModels, loadEnvironmentAssets, obstacleModelKeys } from './assetLibrary';
 import { box } from './meshHelpers';
-import { buildObstacleMesh } from './obstacleFactory';
+import { buildObstacleMesh, placeObstacleMesh } from './obstacleFactory';
 import { buildCellGridLines, buildTerrainCellsView } from './terrainCells';
+import { appendCellSurfaceTriangles } from './terrainSurface';
 import { teamColor } from './unitSelectionRing';
 
 export interface Board {
@@ -53,7 +55,10 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   // avant, juste rendu en petites dalles instanciees plutot qu'une seule
   // grande boite.
   const cells = resolveMapCells(map);
-  const terrain = buildTerrainCellsView(cells);
+  // Relief (config/terrainElevation.ts) : sol, grille, zones, debris et
+  // decors suivent la hauteur de chaque case.
+  const field = resolveMapHeightField(map);
+  const terrain = buildTerrainCellsView(cells, field);
   group.add(terrain.group);
 
   // Zones de camp : le territoire de la map (config/territory.ts,
@@ -74,10 +79,11 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   const gridLines = buildCellGridLines(
     territory.filter((c) => cellKeys.has(cellKey(c.x, c.z))),
     COLORS.gridLine,
+    field,
   );
   group.add(gridLines);
 
-  const zones = createZonesGroup(territory);
+  const zones = createZonesGroup(territory, field);
   group.add(zones);
 
   // Obstacles : rochers et arbres bloquent la ligne de tir ET les pas en
@@ -91,22 +97,20 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   await ensureModels(obstacleModelKeys(map.obstacles));
   const obstacles = new THREE.Group();
   for (const obstacle of map.obstacles) {
-    obstacles.add(buildObstacleMesh(obstacle, environmentAssets));
+    const mesh = buildObstacleMesh(obstacle, environmentAssets);
+    const center = obstacleCenter(obstacle);
+    placeObstacleMesh(mesh, obstacle, field.heightAt(center.x, center.z));
+    obstacles.add(mesh);
   }
   group.add(obstacles);
 
-  scatterDecoration(group, cells);
+  scatterDecoration(group, cells, field);
 
   return { group, gridLines, zones, obstacles };
 }
 
 /** Hauteur des zones au-dessus du sol (sous la grille, a 0.012). */
 const ZONE_HEIGHT = 0.006;
-/** Case de zone unitaire, deja couchee au sol — partagee par toutes les
- *  zones et jamais liberee (meme principe que la geometrie des anneaux de
- *  selection, voir unitSelectionRing.ts) : une reconstruction du plateau ne
- *  cree aucune geometrie. */
-const zoneCellGeometry = new THREE.PlaneGeometry(TILE, TILE).rotateX(-Math.PI / 2);
 /** Un materiau par camp, partage et jamais modifie ni libere. */
 const zoneMaterials = new Map<TerritoryTeam, THREE.MeshBasicMaterial>();
 
@@ -121,22 +125,22 @@ function zoneMaterial(team: TerritoryTeam): THREE.MeshBasicMaterial {
 
 /** Zones de camp, une case d'overlay par case de territoire (`x → x+1`,
  *  `z → z+1`) : trous, formes irregulieres et camps melanges sont rendus
- *  tels quels, une case neutre n'a aucun overlay. Un `InstancedMesh` par
- *  camp present (meme technique que terrainCells.ts), soit au plus deux
- *  draw calls. Chaque mesh est place au centre de ses cases : l'ordre de
+ *  tels quels, une case neutre n'a aucun overlay. Une geometrie par camp
+ *  present (deux triangles par case, sur la surface du relief), soit au plus
+ *  deux draw calls. Chaque mesh est place au centre de ses cases : l'ordre de
  *  tri des objets transparents (zones, grille) reste celui des anciennes
  *  bandes. Recoit les cases deja resolues (resolveMapTerritory) — aucun
  *  calcul de zone ici. */
-export function createZonesGroup(cells: readonly TerritoryCell[]): THREE.Group {
+export function createZonesGroup(cells: readonly TerritoryCell[], field: TerrainHeightField = FLAT_TERRAIN): THREE.Group {
   const zones = new THREE.Group();
   for (const team of ['player', 'enemy'] as const) {
     const teamCells = cells.filter((c) => c.team === team);
-    if (teamCells.length > 0) zones.add(buildZoneLayer(teamCells, zoneMaterial(team)));
+    if (teamCells.length > 0) zones.add(buildZoneLayer(teamCells, zoneMaterial(team), field));
   }
   return zones;
 }
 
-function buildZoneLayer(cells: TerritoryCell[], material: THREE.MeshBasicMaterial): THREE.InstancedMesh {
+function buildZoneLayer(cells: TerritoryCell[], material: THREE.MeshBasicMaterial, field: TerrainHeightField): THREE.Mesh {
   let cx = 0;
   let cz = 0;
   for (const c of cells) {
@@ -146,14 +150,14 @@ function buildZoneLayer(cells: TerritoryCell[], material: THREE.MeshBasicMateria
   cx /= cells.length;
   cz /= cells.length;
 
-  const mesh = new THREE.InstancedMesh(zoneCellGeometry, material, cells.length);
+  // Relief : chaque case epouse sa surface (memes triangles que le sol,
+  // pente de coin comprise). Geometrie reconstruite avec le plateau.
+  const positions: number[] = [];
+  for (const c of cells) appendCellSurfaceTriangles(field, c.x, c.z, 0, positions, cx, cz);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(cx, ZONE_HEIGHT, cz);
-  const matrix = new THREE.Matrix4();
-  cells.forEach((c, i) => {
-    matrix.makeTranslation(c.x + TILE / 2 - cx, 0, c.z + TILE / 2 - cz);
-    mesh.setMatrixAt(i, matrix);
-  });
-  mesh.instanceMatrix.needsUpdate = true;
   return mesh;
 }
 
@@ -196,7 +200,7 @@ const WOOD_DEBRIS_MARGIN = 0.6;
  *  decale d'une demi-case sur une largeur impaire) sans regarder les cases :
  *  sur une arene a trous, des planches flottaient au-dessus du vide. Nombre
  *  proportionnel aux cases reelles ; quelques essais par debris au plus. */
-function scatterDecoration(group: THREE.Group, cells: TerrainCellDef[]): void {
+function scatterDecoration(group: THREE.Group, cells: TerrainCellDef[], field: TerrainHeightField): void {
   if (cells.length === 0) return;
   const present = new Set(cells.map((c) => cellKey(c.x, c.z)));
   const bounds = computeMapCellBounds(cells);
@@ -211,7 +215,12 @@ function scatterDecoration(group: THREE.Group, cells: TerrainCellDef[]): void {
       const x = bounds.minX + WOOD_DEBRIS_MARGIN + Math.random() * (bounds.maxX - bounds.minX - 2 * WOOD_DEBRIS_MARGIN);
       const z = bounds.minZ + WOOD_DEBRIS_MARGIN + Math.random() * (bounds.maxZ - bounds.minZ - 2 * WOOD_DEBRIS_MARGIN);
       if (!onTerrain(x, z)) continue;
-      group.add(createWoodDebris(x, z));
+      // Relief : jamais sur une pente ni a cheval sur deux niveaux.
+      const level = field.flatLevelOver(x - WOOD_DEBRIS_MARGIN, x + WOOD_DEBRIS_MARGIN, z - WOOD_DEBRIS_MARGIN, z + WOOD_DEBRIS_MARGIN);
+      if (level === null) continue;
+      const debris = createWoodDebris(x, z);
+      debris.position.y = field.heightAt(x, z);
+      group.add(debris);
       break;
     }
   }

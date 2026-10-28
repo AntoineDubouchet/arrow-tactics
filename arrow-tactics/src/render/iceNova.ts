@@ -3,6 +3,7 @@ import { COLORS, TILE } from '../config/constants';
 import type { Entity } from '../sim/entity';
 import type { PersistentAreaEffect } from '../sim/systems/persistentAreaEffects';
 import { loadVfxTexture } from './vfxTextures';
+import { surfaceY } from './terrainSurface';
 
 /**
  * Rendu de la Nova de glace / du Blizzard (2026-08-14) — style low-poly
@@ -344,10 +345,10 @@ export class IceNovaView {
    *  correspond TOUJOURS exactement au rayon gameplay reel, jamais une
    *  valeur redessinee a la main. */
   showTargetPreview(x: number, z: number, radius: number): void {
-    this.targetRing.position.set(x, 0.031, z);
+    this.targetRing.position.set(x, 0.031 + surfaceY(x, z), z);
     this.targetRing.scale.setScalar(radius * TILE);
     this.targetRing.visible = true;
-    this.targetFill.position.set(x, 0.029, z);
+    this.targetFill.position.set(x, 0.029 + surfaceY(x, z), z);
     this.targetFill.scale.setScalar(radius * TILE);
     this.targetFill.visible = true;
   }
@@ -378,7 +379,7 @@ export class IceNovaView {
         this.group.add(fx);
       }
       const pos = resolvePosition(e);
-      fx.position.set(pos.x, 0, pos.z);
+      fx.position.set(pos.x, 0 + surfaceY(pos.x, pos.z), pos.z);
     }
 
     for (const [id, fx] of this.frostIndicators) {
@@ -401,7 +402,7 @@ export class IceNovaView {
       new THREE.MeshBasicMaterial({ color: COLORS.iceCore, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
     );
     flash.rotation.x = -Math.PI / 2;
-    flash.position.set(x, 0.04, z);
+    flash.position.set(x, 0.04 + surfaceY(x, z), z);
     this.group.add(flash);
 
     const ring = new THREE.Mesh(
@@ -409,7 +410,7 @@ export class IceNovaView {
       new THREE.MeshBasicMaterial({ color: COLORS.iceGlow, transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
     );
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(x, 0.05, z);
+    ring.position.set(x, 0.05 + surfaceY(x, z), z);
     this.group.add(ring);
 
     // Onde de choc : part TOUTE PETITE et explose au-dela du rayon reel
@@ -421,7 +422,7 @@ export class IceNovaView {
       new THREE.MeshBasicMaterial({ color: COLORS.iceCore, transparent: true, opacity: 1, side: THREE.DoubleSide }),
     );
     shockwave.rotation.x = -Math.PI / 2;
-    shockwave.position.set(x, 0.06, z);
+    shockwave.position.set(x, 0.06 + surfaceY(x, z), z);
     shockwave.scale.setScalar(0.15);
     this.group.add(shockwave);
 
@@ -445,7 +446,7 @@ export class IceNovaView {
         depthWrite: false,
       }),
     );
-    burstDome.position.set(x, 0.02, z);
+    burstDome.position.set(x, 0.02 + surfaceY(x, z), z);
     burstDome.scale.setScalar(0.3);
     this.group.add(burstDome);
 
@@ -465,7 +466,7 @@ export class IceNovaView {
         geometry,
         new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? COLORS.iceDeep : COLORS.iceCore, transparent: true, opacity: 0.9 }),
       );
-      mesh.position.set(x, 0.035, z);
+      mesh.position.set(x, 0.035 + surfaceY(x, z), z);
       mesh.rotation.y = Math.atan2(-dirZ, dirX);
       mesh.scale.x = 0.001;
       this.group.add(mesh);
@@ -480,7 +481,7 @@ export class IceNovaView {
       );
       const angle = (i / SHARD_COUNT) * Math.PI * 2;
       const r = Math.random() * worldRadius * 0.6;
-      mesh.position.set(x + Math.cos(angle) * r, 0.1, z + Math.sin(angle) * r);
+      mesh.position.set(x + Math.cos(angle) * r, 0.1 + surfaceY(x, z), z + Math.sin(angle) * r);
       mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
       this.group.add(mesh);
       shards.push({
@@ -505,7 +506,7 @@ export class IceNovaView {
         this.zones.set(zone, fx);
         this.group.add(fx.group);
       }
-      fx.group.position.set(zone.x, 0, zone.z);
+      fx.group.position.set(zone.x, 0 + surfaceY(zone.x, zone.z), zone.z);
 
       const fadeIn = Math.min(1, zone.elapsed / BLIZZARD_FADE);
       const fadeOut = Math.min(1, (zone.duration - zone.elapsed) / BLIZZARD_FADE);

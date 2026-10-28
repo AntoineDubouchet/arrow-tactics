@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Team } from '../sim/entity';
 import { buildUnit } from './unitMesh';
+import { surfaceY } from './terrainSurface';
 
 /**
  * Apercu d'un deplacement d'unites sur la grille (editeur et preparation) :
@@ -128,13 +129,13 @@ export class UnitMovePreview {
       const index = used.get(key) ?? 0;
       used.set(key, index + 1);
       const ghost = this.ghostAt(key, item.unitId, item.team, index);
-      ghost.root.position.set(item.x, 0, item.z);
+      ghost.root.position.set(item.x, 0 + surfaceY(item.x, item.z), item.z);
       setGhostValid(ghost, item.valid);
       ghost.root.visible = true;
 
       for (const cell of item.footprint ?? [{ x: item.x, z: item.z }]) {
         const tile = this.footprintAt(usedFootprints++);
-        tile.position.set(cell.x, FOOTPRINT_HEIGHT, cell.z);
+        tile.position.set(cell.x, FOOTPRINT_HEIGHT + surfaceY(cell.x, cell.z), cell.z);
         tile.material = item.valid ? validFootprintMaterial : invalidFootprintMaterial;
         tile.visible = true;
       }

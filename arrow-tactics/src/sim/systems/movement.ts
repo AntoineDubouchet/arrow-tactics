@@ -15,7 +15,7 @@ import {
   type ObstacleDef,
 } from '../../config/constants';
 import { clamp } from '../../core/math';
-import { findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, obstaclesBlockingTeam, obstaclesCollidingTeam, segmentIntersectsBox } from '../geometry';
+import { bodyPathNearTerrainCliff, crossesTerrainCliff, findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, isMeleeAttack, obstaclesBlockingTeam, obstaclesCollidingTeam, segmentIntersectsBox } from '../geometry';
 import { forwardDir, type Entity } from '../entity';
 import { finishOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
 import { buildPathGrid, findPath, type PathGrid } from '../pathfinding';
@@ -151,6 +151,16 @@ export function movementSystem(
   let maxRadius = 0;
   for (const e of movable) if (e.stats.radius > maxRadius) maxRadius = e.stats.radius;
   const separationCellSize = Math.max(2 * maxRadius, 0.01);
+  // Relief : unites au contact d'une autre au debut du tick (voir
+  // bodyClearanceFor). Une fois par tick, ordre deterministe.
+  const touching = touchingEntityIds(movable, separationCellSize);
+  /** Marge de corps pres des falaises (bodyPathNearTerrainCliff) : seulement
+   *  pour une unite SEULE. Une unite au contact d'une autre garde la ligne
+   *  droite des qu'elle est degagee entre centres : sinon, deux unites cote
+   *  a cote devant une rampe d'une case visent le meme point de passage A*
+   *  et se bloquent mutuellement sans fin (aucun degagement pour un ordre de
+   *  deplacement). */
+  const bodyClearanceFor = (e: Entity): number => (touching.has(e.id) ? 0 : e.stats.radius);
 
   for (let iter = 0; iter < COLLISION_ITERATIONS; iter++) {
     // 1. Degagement, sidestep, poursuite (un petit pas) ou marche neutre
@@ -213,7 +223,7 @@ export function movementSystem(
       // qui suspend l'ordre sans l'effacer — l'unite poursuit alors la
       // Sentinelle normalement, et reprend son trajet ensuite.
       if (e.order.type === 'move' && e.tauntSourceId === null) {
-        followMoveOrder(e, e.order, teamObstacles(e), teamGrid(e), subDt, orderEvents);
+        followMoveOrder(e, e.order, teamObstacles(e), teamGrid(e), subDt, orderEvents, bodyClearanceFor(e));
         continue;
       }
 
@@ -233,10 +243,7 @@ export function movementSystem(
         continue;
       }
 
-      const dx = target.x - e.x;
-      const dz = target.z - e.z;
-      const d = Math.hypot(dx, dz);
-      const inAttackRange = d <= engagementStopDistance(e, target);
+      const inAttackRange = isEngaged(e, target, teamObstacles(e));
 
       if (inAttackRange) {
         e.steerX = null;
@@ -245,7 +252,7 @@ export function movementSystem(
         continue;
       }
 
-      const routeFound = pursueTargetWithPathfinding(e, target, teamObstacles(e), teamGrid(e), subDt);
+      const routeFound = pursueTargetWithPathfinding(e, target, teamObstacles(e), teamGrid(e), subDt, bodyClearanceFor(e));
       // Attaque ciblee vers une cible sans aucune route (A* ne trouve rien,
       // plateau deconnecte) : l'ordre echoue au lieu de laisser l'unite
       // tourner indefiniment avec l'evitement local. Une poursuite autonome
@@ -277,6 +284,27 @@ export function movementSystem(
     e.x = clamp(e.x, -halfW + r, halfW - r);
     e.z = clamp(e.z, -halfH + r, halfH - r);
   }
+}
+
+/** Ids des unites dont le corps touche (ou chevauche) celui d'une autre :
+ *  boucle directe sous SEPARATION_GRID_THRESHOLD, grille au-dela (meme
+ *  partage que la separation). */
+function touchingEntityIds(alive: Entity[], cellSize: number): Set<number> {
+  const touching = new Set<number>();
+  const test = (a: Entity, b: Entity) => {
+    if (Math.hypot(b.x - a.x, b.z - a.z) <= (a.stats.radius + b.stats.radius) * 1.02) {
+      touching.add(a.id);
+      touching.add(b.id);
+    }
+  };
+  if (alive.length < SEPARATION_GRID_THRESHOLD) {
+    for (let i = 0; i < alive.length; i++) for (let j = i + 1; j < alive.length; j++) test(alive[i]!, alive[j]!);
+    return touching;
+  }
+  const grid = new SpatialGrid<Entity>(cellSize);
+  for (const e of alive) grid.insert(e);
+  for (const a of alive) for (const b of grid.queryNeighborhood(a.x, a.z)) if (b.id > a.id) test(a, b);
+  return touching;
 }
 
 /** Boucle O(n^2) d'origine — conservee telle quelle pour les petits
@@ -363,6 +391,15 @@ function applySeparationPair(a: Entity, b: Entity, i: number, subDt: number): vo
  *   y ajouter le rayon de la cible arretait le Mage hors de portee de tir.
  * - Sinon : attackRange bord a bord, comportement historique inchange.
  */
+/** L'unite est a portee d'engagement de sa cible ET, pour une attaque de
+ *  corps a corps (sans engageRange), aucune falaise ne les separe — sinon
+ *  elle continue de chercher un passage (pente) au lieu de s'arreter au pied
+ *  de la falaise sans pouvoir frapper (voir combatSystem). */
+function isEngaged(e: Entity, target: Entity, obstacles: ObstacleDef[]): boolean {
+  if (Math.hypot(target.x - e.x, target.z - e.z) > engagementStopDistance(e, target)) return false;
+  return e.stats.engageRange !== undefined || !isMeleeAttack(e.stats) || !crossesTerrainCliff(e.x, e.z, target.x, target.z, obstacles);
+}
+
 function engagementStopDistance(e: Entity, target: Entity): number {
   if (e.stats.engageRange !== undefined) return e.stats.engageRange;
   return e.stats.attackRange + target.stats.radius;
@@ -516,7 +553,7 @@ function updateStuckState(
     // pendant le suivi d'un chemin A*. Echec : Garde.
     if (e.order.type === 'attack' && e.tauntSourceId === null && e.order.targetEntityId === target.id) {
       const distToTarget = Math.hypot(target.x - e.x, target.z - e.z);
-      if (distToTarget <= engagementStopDistance(e, target)) {
+      if (isEngaged(e, target, obstacles)) {
         e.orderProgressTimer = 0;
         e.orderProgressRef = distToTarget;
       } else if (orderMadeNoProgress(e, distToTarget, dt, NEUTRAL_STUCK_CHECK_DURATION, ORBIT_PROGRESS_THRESHOLD)) {
@@ -528,7 +565,7 @@ function updateStuckState(
     const wantsToMove =
       e.sidestepTimer <= 0 &&
       e.unstickTimer <= 0 &&
-      Math.hypot(target.x - e.x, target.z - e.z) > engagementStopDistance(e, target);
+      !isEngaged(e, target, obstacles);
 
     if (!wantsToMove) {
       e.stuckTimer = 0;
@@ -700,10 +737,10 @@ function moveStraightTowards(e: Entity, aimX: number, aimZ: number, subDt: numbe
 /** Renvoie false uniquement quand A* ne trouve AUCUNE route vers la cible
  *  (plateau deconnecte) — utilise pour faire echouer une attaque ciblee. Le
  *  deplacement de repli de ce cas reste celui d'avant. */
-function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: ObstacleDef[], grid: PathGrid, subDt: number): boolean {
+function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: ObstacleDef[], grid: PathGrid, subDt: number, bodyClearance: number): boolean {
   // target.footprintObstacle (2026-08-16) : meme correctif que combatSystem —
   // un batiment cible ne doit jamais se declarer bloquant envers lui-meme.
-  if (findBlockingObstacle(e.x, e.z, target.x, target.z, obstacles, target.footprintObstacle) === null) {
+  if (findBlockingObstacle(e.x, e.z, target.x, target.z, obstacles, target.footprintObstacle) === null && !bodyPathNearTerrainCliff(e.x, e.z, target.x, target.z, bodyClearance, obstacles)) {
     e.path = null;
     moveStraightTowards(e, target.x, target.z, subDt);
     return true;
@@ -759,6 +796,7 @@ function followMoveOrder(
   grid: PathGrid,
   subDt: number,
   orderEvents: OrderEndEvent[],
+  bodyClearance: number,
 ): void {
   const remaining = Math.hypot(order.x - e.x, order.z - e.z);
   if (order.exact) {
@@ -775,7 +813,7 @@ function followMoveOrder(
     return;
   }
 
-  if (findBlockingObstacle(e.x, e.z, order.x, order.z, obstacles) === null) {
+  if (findBlockingObstacle(e.x, e.z, order.x, order.z, obstacles) === null && !bodyPathNearTerrainCliff(e.x, e.z, order.x, order.z, bodyClearance, obstacles)) {
     e.path = null;
     moveStraightTowards(e, order.x, order.z, subDt);
     return;

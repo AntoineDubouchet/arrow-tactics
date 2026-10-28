@@ -1,4 +1,5 @@
 import { BALLISTA_TOWER_FOOTPRINT, BOARD_H, BOARD_W, PLACEMENT_ROWS, PLAYER_ARROW_CORNER_INSET, TILE, type ObstacleDef } from './constants';
+import type { TerrainElevationCellDef } from './terrainElevation';
 import type { TerritoryCell } from './territory';
 
 /**
@@ -99,6 +100,19 @@ export interface MapDef {
   /** Batiments gameplay de scenario (voir MapBuildingPlacement). OPTIONNEL :
    *  absent = aucun batiment de scenario (toute map anterieure). */
   buildings?: MapBuildingPlacement[];
+  /** Relief 2.5D (2026-10-28, voir config/terrainElevation.ts) : altitude ou
+   *  pente des cases qui ne sont pas plates au niveau 0, meme convention de
+   *  coordonnees que `cells`. OPTIONNEL et SPARSE : absent sur toute map
+   *  anterieure, qui reste entierement plate au niveau 0. */
+  elevationCells?: TerrainElevationCellDef[];
+  /** Hauteurs LOGIQUES de cases (pinceaux Surelever /
+   *  Abaisser de l'editeur, voir config/terrainElevation.ts ReliefLogic) :
+   *  seulement les cases dont la hauteur logique differe de celle que
+   *  l'on deduit du relief (deriveReliefLogic) — par exemple sous les
+   *  anneaux de transition d'un creux ou d'un sommet niveau 2. Sert a garder la
+   *  sculpture reversible apres un rechargement ; ignore par le jeu.
+   *  OPTIONNEL : absent = tout se deduit du relief. */
+  reliefLogic?: { x: number; z: number; level: number }[];
 }
 
 /** Cle stable d'une cellule — sert de cle de Map/Set (lookup O(1) "cette

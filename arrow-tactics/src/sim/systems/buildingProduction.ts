@@ -1,6 +1,7 @@
-import { isCollidableObstacle, obstacleBounds, type ObstacleDef } from '../../config/constants';
+import { obstacleBounds, type ObstacleDef } from '../../config/constants';
 import { populationOfEntities, unitPopulationCost } from '../../data/population';
 import { forwardDir, type Entity, type Team } from '../entity';
+import { segmentIntersectsBox } from '../geometry';
 
 /**
  * Production d'unites par les batiments de production (Caserne, Camp
@@ -113,9 +114,19 @@ function findFreeAdjacentCells(
   for (const c of candidates) {
     if (chosen.length >= count) break;
     if (reserved.some((r) => sameCell(r, c))) continue;
+    if (acrossCliff(bounds, c, obstacles)) continue;
     if (isCellFree(c.x, c.z, entities, obstacles)) chosen.push(c);
   }
   return chosen;
+}
+
+/** Relief : vrai si une falaise (ObstacleDef.terrainCliff) separe la case
+ *  candidate de la case de l'emprise la plus proche — une unite produite
+ *  n'apparait jamais au pied ou en haut d'une falaise collee au batiment. */
+function acrossCliff(bounds: { minX: number; maxX: number; minZ: number; maxZ: number }, c: { x: number; z: number }, obstacles: ObstacleDef[]): boolean {
+  const fx = Math.min(Math.max(c.x, bounds.minX + 0.5), bounds.maxX - 0.5);
+  const fz = Math.min(Math.max(c.z, bounds.minZ + 0.5), bounds.maxZ - 0.5);
+  return obstacles.some((o) => o.terrainCliff === true && segmentIntersectsBox(fx, fz, c.x - fx, c.z - fz, obstacleBounds(o)) !== null);
 }
 
 function sameCell(a: { x: number; z: number }, b: { x: number; z: number }): boolean {
@@ -123,8 +134,8 @@ function sameCell(a: { x: number; z: number }, b: { x: number; z: number }): boo
 }
 
 function isCellFree(cx: number, cz: number, entities: Entity[], obstacles: ObstacleDef[]): boolean {
+  // Obstacles de World : tous bloquants (decors exclus par World.setMap).
   for (const o of obstacles) {
-    if (!isCollidableObstacle(o)) continue;
     const b = obstacleBounds(o);
     if (cx > b.minX && cx < b.maxX && cz > b.minZ && cz < b.maxZ) return false;
   }

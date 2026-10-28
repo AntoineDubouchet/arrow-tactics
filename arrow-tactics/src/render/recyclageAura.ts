@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { COLORS } from '../config/constants';
 import { loadVfxTexture } from './vfxTextures';
+import { surfaceY } from './terrainSurface';
 
 /**
  * Aura de particules pour les unites eligibles au talent "Recyclage"
@@ -79,7 +80,7 @@ export class RecyclageAuraView {
         this.auras.set(slot.key, aura);
         this.group.add(aura.group);
       }
-      aura.group.position.set(slot.x, 0, slot.z);
+      aura.group.position.set(slot.x, 0 + surfaceY(slot.x, slot.z), slot.z);
       this.animateAura(aura, dt);
     }
   }

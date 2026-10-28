@@ -1,4 +1,4 @@
-import { isCollidableObstacle, obstacleBounds, obstacleCenter, PLACEMENT_ROWS, type ObstacleBounds, type ObstacleDef } from '../config/constants';
+import { isBlockingMapObstacle, obstacleBounds, obstacleCenter, PLACEMENT_ROWS, type ObstacleBounds, type ObstacleDef } from '../config/constants';
 import {
   BALLISTA_PLACEMENT_TILES,
   buildCellIndex,
@@ -14,6 +14,30 @@ import {
   type TerrainCellDef,
   type TerrainType,
 } from '../config/mapDef';
+import {
+  CONCAVE_CORNER_SLOPE_DIRECTIONS,
+  CORNER_SLOPE_DIRECTIONS,
+  evaluateCornerSlope,
+  evaluateSlope,
+  isConcaveCornerSlope,
+  deriveReliefLogic,
+  reliefBrushCore,
+  reliefBrushOrigin,
+  renderReliefLogic,
+  sculptRelief,
+  SLOPE_DIRECTIONS,
+  TerrainHeightField,
+  TERRAIN_LEVEL_MAX,
+  TERRAIN_LEVEL_MIN,
+  type CornerShape,
+  type ReliefBrushSize,
+  type ReliefDelta,
+  type ReliefSculptContext,
+  type RenderedRelief,
+  type SlopeDirection,
+  type SlopeShape,
+  type TerrainElevationCellDef,
+} from '../config/terrainElevation';
 import {
   buildTerritoryIndex,
   isFootprintOwnedBy,
@@ -98,6 +122,47 @@ export type EditorSelection =
   | { kind: 'ballista' }
   | null;
 
+/** Pente resolue sur une case (voir EditorState.resolveSlope). */
+export interface SlopeResolution<D extends SlopeShape = SlopeDirection> {
+  dir: D;
+  /** Orientation imposee par les voisins (differente de celle de R). */
+  deduced: boolean;
+  status: { ok: true; level: number } | { ok: false; reason: string };
+}
+
+/** Etat du relief au DEBUT d'un trait de sculpture (EditorState.reliefStrokeStart) :
+ *  tout le trait se mesure sur lui (une case logique ne change qu'une fois). */
+export interface ReliefStrokeStart {
+  logic: ReadonlyMap<string, number>;
+  rendered: RenderedRelief;
+  field: TerrainHeightField;
+}
+
+/** Plan d'un tampon de pinceau de relief (voir EditorState.reliefBrushPlanAt). */
+export interface ReliefBrushPlan {
+  /** Case nord-ouest du coeur logique. */
+  originX: number;
+  originZ: number;
+  /** Coeur logique du tampon sur des cases de terrain (cles "x,z"), ajoute
+   *  aux cases peintes du trait ; la partie hors carte ou dans un trou est
+   *  simplement coupee. */
+  core: string[];
+  /** Relief futur : toutes les cases que le trait (cases deja peintes + ce
+   *  tampon) change, si le tampon est valide ; sinon le carre du pinceau
+   *  dans la carte, tel qu'il est (apercu rouge). */
+  cells: TerrainElevationCellDef[];
+  /** Cases (cles "x,z") de `cells` comblees par une liaison diagonale
+   *  (apercu orange : aucune case modifiee hors apercu). */
+  bridged: string[];
+  /** Champ logique apres le trait (a appliquer avec `cells`). */
+  logic: Map<string, number>;
+  /** Changement de niveau du coeur du tampon, pour la ligne d'etat :
+   *  « niveau 0 → 1 », ou une formulation generale si le coeur couvre
+   *  plusieurs niveaux. */
+  levels: string;
+  status: { ok: true } | { ok: false; reason: string };
+}
+
 export type EditorTool =
   | { type: 'select' }
   | { type: 'place-obstacle'; template: PlacementTemplate }
@@ -106,6 +171,17 @@ export type EditorTool =
   | { type: 'place-building'; buildingId: string; rotationY?: number }
   | { type: 'add-cell'; terrain: TerrainType }
   | { type: 'remove-cell' }
+  /** Sculpture du relief (config/terrainElevation.ts, sculptRelief) :
+   *  pinceau continu Surelever (+1) / Abaisser (-1), une couche par trait,
+   *  taille 1×1 ou 4×4. */
+  | { type: 'relief-brush'; delta: ReliefDelta; size: ReliefBrushSize }
+  /** Ajustement : pente montant vers `dir` sur la case survolee (R :
+   *  tourner). Pinceau repetable, comme les outils de case. */
+  | { type: 'slope-cell'; dir: SlopeDirection }
+  /** Pente de coin manuelle : exterieure (`dir` NE… = coin haut) ou
+   *  interieure (`dir` NEi… = coin bas) ; R tourne dans la meme famille
+   *  (NE → SE → SW → NW). Pinceau repetable, comme Pente. */
+  | { type: 'corner-slope-cell'; dir: CornerShape }
   /** Pinceau de territoire : `team` peint la case pour ce camp, `null`
    *  l'efface (case neutre). */
   | { type: 'paint-territory'; team: TerritoryTeam | null };
@@ -162,6 +238,9 @@ export interface EditorMapShapeSnapshot {
   width: number;
   height: number;
   cells: TerrainCellDef[];
+  elevation: TerrainElevationCellDef[];
+  /** Champ logique de la sculpture (entrees [cle de sommet, niveau]). */
+  reliefLogic: [string, number][];
   ballista: { x: number; z: number };
   ballistaExplicit: boolean;
 }
@@ -191,6 +270,18 @@ export class EditorState {
    *  redevient donc un rectangle plein dès l'ouverture dans l'éditeur —
    *  exactement son apparence actuelle, aucune migration nécessaire. */
   private cellMap: Map<string, TerrainCellDef>;
+
+  /** Relief du brouillon (voir MapDef.elevationCells) : seulement les cases
+   *  qui ne sont pas plates au niveau 0, clees par cellKey. */
+  private elevationMap: Map<string, TerrainElevationCellDef>;
+  /** Champ de hauteur du brouillon, reconstruit a la demande apres toute
+   *  modification du relief ou des cases. */
+  private heightFieldCache: TerrainHeightField | null = null;
+  /** Hauteurs logiques des cases (sculpture, voir ReliefLogic) : deduites
+   *  du relief au chargement, puis corrigees par MapDef.reliefLogic. */
+  private reliefLogicMap: Map<string, number>;
+  /** Surface canonique du champ logique (renderReliefLogic), a la demande. */
+  private renderedReliefCache: RenderedRelief | null = null;
 
   private nextId = 1;
 
@@ -229,6 +320,16 @@ export class EditorState {
     this.width = source.width;
     this.height = source.height;
     this.cellMap = buildCellIndex(resolveMapCells(source));
+    this.elevationMap = new Map();
+    for (const e of source.elevationCells ?? []) {
+      if (!this.cellMap.has(cellKey(e.x, e.z)) || (e.level === 0 && !e.slope)) continue;
+      this.elevationMap.set(cellKey(e.x, e.z), { x: e.x, z: e.z, level: e.level, ...(e.slope ? { slope: e.slope } : {}) });
+    }
+    this.reliefLogicMap = deriveReliefLogic(this.heightField(), this.cells);
+    for (const v of source.reliefLogic ?? []) {
+      if (v.level === 0) this.reliefLogicMap.delete(cellKey(v.x, v.z));
+      else this.reliefLogicMap.set(cellKey(v.x, v.z), v.level);
+    }
     this.territory = source.territory?.map((c) => ({ x: c.x, z: c.z, team: c.team }));
 
     this.ballistaExplicit = source.ballista !== undefined;
@@ -281,7 +382,9 @@ export class EditorState {
         if (!this.hasCellAt(cx, cz)) return false;
       }
     }
-    if (this.obstacles.some((o) => isCollidableObstacle(o) && boundsOverlap(b, obstacleBounds(o)))) return false;
+    // Relief : tour posee sur une emprise entierement plate, a un seul niveau.
+    if (this.heightField().flatLevelOver(b.minX, b.maxX, b.minZ, b.maxZ) === null) return false;
+    if (this.obstacles.some((o) => isBlockingMapObstacle(o) && boundsOverlap(b, obstacleBounds(o)))) return false;
     if (this.buildings.some((bd) => boundsOverlap(b, buildingBoundsAt(bd.buildingId, bd.x, bd.z, bd.rotationY)))) return false;
     return !this.units.some((u) => u.x > b.minX && u.x < b.maxX && u.z > b.minZ && u.z < b.maxZ);
   }
@@ -352,6 +455,247 @@ export class EditorState {
     return [...this.cellMap.values()];
   }
 
+  /** Relief du brouillon pour l'export (MapDef.elevationCells), trie par z
+   *  puis x : meme fichier quel que soit l'ordre des modifications. */
+  get elevationCells(): TerrainElevationCellDef[] {
+    return [...this.elevationMap.values()].sort((a, b) => a.z - b.z || a.x - b.x).map((e) => ({ ...e }));
+  }
+
+  /** Champ de hauteur du brouillon (rendu, raycast, regles de pose). */
+  heightField(): TerrainHeightField {
+    if (!this.heightFieldCache) this.heightFieldCache = new TerrainHeightField([...this.elevationMap.values()]);
+    return this.heightFieldCache;
+  }
+
+  private invalidateHeightField(): void {
+    this.heightFieldCache = null;
+  }
+
+  /** Vrai si la case porte quelque chose dont la hauteur depend d'elle :
+   *  batiment de scenario (muraille, porte comprise), Baliste, obstacle /
+   *  structure BLOQUANT (centre dans la case ou emprise qui la chevauche) ou
+   *  unite de scenario. Regle du relief : une telle case ne change jamais
+   *  d'altitude. Un DECOR ne verrouille rien : il suit la nouvelle surface
+   *  (hauteur derivee du terrain a son point d'ancrage, jamais stockee). */
+  isCellOccupied(x: number, z: number): boolean {
+    const cell = { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
+    if (this.isCellUnderBallista(x, z)) return true;
+    if (this.buildings.some((b) => boundsOverlap(cell, buildingBoundsAt(b.buildingId, b.x, b.z, b.rotationY)))) return true;
+    if (this.units.some((u) => Math.floor(u.x) === x && Math.floor(u.z) === z)) return true;
+    return this.obstacles.some((o) => {
+      if (!isBlockingMapObstacle(o)) return false;
+      const center = obstacleCenter(o);
+      return (Math.floor(center.x) === x && Math.floor(center.z) === z) || boundsOverlap(cell, obstacleBounds(o));
+    });
+  }
+
+  /** Niveau (bord bas pour une pente) et pente de la case. */
+  elevationAt(x: number, z: number): { level: number; slope: SlopeShape | null } {
+    const e = this.elevationMap.get(cellKey(x, z));
+    return { level: e?.level ?? 0, slope: e?.slope ?? null };
+  }
+
+  private setElevation(x: number, z: number, level: number, slope: SlopeShape | null): void {
+    const key = cellKey(x, z);
+    if (level === 0 && !slope) this.elevationMap.delete(key);
+    else this.elevationMap.set(key, { x, z, level, ...(slope ? { slope } : {}) });
+    this.invalidateHeightField();
+  }
+
+  /** Validite d'une pente montant vers `dir` sur la case : case libre (voir
+   *  isCellOccupied), pas deja cette meme pente, et voisins bas/haut
+   *  exactement a un niveau d'ecart (evaluateSlope). Le niveau de la pente
+   *  vient de ses voisins, jamais de la case elle-meme. */
+  slopeStatus(x: number, z: number, dir: SlopeDirection): { ok: true; level: number } | { ok: false; reason: string } {
+    if (!this.hasCellAt(x, z)) return { ok: false, reason: 'aucune case' };
+    if (this.isCellOccupied(x, z)) return { ok: false, reason: 'case occupée' };
+    const result = evaluateSlope(this.heightField(), (cx, cz) => this.hasCellAt(cx, cz), x, z, dir);
+    if (!result.ok) return result;
+    const current = this.elevationAt(x, z);
+    if (current.slope === dir && current.level === result.level) return { ok: false, reason: 'pente déjà posée' };
+    return result;
+  }
+
+  /** Pente qui serait REELLEMENT posee sur la case : orientation `preferred`
+   *  (outil, R) si elle est valide ; sinon la SEULE orientation valide
+   *  d'apres les voisins, quand il n'y en a qu'une (le cote bas et le cote
+   *  haut se deduisent du terrain, sans convention cachee) ; sinon
+   *  `preferred`, refusee. SOURCE UNIQUE de l'apercu, de la pose et du texte
+   *  de l'interface (main.ts) : `status` est la validation de `dir`. */
+  resolveSlope(x: number, z: number, preferred: SlopeDirection): SlopeResolution {
+    const status = this.slopeStatus(x, z, preferred);
+    if (status.ok) return { dir: preferred, deduced: false, status };
+    let only: SlopeResolution | null = null;
+    for (const dir of SLOPE_DIRECTIONS) {
+      if (dir === preferred) continue;
+      const s = this.slopeStatus(x, z, dir);
+      if (!s.ok) continue;
+      if (only) return { dir: preferred, deduced: false, status };
+      only = { dir, deduced: true, status: s };
+    }
+    return only ?? { dir: preferred, deduced: false, status };
+  }
+
+  /** Surface canonique du champ logique courant (voir renderReliefLogic). */
+  renderedRelief(): RenderedRelief {
+    this.renderedReliefCache ??= renderReliefLogic(this.reliefLogicMap, this.cells);
+    return this.renderedReliefCache;
+  }
+
+  private invalidateRenderedRelief(): void {
+    this.renderedReliefCache = null;
+  }
+
+  /** Remplace le champ logique de la sculpture (fin de tampon, voir main.ts). */
+  setReliefLogic(logic: ReadonlyMap<string, number>): void {
+    this.reliefLogicMap = new Map(logic);
+    this.invalidateRenderedRelief();
+  }
+
+  /** Hauteurs logiques a enregistrer (MapDef.reliefLogic) : seulement les
+   *  cases existantes dont la hauteur logique differe de celle que l'on
+   *  deduit du relief (deriveReliefLogic) ; triees par z puis x. */
+  get reliefLogicEntries(): { x: number; z: number; level: number }[] {
+    const derived = deriveReliefLogic(this.heightField(), this.cells);
+    const keys = new Set([...derived.keys(), ...this.reliefLogicMap.keys()]);
+    const out: { x: number; z: number; level: number }[] = [];
+    for (const key of keys) {
+      const [x, z] = key.split(',').map(Number) as [number, number];
+      if (!this.hasCellAt(x, z)) continue;
+      const level = this.reliefLogicMap.get(key) ?? 0;
+      if (level !== (derived.get(key) ?? 0)) out.push({ x, z, level });
+    }
+    return out.sort((a, b) => a.z - b.z || a.x - b.x);
+  }
+
+  /** Etat du relief au debut d'un trait de sculpture. */
+  reliefStrokeStart(): ReliefStrokeStart {
+    return { logic: new Map(this.reliefLogicMap), rendered: this.renderedRelief(), field: this.heightField() };
+  }
+
+  private reliefContext(start: ReliefStrokeStart): ReliefSculptContext {
+    return {
+      ...start,
+      cells: this.cells,
+      hasCell: (cx, cz) => this.hasCellAt(cx, cz),
+      isLocked: (cx, cz) => this.isCellOccupied(cx, cz),
+    };
+  }
+
+  /** Tampon du pinceau de relief pres de (x, z) (voir reliefBrushPlanAt). */
+  reliefBrushPlan(x: number, z: number, delta: ReliefDelta, size: ReliefBrushSize, painted: ReadonlySet<string> = new Set(), start: ReliefStrokeStart = this.reliefStrokeStart()): ReliefBrushPlan {
+    const origin = reliefBrushOrigin(size, x, z);
+    return this.reliefBrushPlanAt(origin.x, origin.z, delta, size, painted, start);
+  }
+
+  /** Tampon du pinceau de relief dont le coeur logique commence en
+   *  (originX, originZ) : coeur coupe aux cases de terrain existantes (hors
+   *  carte et trous ignores, jamais un refus pour un debordement), relief
+   *  resultant du trait (`painted` + ce coeur, mesure sur `start`) et
+   *  validite : refuse si une case a changer est occupee, ou si tout le
+   *  coeur est deja a la limite (niveau max en montant, 0 en descendant).
+   *  SOURCE UNIQUE de l'apercu et de la pose (main.ts). */
+  reliefBrushPlanAt(originX: number, originZ: number, delta: ReliefDelta, size: ReliefBrushSize, painted: ReadonlySet<string> = new Set(), start: ReliefStrokeStart = this.reliefStrokeStart()): ReliefBrushPlan {
+    const core = reliefBrushCore(size, originX, originZ).filter((key) => {
+      const [cx, cz] = key.split(',').map(Number) as [number, number];
+      return this.hasCellAt(cx, cz);
+    });
+    // Carre visible du pinceau (coeur + couronne), dans la carte : apercu rouge.
+    const square: TerrainElevationCellDef[] = [];
+    const side = Math.sqrt(reliefBrushCore(size, 0, 0).length);
+    for (let dz = -1; dz <= side; dz++) {
+      for (let dx = -1; dx <= side; dx++) {
+        const cx = originX + dx;
+        const cz = originZ + dz;
+        if (this.hasCellAt(cx, cz)) square.push(start.field.entryAt(cx, cz) ?? { x: cx, z: cz, level: 0 });
+      }
+    }
+    // Niveau logique du coeur avant / apres, pour la ligne d'etat ; limite
+    // si aucune case du coeur (cases existantes) ne peut bouger.
+    const changes = new Set<string>();
+    let movable = false;
+    for (const key of core) {
+      const from = start.logic.get(key) ?? 0;
+      const to = Math.min(TERRAIN_LEVEL_MAX, Math.max(TERRAIN_LEVEL_MIN, from + delta));
+      if (from !== to) { movable = true; changes.add(`${from} → ${to}`); }
+    }
+    const levels = changes.size === 1 ? `niveau ${[...changes][0]}` : changes.size > 1 ? `plusieurs niveaux, une couche ${delta > 0 ? 'de plus' : 'de moins'} chacun` : '';
+    const refuse = (reason: string): ReliefBrushPlan => ({ originX, originZ, core, cells: square, bridged: [], logic: new Map(start.logic), levels, status: { ok: false, reason } });
+    if (core.length === 0) return refuse('aucune case de terrain sous le pinceau');
+    if (!movable) return refuse(delta > 0 ? `limite atteinte (niveau ${TERRAIN_LEVEL_MAX} maximum)` : `limite atteinte (niveau ${TERRAIN_LEVEL_MIN} minimum)`);
+    const result = sculptRelief(this.reliefContext(start), new Set([...painted, ...core]), delta);
+    if (result.blocked) {
+      const where = `case ${result.blocked.x}, ${result.blocked.z}`;
+      return refuse(`case occupée : bâtiment, muraille, porte, Baliste, unité ou obstacle (${where})`);
+    }
+    return { originX, originZ, core, cells: result.cells, bridged: result.bridged, logic: result.logic, levels, status: { ok: true } };
+  }
+
+  /** Applique un trait de sculpture : les cases `next` (resultat complet du
+   *  trait, voir sculptRelief) ; une case de `previous` (resultat applique
+   *  juste avant) absente de `next` reprend son relief de `start`. Renvoie
+   *  true si une case a change. */
+  applyReliefCells(start: TerrainHeightField, previous: readonly TerrainElevationCellDef[], next: readonly TerrainElevationCellDef[]): boolean {
+    const wanted = new Map<string, TerrainElevationCellDef>();
+    for (const c of previous) wanted.set(cellKey(c.x, c.z), start.entryAt(c.x, c.z) ?? { x: c.x, z: c.z, level: 0 });
+    for (const c of next) wanted.set(cellKey(c.x, c.z), c);
+    let changed = false;
+    for (const c of wanted.values()) {
+      const current = this.elevationAt(c.x, c.z);
+      if (current.level === c.level && current.slope === (c.slope ?? null)) continue;
+      this.setElevation(c.x, c.z, c.level, c.slope ?? null);
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** Validite d'une pente de coin manuelle (exterieure ou interieure) :
+   *  case libre, aretes raccordees a toutes les voisines
+   *  (evaluateCornerSlope), pas deja cette meme pente. Remplace une case
+   *  plate, une pente ou une autre pente de coin. */
+  cornerSlopeStatus(x: number, z: number, dir: CornerShape): { ok: true; level: number } | { ok: false; reason: string } {
+    if (!this.hasCellAt(x, z)) return { ok: false, reason: 'aucune case' };
+    if (this.isCellOccupied(x, z)) return { ok: false, reason: 'case occupée' };
+    const result = evaluateCornerSlope(this.heightField(), (cx, cz) => this.hasCellAt(cx, cz), x, z, dir);
+    if (!result.ok) return result;
+    const current = this.elevationAt(x, z);
+    if (current.slope === dir && current.level === result.level) return { ok: false, reason: 'pente de coin déjà posée' };
+    return result;
+  }
+
+  /** Pente de coin qui serait REELLEMENT posee : `preferred` (R) si elle est
+   *  valide, sinon la seule orientation valide d'apres les voisins DANS LA
+   *  MEME FAMILLE (exterieure ou interieure, celle de l'outil), sinon
+   *  `preferred` refusee. Source unique de l'apercu, de la pose et du texte. */
+  resolveCornerSlope(x: number, z: number, preferred: CornerShape): SlopeResolution<CornerShape> {
+    const status = this.cornerSlopeStatus(x, z, preferred);
+    if (status.ok) return { dir: preferred, deduced: false, status };
+    let only: SlopeResolution<CornerShape> | null = null;
+    const family: readonly CornerShape[] = isConcaveCornerSlope(preferred) ? CONCAVE_CORNER_SLOPE_DIRECTIONS : CORNER_SLOPE_DIRECTIONS;
+    for (const dir of family) {
+      if (dir === preferred) continue;
+      const s = this.cornerSlopeStatus(x, z, dir);
+      if (!s.ok) continue;
+      if (only) return { dir: preferred, deduced: false, status };
+      only = { dir, deduced: true, status: s };
+    }
+    return only ?? { dir: preferred, deduced: false, status };
+  }
+
+  setCornerSlope(x: number, z: number, dir: CornerShape): boolean {
+    const status = this.cornerSlopeStatus(x, z, dir);
+    if (!status.ok) return false;
+    this.setElevation(x, z, status.level, dir);
+    return true;
+  }
+
+  setSlope(x: number, z: number, dir: SlopeDirection): boolean {
+    const status = this.slopeStatus(x, z, dir);
+    if (!status.ok) return false;
+    this.setElevation(x, z, status.level, dir);
+    return true;
+  }
+
   hasCellAt(x: number, z: number): boolean {
     return this.cellMap.has(cellKey(x, z));
   }
@@ -370,6 +714,7 @@ export class EditorState {
     if (!this.canAddCell(x, z)) return false;
     this.cellMap.set(cellKey(x, z), { x, z, terrain });
     this.invalidateTerritoryIndex();
+    this.invalidateRenderedRelief();
     return true;
   }
 
@@ -404,14 +749,32 @@ export class EditorState {
     return this.hasCellAt(Math.floor(x), Math.floor(z));
   }
 
+  /** canPlaceObstacleAt plus la regle du relief : un obstacle / structure
+   *  BLOQUANT de plus d'une case exige une emprise plate a un seul niveau.
+   *  Un DECOR se pose partout (pente comprise) : son emprise n'est plus une
+   *  contrainte, il suit la hauteur sous son point d'ancrage, sans
+   *  inclinaison. */
+  canPlaceObstacleFootprintAt(o: Pick<ObstacleDef, 'kind' | 'buildingModel' | 'tilesX' | 'tilesZ'>, x: number, z: number): boolean {
+    if (!this.canPlaceObstacleAt(x, z)) return false;
+    if (!isBlockingMapObstacle(o as ObstacleDef) || o.tilesX * o.tilesZ <= 1) return true;
+    const halfX = o.tilesX / 2;
+    const halfZ = o.tilesZ / 2;
+    return this.heightField().flatLevelOver(x - halfX, x + halfX, z - halfZ, z + halfZ) !== null;
+  }
+
   /** Supprime une cellule — voir canRemoveCell pour les conditions de refus.
    *  Retire aussi sa case de territoire explicite : aucun territoire ne
    *  reste sur une case qui n'existe plus. */
   removeCell(x: number, z: number): boolean {
     if (!this.canRemoveCell(x, z)) return false;
     this.cellMap.delete(cellKey(x, z));
+    // Une case supprimee redevient un trou : son relief (et sa couche
+    // logique) disparait avec elle.
+    if (this.elevationMap.delete(cellKey(x, z))) this.invalidateHeightField();
+    this.reliefLogicMap.delete(cellKey(x, z));
     if (this.territory) this.territory = this.territory.filter((c) => c.x !== x || c.z !== z);
     this.invalidateTerritoryIndex();
+    this.invalidateRenderedRelief();
     return true;
   }
 
@@ -509,6 +872,7 @@ export class EditorState {
       }
     }
     this.invalidateTerritoryIndex();
+    this.invalidateRenderedRelief();
     // Baliste jamais deplacee : elle suit le repli historique du coin, comme
     // le ferait "Tester le scenario" sur la map exportee (sans champ).
     if (!this.ballistaExplicit) this.ballista = computePlayerArrowOrigin(this);
@@ -579,7 +943,7 @@ export class EditorState {
    *  tampon continu (choix conservé depuis l'origine de l'éditeur). */
   placeAt(x: number, z: number): EditorObstacle | null {
     if (this.tool.type !== 'place-obstacle') return null;
-    if (!this.canPlaceObstacleAt(x, z)) return null;
+    if (!this.canPlaceObstacleFootprintAt(this.tool.template, x, z)) return null;
     const obstacle: EditorObstacle = { ...this.tool.template, x, z, id: this.nextId++ };
     this.obstacles.push(obstacle);
     this.tool = { type: 'select' };
@@ -589,8 +953,8 @@ export class EditorState {
 
   /** Vrai si une UNITE peut être placée à (x, z) — cellule de terrain
    *  existante appartenant à un camp (case neutre interdite), aucun obstacle
-   *  COLLIDABLE (rocher, arbre, bâtiment — jamais
-   *  un prop traversable, voir isCollidableObstacle) et aucune autre unité
+   *  BLOQUANT (« Obstacles / structures » — jamais un décor, toujours
+   *  traversable, voir isBlockingMapObstacle) et aucune autre unité
    *  déjà sur cette même case (2026-08-16, demande explicite : "aucune
    *  unité incompatible déjà présente" / "aucun bâtiment n'occupe cette
    *  cellule"). SOURCE UNIQUE partagée par la preview visuelle (case verte/
@@ -608,7 +972,7 @@ export class EditorState {
     if (this.buildingAt(x, z) !== null) return false;
 
     const onObstacle = this.obstacles.some((o) => {
-      if (!isCollidableObstacle(o)) return false;
+      if (!isBlockingMapObstacle(o)) return false;
       const center = obstacleCenter(o);
       return Math.floor(center.x) === cellX && Math.floor(center.z) === cellZ;
     });
@@ -659,9 +1023,12 @@ export class EditorState {
         if (!this.hasCellAt(cx, cz)) return false;
       }
     }
+    // Relief : emprise entierement plate, a un seul niveau (jamais sur une
+    // pente ni a cheval sur une falaise).
+    if (this.heightField().flatLevelOver(r.minX, r.maxX, r.minZ, r.maxZ) === null) return false;
     if (this.buildings.some((b) => b.id !== ignoreBuildingId && boundsOverlap(r, buildingBoundsAt(b.buildingId, b.x, b.z, b.rotationY)))) return false;
     if (boundsOverlap(r, this.ballistaBoundsAt(this.ballista.x, this.ballista.z))) return false;
-    if (this.obstacles.some((o) => isCollidableObstacle(o) && boundsOverlap(r, obstacleBounds(o)))) return false;
+    if (this.obstacles.some((o) => isBlockingMapObstacle(o) && boundsOverlap(r, obstacleBounds(o)))) return false;
     return !this.units.some((u) => u.x > r.minX && u.x < r.maxX && u.z > r.minZ && u.z < r.maxZ);
   }
 
@@ -744,7 +1111,7 @@ export class EditorState {
    *  si son centre tomberait dans le vide, voir canPlaceObstacleAt. */
   moveSelected(x: number, z: number): boolean {
     const o = this.selectedObstacle;
-    if (!o || !this.canPlaceObstacleAt(x, z)) return false;
+    if (!o || !this.canPlaceObstacleFootprintAt(o, x, z)) return false;
     o.x = x;
     o.z = z;
     return true;
@@ -836,6 +1203,8 @@ export class EditorState {
       width: this.width,
       height: this.height,
       cells: this.cells.map((c) => ({ ...c })),
+      elevation: this.elevationCells,
+      reliefLogic: [...this.reliefLogicMap.entries()],
       ballista: { ...this.ballista },
       ballistaExplicit: this.ballistaExplicit,
     };
@@ -847,6 +1216,10 @@ export class EditorState {
     this.width = snapshot.width;
     this.height = snapshot.height;
     this.cellMap = buildCellIndex(snapshot.cells.map((c) => ({ ...c })));
+    this.elevationMap = new Map(snapshot.elevation.map((e) => [cellKey(e.x, e.z), { ...e }]));
+    this.invalidateHeightField();
+    this.reliefLogicMap = new Map(snapshot.reliefLogic);
+    this.invalidateRenderedRelief();
     this.ballista = { ...snapshot.ballista };
     this.ballistaExplicit = snapshot.ballistaExplicit;
     this.invalidateTerritoryIndex();

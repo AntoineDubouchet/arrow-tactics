@@ -1,5 +1,6 @@
-import { BOARD_H, BOARD_W, isCollidableObstacle, OBSTACLES, TILE, type ObstacleDef } from '../config/constants';
+import { BOARD_H, BOARD_W, isBlockingMapObstacle, OBSTACLES, TILE, type ObstacleDef } from '../config/constants';
 import { buildCellIndex, cellKey, computeMapCellBounds, resolveMapCells, type MapBounds, type MapDef } from '../config/mapDef';
+import { computeCliffObstacles, resolveMapHeightField } from '../config/terrainElevation';
 import { dist } from '../core/math';
 import { Rng, randomSeed } from '../core/rng';
 import type { BuildingDef } from '../data/buildings';
@@ -137,13 +138,12 @@ export class World {
    *  de map ne doit pas forcement passer par la remise a zero d'une bataille
    *  en cours. Par defaut, la map codee en dur historique (voir
    *  config/mapDef.ts) — premiere etape du chantier editeur de maps.
-   *  FILTRE aux obstacles COLLIDABLES uniquement (voir isCollidableObstacle,
-   *  2026-08-14) : les props (decor purement visuel) ne font jamais partie
-   *  de cette liste, donc aucun systeme de simulation (mouvement, ligne de
-   *  tir, pathfinding, capacites) n'a besoin de connaitre `kind` — ils
-   *  restent inconditionnels comme avant, c'est la liste elle-meme qui est
-   *  deja la bonne. */
-  obstacles: ObstacleDef[] = OBSTACLES.filter(isCollidableObstacle);
+   *  FILTRE aux obstacles BLOQUANTS uniquement (voir isBlockingMapObstacle,
+   *  2026-10-28) : les decors (purement visuels) ne font jamais partie de
+   *  cette liste, donc aucun systeme de simulation (mouvement, ligne de
+   *  tir, pathfinding, capacites) n'a besoin de connaitre `kind` — c'est la
+   *  liste elle-meme qui est deja la bonne. */
+  obstacles: ObstacleDef[] = OBSTACLES.filter(isBlockingMapObstacle);
   boardWidth: number = BOARD_W;
   boardHeight: number = BOARD_H;
 
@@ -177,9 +177,9 @@ export class World {
   /**
    * Charge une map : obstacles + dimensions du plateau, lus par step()
    * ensuite. N'affecte pas les entites deja en jeu — a appeler avant de
-   * peupler une nouvelle bataille (voir main.ts). Filtre les props (voir
-   * isCollidableObstacle) — le RENDU, lui, continue de lire `map.obstacles`
-   * non filtre (voir render/board.ts) : un prop reste visible, juste sans
+   * peupler une nouvelle bataille (voir main.ts). Filtre les decors (voir
+   * isBlockingMapObstacle) — le RENDU, lui, continue de lire `map.obstacles`
+   * non filtre (voir render/board.ts) : un decor reste visible, juste sans
    * collision cote simulation.
    *
    * 2026-08-16 (chantier map irreguliere) : `boardWidth`/`boardHeight` ne
@@ -214,7 +214,13 @@ export class World {
     this.boardHeight = paddedHalfH * 2;
 
     const paddedBounds: MapBounds = { minX: -paddedHalfW, maxX: paddedHalfW, minZ: -paddedHalfH, maxZ: paddedHalfH };
-    this.obstacles = [...map.obstacles.filter(isCollidableObstacle), ...computeVoidObstacles(cellIndex, paddedBounds)];
+    // Relief (config/terrainElevation.ts) : chaque arete entre deux niveaux
+    // devient une falaise fine, infranchissable a pied mais pas aux tirs.
+    // Carte plate : aucune falaise, liste identique a avant le relief.
+    const cliffs = computeCliffObstacles(resolveMapHeightField(map), (x, z) => cellIndex.has(cellKey(x, z)), cells);
+    // Decors exclus (isBlockingMapObstacle) : purement visuels, ignores par
+    // toute la simulation ; seuls les « Obstacles / structures » restent.
+    this.obstacles = [...map.obstacles.filter(isBlockingMapObstacle), ...computeVoidObstacles(cellIndex, paddedBounds), ...cliffs];
   }
 
   /** `hp` optionnel : par defaut pleins PV (`def.stats.maxHp`), mais la

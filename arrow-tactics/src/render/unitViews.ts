@@ -17,6 +17,7 @@ import { forwardDir, type Entity } from '../sim/entity';
 import type { RiggedActions } from './riggedGltf';
 import type { ProceduralAttackAnimator } from './proceduralAttackAnimator';
 import { buildUnit } from './unitMesh';
+import { surfaceY } from './terrainSurface';
 
 /**
  * Fait le pont entre la simulation et l'ecran. La simulation ne sait pas que
@@ -221,6 +222,9 @@ export class UnitViews {
         view.position.x = lerp(entity.prevX, entity.x, alpha) + forwardX * lunge;
         view.position.z = lerp(entity.prevZ, entity.z, alpha) + forwardZ * lunge;
       }
+      // Relief : l'unite (modele, anneau enfant) suit la surface, pente
+      // comprise, a sa position RENDUE.
+      view.position.y = surfaceY(view.position.x, view.position.z);
     }
   }
 

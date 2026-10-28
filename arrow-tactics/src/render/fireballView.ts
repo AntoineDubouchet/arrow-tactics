@@ -6,6 +6,7 @@ import { LightPool } from './vfx/lightPool';
 import { buildOrbitingSprites, tickOrbitingSprites, type OrbitingSprite } from './vfx/orbitingSprites';
 import { spawnRadialParticles, tickRadialParticles, type RadialParticle } from './vfx/radialBurst';
 import { createVfxGroundDecal, createVfxSprite, getVfxCoreMaterial, type VfxMaterialSpec } from './vfx/vfxMaterials';
+import { surfaceY } from './terrainSurface';
 
 /**
  * Rendu de la Boule de feu du Mage (2026-08-16, grosse passe VFX demandée
@@ -127,6 +128,8 @@ interface ImpactFx {
   light: THREE.PointLight | null;
   elapsed: number;
   radius: number;
+  /** Hauteur du sol (relief) au point d'impact. */
+  groundY: number;
 }
 
 export class FireballView {
@@ -217,7 +220,7 @@ export class FireballView {
       const smokeT = Math.min(1, fx.elapsed / SMOKE_IMPACT_DURATION);
       for (const smoke of fx.smoke) {
         smoke.scale.setScalar(fx.radius * (0.5 + smokeT * 1.1));
-        smoke.position.y = 0.2 + smokeT * 0.55;
+        smoke.position.y = 0.2 + smokeT * 0.55 + fx.groundY;
         (smoke.material as THREE.SpriteMaterial).opacity = 0.28 * (1 - smokeT);
       }
 
@@ -235,14 +238,14 @@ export class FireballView {
     const radius = radiusTiles * TILE;
 
     const flash = createVfxSprite({ texture: 'muzzle_02.png', color: COLORS.fireCoreBright, blending: 'additive', opacity: 0.95 });
-    flash.position.set(x, 0.35, z);
+    flash.position.set(x, 0.35 + surfaceY(x, z), z);
     this.group.add(flash);
 
     const burst = new THREE.Mesh(
       new THREE.SphereGeometry(1, 12, 10),
       new THREE.MeshBasicMaterial({ color: 0xffcf8c, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
-    burst.position.set(x, HEIGHT * 0.5, z);
+    burst.position.set(x, HEIGHT * 0.5 + surfaceY(x, z), z);
     this.group.add(burst);
 
     const ring = new THREE.Mesh(
@@ -250,7 +253,7 @@ export class FireballView {
       new THREE.MeshBasicMaterial({ color: COLORS.fireGlow, transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
     );
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(x, 0.05, z);
+    ring.position.set(x, 0.05 + surfaceY(x, z), z);
     this.group.add(ring);
 
     // Décalque de brûlure au sol (texture reelle, scorch_01) — s'attarde
@@ -258,12 +261,12 @@ export class FireballView {
     // laissee par l'impact plutot qu'un simple flash qui disparait.
     const scorch = createVfxGroundDecal({ texture: 'scorch_01.png', color: 0x2a1408, blending: 'normal', opacity: 0.5 });
     scorch.scale.setScalar(radius * 2.4);
-    scorch.position.set(x, 0.03, z);
+    scorch.position.set(x, 0.03 + surfaceY(x, z), z);
     this.group.add(scorch);
 
     const light = this.lightPool.acquire();
     if (light) {
-      light.position.set(x, 0.6, z);
+      light.position.set(x, 0.6 + surfaceY(x, z), z);
       light.distance = IMPACT_LIGHT_DISTANCE;
       light.intensity = IMPACT_LIGHT_INTENSITY;
     }
@@ -310,12 +313,12 @@ export class FireballView {
     for (let i = 0; i < SMOKE_IMPACT_COUNT; i++) {
       const angle = (i / SMOKE_IMPACT_COUNT) * Math.PI * 2 + Math.random() * Math.PI;
       const sprite = createVfxSprite({ texture: 'smoke_02.png', color: COLORS.fireSmokeTint, blending: 'normal', opacity: 0.28 });
-      sprite.position.set(x + Math.cos(angle) * radius * 0.2, 0.15, z + Math.sin(angle) * radius * 0.2);
+      sprite.position.set(x + Math.cos(angle) * radius * 0.2, 0.15 + surfaceY(x, z), z + Math.sin(angle) * radius * 0.2);
       this.group.add(sprite);
       smoke.push(sprite);
     }
 
-    this.impacts.push({ flash, burst, ring, scorch, radialFlames, embers, smoke, light, elapsed: 0, radius });
+    this.impacts.push({ flash, burst, ring, scorch, radialFlames, embers, smoke, light, elapsed: 0, radius, groundY: surfaceY(x, z) });
   }
 
   clear(): void {
@@ -385,7 +388,8 @@ function positionAt(b: BlastProjectile, t: number): THREE.Vector3 {
   const tt = Math.max(0, Math.min(1, t));
   return new THREE.Vector3(
     lerp(b.fromX, b.targetX, tt),
-    HEIGHT + Math.sin(tt * Math.PI) * ARC_HEIGHT,
+    // Relief : au-dessus du sol de depart puis de la cible.
+    HEIGHT + lerp(surfaceY(b.fromX, b.fromZ), surfaceY(b.targetX, b.targetZ), tt) + Math.sin(tt * Math.PI) * ARC_HEIGHT,
     lerp(b.fromZ, b.targetZ, tt),
   );
 }

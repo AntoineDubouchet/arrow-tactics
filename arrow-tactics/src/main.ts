@@ -11,7 +11,7 @@ import {
   COLORS,
   HEAL_TARGET_RADIUS,
   HP_PER_PIP,
-  isCollidableObstacle,
+  isBlockingMapObstacle,
   obstacleCenter,
   MACHINE_GUN_FALLBACK_TARGET_OFFSET,
   MACHINE_GUN_ORIGIN_OFFSET,
@@ -76,6 +76,7 @@ import { getUnit, type UnitStats } from './data/units';
 import {
   EDITOR_BALLISTA_OWNER,
   EditorState,
+  type ReliefStrokeStart,
   buildingBoundsAt,
   snapBuildingCenter,
   type EditorBuilding,
@@ -87,6 +88,9 @@ import { EditorHistory } from './editor/history';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
   buildCellPreview,
+  buildCornerSlopePreview,
+  buildReliefBrushPreview,
+  buildSlopePreview,
   buildWallEndMarker,
   buildGhost,
   buildObstacleView,
@@ -104,8 +108,10 @@ import { attachUnitSelectionRing, teamColor } from './render/unitSelectionRing';
 import { ensureModels, loadEnvironmentAssets, obstacleModelKeys, type EnvironmentAssets } from './render/assetLibrary';
 import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
-import { buildObstacleMesh } from './render/obstacleFactory';
+import { buildObstacleMesh, obstaclePlacementOffset, placeObstacleMesh } from './render/obstacleFactory';
 import { buildCellGridLines, buildTerrainCellsView } from './render/terrainCells';
+import { intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
+import { CONCAVE_CORNER_SLOPE_DIRECTIONS, CORNER_SLOPE_DIRECTIONS, isConcaveCornerSlope, reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, SLOPE_DIRECTIONS, type ConcaveCornerSlopeDirection, type CornerShape, type CornerSlopeDirection, type ReliefBrushSize, type ReliefDelta, type SlopeDirection, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
 import { UnitMovePreview, type UnitMovePreviewItem } from './render/unitMovePreview';
 import { DEFAULT_LAUNCH_HEIGHT, PlayerArrowView, preloadPlayerArrowModel } from './render/playerArrowView';
 import { Projectiles } from './render/projectiles';
@@ -277,6 +283,20 @@ const vfxManager = new VfxManager(fireballView, shadowProjectileView);
 let currentMap: MapDef = SURVIVAL_BASE_MAP;
 world.setMap(currentMap);
 
+/** Relief de la carte en jeu (currentMap), pour les regles de pose de la
+ *  preparation. */
+function gameTerrain(): TerrainHeightField {
+  return resolveMapHeightField(currentMap);
+}
+
+/** Surface active du rendu (render/terrainSurface.ts) : le brouillon dans
+ *  l'editeur, sinon la carte en jeu (y compris pendant « Tester le
+ *  scénario »). Appelee a chaque frame et apres chaque changement de carte
+ *  ou de relief, avant de (re)construire des meshes poses au sol. */
+function syncActiveTerrain(): void {
+  setActiveTerrain(inEditorMode && editorState ? editorState.heightField() : gameTerrain());
+}
+
 // Limite du deplacement de la camera en jeu : le point vise reste a moins de
 // CAMERA.maxTargetDistanceFromTerrain cases du terrain de la carte courante
 // (agrandissements compris). Ni dans l'editeur ni pendant son test.
@@ -367,7 +387,7 @@ playerArrowView.setLaunchHeight(mountHeight + DEFAULT_LAUNCH_HEIGHT);
  *  avec elle. Seule la baliste (pas la tour) s'oriente : la plateforme
  *  elle-meme ne tourne jamais. */
 function repositionBallista(origin: { x: number; z: number } = playerArrowOrigin): void {
-  ballistaPlatform.position.set(origin.x, 0, origin.z);
+  ballistaPlatform.position.set(origin.x, surfaceY(origin.x, origin.z), origin.z);
   ballista.rotation.y = Math.atan2(origin.x, origin.z);
 }
 
@@ -1262,7 +1282,7 @@ function openBattleWithFormationStep(): void {
   const dz = forwardDir('player') * TILE;
   const groupIds = new Set(group.map((e) => e.id));
   const cells = new Set(resolveMapCells(currentMap).map((c) => cellKey(c.x, c.z)));
-  const blockers = world.obstacles.filter(isCollidableObstacle).map(obstacleBounds);
+  const blockers = world.obstacles.map(obstacleBounds);
   const others = world.entities.filter((e) => e.alive && !e.isBuilding && !groupIds.has(e.id));
   const canEndAt = (x: number, z: number): boolean =>
     cells.has(cellKey(Math.floor(x), Math.floor(z))) &&
@@ -1659,13 +1679,13 @@ function updateHealTargetPreview(event: MouseEvent): void {
     const target = findHealTargetEntity(point.x, point.z);
     if (!target) return;
     const pos = unitViews.getPosition(target.id) ?? { x: target.x, z: target.z };
-    healTargetRing.position.set(pos.x, 0.02, pos.z);
+    healTargetRing.position.set(pos.x, 0.02 + surfaceY(pos.x, pos.z), pos.z);
     healTargetRing.visible = true;
   } else if (inPlacementPhase) {
     const slotIndex = findHealTargetSlotIndex(point.x, point.z);
     if (slotIndex === null) return;
     const slot = placementSlots[slotIndex]!;
-    healTargetRing.position.set(slot.x ?? 0, 0.02, slot.z ?? 0);
+    healTargetRing.position.set(slot.x ?? 0, 0.02 + surfaceY(slot.x ?? 0, slot.z ?? 0), slot.z ?? 0);
     healTargetRing.visible = true;
   }
 }
@@ -1759,7 +1779,7 @@ function refreshPlayerPreview(): void {
   placementSlots.forEach((slot, index) => {
     if (slot.x === null || slot.z === null) return;
     const mesh = buildUnit(slot.unitId, 'player');
-    mesh.position.set(slot.x, 0, slot.z);
+    mesh.position.set(slot.x, surfaceY(slot.x, slot.z), slot.z);
     mesh.userData['slotIndex'] = index;
     if (isSelected(index)) attachUnitSelectionRing(mesh, 'player', getUnit(slot.unitId).stats.radius);
     // Talent "Recyclage" : la surbrillance n'est PLUS un enfant statique du
@@ -2085,7 +2105,7 @@ function startPlacement(): void {
   enemyPreview.clear();
   for (const pos of computeEnemyWavePlan(currentRun.waveNumber, currentMap).groups[0] ?? []) {
     const mesh = buildUnit(pos.unitId, 'enemy');
-    mesh.position.set(pos.x, 0, pos.z);
+    mesh.position.set(pos.x, surfaceY(pos.x, pos.z), pos.z);
     mesh.rotation.y = Math.PI;
     enemyPreview.add(mesh);
   }
@@ -2492,6 +2512,7 @@ renderer.scene.add(editorBoardGroup);
  *  assez rare pour rester simple). */
 function rebuildEditorBoard(): void {
   if (!editorState) return;
+  syncActiveTerrain();
   // Les dalles et la grille sont reconstruites a chaque changement de case
   // (y compris pendant un trait de pinceau) : leurs geometries et materiaux
   // sont liberes. Les textures du sol sont partagees (render/textures.ts) et
@@ -2511,10 +2532,14 @@ function rebuildEditorBoard(): void {
   // exactement editorState.cells, y compris les trous crees via l'outil
   // Supprimer case — jamais un simple rectangle width x height.
   const cells = editorState.cells;
-  editorBoardGroup.add(buildTerrainCellsView(cells).group);
-  editorBoardGroup.add(buildCellGridLines(cells, COLORS.gridLine));
+  const field = editorState.heightField();
+  editorBoardGroup.add(buildTerrainCellsView(cells, field).group);
+  editorBoardGroup.add(buildCellGridLines(cells, COLORS.gridLine, field));
   editorZonesGroup = null;
   refreshEditorZones();
+  // Hauteur des objets derivee de la surface : apres tout changement du
+  // relief (pinceau, annuler / retablir), les decors suivent leur case.
+  refreshEditorObjects();
 }
 
 /** Zones de l'editeur actuellement affichees (enfant de editorBoardGroup). */
@@ -2528,7 +2553,7 @@ let editorZonesGroup: THREE.Group | null = null;
 function refreshEditorZones(): void {
   if (!editorState) return;
   if (editorZonesGroup) editorBoardGroup.remove(editorZonesGroup);
-  editorZonesGroup = createZonesGroup(editorState.resolvedTerritory());
+  editorZonesGroup = createZonesGroup(editorState.resolvedTerritory(), editorState.heightField());
   editorBoardGroup.add(editorZonesGroup);
   scheduleEditorMapStatus();
 }
@@ -2613,13 +2638,12 @@ transformControls.addEventListener('objectChange', () => {
   // absolument tout, une securite directe est plus sure qu'un raisonnement
   // implicite sur les poignees visibles). Le gizmo ne fait que deplacer : il
   // n'ecrit jamais rotationY.
-  object.position.y = 0;
-  // Centre au-dessus du vide : le decor reste a sa derniere position valide.
-  if (!editorState.moveSelected(object.position.x, object.position.z)) {
-    const center = obstacleCenter(obstacle);
-    object.position.x = center.x;
-    object.position.z = center.z;
-  }
+  // La racine du mesh porte le decalage de pose du modele (recentrage) :
+  // le centre du decor est sa position moins ce decalage. Centre au-dessus du
+  // vide : le decor reste a sa derniere position valide. Repose ensuite sur
+  // la surface (refreshEditorObjects, placeObstacleMesh).
+  const offset = obstaclePlacementOffset(object);
+  editorState.moveSelected(object.position.x - offset.x, object.position.z - offset.z);
   refreshEditorObjects();
 });
 
@@ -2699,7 +2723,7 @@ function currentObstacleRotation(obstacle: { id: number; rotationY?: number }): 
  *  convention que rotation.y (tourner de +θ ajoute θ a atan2(x, z)). */
 function pointerAngleAround(event: MouseEvent, cx: number, cz: number): number | null {
   setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return null;
+  if (!intersectTerrain(raycaster.ray, groundHit)) return null;
   return Math.atan2(groundHit.x - cx, groundHit.z - cz);
 }
 
@@ -2885,6 +2909,38 @@ const editorUI = new EditorUI({
     clearEditorGhost();
     refreshEditorObjects();
   },
+  onSelectReliefBrushTool: (delta: ReliefDelta) => {
+    if (!editorState) return;
+    editorState.setTool({ type: 'relief-brush', delta, size: editorReliefSize });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
+  onSelectReliefBrushSize: (size: ReliefBrushSize) => {
+    editorReliefSize = size;
+    editorUI.setReliefBrushSize(size);
+    if (!editorState || editorState.tool.type !== 'relief-brush') return;
+    editorState.setTool({ ...editorState.tool, size });
+    refreshEditorObjects();
+    updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
+  },
+  onSelectCornerSlopeTool: () => {
+    if (!editorState) return;
+    editorState.setTool({ type: 'corner-slope-cell', dir: editorCornerDir });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
+  onSelectInnerCornerSlopeTool: () => {
+    if (!editorState) return;
+    editorState.setTool({ type: 'corner-slope-cell', dir: editorInnerCornerDir });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
+  onSelectSlopeTool: () => {
+    if (!editorState) return;
+    editorState.setTool({ type: 'slope-cell', dir: editorSlopeDir });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
   onSelectTerritoryTool: (team) => {
     if (!editorState) return;
     editorState.setTool({ type: 'paint-territory', team });
@@ -2983,6 +3039,10 @@ window.addEventListener('resize', () => {
 });
 
 function clearEditorGhost(): void {
+  // Plus de case survolee : la ligne d'etat de l'outil Pente revient a R.
+  editorUI.setSlopeResolution(null);
+  editorUI.setReliefBrushInfo(null);
+  editorUI.setCornerResolution(null);
   if (!editorGhost) return;
   editorGhostGroup.remove(editorGhost);
   editorGhost = null;
@@ -3013,8 +3073,9 @@ function refreshEditorObjects(): void {
     // elle a ete explicitement fixee (voir rotateSelectedObstacleBy) —
     // sinon on ecraserait l'orientation aleatoire tiree une seule fois a la
     // creation.
-    const center = obstacleCenter(o);
-    cached.position.set(center.x, 0, center.z);
+    // Centre et surface actuels (relief compris), decalage de pose du
+    // modele conserve : meme pose que sur le plateau du jeu.
+    placeObstacleMesh(cached, o);
     if (o.rotationY !== undefined) cached.rotation.y = o.rotationY;
   }
 
@@ -3044,7 +3105,7 @@ function refreshEditorObjects(): void {
       // cette meme passe.
       editorUnitRings.delete(u.id);
     }
-    editorUnitMeshes.get(u.id)!.position.set(u.x, 0, u.z);
+    editorUnitMeshes.get(u.id)!.position.set(u.x, surfaceY(u.x, u.z), u.z);
   }
 
   // Anneaux des unites selectionnees, seules ou en groupe — un par unite,
@@ -3100,18 +3161,18 @@ function refreshEditorObjects(): void {
   if (selectedBuilding) {
     // Meme convention d'echelle que les decors, sur l'emprise reelle.
     const def = getBuilding(selectedBuilding.buildingId);
-    editorSelectionRing.position.set(selectedBuilding.x, 0.02, selectedBuilding.z);
+    editorSelectionRing.position.set(selectedBuilding.x, 0.02 + surfaceY(selectedBuilding.x, selectedBuilding.z), selectedBuilding.z);
     editorSelectionRing.scale.setScalar(Math.max(def.footprintTilesX ?? 1, def.footprintTilesZ ?? 1) * 0.7);
     editorSelectionRingMaterial.color.setHex(teamColor(selectedBuilding.team));
   }
   if (selectedObstacle) {
     const center = obstacleCenter(selectedObstacle);
-    editorSelectionRing.position.set(center.x, 0.02, center.z);
+    editorSelectionRing.position.set(center.x, 0.02 + surfaceY(center.x, center.z), center.z);
     editorSelectionRing.scale.setScalar(Math.max(selectedObstacle.tilesX, selectedObstacle.tilesZ) * 0.7);
     editorSelectionRingMaterial.color.setHex(EDITOR_DECOR_RING_COLOR);
   } else if (ballistaSelected) {
     // Meme convention d'echelle que les decors, sur l'empreinte reelle.
-    editorSelectionRing.position.set(editorState.ballista.x, 0.02, editorState.ballista.z);
+    editorSelectionRing.position.set(editorState.ballista.x, 0.02 + surfaceY(editorState.ballista.x, editorState.ballista.z), editorState.ballista.z);
     editorSelectionRing.scale.setScalar(BALLISTA_TOWER_FOOTPRINT * 0.7);
     editorSelectionRingMaterial.color.setHex(teamColor(EDITOR_BALLISTA_OWNER));
   }
@@ -3185,6 +3246,7 @@ function exitEditor(): void {
   inEditorMode = false;
   ringRotateDrag = null;
   editorState = null;
+  syncActiveTerrain();
   editorCleanExport = null;
   editorObjectsGroup.clear();
   editorMeshes.clear();
@@ -3253,6 +3315,7 @@ async function testScenario(): Promise<void> {
   currentMap = testMap;
   rebuildCurrentTerritoryIndex();
   world.setMap(currentMap);
+  syncActiveTerrain();
 
   if (testBoard) renderer.scene.remove(testBoard.group);
   testBoard = await createBoard(testMap);
@@ -3311,6 +3374,7 @@ function returnToEditorAfterTest(): void {
   currentMap = mapBeforeTest;
   rebuildCurrentTerritoryIndex();
   world.setMap(currentMap);
+  syncActiveTerrain();
   playerArrowOrigin = resolveBallistaOrigin(currentMap);
   ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
@@ -3334,7 +3398,10 @@ function returnToEditorAfterTest(): void {
   // La fenetre a pu changer de taille pendant le test.
   updateEditorViewport();
   // editorState n'a jamais ete touche pendant le test : on retrouve
-  // exactement la configuration de depart, comme demande.
+  // exactement la configuration de depart, comme demande. Surface active =
+  // le brouillon (inEditorMode vient de repasser a vrai) AVANT de reposer
+  // decors et unites, sinon ils retombent a la hauteur de la carte de jeu.
+  syncActiveTerrain();
   refreshEditorObjects();
 }
 
@@ -3443,7 +3510,7 @@ function updateEditorGhost(x: number, z: number): void {
       const centers = editorTracePieceCenters(pieces);
       const halfId = getBuilding(buildingId).traceHalf ?? buildingId;
       const valid = plan
-        ? plan.leg.usable && !wallStepTouchesGate(editorState.buildings, plan.step) && editorState.canReplaceBuildingPieces(tracedBuildingsToRemove(editorState.buildings, plan.step).map((b) => b.id), centers, editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))
+        ? plan.leg.usable && !wallStepTouchesGate(editorState.buildings, plan.step) && !wallStepSplitsLevels(plan.step, editorState.heightField()) && editorState.canReplaceBuildingPieces(tracedBuildingsToRemove(editorState.buildings, plan.step).map((b) => b.id), centers, editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))
         : snapped !== null || editorState.canPlaceBuildingAt(halfId, traceCellAt(x, z).x + 0.5, traceCellAt(x, z).z + 0.5, undefined, 0);
       const group = new THREE.Group();
       addWallEndMarkers(group, ends, snapped);
@@ -3481,6 +3548,36 @@ function updateEditorGhost(x: number, z: number): void {
     const cellZ = Math.floor(z);
     editorGhost = buildCellPreview(cellX, cellZ, editorState.canRemoveCell(cellX, cellZ));
     editorGhostGroup.add(editorGhost);
+  } else if (editorState.tool.type === 'relief-brush') {
+    // Surface finale de tout le trait (cases deja peintes + ce tampon,
+    // mesurees sur le terrain du debut du trait) en vert ; liaisons
+    // diagonales en orange ; tampon refuse ou a la limite : son carre (dans
+    // la carte) en rouge, raison dans la ligne d'etat. Hors carte : coupe.
+    const stroke = reliefStroke;
+    const plan = editorState.reliefBrushPlan(x, z, editorState.tool.delta, editorState.tool.size, stroke?.painted ?? new Set(), stroke?.start ?? editorState.reliefStrokeStart());
+    editorGhost = buildReliefBrushPreview(plan.cells, plan.status.ok, new Set(plan.bridged));
+    editorGhostGroup.add(editorGhost);
+    editorUI.setReliefBrushInfo({ levels: plan.levels, refusal: plan.status.ok ? null : plan.status.reason, bridged: plan.bridged.length });
+  } else if (editorState.tool.type === 'corner-slope-cell') {
+    // Surface future et point du coin different (haut : exterieur, bas :
+    // interieur) ; variante de R, ou imposee par les voisins
+    // (resolveCornerSlope, meme resolution que la pose).
+    const cellX = Math.floor(x);
+    const cellZ = Math.floor(z);
+    const corner = editorState.resolveCornerSlope(cellX, cellZ, editorState.tool.dir);
+    editorGhost = buildCornerSlopePreview(cellX, cellZ, corner.dir, corner.status.ok ? corner.status.level : null);
+    editorGhostGroup.add(editorGhost);
+    editorUI.setCornerResolution(corner);
+  } else if (editorState.tool.type === 'slope-cell') {
+    // Future surface inclinee (verte / rouge), bord bas (bleu), bord haut
+    // (jaune) et fleche de montee ; orientation de R, ou deduite des
+    // voisins si R est refusee et qu'une seule orientation convient.
+    const cellX = Math.floor(x);
+    const cellZ = Math.floor(z);
+    const slope = editorState.resolveSlope(cellX, cellZ, editorState.tool.dir);
+    editorGhost = buildSlopePreview(cellX, cellZ, slope.dir, slope.status.ok ? slope.status.level : null);
+    editorGhostGroup.add(editorGhost);
+    editorUI.setSlopeResolution(slope);
   } else if (editorState.tool.type === 'paint-territory') {
     // Case qui sera peinte, teintee de la couleur du pinceau (gris pour
     // Effacer) ; aucun apercu sur une case absente, impossible a peindre.
@@ -3499,7 +3596,85 @@ function updateEditorGhost(x: number, z: number): void {
  *  trait forme UNE entree d'historique, creee au relachement s'il a change
  *  quelque chose. `before` : territoire (et forme de la carte pour les
  *  outils de case) a l'appui. */
-type BrushTool = 'paint-territory' | 'add-cell' | 'remove-cell';
+/** Derniere direction de montee choisie pour l'outil Pente (R : tourner). */
+let editorSlopeDir: SlopeDirection = 'N';
+/** Derniers coins choisis pour les outils Coin exterieur (coin haut) et Coin
+ *  interieur (coin bas) ; R : NE → SE → SW → NW dans la meme famille. */
+let editorCornerDir: CornerSlopeDirection = 'NE';
+let editorInnerCornerDir: ConcaveCornerSlopeDirection = 'NEi';
+
+/** Trait d'un pinceau de relief (Surelever / Abaisser, bouton gauche
+ *  maintenu) : union des coeurs des tampons valides (`painted`), relief
+ *  recalcule a CHAQUE tampon depuis le terrain du debut du trait (`start`) :
+ *  une case repassee dans le meme trait ne change qu'une fois d'une couche.
+ *  Applique en direct (les decors suivent), une seule entree d'historique au
+ *  relachement. `applied` : resultat applique ; `last` : coin du dernier
+ *  tampon, pour interpoler. */
+interface ReliefStroke {
+  before: EditorMapShapeSnapshot;
+  start: ReliefStrokeStart;
+  delta: ReliefDelta;
+  size: ReliefBrushSize;
+  painted: Set<string>;
+  applied: TerrainElevationCellDef[];
+  last: { x: number; z: number } | null;
+  changed: boolean;
+}
+let reliefStroke: ReliefStroke | null = null;
+
+/** Taille des pinceaux Surelever / Abaisser (selection « Taille »). */
+let editorReliefSize: ReliefBrushSize = 4;
+
+function startReliefStroke(delta: ReliefDelta, size: ReliefBrushSize): void {
+  if (!editorState) return;
+  if (reliefStroke) endReliefStroke();
+  reliefStroke = { before: editorState.mapShapeSnapshot(), start: editorState.reliefStrokeStart(), delta, size, painted: new Set(), applied: [], last: null, changed: false };
+}
+
+/** Ajoute au trait le tampon sous (x, z) et, si la souris a saute plusieurs
+ *  cases, tous les tampons intermediaires de la grille (aucun trou). Un
+ *  tampon refuse (case a changer bloquee : trou, objet, unite…) est ignore :
+ *  le reste du trait est conserve. */
+function reliefStrokeAt(x: number, z: number): void {
+  const stroke = reliefStroke;
+  if (!editorState || !stroke) return;
+  const target = reliefBrushOrigin(stroke.size, x, z);
+  const origins: { x: number; z: number }[] = [];
+  const from = stroke.last ?? target;
+  const steps = Math.max(Math.abs(target.x - from.x), Math.abs(target.z - from.z));
+  if (steps === 0) origins.push(target);
+  for (let k = 1; k <= steps; k++) origins.push({ x: from.x + Math.round(((target.x - from.x) * k) / steps), z: from.z + Math.round(((target.z - from.z) * k) / steps) });
+  stroke.last = target;
+  let next: { cells: TerrainElevationCellDef[]; logic: Map<string, number> } | null = null;
+  for (const o of origins) {
+    const core = reliefBrushCore(stroke.size, o.x, o.z);
+    if (core.every((key) => stroke.painted.has(key))) continue;
+    // Meme validation que l'apercu (reliefBrushPlanAt) : refus et limite
+    // atteinte sautent le tampon ; la partie hors carte est coupee.
+    const plan = editorState.reliefBrushPlanAt(o.x, o.z, stroke.delta, stroke.size, stroke.painted, stroke.start);
+    if (!plan.status.ok) continue;
+    for (const key of plan.core) stroke.painted.add(key);
+    next = { cells: plan.cells, logic: plan.logic };
+  }
+  if (!next) return;
+  // Champ logique : change meme quand la surface ne bouge pas (historique).
+  editorState.setReliefLogic(next.logic);
+  stroke.changed = true;
+  if (editorState.applyReliefCells(stroke.start.field, stroke.applied, next.cells)) rebuildEditorBoard();
+  stroke.applied = next.cells;
+}
+
+/** Fin du trait : une seule entree d'historique s'il a change le relief. */
+function endReliefStroke(): void {
+  const stroke = reliefStroke;
+  reliefStroke = null;
+  if (!editorState || !stroke?.changed) return;
+  const before = stroke.before;
+  const after = editorState.mapShapeSnapshot();
+  editorHistory.push({ undo: () => applyEditorMapShape(before), redo: () => applyEditorMapShape(after) });
+}
+
+type BrushTool = 'paint-territory' | 'add-cell' | 'remove-cell' | 'slope-cell' | 'corner-slope-cell';
 interface BrushStroke {
   tool: BrushTool;
   visited: Set<string>;
@@ -3510,7 +3685,7 @@ interface BrushStroke {
 let brushStroke: BrushStroke | null = null;
 
 function isBrushTool(type: EditorTool['type']): type is BrushTool {
-  return type === 'paint-territory' || type === 'add-cell' || type === 'remove-cell';
+  return type === 'paint-territory' || type === 'add-cell' || type === 'remove-cell' || type === 'slope-cell' || type === 'corner-slope-cell';
 }
 
 /** Commence un trait avec l'outil actif (appui gauche au sol). */
@@ -3545,8 +3720,16 @@ function brushAt(x: number, z: number): void {
     return;
   }
   // Memes regles qu'un clic isole (addCell / removeCell, qui retire aussi le
-  // territoire explicite de la case supprimee).
-  const changed = tool.type === 'add-cell' ? editorState.addCell(cellX, cellZ, tool.terrain) : editorState.removeCell(cellX, cellZ);
+  // territoire explicite de la case supprimee ; relief : Pente, Coin,
+  // chaque case une seule fois par trait).
+  const changed =
+    tool.type === 'add-cell'
+      ? editorState.addCell(cellX, cellZ, tool.terrain)
+      : tool.type === 'remove-cell'
+        ? editorState.removeCell(cellX, cellZ)
+        : tool.type === 'slope-cell'
+          ? editorState.setSlope(cellX, cellZ, editorState.resolveSlope(cellX, cellZ, tool.dir).dir)
+          : editorState.setCornerSlope(cellX, cellZ, editorState.resolveCornerSlope(cellX, cellZ, tool.dir).dir);
   if (!changed) return;
   stroke.changed = true;
   rebuildEditorBoard();
@@ -3643,21 +3826,32 @@ function endBrushStroke(): void {
 }
 
 window.addEventListener('mousemove', (event) => {
-  if (!brushStroke || !inEditorMode) return;
+  if ((!brushStroke && !reliefStroke) || !inEditorMode) return;
   setRaycasterFromEvent(event);
-  if (raycaster.ray.intersectPlane(groundPlane, groundHit)) brushAt(groundHit.x, groundHit.z);
+  // Trait de sculpture : on vise le terrain du DEBUT du trait, sinon le
+  // relief qui monte sous le curseur intercepte le rayon et le pinceau
+  // derive vers la camera a chaque mouvement.
+  if (!intersectTerrain(raycaster.ray, groundHit, reliefStroke?.start.field)) return;
+  if (reliefStroke) {
+    reliefStrokeAt(groundHit.x, groundHit.z);
+    updateEditorGhost(groundHit.x, groundHit.z);
+  } else {
+    brushAt(groundHit.x, groundHit.z);
+  }
 });
 window.addEventListener('mouseup', (event) => {
   if (event.button === 0 && brushStroke) endBrushStroke();
+  if (event.button === 0 && reliefStroke) endReliefStroke();
 });
 window.addEventListener('blur', () => {
   if (brushStroke) endBrushStroke();
+  if (reliefStroke) endReliefStroke();
 });
 
 function handleEditorClick(event: MouseEvent): void {
   if (!editorState || !editorAssets) return;
   setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
+  if (!intersectTerrain(raycaster.ray, groundHit)) return;
 
   if (editorState.tool.type === 'place-obstacle') {
     // Placement LIBRE : position exacte du clic, jamais arrondie a une case
@@ -3700,7 +3894,7 @@ function handleEditorClick(event: MouseEvent): void {
       const leg = plan.leg;
       const before = editorState.objectsSnapshot();
       const removedIds = tracedBuildingsToRemove(editorState.buildings, plan.step).map((b) => b.id);
-      if (leg.usable && !wallStepTouchesGate(editorState.buildings, plan.step) && editorState.replaceBuildingPieces(removedIds, editorTracePieceCenters(plan.step.added), editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))) {
+      if (leg.usable && !wallStepTouchesGate(editorState.buildings, plan.step) && !wallStepSplitsLevels(plan.step, editorState.heightField()) && editorState.replaceBuildingPieces(removedIds, editorTracePieceCenters(plan.step.added), editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))) {
         // Creneaux de tout le trace vers l'exterieur (meme entree d'historique).
         editorState.buildings = reorientTracedBuildings(editorState.buildings, plan.step.all);
         pushEditorObjectsCommand(before, editorState.objectsSnapshot());
@@ -3717,6 +3911,16 @@ function handleEditorClick(event: MouseEvent): void {
     const before = editorState.objectsSnapshot();
     if (editorState.placeBuildingAt(groundHit.x, groundHit.z)) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
     refreshEditorObjects();
+    updateEditorGhost(groundHit.x, groundHit.z);
+    return;
+  }
+
+  // Pinceaux de relief : l'appui commence un trait (premier tampon), le
+  // glisser l'etend (mousemove), le relachement le termine (une entree
+  // d'historique) ; les decors suivent la surface en direct.
+  if (editorState.tool.type === 'relief-brush') {
+    startReliefStroke(editorState.tool.delta, editorState.tool.size);
+    reliefStrokeAt(groundHit.x, groundHit.z);
     updateEditorGhost(groundHit.x, groundHit.z);
     return;
   }
@@ -3978,9 +4182,10 @@ function moveEditorBallista(x: number, z: number): void {
 }
 
 // Raycast souris : sert a la fois a detecter un clic sur une unite et, a
-// defaut, a trouver la case du sol vise (plan y=0).
+// defaut, a trouver la case du sol vise — la surface VISIBLE du relief
+// (intersectTerrain, render/terrainSurface.ts), le plan y = 0 sur une carte
+// plate.
 const raycaster = new THREE.Raycaster();
-const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const groundHit = new THREE.Vector3();
 
 function setRaycasterFromEvent(event: MouseEvent): void {
@@ -4020,7 +4225,7 @@ function aimAtPointer(): void {
   const x = lastPointerClient?.x ?? rect.left + rect.width / 2;
   const y = lastPointerClient?.y ?? rect.top + rect.height / 2;
   setRaycasterFromClient(x, y);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
+  if (!intersectTerrain(raycaster.ray, groundHit)) return;
   playerAimX = groundHit.x;
   playerAimZ = groundHit.z;
 }
@@ -4504,7 +4709,7 @@ function syncBattleInspection(): void {
   const def = getBuilding(entity.unitId);
   const radius = entity.id === ballistaEntityId ? BALLISTA_TOWER_FOOTPRINT * 0.7 : Math.hypot(def.footprintTilesX ?? 1, def.footprintTilesZ ?? 1) / 2 + 0.2;
   battleInspectionRing = createEditorSelectionRing(radius);
-  battleInspectionRing.position.set(entity.x, 0.02, entity.z);
+  battleInspectionRing.position.set(entity.x, 0.02 + surfaceY(entity.x, entity.z), entity.z);
   (battleInspectionRing.material as THREE.MeshBasicMaterial).color.setHex(teamColor(entity.team));
   renderer.scene.add(battleInspectionRing);
 }
@@ -4614,7 +4819,7 @@ function armInventorySlot(index: number): void {
  *  computeHoveredTile pour la variante alignee sur les cases (placement). */
 function computeGroundPoint(event: MouseEvent): { x: number; z: number } | null {
   setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return null;
+  if (!intersectTerrain(raycaster.ray, groundHit)) return null;
   return { x: groundHit.x, z: groundHit.z };
 }
 
@@ -4910,7 +5115,7 @@ function findHoveredSlot(event: MouseEvent): number | null {
  *  du placement. Partagee par le glisser-deplacer et les clics existants. */
 function computeHoveredTile(event: MouseEvent): { x: number; z: number } | null {
   setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return null;
+  if (!intersectTerrain(raycaster.ray, groundHit)) return null;
   return { x: Math.floor(groundHit.x) + 0.5, z: Math.floor(groundHit.z) + 0.5 };
 }
 
@@ -4984,14 +5189,13 @@ function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: numb
   });
   if (occupied) return false;
 
-  // Une case occupee par un obstacle COLLIDABLE (rocher, arbre) ne peut pas
-  // recevoir d'unite : sans ce test, l'unite se retrouverait plantee dans
-  // l'obstacle au placement, puis rejetee au demarrage de la bataille
-  // (resolveObstacleCollisions), ce qui se voit comme un petit saut. Les
-  // props (decor purement visuel) sont explicitement EXCLUS de ce test
-  // depuis le 2026-08-14 (voir config/constants.ts, isCollidableObstacle) —
-  // une unite peut desormais etre deplacee librement sur un champignon/une
-  // fleur/un buisson decoratif, demande explicite d'Antoine.
+  // Une case occupee par un obstacle BLOQUANT (« Obstacles / structures »)
+  // ne peut pas recevoir d'unite : sans ce test, l'unite se retrouverait
+  // plantee dans l'obstacle au placement, puis rejetee au demarrage de la
+  // bataille (resolveObstacleCollisions), ce qui se voit comme un petit
+  // saut. Les DECORS (arbres, rochers, vegetation, structures decoratives…)
+  // sont purement visuels depuis le 2026-10-28 (voir config/constants.ts,
+  // isBlockingMapObstacle) : une unite ou un batiment se pose dessus.
   // Les batiments possedes (Mine, Caserne, Forge) ET la plateforme Baliste
   // (2026-08-16, TOUJOURS presente — voir activeBuildingObstacles) sont
   // fusionnees ici aussi : sans ca, une unite pourrait se retrouver placee
@@ -5001,8 +5205,8 @@ function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: numb
   // rocher/arbre. `excludeBuildingIndex` (2026-08-17) : voir
   // activeBuildingObstacles, indispensable pour DEPLACER un bâtiment deja
   // possede sans qu'il se bloque lui-meme.
-  const onObstacle = [...currentMap.obstacles, ...activeBuildingObstacles(excludeBuildingIndex)].some((o) => {
-    if (!isCollidableObstacle(o)) return false;
+  // Decors : jamais bloquants (isBlockingMapObstacle) ; batiments et Baliste : toujours.
+  const onObstacle = [...currentMap.obstacles.filter(isBlockingMapObstacle), ...activeBuildingObstacles(excludeBuildingIndex)].some((o) => {
     const b = obstacleBounds(o);
     return tileX > b.minX && tileX < b.maxX && tileZ > b.minZ && tileZ < b.maxZ;
   });
@@ -5110,7 +5314,7 @@ function updateBuildingSelectionRing(): void {
   if (placementBallistaSelected) {
     // Meme taille que l'anneau de la Baliste dans l'editeur.
     buildingSelectionRing = createEditorSelectionRing(BALLISTA_TOWER_FOOTPRINT * 0.7);
-    buildingSelectionRing.position.set(playerArrowOrigin.x, 0.02, playerArrowOrigin.z);
+    buildingSelectionRing.position.set(playerArrowOrigin.x, 0.02 + surfaceY(playerArrowOrigin.x, playerArrowOrigin.z), playerArrowOrigin.z);
   } else {
     if (selectedBuildingIndex === null) return;
     const owned = currentRun.buildings[selectedBuildingIndex];
@@ -5120,7 +5324,7 @@ function updateBuildingSelectionRing(): void {
     }
     const { tilesX, tilesZ } = buildingFootprintTiles(owned.buildingId, owned.rotationY ?? 0);
     buildingSelectionRing = createEditorSelectionRing(Math.hypot(tilesX, tilesZ) / 2 + 0.2);
-    buildingSelectionRing.position.set(owned.x, 0.02, owned.z);
+    buildingSelectionRing.position.set(owned.x, 0.02 + surfaceY(owned.x, owned.z), owned.z);
   }
   // Materiau propre a cet anneau (recree a chaque selection) : couleur du
   // camp proprietaire, jamais l'or reserve aux objets neutres.
@@ -5168,7 +5372,20 @@ function buildingFootprintCells(cornerX: number, cornerZ: number, tilesX: number
  *  exclure, le bâtiment n'existe pas encore). */
 function canPlaceBuildingAt(buildingId: string, cornerX: number, cornerZ: number, excludeBuildingIndex?: number, rotationY = 0): boolean {
   const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
+  // Relief : emprise entierement plate, a un seul niveau.
+  if (gameTerrain().flatLevelOver(cornerX, cornerX + tilesX, cornerZ, cornerZ + tilesZ) === null) return false;
   return buildingFootprintCells(cornerX, cornerZ, tilesX, tilesZ).every((c) => isValidPlacementTile(c.x, c.z, [], excludeBuildingIndex));
+}
+
+/** Relief : vrai si une etape de trace ne tient pas sur UN seul niveau
+ *  plat (pieces du trace et cases en attente) — une portion de muraille ne
+ *  franchit jamais une falaise ni une pente. */
+function wallStepSplitsLevels(step: WallTraceStep, field: TerrainHeightField): boolean {
+  if (field.isFlat) return false;
+  const levels = new Set<number | null>();
+  for (const p of step.all) levels.add(field.flatLevelOver(p.cornerX, p.cornerX + p.tilesX, p.cornerZ, p.cornerZ + p.tilesZ));
+  for (const c of step.waiting) levels.add(field.flatLevelOver(c.x, c.x + 1, c.z, c.z + 1));
+  return levels.has(null) || levels.size > 1;
 }
 
 /** Segment de muraille sous le curseur avant le premier clic du trace,
@@ -5202,6 +5419,7 @@ function wallLineStatus(buildingId: string, step: WallTraceStep): { cost: number
   const halfId = getBuilding(buildingId).traceHalf ?? buildingId;
   const placeable =
     !wallStepTouchesGate(currentRun.buildings, step) &&
+    !wallStepSplitsLevels(step, gameTerrain()) &&
     withoutOwnedBuildings(tracedBuildingsToRemove(currentRun.buildings, step), () =>
       step.added.every((s) => canPlaceBuildingAt(s.buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY)) && step.waiting.every((c) => canPlaceBuildingAt(halfId, c.x, c.z, undefined, 0)),
     );
@@ -5480,7 +5698,7 @@ function placementHintText(buildingId: string, line: { leg: WallTraceLeg; cells:
 function confirmBuildingPlacement(event: MouseEvent): boolean {
   if (!buildingPlacementMode) return false;
   setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return false;
+  if (!intersectTerrain(raycaster.ray, groundHit)) return false;
   if (isLinePlacement(buildingPlacementMode)) return confirmWallLine(groundHit.x, groundHit.z);
   const def = getBuilding(buildingPlacementMode.buildingId);
   const { tilesX, tilesZ } = buildingFootprintTiles(buildingPlacementMode.buildingId, buildingPlacementMode.rotationY);
@@ -5693,7 +5911,7 @@ window.addEventListener('mousemove', (event) => {
  *  du sol (le corps de l'unite, pas ses pieds) pour rester intuitif : encadrer
  *  la silhouette a l'ecran doit suffire, pas viser precisement sa base. */
 function worldToScreen(x: number, z: number): { x: number; y: number } {
-  const v = new THREE.Vector3(x, 0.5, z);
+  const v = new THREE.Vector3(x, 0.5 + surfaceY(x, z), z);
   v.project(renderer.camera);
   const rect = canvas.getBoundingClientRect();
   return {
@@ -6259,6 +6477,9 @@ const loop = new Loop(
     // evenement") — plus aucun site d'appel a se souvenir d'ajouter apres un
     // achat/une vente.
     goldHud.update(currentRun.gold);
+    // Relief : surface active du rendu (brouillon de l'editeur ou carte en
+    // jeu) avant tout placement vertical de la frame.
+    syncActiveTerrain();
     // Population : armee et batiments de la run en preparation, entites
     // vivantes de la bataille sinon (unite morte, Caserne, Maison detruite).
     const population = inPlacementPhase ? runPopulation(currentRun) : populationOfEntities(world.entities);
@@ -6495,6 +6716,7 @@ const loop = new Loop(
       aimAtPointer();
       aimReticle.position.x = playerAimX;
       aimReticle.position.z = playerAimZ;
+      aimReticle.position.y = 0.02 + surfaceY(playerAimX, playerAimZ);
       const ready = world.playerArrow.cooldown <= 0 && world.playerArrow.flights.length === 0;
       const reticleMaterial = aimReticle.material as THREE.MeshBasicMaterial;
       reticleMaterial.opacity = ready ? 0.55 : 0.15;
@@ -7043,7 +7265,26 @@ window.addEventListener('keydown', (event) => {
       // reinitialiser la camera (voir CLAUDE.md, conflit identifie des
       // l'etape 2) — la camera reste pilotable normalement par ailleurs.
       if (inEditorMode) {
-        if (editorState?.rotateBuildingTool()) updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
+        if (editorState?.tool.type === 'corner-slope-cell') {
+          // Outils Coin exterieur / interieur : orientation suivante dans la
+          // meme famille (NE → SE → SW → NW, ou NEi → SEi → SWi → NWi).
+          const current: CornerShape = editorState.tool.dir;
+          if (isConcaveCornerSlope(current)) {
+            editorInnerCornerDir = CONCAVE_CORNER_SLOPE_DIRECTIONS[(CONCAVE_CORNER_SLOPE_DIRECTIONS.indexOf(current) + 1) % CONCAVE_CORNER_SLOPE_DIRECTIONS.length]!;
+            editorState.setTool({ type: 'corner-slope-cell', dir: editorInnerCornerDir });
+          } else {
+            editorCornerDir = CORNER_SLOPE_DIRECTIONS[(CORNER_SLOPE_DIRECTIONS.indexOf(current) + 1) % CORNER_SLOPE_DIRECTIONS.length]!;
+            editorState.setTool({ type: 'corner-slope-cell', dir: editorCornerDir });
+          }
+          refreshEditorObjects();
+          updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
+        } else if (editorState?.tool.type === 'slope-cell') {
+          // Outil Pente : la direction de montee tourne d'un quart de tour.
+          editorSlopeDir = SLOPE_DIRECTIONS[(SLOPE_DIRECTIONS.indexOf(editorState.tool.dir) + 1) % SLOPE_DIRECTIONS.length]!;
+          editorState.setTool({ type: 'slope-cell', dir: editorSlopeDir });
+          refreshEditorObjects();
+          updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
+        } else if (editorState?.rotateBuildingTool()) updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
         else rotateSelectedObstacleBy(Math.PI / 2);
       } else {
         renderer.resetCamera();
@@ -7597,7 +7838,8 @@ window.addEventListener('mousemove', (event) => {
     return;
   }
   setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
+  // Meme cible que le trait de sculpture en cours (terrain de son debut).
+  if (!intersectTerrain(raycaster.ray, groundHit, reliefStroke?.start.field)) return;
   updateEditorGhost(groundHit.x, groundHit.z);
 });
 
@@ -7610,7 +7852,7 @@ function updateEditorBallistaMovePreview(event: MouseEvent): void {
   if (!editorState || editorState.selection?.kind !== 'ballista' || event.target !== canvas) return;
   if (pickEditorObjectAt(event) !== null) return;
   setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
+  if (!intersectTerrain(raycaster.ray, groundHit)) return;
   const target = snapBallistaOrigin(groundHit.x, groundHit.z);
   const valid = editorState.canMoveBallistaTo(target.x, target.z);
   const cornerX = Math.round(target.x - BALLISTA_PLACEMENT_TILES / 2);
@@ -7648,7 +7890,7 @@ window.addEventListener('mousemove', (event) => {
 window.addEventListener('mousemove', (event) => {
   if (!buildingPlacementMode) return;
   setRaycasterFromEvent(event);
-  if (!raycaster.ray.intersectPlane(groundPlane, groundHit)) return;
+  if (!intersectTerrain(raycaster.ray, groundHit)) return;
   updateBuildingPlacementGhost(groundHit.x, groundHit.z);
 });
 

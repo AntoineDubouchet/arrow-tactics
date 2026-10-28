@@ -29,7 +29,16 @@ export interface PathGrid {
   halfH: number;
   /** true = case occupee par un obstacle, jamais traversable. */
   blocked: Uint8Array;
+  /** Aretes bloquees par case (falaises du relief, ObstacleDef.terrainCliff) :
+   *  bits EDGE_EAST / EDGE_WEST / EDGE_SOUTH / EDGE_NORTH. Toujours a 0 sur
+   *  une carte plate. */
+  edges: Uint8Array;
 }
+
+const EDGE_EAST = 1;
+const EDGE_WEST = 2;
+const EDGE_SOUTH = 4;
+const EDGE_NORTH = 8;
 
 /** Reconstruite a chaque appel de movementSystem (voir son commentaire) :
  *  O(obstacles), largement assez rapide vu leur nombre (quelques dizaines a
@@ -38,9 +47,14 @@ export function buildPathGrid(obstacles: ObstacleDef[], boardWidth: number, boar
   const halfW = (boardWidth * TILE) / 2;
   const halfH = (boardHeight * TILE) / 2;
   const blocked = new Uint8Array(boardWidth * boardHeight);
+  const edges = new Uint8Array(boardWidth * boardHeight);
 
   for (const obstacle of obstacles) {
     const b = obstacleBounds(obstacle);
+    if (obstacle.terrainCliff) {
+      blockCliffEdges(edges, b, boardWidth, boardHeight, halfW, halfH);
+      continue;
+    }
     const minTx = Math.max(0, Math.floor(b.minX + halfW));
     const maxTx = Math.min(boardWidth - 1, Math.ceil(b.maxX + halfW) - 1);
     const minTz = Math.max(0, Math.floor(b.minZ + halfH));
@@ -52,7 +66,54 @@ export function buildPathGrid(obstacles: ObstacleDef[], boardWidth: number, boar
     }
   }
 
-  return { width: boardWidth, height: boardHeight, halfW, halfH, blocked };
+  return { width: boardWidth, height: boardHeight, halfW, halfH, blocked, edges };
+}
+
+/** Falaise (segment sur une ligne de la grille, voir computeCliffObstacles) :
+ *  bloque l'arete ENTIERE de chaque case qu'elle touche — meme quand le
+ *  segment de collision est raccourci au pied d'une pente — sans bloquer
+ *  les cases elles-memes. */
+function blockCliffEdges(edges: Uint8Array, b: { minX: number; maxX: number; minZ: number; maxZ: number }, width: number, height: number, halfW: number, halfH: number): void {
+  const mark = (tx: number, tz: number, bit: number) => {
+    if (tx >= 0 && tx < width && tz >= 0 && tz < height) edges[tz * width + tx]! |= bit;
+  };
+  if (b.maxX - b.minX < b.maxZ - b.minZ) {
+    const line = Math.round((b.minX + b.maxX) / 2 + halfW);
+    for (let tz = Math.floor(b.minZ + halfH + 1e-6); tz < Math.ceil(b.maxZ + halfH - 1e-6); tz++) {
+      mark(line - 1, tz, EDGE_EAST);
+      mark(line, tz, EDGE_WEST);
+    }
+  } else {
+    const line = Math.round((b.minZ + b.maxZ) / 2 + halfH);
+    for (let tx = Math.floor(b.minX + halfW + 1e-6); tx < Math.ceil(b.maxX + halfW - 1e-6); tx++) {
+      mark(tx, line - 1, EDGE_SOUTH);
+      mark(tx, line, EDGE_NORTH);
+    }
+  }
+}
+
+/** Vrai si un pas orthogonal (dx, dz) depuis la case (tx, tz) franchit une
+ *  falaise. */
+function edgeBlocked(grid: PathGrid, tx: number, tz: number, dx: number, dz: number): boolean {
+  if (tx < 0 || tx >= grid.width || tz < 0 || tz >= grid.height) return false;
+  const bits = grid.edges[tz * grid.width + tx]!;
+  if (dx === 1) return (bits & EDGE_EAST) !== 0;
+  if (dx === -1) return (bits & EDGE_WEST) !== 0;
+  if (dz === 1) return (bits & EDGE_SOUTH) !== 0;
+  return (bits & EDGE_NORTH) !== 0;
+}
+
+/** Pas (orthogonal ou diagonal) sans traverser de falaise : une diagonale
+ *  exige les quatre aretes autour du coin franchi libres (aucune coupe de
+ *  coin le long d'une falaise). */
+function stepCrossesCliff(grid: PathGrid, x: number, z: number, dx: number, dz: number): boolean {
+  if (dx === 0 || dz === 0) return edgeBlocked(grid, x, z, dx, dz);
+  return (
+    edgeBlocked(grid, x, z, dx, 0) ||
+    edgeBlocked(grid, x, z, 0, dz) ||
+    edgeBlocked(grid, x + dx, z, 0, dz) ||
+    edgeBlocked(grid, x, z + dz, dx, 0)
+  );
 }
 
 function worldToTileX(grid: PathGrid, x: number): number {
@@ -168,6 +229,9 @@ export function findPath(grid: PathGrid, fromX: number, fromZ: number, toX: numb
       // Anti-coupe-de-coin : une diagonale exige que les deux cases
       // orthogonales adjacentes soient libres aussi.
       if (dx !== 0 && dz !== 0 && (isBlocked(grid, current.x + dx, current.z) || isBlocked(grid, current.x, current.z + dz))) continue;
+      // Relief : jamais a travers une falaise (une pente n'a aucune arete
+      // bloquee dans le sens de la montee).
+      if (stepCrossesCliff(grid, current.x, current.z, dx, dz)) continue;
 
       const nk = key(nx, nz);
       if (closed.has(nk)) continue;

@@ -10,6 +10,7 @@ import type { ShadowProjectile } from '../sim/systems/shadowProjectiles';
 import { buildOrbitingSprites, tickOrbitingSprites, type OrbitingSprite } from './vfx/orbitingSprites';
 import { spawnRadialParticles, tickRadialParticles, type RadialParticle } from './vfx/radialBurst';
 import { createVfxSprite, getVfxCoreMaterial, type VfxMaterialSpec } from './vfx/vfxMaterials';
+import { surfaceY } from './terrainSurface';
 
 /**
  * Rendu des projectiles d'ombre (talent "Soins excédentaires") — DEUXIÈME
@@ -163,7 +164,7 @@ export class ShadowProjectileView {
       fx.history.push({ x: p.x, z: p.z });
       if (fx.history.length > HISTORY_LENGTH) fx.history.shift();
 
-      fx.group.position.set(p.x, HEIGHT, p.z);
+      fx.group.position.set(p.x, HEIGHT + surfaceY(p.x, p.z), p.z);
       fx.group.scale.setScalar(scale);
 
       // Stretch directionnel (2026-08-18) — direction déduite des deux
@@ -256,7 +257,7 @@ export class ShadowProjectileView {
    *  Boule de feu. */
   spawnImpact(x: number, z: number): void {
     const flash = createVfxSprite({ texture: 'star_02.png', color: SHADOW_PROJECTILE_IMPACT_COLOR, blending: 'additive', opacity: 0.9 });
-    flash.position.set(x, HEIGHT, z);
+    flash.position.set(x, HEIGHT + surfaceY(x, z), z);
     this.group.add(flash);
 
     const implosionRing = new THREE.Mesh(
@@ -264,13 +265,13 @@ export class ShadowProjectileView {
       new THREE.MeshBasicMaterial({ color: SHADOW_PROJECTILE_GLOW_COLOR, transparent: true, opacity: 0.7, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
     implosionRing.rotation.x = -Math.PI / 2;
-    implosionRing.position.set(x, 0.04, z);
+    implosionRing.position.set(x, 0.04 + surfaceY(x, z), z);
     this.group.add(implosionRing);
 
     // Eclat de couronne (2026-08-18) — le motif ornementé (magic_02) flashe
     // brièvement à l'impact, distinct de l'implosion ronde en dessous.
     const crownBurst = createVfxSprite({ texture: 'magic_02.png', color: SHADOW_PROJECTILE_CROWN_COLOR, blending: 'additive', opacity: 0.55 });
-    crownBurst.position.set(x, HEIGHT, z);
+    crownBurst.position.set(x, HEIGHT + surfaceY(x, z), z);
     this.group.add(crownBurst);
 
     const particles = spawnRadialParticles(this.group, {

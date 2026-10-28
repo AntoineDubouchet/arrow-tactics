@@ -142,13 +142,22 @@ la position de son entité pendant le tick.
 
 **`setMap(map)`** :
 
-- ne garde que les obstacles collidables (`isCollidableObstacle` : les props
-  décoratifs sont exclus de la simulation, mais restent rendus) ;
+- ne garde que les objets de la carte qui bloquent (`isBlockingMapObstacle`,
+  `config/constants.ts` : seuls les « Obstacles / structures » de
+  `BLOCKING_STRUCTURE_MODELS`) ; tout décor est exclu de la simulation mais
+  reste rendu, à la hauteur de la surface sous son point d'ancrage
+  (`buildObstacleMesh`, jamais stockée). Les obstacles synthétiques ajoutés
+  ensuite (trous, falaises, emprises de bâtiments et de la Baliste) bloquent
+  toujours : les systèmes qui lisent `World.obstacles` ne filtrent plus rien ;
 - dérive des dimensions symétriques à partir des cellules de terrain
   (`resolveMapCells`, `computeMapCellBounds`, `config/mapDef.ts`) ;
 - transforme chaque cellule absente en obstacle « vide » synthétique. Un trou
   dans la carte bloque ainsi exactement comme un rocher, sans que mouvement,
-  ligne de tir ou pathfinding connaissent la notion de cellule.
+  ligne de tir ou pathfinding connaissent la notion de cellule ;
+- relief (`MapDef.elevationCells`, voir §6) : ajoute une **falaise** par arête
+  infranchissable entre deux cases existantes (`computeCliffObstacles`,
+  `config/terrainElevation.ts`). Carte plate : aucune falaise, liste
+  d'obstacles identique à avant le relief.
 
 **`clear(seed?)`** réinitialise l'état de bataille (entités, projectiles,
 événements, temps, RNG). Il ne change pas la carte chargée.
@@ -221,7 +230,104 @@ voir §9.
 - **Pathfinding** (`sim/pathfinding.ts`) : grille par case reconstruite à
   chaque appel du système de déplacement, A* en 8 directions sans couper les
   coins, et repli sur la case libre la plus proche si la case visée est
-  bloquée.
+  bloquée. Le relief y ajoute des **arêtes bloquées** (`PathGrid.edges`, un
+  masque de 4 bits par case) : un obstacle `terrainCliff` ne bloque aucune
+  case, seulement le passage entre ses deux voisines ; une diagonale exige
+  les quatre arêtes autour du coin franchi libres.
+- **Relief 2.5D** (`config/terrainElevation.ts`, module pur partagé par
+  `sim/`, `render/` et `editor/`) :
+  - données : `MapDef.elevationCells`, liste **sparse** `{x, z, level,
+    slope?}` (case absente = plate au niveau 0) ; niveaux 0 à
+    `TERRAIN_LEVEL_MAX` (2), `TERRAIN_ELEVATION_STEP` = 0,5 case ; une pente
+    monte de `level` à `level + 1` : cardinale (`slope` N / E / S / W, N = −Z)
+    ou de **coin** (`slope` NE / NW / SE / SW : seul ce coin est haut) ;
+    hauteurs des 4 coins (NW, NE, SW, SE) = `cornerHeightsOf`, seule source de
+    vérité géométrique ;
+  - triangulation (`cellTriangles`) : diagonale NE ↔ SW, sauf pente de coin
+    haut NW / SE (NW ↔ SE), pour relier le coin extérieur bas au coin
+    intérieur haut. `heightAt` interpole dans le triangle qui contient le
+    point (`surfaceHeightInCell`), jamais en bilinéaire : la hauteur gameplay
+    est exactement le mesh (vérifié par rayons verticaux, écart < 1e-15) ;
+  - coins intérieurs (`slope` NEi / NWi / SEi / SWi : trois coins hauts, un
+    seul bas, qui donne son nom) : nécessaires au creux d'un contour concave ;
+    diagonale par le coin « différent », comme les coins extérieurs ;
+  - `classifyCellFromCornerLevels` : forme d'une case d'après les niveaux de
+    ses 4 coins (plate, cardinale, coin, coin intérieur, ou « selle ») —
+    inverse exact de `cornerHeightsOf` sur les 12 formes ;
+  - sculpture : source de vérité = **hauteur logique de chaque case**
+    (`ReliefLogic`, en niveaux, 0 par défaut). `sculptRelief(ctx, painted,
+    delta)` ajoute ou retire une couche aux cases peintes (une fois par
+    trait, bornée 0..2, mesurée sur le début du trait) : ±1 est un inverse
+    exact. La surface est le **rendu canonique** `renderReliefLogic(logic,
+    cells)`, qui ne dépend que des couches et des cases existantes : (1)
+    régions de même hauteur (4-connexité), profondeur depuis le vide (bord,
+    trou) ; (2) chaque sommet prend la hauteur de la case la plus
+    prioritaire qui le touche (profondeur, puis hauteur) — une région
+    enclavée garde son plat, les transitions vont dans celle qui l'entoure,
+    butte comme creux ; (3) écart de plus d'un niveau : les sommets les
+    moins prioritaires sont rapprochés (deux anneaux) ; selle : la paire la
+    moins prioritaire s'aligne (liaison diagonale). Le vide n'impose rien
+    (face verticale au bord). Seules les cases dont le rendu change sont
+    réécrites ; une case verrouillée rend `blocked` ; le vide (hors carte,
+    trou) n'impose rien et ne reçoit jamais de donnée. Pur, déterministe ;
+  - couches au chargement : `deriveReliefLogic(field, cells)` (niveau d'une
+    case plate, bas d'une pente), corrigé par `MapDef.reliefLogic` (seules
+    les cases dont la couche diffère de cette déduction — sous les pentes
+    d'un creux, autour d'un sommet 2) ;
+  - pinceau : `ReliefBrushSize` (1 ou 4), `reliefBrushOrigin`,
+    `reliefBrushCore` (cœur logique : 1 case ou 2 × 2). Éditeur :
+    `renderedRelief` (rendu en cache),
+    `reliefStrokeStart`, `reliefBrushPlan` / `reliefBrushPlanAt` (cœur
+    coupé aux cases de terrain existantes, aperçu, niveaux, refus, limites : source unique de
+    l'aperçu et de la pose), `applyReliefCells`, `setReliefLogic`,
+    `reliefLogicEntries` (export) ; les instantanés d'historique incluent
+    les couches. Trait `ReliefStroke` dans `main.ts` (début figé, taille,
+    tampons interpolés, tampon refusé ignoré, relief appliqué en direct,
+    pointage sur le terrain de départ via `intersectTerrain(ray, target,
+    field)`, une entrée d'historique au relâchement) ;
+  - pente de coin manuelle, extérieure ou intérieure (`CornerShape`) :
+    `evaluateCornerSlope` (niveau pour lequel toutes les arêtes voisines se
+    raccordent), `EditorState.resolveCornerSlope` (variante de R ou imposée
+    par les voisins, dans la famille de l'outil : source unique de
+    l'aperçu, de la pose et du texte) ;
+  - `TerrainHeightField` (`resolveMapHeightField(map)`, en cache par
+    tableau) : hauteurs des 4 coins d'une case, `heightAt(x, z)` (linéaire
+    sur une pente), `edgeMatches` (même hauteur aux deux extrémités de
+    l'arête commune = passage à pied), `flatLevelOver` (emprise plate à un
+    seul niveau) ;
+  - simulation : la seule connaissance du relief est la liste de falaises
+    injectée par `World.setMap`. Une falaise est une arête dont les profils
+    ne se raccordent pas (`edgeProfile` / `edgeMatches` : hauteurs des deux
+    cases aux deux extrémités de l'arête, dérivées des coins NW, NE, SW, SE ;
+    aucune règle propre aux « côtés de pente » : plat ↔ plat, plat ↔ pente
+    et pente ↔ pente suivent le même test, deux pentes parallèles se
+    raccordent). Ce sont des obstacles **sans épaisseur** (`kind: 'rock'`,
+    `terrainCliff: true`, `blocksShots: false`) posés sur la partie de
+    l'arête où l'écart atteint `SLOPE_SIDE_BLOCK_THRESHOLD` (un quart de niveau :
+    rien au pied d'un flanc de pente, où l'écart est nul), fusionnés par
+    ligne : collision cercle / segment exacte (une pente d'une case garde
+    toute sa largeur, soit le diamètre d'un Fantassin), trajets
+    (`findBlockingObstacle`, contournement local, A* qui bloque l'arête
+    entière), ruée de Charge. La **ligne de tir reste 2D** (falaise ignorée
+    par `findBlockingObstacle(..., forShot)`), et aucun système de combat ne
+    lit la hauteur ;
+  - corps à corps (`isMeleeAttack`, seul point de décision : `attackRange` ≤
+    `MELEE_CONTACT_RANGE`, 1,5 case, `config/constants.ts`) : `combatSystem` ne frappe jamais à travers une falaise
+    (`crossesTerrainCliff`, mêmes segments) et `movementSystem`
+    (`isEngaged`) ne considère pas une unité de corps à corps comme
+    engagée dans ce cas : elle continue de chercher une rampe ;
+  - ligne droite ou A* (`followMoveOrder`, `pursueTargetWithPathfinding`) :
+    pour les falaises seulement, le test tient compte du **corps**
+    (`bodyPathNearTerrainCliff`, rayon moins 0,05) : une ligne entre centres
+    qui frôle le bout d'un mur de flanc passe par l'A* (centres de case)
+    au lieu de buter dessus. Une unité au contact d'une autre au début du
+    tick (`touchingEntityIds`) garde le test entre centres, comme avant le
+    relief : sinon deux unités côte à côte devant une rampe d'une case
+    visent le même point de passage et se bloquent ;
+  - production (`buildingProduction.ts`) : une case libre séparée de
+    l'emprise par une falaise n'est jamais choisie ;
+  - la simulation reste en 2D (x, z) : la hauteur d'une unité n'existe que
+    dans le rendu.
 - **Géométrie** (`sim/geometry.ts`) :
   - `obstacleBounds` (`config/constants.ts`) donne le rectangle exact d'un
     obstacle. Cette fonction pure vit dans `config/`, à côté
@@ -625,9 +731,31 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     chargés via `riggedGltf.ts`) ;
   - attaques procédurales : `proceduralAttackAnimator.ts`, `proceduralSwing.ts`.
 - **Plateau** : `render/board.ts` (sol, grille, zones), `terrainCells.ts`
-  (un `InstancedMesh` par type de terrain), `textures.ts`.
-  - Dalles : chaque case est une dalle d'épaisseur `CELL_THICKNESS` (0,45),
-    dont le dessus reste à y = 0 ; l'épaisseur est purement visuelle.
+  (une géométrie fusionnée par type de terrain), `textures.ts`.
+  - Cases : chaque case n'a que son dessus (deux triangles `cellTriangles` :
+    plat, en pente ou en pente de coin, à la hauteur de
+    son niveau) et ses faces latérales visibles — vers une voisine plus
+    basse (falaise, entre les deux hauteurs) ou vers une case absente (bord,
+    trou : jusqu'à −`CELL_THICKNESS`, 0,45). Aucune face cachée, aucune
+    dalle superposée. Une couleur de sommet éclaircit la texture de 15 % par
+    niveau (rien sous y = 0 : carte plate inchangée). Un draw call par type
+    de terrain, géométrie reconstruite avec le plateau.
+  - Surface active (`render/terrainSurface.ts`) : le champ de hauteur de la
+    carte affichée (brouillon de l'éditeur, sinon `currentMap`), fixé par
+    `syncActiveTerrain` (`main.ts`) à chaque image et à chaque changement
+    de carte ou de relief. Tout élément posé au sol part de `surfaceY(x, z)` :
+    unités (`unitViews`, à la position rendue), barres de PV
+    (`combatOverlay.project`), décors et bâtiments (`buildObstacleMesh`),
+    Baliste, anneaux, apercus de l'éditeur (`buildCellPreview` épouse la
+    case par `cellSurfaceMatrix`), zones, grille, débris (cases plates
+    seulement), projectiles (départ et arrivée au-dessus de leur sol),
+    effets au sol. `intersectTerrain` remplace l'ancien plan y = 0 pour tout
+    le pointage à la souris (marche le long du rayon puis bissection ; plan
+    exact sur une carte plate). Flèche de la Baliste terminée : posée à sa
+    pose d'arrivée (`PlayerArrowView.pose(…, 1)`, fichée au sol de l'impact),
+    plus à la dernière image affichée, qui pouvait la laisser en l'air.
+    Effets au sol (Soin, Nova, Boule de feu) : disques plats à la hauteur de
+    leur centre.
   - Débris de bois décoratifs (`render/board.ts`) : semés seulement sur des
     cases existantes, avec une marge, jamais au-dessus d'un trou.
   - Textures du sol : une seule instance par texture, chargée au premier
@@ -637,8 +765,9 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     `rebuildEditorBoard` (`main.ts`) libère les géométries et matériaux des
     anciennes dalles et de l'ancienne grille, pas les textures ni les
     ressources partagées des zones.
-  - Zones : `createZonesGroup(cells)` rend un territoire déjà résolu, une
-    instance par case et un `InstancedMesh` par camp, aux couleurs de
+  - Zones : `createZonesGroup(cells, field)` rend un territoire déjà résolu,
+    deux triangles par case sur la surface (`appendCellSurfaceTriangles`,
+    mêmes triangles que le sol) et une géométrie par camp, aux couleurs de
     `teamColor`. Partagé par le plateau du jeu (`createBoard`, même
     résolution que la validation du placement) et celui de l'éditeur.
   - Visibilité sur le plateau du jeu : zones visibles en préparation, en
@@ -648,6 +777,11 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 - **Décor** : `render/assetLibrary.ts` (chargement et cache des modèles
   glTF/OBJ/FBX) et `obstacleFactory.ts` (construction selon `kind`), partagés
   par le jeu et l'éditeur.
+  - Pose : `buildObstacleMesh` mémorise le décalage de pose du modèle
+    (recentrage X/Z, base posée au sol en Y, `cloneScaledTo`) ;
+    `placeObstacleMesh` place la racine au centre + ce décalage, à la hauteur
+    de la surface. Seule fonction de pose (plateau, éditeur, gizmo) : la base
+    du modèle est exactement sur le sol, dans l'éditeur comme en jeu.
   - Aspect déterministe : `buildObstacleMesh` crée un `Rng` (`core/rng.ts`)
     à partir de `obstacleAppearanceSeed` (`config/constants.ts` :
     `appearanceSeed` s'il est fixé, sinon hachage du type, du modèle, de la
@@ -777,7 +911,7 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 | `editor/editorScene.ts` | Construction des meshes (réutilise les fabriques du jeu), fantômes des outils de pose, aperçus de cellule, anneau de sélection des décors (doré) et de la Baliste (couleur de son camp, fixée par `main.ts`) |
 | `editor/editorUI.ts` | Interface DOM : barre du haut, colonne de gauche (outils, catalogue `DECOR_CATALOG`, recherche), panneau de propriétés, ligne d'état, panneaux repliables, mesure de l'espace libre (`getViewportInsets`) |
 | `editor/history.ts` | Pile de commandes undo/redo (`{undo, redo}`) ; la coalescence d'un geste en une commande est faite par l'appelant |
-| `editor/mapSerializer.ts` | `MapDef` ↔ JSON (export par téléchargement, import par fichier) ; `territory` et `ballista` écrits seulement s'ils sont explicites, `buildings` seulement s'il y en a |
+| `editor/mapSerializer.ts` | `MapDef` ↔ JSON (export par téléchargement, import par fichier) ; `territory` et `ballista` écrits seulement s'ils sont explicites, `buildings` et `elevationCells` (trié par z puis x, entrées invalides écartées au chargement) seulement s'il y en a |
 
 L'orchestration reste dans `main.ts` :
 
@@ -791,7 +925,16 @@ L'orchestration reste dans `main.ts` :
 - historique : une commande par geste, par instantanés de l'état
   (`pushEditorObjectsCommand`, `pushObstacleRotationCommand`,
   `applyEditorMapShape` pour la Taille) ;
-- pinceaux (Territoire, + Case, − Case) : un seul mécanisme de trait
+- relief : `EditorState` garde `elevationMap` (sparse) et un
+  `heightField()` en cache ; `raiseCell` / `lowerCell` / `setSlope`
+  (`slopeStatus` → `evaluateSlope`) refusent une case occupée
+  (`isCellOccupied` : bâtiment, Baliste, décor, unité) ; `canPlaceBuildingAt`,
+  `canPlaceBallistaAt` et `canPlaceObstacleFootprintAt` (décor de plus d'une
+  case) exigent une emprise plate (`flatLevelOver`) ; `mapShapeSnapshot`
+  inclut le relief. Murailles : `wallStepSplitsLevels` (`main.ts`) refuse
+  une étape de tracé qui ne tient pas sur un seul niveau plat, en
+  préparation comme dans l'éditeur ;
+- pinceaux (Territoire, + Case, − Case, Pente, Coin extérieur, Coin intérieur) : un seul mécanisme de trait
   (`startBrushStroke`, `brushAt`, `endBrushStroke`). Chaque case survolée est
   traitée une fois par trait, le plateau n'est reconstruit que si une case
   change, et le relâchement crée une seule commande d'historique

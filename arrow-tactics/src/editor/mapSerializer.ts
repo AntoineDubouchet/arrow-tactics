@@ -1,4 +1,5 @@
 import type { MapBuildingPlacement, MapDef } from '../config/mapDef';
+import { SLOPE_SHAPES, TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type SlopeShape, type TerrainElevationCellDef } from '../config/terrainElevation';
 import { BUILDINGS } from '../data/buildings';
 import type { TerritoryCell } from '../config/territory';
 import type { EditorState } from './editorState';
@@ -49,6 +50,12 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
     ...(state.buildings.length > 0
       ? { buildings: state.buildings.map(({ buildingId, team, x, z, rotationY }) => ({ buildingId, team, x, z, ...(rotationY ? { rotationY } : {}) })) }
       : {}),
+    // Relief (MapDef.elevationCells) ecrit seulement s'il existe : une carte
+    // plate reste identique a avant ce champ.
+    ...(state.elevationCells.length > 0 ? { elevationCells: state.elevationCells } : {}),
+    // Hauteurs logiques de la sculpture (MapDef.reliefLogic) : seulement
+    // celles qui ne se deduisent pas du relief, champ absent sinon.
+    ...(state.reliefLogicEntries.length > 0 ? { reliefLogic: state.reliefLogicEntries } : {}),
   };
 }
 
@@ -113,7 +120,43 @@ export async function loadMapDefFromFile(file: File): Promise<MapDef> {
     // `buildings` OPTIONNEL (voir MapDef.buildings) : absent -> aucun
     // batiment de scenario ; entrees invalides ecartees.
     ...(Array.isArray(data.buildings) ? { buildings: readBuildings(data.buildings) } : {}),
+    // `elevationCells` OPTIONNEL (voir MapDef.elevationCells) : absent ->
+    // carte plate ; entrees invalides ecartees.
+    ...(Array.isArray(data.elevationCells) ? { elevationCells: readElevation(data.elevationCells) } : {}),
+    // `reliefLogic` OPTIONNEL (voir MapDef.reliefLogic) : entrees invalides
+    // ecartees.
+    ...(Array.isArray(data.reliefLogic) ? { reliefLogic: readReliefLogic(data.reliefLogic) } : {}),
   };
+}
+
+function readReliefLogic(entries: unknown[]): { x: number; z: number; level: number }[] {
+  const out: { x: number; z: number; level: number }[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { x, z, level } = entry as Record<string, unknown>;
+    if (!Number.isInteger(x) || !Number.isInteger(z) || !Number.isInteger(level)) continue;
+    if ((level as number) < TERRAIN_LEVEL_MIN || (level as number) > TERRAIN_LEVEL_MAX) continue;
+    out.push({ x: x as number, z: z as number, level: level as number });
+  }
+  if (out.length < entries.length) console.warn(`Relief logique : ${entries.length - out.length} sommet(s) invalide(s) ignore(s).`);
+  return out;
+}
+
+function readElevation(entries: unknown[]): TerrainElevationCellDef[] {
+  const cells: TerrainElevationCellDef[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { x, z, level, slope } = entry as Record<string, unknown>;
+    if (!Number.isInteger(x) || !Number.isInteger(z) || !Number.isInteger(level)) continue;
+    const l = level as number;
+    const hasSlope = slope !== undefined;
+    if (hasSlope && !SLOPE_SHAPES.includes(slope as SlopeShape)) continue;
+    // Pente : de level a level + 1, donc level <= MAX - 1.
+    if (l < TERRAIN_LEVEL_MIN || l > (hasSlope ? TERRAIN_LEVEL_MAX - 1 : TERRAIN_LEVEL_MAX)) continue;
+    cells.push({ x: x as number, z: z as number, level: l, ...(hasSlope ? { slope: slope as SlopeShape } : {}) });
+  }
+  if (cells.length < entries.length) console.warn(`Relief : ${entries.length - cells.length} case(s) invalide(s) ignoree(s).`);
+  return cells;
 }
 
 /** Batiments de scenario valides : batiment gameplay connu et posable (emprise

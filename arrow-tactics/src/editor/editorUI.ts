@@ -1,10 +1,29 @@
-import { isCollidableObstacle, obstacleCenter, type ObstacleDef } from '../config/constants';
+import { isBlockingMapObstacle, obstacleCenter, type ObstacleDef } from '../config/constants';
 import type { TerrainType } from '../config/mapDef';
+import { cornerOfShape, isConcaveCornerSlope, TERRAIN_LEVEL_MAX, type CornerShape, type CornerSlopeDirection, type ReliefBrushSize, type ReliefDelta, type SlopeDirection } from '../config/terrainElevation';
 import type { TerritoryTeam } from '../config/territory';
 import { getBuilding, listBuyableBuildingIds } from '../data/buildings';
 import { UNITS } from '../data/units';
 import { teamColor } from '../render/unitSelectionRing';
-import type { EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate } from './editorState';
+import type { EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate, SlopeResolution } from './editorState';
+
+/** Nom affiche de la direction de montee d'une pente (N = haut de l'ecran). */
+const SLOPE_NAMES: Record<SlopeDirection, string> = { N: 'le nord', E: 'l’est', S: 'le sud', W: 'l’ouest' };
+const SLOPE_ARROWS: Record<SlopeDirection, string> = { N: '↑', E: '→', S: '↓', W: '←' };
+
+/** Nom affiche et fleche du coin « different » d'une pente de coin : coin
+ *  haut d'un coin exterieur, coin bas d'un coin interieur. */
+const CORNER_NAMES: Record<CornerSlopeDirection, string> = { NE: 'NE (nord-est)', SE: 'SE (sud-est)', SW: 'SW (sud-ouest)', NW: 'NW (nord-ouest)' };
+const CORNER_ARROWS: Record<CornerSlopeDirection, string> = { NE: '↗', SE: '↘', SW: '↙', NW: '↖' };
+
+function cornerLabel(dir: CornerShape): string {
+  const arrow = CORNER_ARROWS[cornerOfShape(dir)];
+  return isConcaveCornerSlope(dir) ? `◪ Coin intérieur ${arrow}` : `◩ Coin extérieur ${arrow}`;
+}
+
+function slopeLabel(dir: SlopeDirection): string {
+  return `◢ Pente ${SLOPE_ARROWS[dir]}`;
+}
 
 export interface EditorUIHandlers {
   /** Bouton "Sélection" (outil par défaut) — même effet qu'Échap ou le clic
@@ -22,6 +41,17 @@ export interface EditorUIHandlers {
    *  d'obstacle/unité (voir EditorState.addCell). */
   onSelectAddCellTool: (terrain: TerrainType) => void;
   onSelectRemoveCellTool: () => void;
+  /** Sculpture du relief : pinceaux continus Surelever (+1) / Abaisser (-1). */
+  onSelectReliefBrushTool: (delta: ReliefDelta) => void;
+  /** Taille des pinceaux de sculpture (1×1 ou 4×4), commune a +1 et -1. */
+  onSelectReliefBrushSize: (size: ReliefBrushSize) => void;
+  /** Ajustements du relief (Pente, Coin exterieur, Coin interieur),
+   *  pinceaux repetables. */
+  onSelectSlopeTool: () => void;
+  /** Outils « Coin extérieur » (coin haut NE / SE / SW / NW) et « Coin
+   *  intérieur » (coin bas NEi / SEi / SWi / NWi), poses manuelles. */
+  onSelectCornerSlopeTool: () => void;
+  onSelectInnerCornerSlopeTool: () => void;
   /** Pinceau de territoire : `team` peint pour ce camp, `null` efface
    *  (case neutre). Reste actif apres chaque trait, comme "Ajouter case". */
   onSelectTerritoryTool: (team: TerritoryTeam | null) => void;
@@ -289,9 +319,8 @@ const KAYKIT_PROP_ASSETS: AssetEntry[] = [
  * cloneScaledToFootprint), calcule au CHARGEMENT depuis la vraie boite
  * englobante du modele — aucun facteur d'echelle a deviner/mesurer a la
  * main ici, contrairement aux props (mis a l'echelle sur leur seule
- * largeur). `kind: 'building'` reste COLLIDABLE (voir config/constants.ts,
- * isCollidableObstacle) — contrairement a un prop, un batiment bloque
- * mouvement ET ligne de tir, exactement comme un rocher/arbre.
+ * largeur). Decors purement visuels et traversables (voir
+ * config/constants.ts, isBlockingMapObstacle).
  *
  * Trois catalogues distincts : BLUE/RED (18 batiments chacun, memes types,
  * juste la couleur — "l'équivalent rouge pour l'adversaire") et NEUTRAL (10
@@ -474,13 +503,14 @@ interface CatalogCategory {
 /**
  * Categories du catalogue des decors (E2). Rangement seulement : les donnees
  * restent les tableaux ci-dessus, et la collision affichee (Bloquant /
- * Traversable) vient de isCollidableObstacle, comme en jeu. Les
- * « Structures décoratives » (modeles KayKit) sont des obstacles bloquants
- * sans PV ni effet, jamais des batiments de jeu.
+ * Traversable) vient de isBlockingMapObstacle, comme en jeu : tout ce
+ * catalogue est du decor traversable (« Structures décoratives » comprises,
+ * jamais des batiments de jeu) ; les obstacles bloquants sont dans
+ * OBSTACLE_CATALOG.
  */
 const DECOR_CATALOG: CatalogCategory[] = [
   {
-    label: 'Obstacles',
+    label: 'Arbres et rochers',
     open: true,
     sections: [
       { label: 'Rochers', assets: ROCK_ASSETS },
@@ -508,14 +538,6 @@ const DECOR_CATALOG: CatalogCategory[] = [
       { label: 'Bosquets', assets: GROVE_ASSETS },
     ],
   },
-  {
-    label: 'Murailles et clôtures',
-    open: false,
-    sections: [
-      { label: 'Angles de muraille (décor)', assets: WALL_DECOR_ASSETS },
-      { label: 'Clôtures', assets: FENCE_ASSETS },
-    ],
-  },
   { label: 'Militaire', open: false, sections: [{ assets: MILITARY_ASSETS }] },
   {
     label: 'Structures décoratives',
@@ -527,6 +549,21 @@ const DECOR_CATALOG: CatalogCategory[] = [
     ],
   },
   { label: 'Divers', open: false, sections: [{ assets: MISC_DECOR_ASSETS }] },
+];
+
+/** « Obstacles / structures » (2026-10-28, choix d'Antoine) : les seuls
+ *  objets poses qui BLOQUENT (voir BLOCKING_STRUCTURE_MODELS,
+ *  isBlockingMapObstacle) ; tout le reste du catalogue est du decor
+ *  traversable qui suit le relief. */
+const OBSTACLE_CATALOG: CatalogCategory[] = [
+  {
+    label: 'Murailles et clôtures',
+    open: true,
+    sections: [
+      { label: 'Angles de muraille', assets: WALL_DECOR_ASSETS },
+      { label: 'Clôtures', assets: FENCE_ASSETS },
+    ],
+  },
 ];
 
 /** Minuscules sans accents, pour une recherche tolerante. */
@@ -561,7 +598,7 @@ function presentAsset(asset: AssetEntry, section: CatalogSection, category: Cata
   name = name.replace(/^KayKit — /, '');
   if (template.kind === 'rock') name = 'Rocher';
   if (section.tint) name = `${name.replace(/ \((bleu|rouge)\)$/, '')} — décor ${section.tint}`;
-  const blocking = isCollidableObstacle(template as ObstacleDef);
+  const blocking = isBlockingMapObstacle(template as ObstacleDef);
   const id = template.treeModel ?? template.propModel ?? template.buildingModel ?? template.kind;
   return {
     name,
@@ -586,9 +623,10 @@ function decorKey(o: Pick<ObstacleDef, 'kind' | 'treeModel' | 'propModel' | 'bui
   return `${o.kind}:${o.treeModel ?? o.propModel ?? o.buildingModel ?? `${o.tilesX}x${o.tilesZ}`}`;
 }
 
-/** Index des decors du catalogue, construit une fois depuis DECOR_CATALOG. */
+/** Index des objets du catalogue (decors et obstacles / structures),
+ *  construit une fois. */
 const DECOR_INFO = new Map<string, DecorInfo>();
-for (const category of DECOR_CATALOG) {
+for (const category of [...OBSTACLE_CATALOG, ...DECOR_CATALOG]) {
   for (const section of category.sections) {
     for (const asset of section.assets) {
       DECOR_INFO.set(decorKey(asset.template), {
@@ -606,7 +644,7 @@ function describeDecor(obstacle: ObstacleDef): DecorInfo {
   const known = DECOR_INFO.get(decorKey(obstacle));
   if (known) return known;
   const id = obstacle.treeModel ?? obstacle.propModel ?? obstacle.buildingModel ?? obstacle.kind;
-  const blocking = isCollidableObstacle(obstacle);
+  const blocking = isBlockingMapObstacle(obstacle);
   return { presentation: { name: id, size: `${obstacle.tilesX}×${obstacle.tilesZ}`, blocking, search: '' }, category: 'Hors catalogue', structure: false };
 }
 
@@ -809,6 +847,12 @@ export class EditorUI {
   private readonly addGrassButton: HTMLButtonElement;
   private readonly addDirtButton: HTMLButtonElement;
   private readonly removeCellButton: HTMLButtonElement;
+  private readonly raiseReliefButton: HTMLButtonElement;
+  private readonly lowerReliefButton: HTMLButtonElement;
+  private readonly reliefSizeButtons = new Map<ReliefBrushSize, HTMLButtonElement>();
+  private readonly slopeButton: HTMLButtonElement;
+  private readonly cornerSlopeButton: HTMLButtonElement;
+  private readonly innerCornerSlopeButton: HTMLButtonElement;
   private readonly territoryButton: HTMLButtonElement;
   private readonly territoryValueButtons = new Map<TerritoryTeam | null, HTMLButtonElement>();
   private readonly unitCards = new Map<string, HTMLButtonElement>();
@@ -817,6 +861,17 @@ export class EditorUI {
   /** Camp que reprend le bouton "Peindre le territoire" : le dernier choisi. */
   private territoryValue: TerritoryTeam | null = 'player';
   private activeButtons: HTMLButtonElement[] = [];
+  /** Dernier outil et derniere selection recus par syncTool. */
+  private lastTool: EditorTool = { type: 'select' };
+  private lastSelection: EditorSelection = null;
+  /** Pente resolue sur la case survolee (EditorState.resolveSlope), ou null
+   *  hors survol : la ligne d'etat et la carte Pente affichent alors R. */
+  private slopeResolution: SlopeResolution | null = null;
+  /** Pente de coin resolue sur la case survolee (resolveCornerSlope), ou null. */
+  private cornerResolution: SlopeResolution<CornerShape> | null = null;
+  /** Pinceau de relief sur la position survolee (main.ts) : changement de
+   *  niveau, raison du refus, cases comblees par une liaison diagonale. */
+  private reliefBrushInfo: { levels: string; refusal: string | null; bridged: number } | null = null;
   private testMode = false;
   /** Catalogue des decors : recherche et categories repliables (E2). Le
    *  filtrage ne touche qu'au DOM du catalogue. */
@@ -945,6 +1000,42 @@ export class EditorUI {
     this.removeCellButton = this.toolCard('− Supprimer case', handlers.onSelectRemoveCellTool);
     this.removeCellButton.classList.add('editor-asset-card--danger');
     browser.append(this.addGrassButton, this.addDirtButton, this.removeCellButton);
+    // Relief 2.5D (config/terrainElevation.ts) : niveaux 0 a TERRAIN_LEVEL_MAX.
+    // Sculpture (facon normale de modeler le terrain) puis Ajustements
+    // (corrections fines, visuellement secondaires).
+    browser.appendChild(this.categoryHeader('Relief'));
+    browser.appendChild(this.subcategoryHeader('Sculpture'));
+    this.raiseReliefButton = this.toolCard('+1 Surélever', () => handlers.onSelectReliefBrushTool(1));
+    this.lowerReliefButton = this.toolCard('−1 Abaisser', () => handlers.onSelectReliefBrushTool(-1));
+    browser.append(this.raiseReliefButton, this.lowerReliefButton);
+    // Taille : une seule selection pour +1 et -1.
+    const brushSizeRow = document.createElement('div');
+    brushSizeRow.className = 'editor-segmented';
+    const sizeLabel = document.createElement('span');
+    sizeLabel.className = 'editor-segmented-label';
+    sizeLabel.textContent = 'Taille';
+    brushSizeRow.appendChild(sizeLabel);
+    for (const size of [1, 4] as const) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'editor-segment';
+      button.textContent = `${size}×${size}`;
+      button.addEventListener('click', () => handlers.onSelectReliefBrushSize(size));
+      this.reliefSizeButtons.set(size, button);
+      brushSizeRow.appendChild(button);
+    }
+    browser.appendChild(brushSizeRow);
+    this.setReliefBrushSize(4);
+    const reliefLegend = document.createElement('div');
+    reliefLegend.className = 'editor-legend';
+    reliefLegend.textContent = `Niveaux 0 à ${TERRAIN_LEVEL_MAX} · une couche par trait · pentes et coins automatiques · Case occupée : relief verrouillé`;
+    browser.appendChild(reliefLegend);
+    browser.appendChild(this.subcategoryHeader('Ajustements'));
+    this.slopeButton = this.toolCard(slopeLabel('N'), handlers.onSelectSlopeTool);
+    this.cornerSlopeButton = this.toolCard(cornerLabel('NE'), handlers.onSelectCornerSlopeTool);
+    this.innerCornerSlopeButton = this.toolCard(cornerLabel('NEi'), handlers.onSelectInnerCornerSlopeTool);
+    for (const button of [this.slopeButton, this.cornerSlopeButton, this.innerCornerSlopeButton]) button.classList.add('editor-asset-card--secondary');
+    browser.append(this.slopeButton, this.cornerSlopeButton, this.innerCornerSlopeButton);
 
     // Territoire : UN outil (le pinceau) et une valeur (le camp peint).
     browser.appendChild(this.groupHeader('Territoire'));
@@ -994,7 +1085,12 @@ export class EditorUI {
       for (const buildingId of ids) browser.appendChild(this.buildingAssetCard(buildingId, handlers.onSelectBuilding));
     }
 
-    // Decors (E2) : recherche + categories repliables.
+    // Obstacles / structures : seuls objets poses qui bloquent.
+    browser.appendChild(this.groupHeader('Obstacles / structures'));
+    for (const category of OBSTACLE_CATALOG) browser.appendChild(this.catalogCategory(category, handlers.onSelectTemplate));
+
+    // Decors (E2) : purement visuels, traversables, suivent le relief.
+    // Recherche (decors et obstacles) + categories repliables.
     browser.appendChild(this.groupHeader('Décors'));
     this.searchInput = document.createElement('input');
     this.searchInput.type = 'search';
@@ -1125,6 +1221,8 @@ export class EditorUI {
    *  correspondant et ligne d'etat contextuelle. Appele apres chaque
    *  rafraichissement de l'editeur (voir main.ts, refreshEditorObjects). */
   syncTool(tool: EditorTool, selection: EditorSelection): void {
+    this.lastTool = tool;
+    this.lastSelection = selection;
     if (this.testMode) return;
     if (tool.type === 'paint-territory') this.territoryValue = tool.team;
     const active: HTMLButtonElement[] = [];
@@ -1161,6 +1259,45 @@ export class EditorUI {
         active.push(this.removeCellButton);
         status = 'Outil : − Case · Clic : supprimer une case · Échap : Sélection';
         break;
+      case 'relief-brush': {
+        active.push(tool.delta > 0 ? this.raiseReliefButton : this.lowerReliefButton);
+        const info = this.reliefBrushInfo;
+        const name = tool.delta > 0 ? 'Surélever +1' : 'Abaisser −1';
+        const levels = info?.levels ? ` : ${info.levels}` : '';
+        const refusal = info?.refusal ? ` · refusé : ${info.refusal}` : '';
+        const count = info?.bridged ?? 0;
+        const bridged = count > 0 ? ` · liaison diagonale comblée : ${count} case${count > 1 ? 's' : ''} (orange)` : '';
+        status = `Outil : ${name} (${tool.size}×${tool.size})${levels}${refusal}${bridged} · Clic / glisser : une couche ${tool.delta > 0 ? 'de plus' : 'de moins'}, pentes et coins automatiques, jusqu'au bord de la carte · nouveau trait : couche suivante · décors conservés · Échap : Sélection`;
+        break;
+      }
+      case 'slope-cell': {
+        // Direction REELLEMENT posee sur la case survolee (deduite des
+        // voisins le cas echeant), sinon celle de R.
+        const resolved = this.slopeResolution;
+        const dir = resolved?.dir ?? tool.dir;
+        active.push(this.slopeButton);
+        if (this.slopeButton.textContent !== slopeLabel(dir)) this.slopeButton.textContent = slopeLabel(dir);
+        const origin = resolved?.deduced ? ' (imposée par les voisins)' : '';
+        const refusal = resolved && !resolved.status.ok ? ` · refusée : ${resolved.status.reason}` : '';
+        status = `Outil : Pente — montée vers ${SLOPE_NAMES[dir]}${origin}${refusal} · R : tourner · bande bleue : bas, jaune : haut · Clic / glisser : poser · Échap : Sélection`;
+        break;
+      }
+      case 'corner-slope-cell': {
+        // Variante REELLEMENT posee sur la case survolee, sinon celle de R.
+        const resolved = this.cornerResolution;
+        const dir = resolved?.dir ?? tool.dir;
+        const inner = isConcaveCornerSlope(dir);
+        const button = inner ? this.innerCornerSlopeButton : this.cornerSlopeButton;
+        active.push(button);
+        if (button.textContent !== cornerLabel(dir)) button.textContent = cornerLabel(dir);
+        const origin = resolved?.deduced ? ' (imposé par les voisins)' : '';
+        const refusal = resolved && !resolved.status.ok ? ` · refusé : ${resolved.status.reason}` : '';
+        const corner = CORNER_NAMES[cornerOfShape(dir)];
+        status = inner
+          ? `Outil : Coin intérieur — coin bas ${corner}, les 3 autres coins hauts${origin}${refusal} · R : tourner (NE → SE → SW → NW) · point bleu : coin bas · Clic / glisser : poser · Échap : Sélection`
+          : `Outil : Coin extérieur — coin haut ${corner}${origin}${refusal} · R : tourner (NE → SE → SW → NW) · point blanc : coin haut · Clic / glisser : poser · Échap : Sélection`;
+        break;
+      }
       case 'paint-territory': {
         active.push(this.territoryButton);
         const value = this.territoryValueButtons.get(tool.team);
@@ -1181,6 +1318,38 @@ export class EditorUI {
     }
     this.activeButtons = active;
     if (this.statusLine.textContent !== status) this.statusLine.textContent = status;
+  }
+
+  /** Pente de coin resolue sur la case survolee (main.ts), ou null. */
+  setCornerResolution(resolution: SlopeResolution<CornerShape> | null): void {
+    if (JSON.stringify(this.cornerResolution) === JSON.stringify(resolution)) return;
+    this.cornerResolution = resolution;
+    if (this.lastTool.type === 'corner-slope-cell') this.syncTool(this.lastTool, this.lastSelection);
+  }
+
+  /** Taille des pinceaux de sculpture choisie (main.ts) : bouton actif. */
+  setReliefBrushSize(size: ReliefBrushSize): void {
+    for (const [s, button] of this.reliefSizeButtons) {
+      button.classList.toggle('is-active', s === size);
+      button.setAttribute('aria-pressed', String(s === size));
+    }
+  }
+
+  /** Pinceau de relief a la position survolee (main.ts, voir
+   *  EditorState.reliefBrushPlan), ou null hors survol. */
+  setReliefBrushInfo(info: { levels: string; refusal: string | null; bridged: number } | null): void {
+    if (JSON.stringify(this.reliefBrushInfo) === JSON.stringify(info)) return;
+    this.reliefBrushInfo = info;
+    if (this.lastTool.type === 'relief-brush') this.syncTool(this.lastTool, this.lastSelection);
+  }
+
+  /** Pente resolue sur la case survolee (main.ts, updateEditorGhost), ou
+   *  null : met a jour la ligne d'etat et la carte Pente. */
+  setSlopeResolution(resolution: SlopeResolution | null): void {
+    const same = (a: SlopeResolution | null, b: SlopeResolution | null) => JSON.stringify(a) === JSON.stringify(b);
+    if (same(this.slopeResolution, resolution)) return;
+    this.slopeResolution = resolution;
+    if (this.lastTool.type === 'slope-cell') this.syncTool(this.lastTool, this.lastSelection);
   }
 
   /** Pendant "Tester le scénario" : seule la ligne d'etat reste affichee,
@@ -1298,6 +1467,14 @@ export class EditorUI {
   private groupHeader(label: string): HTMLElement {
     const h = document.createElement('div');
     h.className = 'editor-asset-group';
+    h.textContent = label;
+    return h;
+  }
+
+  /** Sous-titre d'une categorie (Relief : Sculpture, Ajustements). */
+  private subcategoryHeader(label: string): HTMLElement {
+    const h = document.createElement('div');
+    h.className = 'editor-asset-subcategory';
     h.textContent = label;
     return h;
   }

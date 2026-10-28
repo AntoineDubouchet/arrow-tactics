@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { surfaceY } from '../terrainSurface';
 
 /**
  * Salve de particules qui giclent radialement depuis un point puis retombent
@@ -35,7 +36,7 @@ export function spawnRadialParticles(group: THREE.Group, config: RadialBurstConf
     const angle = (i / config.count) * Math.PI * 2 + Math.random() * 0.6;
     const speed = config.speedMin + Math.random() * (config.speedMax - config.speedMin);
     const mesh = config.buildParticle(i);
-    mesh.position.set(config.x, config.y, config.z);
+    mesh.position.set(config.x, config.y + surfaceY(config.x, config.z), config.z);
     group.add(mesh);
     particles.push({
       mesh,

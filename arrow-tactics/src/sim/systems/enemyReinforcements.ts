@@ -1,4 +1,4 @@
-import { isCollidableObstacle, obstacleBounds, type ObstacleDef } from '../../config/constants';
+import { obstacleBounds, type ObstacleDef } from '../../config/constants';
 import type { Entity } from '../entity';
 
 /**
@@ -106,8 +106,8 @@ function findGroupCells(group: EnemyReinforcementUnit[], zone: EnemySpawnZone, e
   const blocked = new Set<string>();
   const key = (tx: number, tz: number): string => `${tx},${tz}`;
   for (const e of entities) if (e.alive) blocked.add(key(Math.floor(e.x), Math.floor(e.z)));
+  // Obstacles de World : tous bloquants (decors exclus par World.setMap).
   for (const o of obstacles) {
-    if (!isCollidableObstacle(o)) continue;
     const b = obstacleBounds(o);
     for (let tz = Math.max(minTileZ, Math.floor(b.minZ)); tz <= Math.min(maxTileZ, Math.ceil(b.maxZ) - 1); tz++) {
       for (let tx = Math.max(minTileX, Math.floor(b.minX)); tx <= Math.min(maxTileX, Math.ceil(b.maxX) - 1); tx++) {

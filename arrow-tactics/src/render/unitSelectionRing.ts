@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { COLORS } from '../config/constants';
 import type { Team } from '../sim/entity';
+import { surfaceY } from './terrainSurface';
 
 /**
  * Anneau de selection d'UNE UNITE, identique dans l'editeur, la preparation
@@ -80,7 +81,7 @@ export function createAnimatedUnitRing(team: Team): THREE.Mesh {
  *  (coordonnees monde), sous une unite de rayon `unitRadius` au point
  *  (x, z) : seule regle de taille, partagee par tous les anneaux d'unite. */
 export function placeUnitRing(ring: THREE.Mesh, x: number, z: number, unitRadius: number): void {
-  ring.position.set(x, RING_HEIGHT, z);
+  ring.position.set(x, RING_HEIGHT + surfaceY(x, z), z);
   ring.scale.setScalar(unitRadius * RING_RADIUS_FACTOR);
   ring.visible = true;
 }

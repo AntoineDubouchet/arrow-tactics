@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { COLORS } from '../config/constants';
 import { loadVfxTexture } from './vfxTextures';
+import { surfaceY } from './terrainSurface';
 
 /**
  * VFX du parchemin de soin mineur (2026-08-14, demande d'Antoine : "je t'ai
@@ -92,12 +93,12 @@ export class HealVfxView {
       }),
     );
     circle.rotation.x = -Math.PI / 2;
-    circle.position.set(x, 0.04, z);
+    circle.position.set(x, 0.04 + surfaceY(x, z), z);
     circle.scale.setScalar(0.3);
     this.group.add(circle);
 
     const flash = buildGlowSprite(sparkleFlashTexture, COLORS.healCore);
-    flash.position.set(x, 0.6, z);
+    flash.position.set(x, 0.6 + surfaceY(x, z), z);
     this.group.add(flash);
 
     // Cœur : element "signature" de l'effet, en fondu NORMAL (pas additif) —
@@ -109,7 +110,7 @@ export class HealVfxView {
     // la silhouette d'une unite pour ne plus jamais passer inapercu.
     const heart = buildIconSprite(heartTexture, COLORS.healCore);
     heart.center.set(0.5, 0.15); // pivot bas : grandit surtout VERS LE HAUT, pas dans le sol
-    heart.position.set(x, 0.55, z);
+    heart.position.set(x, 0.55 + surfaceY(x, z), z);
     heart.scale.setScalar(0.001);
     this.group.add(heart);
 
@@ -120,7 +121,7 @@ export class HealVfxView {
       const sprite = buildGlowSprite(sparkleTexture, i % 2 === 0 ? COLORS.healCore : COLORS.healAccent);
       const angle = (i / SPARKLE_COUNT) * Math.PI * 2 + Math.random() * 0.6;
       const baseRadius = 0.18 + Math.random() * 0.22;
-      sprite.position.set(x + Math.cos(angle) * baseRadius, 0.15, z + Math.sin(angle) * baseRadius);
+      sprite.position.set(x + Math.cos(angle) * baseRadius, 0.15 + surfaceY(x, z), z + Math.sin(angle) * baseRadius);
       sprite.scale.setScalar(0.001);
       this.group.add(sprite);
       sparkles.push({ sprite, angle, driftSpeed: 0.5 + Math.random() * 0.5, riseSpeed: 0.35 + Math.random() * 0.3, baseRadius });
@@ -156,7 +157,7 @@ export class HealVfxView {
       // la duree plutot qu'une decroissance immediate.
       const heartT = Math.min(1, fx.elapsed / HEART_DURATION);
       const heartRiseEase = 1 - (1 - heartT) * (1 - heartT);
-      fx.heart.position.y = 0.55 + heartRiseEase * HEART_RISE_DISTANCE;
+      fx.heart.position.y = 0.55 + heartRiseEase * HEART_RISE_DISTANCE + surfaceY(fx.x, fx.z);
       const heartGrowT = Math.min(1, fx.elapsed / HEART_GROW_DURATION);
       fx.heart.scale.setScalar(1.9 * (1 - (1 - heartGrowT) * (1 - heartGrowT)));
       (fx.heart.material as THREE.SpriteMaterial).opacity = heartT < 0.6 ? 1 : Math.max(0, 1 - (heartT - 0.6) / 0.4);
@@ -165,7 +166,7 @@ export class HealVfxView {
         const t = Math.min(1, fx.elapsed / SPARKLE_DURATION);
         s.angle += dt * s.driftSpeed;
         const wobble = Math.sin(fx.elapsed * 3 + s.angle) * 0.04;
-        s.sprite.position.set(fx.x + Math.cos(s.angle) * (s.baseRadius + wobble), 0.15 + t * s.riseSpeed, fx.z + Math.sin(s.angle) * (s.baseRadius + wobble));
+        s.sprite.position.set(fx.x + Math.cos(s.angle) * (s.baseRadius + wobble), 0.15 + t * s.riseSpeed + surfaceY(fx.x, fx.z), fx.z + Math.sin(s.angle) * (s.baseRadius + wobble));
         const growT = Math.min(1, fx.elapsed / SPARKLE_GROW_DURATION);
         s.sprite.scale.setScalar(0.4 * (1 - (1 - growT) * (1 - growT)) * (1 - t * 0.3));
         (s.sprite.material as THREE.SpriteMaterial).opacity = Math.max(0, (1 - t) * 0.95);

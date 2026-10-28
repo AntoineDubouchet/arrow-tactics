@@ -308,9 +308,9 @@ const KAYKIT_MODELS = [
  * la premiere passe KayKit (voir KAYKIT_MODELS ci-dessus, "les BATIMENTS...
  * demanderaient une emprise MULTI-CASES") : chaque famille occupe desormais
  * plusieurs cases (voir render/buildings.ts, cloneScaledToFootprint) et
- * `kind: 'building'` reste COLLIDABLE (voir config/constants.ts,
- * isCollidableObstacle — seul `'prop'` est traversable), contrairement aux
- * props/decor nature.
+ * la collision ne depend que de la categorie (voir config/constants.ts,
+ * isBlockingMapObstacle : decor traversable, sauf « Obstacles /
+ * structures »).
  *
  * Format DIFFERENT du reste du decor : `.obj`/`.mtl` (export Blender
  * classique), pas `.glb`/`.gltf` — d'ou OBJLoader/MTLLoader plutot que

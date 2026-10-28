@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { COLORS, TILE } from '../config/constants';
 import type { Entity } from '../sim/entity';
+import { surfaceY } from './terrainSurface';
 
 /**
  * Telegraphe au sol pendant l'incantation d'une capacite de zone (Boule de
@@ -34,7 +35,7 @@ export class TelegraphView {
         this.discs.set(e.id, disc);
         this.group.add(disc);
       }
-      disc.position.set(e.cast.targetX, 0.03, e.cast.targetZ);
+      disc.position.set(e.cast.targetX, 0.03 + surfaceY(e.cast.targetX, e.cast.targetZ), e.cast.targetZ);
       disc.scale.setScalar(e.cast.radiusTiles * TILE);
     }
 

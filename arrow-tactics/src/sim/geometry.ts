@@ -1,4 +1,5 @@
-import { obstacleBounds, type ObstacleBounds, type ObstacleDef } from '../config/constants';
+import { MELEE_CONTACT_RANGE, obstacleBounds, type ObstacleBounds, type ObstacleDef } from '../config/constants';
+import type { UnitStats } from '../data/units';
 
 /**
  * Bornes de TOUS les obstacles d'une liste, mises en cache par REFERENCE de
@@ -101,6 +102,55 @@ export function getShrunkObstacleBoundsList(obstacles: ObstacleDef[]): ObstacleB
     shrunkBoundsCache.set(obstacles, cached);
   }
   return cached;
+}
+
+/** Falaises du relief (ObstacleDef.terrainCliff) d'une liste d'obstacles,
+ *  bornes en cache par reference de tableau (meme motif que boundsCache). */
+const cliffBoundsCache = new WeakMap<ObstacleDef[], ObstacleBounds[]>();
+
+/** Vrai si le segment (ax, az) -> (bx, bz) traverse une falaise : aretes
+ *  dont les profils de hauteur ne se raccordent pas (computeCliffObstacles),
+ *  le MEME critere que la collision et le pathfinding. */
+export function crossesTerrainCliff(ax: number, az: number, bx: number, bz: number, obstacles: ObstacleDef[]): boolean {
+  let cliffs = cliffBoundsCache.get(obstacles);
+  if (!cliffs) {
+    cliffs = obstacles.filter((o) => o.terrainCliff === true).map(obstacleBounds);
+    cliffBoundsCache.set(obstacles, cliffs);
+  }
+  for (const b of cliffs) if (segmentIntersectsBox(ax, az, bx - ax, bz - az, b) !== null) return true;
+  return false;
+}
+
+/** Marge (cases) retiree au rayon pour bodyPathNearTerrainCliff : une unite
+ *  centree dans une rampe d'une case (a exactement un rayon de chaque flanc)
+ *  n'est pas consideree comme frolant ses flancs. */
+const CLIFF_BODY_CLEARANCE_SLACK = 0.05;
+
+/** Relief : vrai si le CORPS (cercle de rayon `radius`, 0 = simple ligne
+ *  entre centres) qui suivrait le
+ *  segment (ax, az) -> (bx, bz) passerait trop pres d'une falaise, bout de
+ *  mur compris. La ligne entre centres peut frôler l'extremite d'un flanc
+ *  de pente (mur raccourci au pied, voir SLOPE_SIDE_BLOCK_THRESHOLD) et
+ *  sembler degagee alors que le corps y butte : le deplacement passe alors
+ *  par le chemin A* (centres de case) plutot que par la ligne droite. */
+export function bodyPathNearTerrainCliff(ax: number, az: number, bx: number, bz: number, radius: number, obstacles: ObstacleDef[]): boolean {
+  let cliffs = cliffBoundsCache.get(obstacles);
+  if (!cliffs) {
+    cliffs = obstacles.filter((o) => o.terrainCliff === true).map(obstacleBounds);
+    cliffBoundsCache.set(obstacles, cliffs);
+  }
+  const m = Math.max(0, radius - CLIFF_BODY_CLEARANCE_SLACK);
+  for (const b of cliffs) {
+    const grown = { minX: b.minX - m, maxX: b.maxX + m, minZ: b.minZ - m, maxZ: b.maxZ + m };
+    if (segmentIntersectsBox(ax, az, bx - ax, bz - az, grown) !== null) return true;
+  }
+  return false;
+}
+
+/** Attaque de corps a corps, qui exige un contact physique (voir
+ *  MELEE_CONTACT_RANGE). Seul point de decision. */
+export function isMeleeAttack(stats: Pick<UnitStats, 'attackRange'>): boolean {
+  return stats.attackRange <= MELEE_CONTACT_RANGE;
 }
 
 /** Intersection segment/rectangle par la methode des tranches (slab method).

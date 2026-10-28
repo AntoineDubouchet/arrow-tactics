@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { COLORS, TILE } from '../config/constants';
 import type { Entity } from '../sim/entity';
+import { surfaceY } from './terrainSurface';
 
 /**
  * VFX de Provocation (Sentinelle, 2026-08-14, demande complete d'Antoine) —
@@ -67,7 +68,7 @@ export class TauntVfxView {
    *  l'onde s'etend jusqu'a cette valeur exacte, jamais approximee. */
   spawnTauntWave(x: number, z: number, radiusTiles: number): void {
     const group = new THREE.Group();
-    group.position.set(x, 0.03, z);
+    group.position.set(x, 0.03 + surfaceY(x, z), z);
 
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.85, 1, 40),
@@ -85,7 +86,7 @@ export class TauntVfxView {
    *  gagne son bouclier — sobre, pas de grosse bulle magique. */
   spawnShieldGain(x: number, z: number): void {
     const group = new THREE.Group();
-    group.position.set(x, 0.65, z);
+    group.position.set(x, 0.65 + surfaceY(x, z), z);
 
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.65, 1, 24),
@@ -114,7 +115,7 @@ export class TauntVfxView {
       }
       const pos = resolvePosition(e);
       const bob = Math.sin(this.elapsedTime * INDICATOR_BOB_SPEED + e.id) * INDICATOR_BOB_AMPLITUDE;
-      fx.position.set(pos.x, INDICATOR_HEIGHT + bob, pos.z);
+      fx.position.set(pos.x, INDICATOR_HEIGHT + bob + surfaceY(pos.x, pos.z), pos.z);
     }
 
     for (const [id, fx] of this.indicators) {

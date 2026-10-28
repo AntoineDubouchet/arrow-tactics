@@ -3,6 +3,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { COLORS, PLAYER_ARROW_ARC_HEIGHT } from '../config/constants';
 import { clamp, lerp } from '../core/math';
 import type { ArrowFlight } from '../sim/playerArrow';
+import { surfaceY } from './terrainSurface';
 
 /** Hauteur de depart du tir au-dessus de la base de la baliste — valeur
  *  d'origine pour une baliste posee au sol (mecanisme a hauteur de
@@ -51,13 +52,17 @@ export class PlayerArrowView {
 
   sync(flights: readonly ArrowFlight[], alpha: number): void {
     // Vols termines depuis le dernier sync() (plus dans `flights`) : leur
-    // mesh garde sa derniere pose (deja pres du sol, deja incline vers le
-    // bas grace au plafond de pitch ci-dessous) au lieu de disparaitre —
+    // mesh reste fiche au sol, dans sa pose d'arrivee, au lieu de disparaitre —
     // AJOUTE au pool plutot que d'ecraser un slot unique, voir le
     // commentaire de classe.
     const active = new Set(flights);
     for (const [flight, mesh] of this.flyingMeshesByFlight) {
       if (active.has(flight)) continue;
+      // Pose finale (t = 1) : la derniere image affichee pouvait preceder
+      // l'arrivee (alpha) et laisser la fleche en l'air, nettement au-dessus
+      // du sol depuis la tour (hauteur de lancement ~3,9). Fichee au sol de
+      // l'impact, relief compris.
+      this.pose(mesh, flight, 1);
       this.stuckMeshes.push(mesh);
       this.flyingMeshesByFlight.delete(flight);
     }
@@ -71,42 +76,52 @@ export class PlayerArrowView {
       }
 
       const t = clamp(lerp(flight.prevElapsed, flight.elapsed, alpha) / flight.duration, 0, 1);
-      // Descend jusqu'au sol (0) a l'arrivee au lieu de revenir a HEIGHT —
-      // correctif du 2026-08-10 (demande d'Antoine, "il faut modifier la
-      // trajectoire [...] pour qu'il se plante mieux au sol") : avant ce
-      // changement, le trait flottait a HEIGHT en fin de vol et ne touchait
-      // donc jamais reellement le sol, impossible de le "planter" ensuite.
-      const height = lerp(this.launchHeight, 0, t) + Math.sin(t * Math.PI) * PLAYER_ARROW_ARC_HEIGHT;
-      mesh.position.set(lerp(flight.fromX, flight.toX, t), height, lerp(flight.fromZ, flight.toZ, t));
-
-      // Inclinaison selon la tangente de la trajectoire — plafond VARIABLE
-      // selon t (correctif du 2026-08-10) : quasi-horizontal au debut et
-      // pendant la montee (MAX_PITCH_EARLY, comme valide par Antoine avant
-      // ce correctif — "elle reste surtout horizontale du debut a la fin"),
-      // mais nettement plus permissif en fin de vol (MAX_PITCH_LANDING) pour
-      // que le trait ait vraiment l'air de plonger vers le sol juste avant
-      // de s'y planter, plutot qu'un angle mineur constant tout du long.
-      const dx = flight.toX - flight.fromX;
-      const dz = flight.toZ - flight.fromZ;
-      const yaw = Math.atan2(-dx, -dz);
-      const horizontal = Math.max(0.001, Math.hypot(dx, dz));
-      const climbSlope = (-this.launchHeight + Math.PI * PLAYER_ARROW_ARC_HEIGHT * Math.cos(t * Math.PI)) / horizontal;
-      const MAX_PITCH_EARLY = 0.2; // ~11 degres
-      const MAX_PITCH_LANDING = 1.1; // ~63 degres
-      const maxPitch = lerp(MAX_PITCH_EARLY, MAX_PITCH_LANDING, t);
-      const pitch = clamp(Math.atan(climbSlope), -maxPitch, maxPitch);
-      mesh.rotation.set(0, yaw, 0);
-      // Correctif (2026-08-10, Antoine : "il faut que ce soit l'autre
-      // extremite de la fleche qui se plante le sol (par l'avant)") :
-      // rotateX(-pitch) faisait pencher la POINTE (l'avant, local z=-0.5,
-      // voir buildArrow) vers le HAUT pendant la plongee — c'est
-      // l'empennage (l'arriere) qui touchait le sol en premier, l'inverse
-      // de ce qui est vise. Sans la negation, un pitch negatif (plongee, en
-      // fin de vol) penche la pointe vers le BAS comme attendu ; un pitch
-      // positif (montee, en debut de vol) la penche vers le haut, toujours
-      // coherent avec l'ancien rendu (change de signe compense).
-      mesh.rotateX(pitch);
+      this.pose(mesh, flight, t);
     }
+  }
+
+  /** Pose d'une fleche a l'avancement `t` (0 = depart, 1 = fichee au sol de
+   *  l'impact) : position sur l'arc et inclinaison. */
+  private pose(mesh: THREE.Group, flight: ArrowFlight, t: number): void {
+    // Descend jusqu'au sol (0) a l'arrivee au lieu de revenir a HEIGHT —
+    // correctif du 2026-08-10 (demande d'Antoine, "il faut modifier la
+    // trajectoire [...] pour qu'il se plante mieux au sol") : avant ce
+    // changement, le trait flottait a HEIGHT en fin de vol et ne touchait
+    // donc jamais reellement le sol, impossible de le "planter" ensuite.
+    // Relief : depart au-dessus du sol de la Baliste, arrivee au sol de
+    // l'impact.
+    const groundFrom = surfaceY(flight.fromX, flight.fromZ);
+    const groundTo = surfaceY(flight.toX, flight.toZ);
+    const height = lerp(this.launchHeight + groundFrom, groundTo, t) + Math.sin(t * Math.PI) * PLAYER_ARROW_ARC_HEIGHT;
+    mesh.position.set(lerp(flight.fromX, flight.toX, t), height, lerp(flight.fromZ, flight.toZ, t));
+
+    // Inclinaison selon la tangente de la trajectoire — plafond VARIABLE
+    // selon t (correctif du 2026-08-10) : quasi-horizontal au debut et
+    // pendant la montee (MAX_PITCH_EARLY, comme valide par Antoine avant
+    // ce correctif — "elle reste surtout horizontale du debut a la fin"),
+    // mais nettement plus permissif en fin de vol (MAX_PITCH_LANDING) pour
+    // que le trait ait vraiment l'air de plonger vers le sol juste avant
+    // de s'y planter, plutot qu'un angle mineur constant tout du long.
+    const dx = flight.toX - flight.fromX;
+    const dz = flight.toZ - flight.fromZ;
+    const yaw = Math.atan2(-dx, -dz);
+    const horizontal = Math.max(0.001, Math.hypot(dx, dz));
+    const climbSlope = (groundTo - groundFrom - this.launchHeight + Math.PI * PLAYER_ARROW_ARC_HEIGHT * Math.cos(t * Math.PI)) / horizontal;
+    const MAX_PITCH_EARLY = 0.2; // ~11 degres
+    const MAX_PITCH_LANDING = 1.1; // ~63 degres
+    const maxPitch = lerp(MAX_PITCH_EARLY, MAX_PITCH_LANDING, t);
+    const pitch = clamp(Math.atan(climbSlope), -maxPitch, maxPitch);
+    mesh.rotation.set(0, yaw, 0);
+    // Correctif (2026-08-10, Antoine : "il faut que ce soit l'autre
+    // extremite de la fleche qui se plante le sol (par l'avant)") :
+    // rotateX(-pitch) faisait pencher la POINTE (l'avant, local z=-0.5,
+    // voir buildArrow) vers le HAUT pendant la plongee — c'est
+    // l'empennage (l'arriere) qui touchait le sol en premier, l'inverse
+    // de ce qui est vise. Sans la negation, un pitch negatif (plongee, en
+    // fin de vol) penche la pointe vers le BAS comme attendu ; un pitch
+    // positif (montee, en debut de vol) la penche vers le haut, toujours
+    // coherent avec l'ancien rendu (change de signe compense).
+    mesh.rotateX(pitch);
   }
 
   clear(): void {

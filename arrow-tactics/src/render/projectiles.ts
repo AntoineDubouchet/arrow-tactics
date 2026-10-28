@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { COLORS } from '../config/constants';
 import { lerp } from '../core/math';
 import type { Team } from '../sim/entity';
+import { surfaceY } from './terrainSurface';
 
 const HEIGHT = 0.62;
 const ARC_HEIGHT = 0.3;
@@ -85,9 +86,10 @@ export class Projectiles {
       b.elapsed += realDt;
       const t = Math.min(1, b.elapsed / b.duration);
 
+      // Relief : hauteur de vol au-dessus du sol de depart puis de la cible.
       b.mesh.position.set(
         lerp(b.fromX, b.toX, t),
-        HEIGHT + Math.sin(t * Math.PI) * ARC_HEIGHT,
+        HEIGHT + lerp(surfaceY(b.fromX, b.fromZ), surfaceY(b.toX, b.toZ), t) + Math.sin(t * Math.PI) * ARC_HEIGHT,
         lerp(b.fromZ, b.toZ, t),
       );
 
@@ -127,10 +129,14 @@ export class Projectiles {
       const outset = Math.min(f.fromOutset, len);
       const startX = f.fromX + ((toX - f.fromX) / len) * outset;
       const startZ = f.fromZ + ((toZ - f.fromZ) / len) * outset;
-      mesh.position.set(lerp(startX, toX, t), lerp(f.fromY, HEIGHT, t) + Math.sin(t * Math.PI) * ARC_HEIGHT, lerp(startZ, toZ, t));
+      // Relief : creneaux au-dessus du sol de la tour, arrivee au-dessus du
+      // sol de la cible.
+      const fromY = f.fromY + surfaceY(f.fromX, f.fromZ);
+      const toY = HEIGHT + surfaceY(toX, toZ);
+      mesh.position.set(lerp(startX, toX, t), lerp(fromY, toY, t) + Math.sin(t * Math.PI) * ARC_HEIGHT, lerp(startZ, toZ, t));
       const dx = toX - startX;
       const dz = toZ - startZ;
-      const dy = HEIGHT - f.fromY + Math.PI * Math.cos(t * Math.PI) * ARC_HEIGHT;
+      const dy = toY - fromY + Math.PI * Math.cos(t * Math.PI) * ARC_HEIGHT;
       mesh.rotation.set(Math.atan2(dy, Math.hypot(dx, dz)), Math.atan2(-dx, -dz), 0, 'YXZ');
     }
     for (const [id, mesh] of this.simulatedBolts) {

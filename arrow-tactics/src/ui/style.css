@@ -1606,6 +1606,24 @@ img {
   background: rgba(231, 227, 216, 0.14);
 }
 
+/* Sous-titre d'une categorie (Relief : Sculpture, Ajustements). */
+.editor-asset-subcategory {
+  margin: 6px 0 4px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* Outil secondaire (Ajustements du relief) : plus discret que les outils
+   principaux. */
+.editor-asset-card--secondary {
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  background: transparent;
+}
+
 /* Outil actif (bouton d'outil ou carte du catalogue) : fond plus clair,
    bord plein et liseré à gauche — un seul style pour tous les outils. */
 .editor-asset-card.is-active,
@@ -1783,6 +1801,14 @@ img {
   display: flex;
   gap: 4px;
   margin-bottom: 6px;
+}
+
+/* Libelle en tete d'un choix segmente (Relief : « Taille »). */
+.editor-segmented-label {
+  align-self: center;
+  margin-right: 4px;
+  font-size: 10.5px;
+  color: var(--ink-dim);
 }
 
 .editor-segment {

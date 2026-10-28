@@ -878,8 +878,10 @@ Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
 
 - Carte officielle (« MapV2 », fournie par Antoine depuis l'éditeur) :
   21 × 36 cases, dont 64 trous (le champ de bataille central est plus
-  étroit que les bases), 100 décors (24 arbres et 7 rochers bloquants, 69
-  props traversables). `SURVIVAL_ARENA_MAP` est la carte complète ;
+  étroit que les bases), 100 décors (24 arbres, 7 rochers, 69 props), tous
+  **traversables** depuis le 2026-10-28 : ils ne bloquent plus ni le passage
+  ni les tirs ni le placement (changement d'équilibrage de l'arène, voir
+  `DESIGN_DECISIONS.md` E8). `SURVIVAL_ARENA_MAP` est la carte complète ;
   `SURVIVAL_BASE_MAP` est la même, sans unités de scénario.
 - Le Mode survie en lit le terrain (`cells`), les décors (`obstacles`), le
   territoire dessiné (`territory`) et la position de la Baliste
@@ -934,6 +936,58 @@ Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
 - Pas de territoire propre à la run : il n'y a ni `RunState.territory`, ni
   croissance ou conquête réelle du territoire au fil des vagues.
 - La carte repart de son état initial à chaque nouvelle run.
+
+**Relief (2.5D)**
+
+Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
+`sim/pathfinding.ts`, `render/terrainCells.ts`, `render/terrainSurface.ts`.
+
+- Une carte peut définir une altitude par case (`elevationCells`) : niveaux
+  0, 1 et 2, un niveau valant une demi-case de hauteur. Une case est plate
+  ou en **pente** (d'un niveau au suivant, dans une direction). Aucune carte
+  livrée n'en a : l'arène du Mode survie est entièrement plate ; le relief
+  ne se voit qu'avec une carte de l'éditeur (« Tester le scénario »).
+- **Raccord** : chaque case a une hauteur à ses quatre coins ; deux cases
+  voisines se raccordent si leur arête commune a la même hauteur aux deux
+  extrémités (plat ↔ plat au même niveau, pied et sommet d'une pente,
+  pentes parallèles côte à côte).
+- **Falaise** : toute arête qui ne se raccorde pas (niveaux différents,
+  flanc d'une pente contre un plat ou une pente d'une autre orientation).
+  Infranchissable à pied, pour les deux camps ; le pathfinding contourne par
+  les pentes. Sans pente, une unité en bas ne monte jamais (vérifié en
+  simulation). Au pied d'un flanc de pente, là où l'écart de hauteur est
+  presque nul (moins d'un quart de niveau), il n'y a pas de mur de
+  collision : une unité qui entre de biais ne bute pas sur le coin.
+- **Pente de coin** : un seul coin haut (NE, NW, SE ou SW) ; elle raccorde deux
+  pentes perpendiculaires au coin d'un plateau (aucune falaise, aucun saut),
+  praticable dans tous les sens, y compris pour monter directement par le
+  coin. **Coin intérieur** (un seul coin bas) : au creux d'un plateau en L.
+  Produites par les pinceaux Surélever / Abaisser (contour automatique) ou
+  posées à la main (ajustements Coin extérieur et Coin intérieur).
+- **Pente** : quatre orientations (montée vers le nord, l'est, le sud ou
+  l'ouest), praticable dans les deux sens ; l'unité s'élève progressivement.
+  Des pentes parallèles côte à côte forment une rampe large (2, 3 cases…) :
+  déplacement latéral libre, un groupe y monte de front. Une pente d'une
+  case est un passage exact pour un Fantassin (rayon 0,5).
+- **Combat** : aucun bonus de hauteur ; ligne de tir et portées restent 2D
+  (une falaise n'arrête pas les tirs). **Corps à corps** (portée ≤ 1,5 case :
+  Fantassin, Sentinelle, repli du Mage) : aucun coup à travers une falaise ;
+  l'unité cherche une rampe au lieu de s'arrêter au pied. Projectiles :
+  trajectoire visuelle seulement ajustée aux hauteurs de départ et
+  d'arrivée.
+- **Pose** : tous les bâtiments (Maison, Mine, Caserne, Camp d'archerie,
+  Forge, Tour, Église, murailles, portes) et la Baliste exigent une emprise
+  plate à un seul niveau (ni pente, ni falaise sous l'emprise) ; une portion
+  de muraille reste sur un seul niveau. Les unités se posent sur n'importe
+  quelle case, pente comprise. Une unité produite n'apparaît jamais de
+  l'autre côté d'une falaise collée à son bâtiment.
+- **Flanc de pente** : une unité qui entre de biais au pied ne bute pas ; une
+  unité poussée contre le milieu ou le haut d'un flanc ne le traverse jamais
+  (vérifié en simulation, foule comprise).
+- **Affichage** : plateaux, pentes et falaises en géométrie low-poly, plateaux
+  légèrement plus clairs par niveau ; unités, barres de PV, anneaux,
+  bâtiments, décors, zones, grille, aperçus et effets suivent la hauteur ;
+  le pointage à la souris vise la surface visible.
 
 ## 12. Talents
 
@@ -1077,6 +1131,29 @@ Accessible depuis le menu principal ; le détail d'usage est dans
 `EDITOR.md`. Une run ne charge aucune carte enregistrée depuis l'éditeur :
 ces cartes servent à « Tester le scénario ». L'arène du Mode survie est une
 carte exportée de l'éditeur puis intégrée au code (§11).
+
+- **Relief** : catégorie « Relief » en deux parties. **Sculpture** :
+  pinceaux continus **+1 Surélever** et **−1 Abaisser**, taille **1×1**
+  (une case) ou **4×4** (cœur 2 × 2) ; une couche par trait, niveaux 0 à
+  2, réversibles (−1 sur un +1 redonne le terrain exact) ; plateaux,
+  pentes, coins extérieurs et intérieurs automatiques, butte comme creux ;
+  liaisons diagonales comblées et signalées en orange ; le pinceau peut
+  dépasser de la carte ou chevaucher un trou (seules les cases de terrain
+  s'appliquent ; un relief collé au bord ou à un trou s'arrête sur une face
+  verticale) ; tampon refusé seulement si une case à changer est occupée. **Ajustements** : Pente
+  (R : tourner), Coin extérieur et Coin intérieur (R : NE → SE → SW → NW).
+  Monter / Descendre n'existent plus. Une case portant un bâtiment, la
+  Baliste, un obstacle / structure ou une unité ne change pas d'altitude ; un décor ne
+  verrouille rien et suit la nouvelle surface ; enregistré dans la carte
+  (`elevationCells`), annulable, testé par « Tester le scénario ». Détail :
+  `EDITOR.md` §3.
+
+- **Décors et obstacles** : tout le catalogue « Décors » (arbres, rochers,
+  végétation, relief et forêts, structures décoratives, militaire,
+  accessoires…) est purement visuel et traversable ; seule la rubrique
+  « Obstacles / structures » (angles de muraille décoratifs, clôtures)
+  bloque. La hauteur d'un décor dérive du relief (pente comprise, sans
+  inclinaison), jamais enregistrée.
 
 - **Aspect des décors** : un même décor a le même aspect (orientation,
   forme des rochers, hauteur des arbres) dans l'éditeur, dans « Tester le

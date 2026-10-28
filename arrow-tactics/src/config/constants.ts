@@ -396,14 +396,12 @@ export const COLORS = {
  *  emprise — jamais un cercle approximatif — pour que ce qu'on voit soit
  *  exactement ce qui bloque.
  *
- *  `kind` distingue deux comportements cote GAMEPLAY depuis le 2026-08-14
- *  (demande explicite d'Antoine, voir isCollidableObstacle ci-dessous) :
- *  `'rock'`/`'tree'`/`'building'` (le "décor" au sens gameplay) restent
- *  attribues au systeme de case et gardent une collision (mouvement ET ligne
- *  de tir) ; `'prop'` est purement visuel — traversable, jamais de
- *  collision. Avant cette date, `kind` ne servait qu'au rendu et la
- *  simulation traitait tous les obstacles de la meme facon — ce n'est plus
- *  vrai, voir isCollidableObstacle. */
+ *  Collision d'un objet pose sur la carte (MapDef.obstacles) : voir
+ *  isBlockingMapObstacle ci-dessous. Depuis le 2026-10-28 (decision
+ *  d'Antoine), tout DECOR est purement visuel et traversable ; seuls les
+ *  « Obstacles / structures » (BLOCKING_STRUCTURE_MODELS) bloquent
+ *  (mouvement ET ligne de tir). Les obstacles synthetiques de la simulation
+ *  (trous, falaises, emprises de batiments) restent toujours bloquants. */
 export interface ObstacleDef {
   kind: 'rock' | 'tree' | 'prop' | 'building';
   /** Position CONTINUE (centre de l'emprise, monde) — 2026-08-16, placement
@@ -460,6 +458,12 @@ export interface ObstacleDef {
    *  Absent = bloque aussi les tirs (comportement de tout obstacle
    *  collidable). Muraille du joueur (BuildingDef.blocksShots). */
   blocksShots?: boolean;
+  /** Falaise synthetique (config/terrainElevation.ts, computeCliffObstacles),
+   *  injectee par World.setMap, jamais dans MapDef.obstacles ni rendue :
+   *  obstacle fin centre sur une arete entre deux niveaux. Bloque collision
+   *  et trajets ; la grille A* la lit comme une ARETE bloquee entre deux
+   *  cases, pas comme une case pleine (sim/pathfinding.ts). */
+  terrainCliff?: boolean;
   /** Porte de muraille (BuildingDef.gate) : camp pour lequel l'obstacle est
    *  un PASSAGE. Ses trajets (A*, ligne droite, contournement) le traversent
    *  toujours, meme ferme ; il ne le franchit physiquement que si
@@ -516,22 +520,35 @@ export function obstacleAppearanceSeed(o: ObstacleDef): number {
   return hash >>> 0;
 }
 
-/** Un `prop` (champignon, buisson, fleur, buche, panneau...) est purement
- *  decoratif : ne bloque JAMAIS le mouvement d'une unite, la ligne de tir,
- *  ni le placement (2026-08-14, demande explicite d'Antoine : "les props
- *  qui se trouvent dans les spawn empêchent le déplacement d'unités... nous
- *  allons faire un système où les props seront traversables... les décor
- *  [rochers/arbres] eux seront attribués au système de case et auront donc
- *  une collision"). Seuls `'rock'`/`'tree'` restent "attribues au systeme de
- *  case" et gardent une hit box. Source de verite UNIQUE, reutilisee par
- *  `sim/world.ts` (filtre la liste que lit toute la simulation — mouvement,
- *  ligne de tir, pathfinding, capacites) ET `main.ts` (validite d'une case
- *  en phase de placement) — jamais deux listes/regles qui pourraient
- *  diverger. Le RENDU, lui, continue d'afficher TOUS les obstacles quel que
- *  soit leur `kind` (voir render/board.ts, qui lit `map.obstacles` non
- *  filtre) : un prop reste visible, juste sans collision. */
-export function isCollidableObstacle(obstacle: ObstacleDef): boolean {
-  return obstacle.kind !== 'prop';
+/** Modeles de la categorie « Obstacles / structures » de l'editeur : les
+ *  SEULS objets poses sur la carte (MapDef.obstacles) qui bloquent encore
+ *  (angles de muraille decoratifs, clotures — choix d'Antoine). */
+export const BLOCKING_STRUCTURE_MODELS: ReadonlySet<string> = new Set([
+  'neutral_wall_corner_A_inside',
+  'neutral_wall_corner_A_outside',
+  'neutral_wall_corner_A_gate',
+  'neutral_wall_corner_B_inside',
+  'neutral_wall_corner_B_outside',
+  'neutral_fence_stone_straight',
+  'neutral_fence_stone_straight_gate',
+  'neutral_fence_wood_straight',
+  'neutral_fence_wood_straight_gate',
+]);
+
+/** Objet pose sur la carte (MapDef.obstacles, objets de l'editeur) qui
+ *  BLOQUE le jeu : deplacement, trajets, ligne de tir, placement, verrou du
+ *  relief. Un DECOR (arbre, rocher, vegetation, relief et forets, structures
+ *  decoratives, militaire, accessoires…) est purement visuel depuis le
+ *  2026-10-28 (decision d'Antoine) : traversable, ignore par la simulation,
+ *  il suit la hauteur du terrain et n'empeche pas d'editer le relief. Seuls
+ *  les « Obstacles / structures » (BLOCKING_STRUCTURE_MODELS) bloquent.
+ *  Ne s'applique PAS aux obstacles synthetiques de la simulation (trous,
+ *  falaises, emprises des batiments gameplay et de la Baliste), toujours
+ *  bloquants. SOURCE UNIQUE : World.setMap, placement en preparation,
+ *  editeur (pose, verrou du relief, badges du catalogue). Le rendu affiche
+ *  tous les objets. */
+export function isBlockingMapObstacle(obstacle: ObstacleDef): boolean {
+  return obstacle.kind === 'building' && obstacle.buildingModel !== undefined && BLOCKING_STRUCTURE_MODELS.has(obstacle.buildingModel);
 }
 
 /** Centre (monde) de l'emprise d'un obstacle — SOURCE UNIQUE réutilisée par
@@ -737,6 +754,16 @@ export const ARCHER_PROJECTILE_DURATION = 0.22;
 /** Duree pendant laquelle une unite dont la ligne de tir est bloquee se
  *  deplace lateralement pour tenter de la degager, avant de retenter un tir. */
 export const SIDESTEP_DURATION = 1.1;
+
+/** Portee de CONTACT (cases) : une attaque de combatSystem dont
+ *  `attackRange` ne depasse pas cette valeur exige un contact physique.
+ *  Sert ACTUELLEMENT a un seul usage : interdire le corps a corps a travers
+ *  une falaise du relief (sim/geometry.ts, isMeleeAttack /
+ *  crossesTerrainCliff). Couvre le Fantassin, la Sentinelle et l'attaque de
+ *  repli du Mage (0,95) ; l'Archer (6) tire, ses fleches restent 2D. Aucune
+ *  donnee d'unite ne porte de type d'attaque : ne pas recopier ce seuil
+ *  ailleurs, passer par isMeleeAttack. */
+export const MELEE_CONTACT_RANGE = 1.5;
 /** Duree du flash blanc (emissive) joue sur une silhouette qui vient
  *  d'encaisser un coup — premier ajout "game feel" (2026-08-09) : sans lui,
  *  un coup qui touche ne se distingue de rien tant que la barre de PV n'a pas

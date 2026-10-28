@@ -13,6 +13,7 @@ import { getUnit } from '../data/units';
 import type { Renderer } from '../render/renderer';
 import { teamColor } from '../render/unitSelectionRing';
 import type { Entity, Team } from '../sim/entity';
+import { surfaceY } from '../render/terrainSurface';
 
 /** Position monde (x, z) a utiliser pour ancrer la barre au-dessus d'une unite. */
 export type PositionResolver = (entity: Entity) => { x: number; z: number };
@@ -391,8 +392,10 @@ export class CombatOverlay {
     this.canvasHeight = canvas.clientHeight;
   }
 
+  /** `y` : hauteur AU-DESSUS du sol ; la surface du relief au point (x, z)
+   *  s'y ajoute (render/terrainSurface.ts). */
   private project(x: number, y: number, z: number): { x: number; y: number } | null {
-    this.scratch.set(x, y, z).project(this.renderer.camera);
+    this.scratch.set(x, y + surfaceY(x, z), z).project(this.renderer.camera);
     if (this.scratch.z > 1) return null;
 
     return {

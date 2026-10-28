@@ -2,7 +2,7 @@ import { SIDESTEP_DURATION, type ObstacleDef } from '../../config/constants';
 import { dist } from '../../core/math';
 import type { Rng } from '../../core/rng';
 import { applyDamageToEntity } from '../damage';
-import { findBlockingObstacle } from '../geometry';
+import { crossesTerrainCliff, findBlockingObstacle, isMeleeAttack } from '../geometry';
 import type { Entity } from '../entity';
 
 export type CombatEvent =
@@ -38,6 +38,10 @@ export function combatSystem(entities: Entity[], dt: number, rng: Rng, obstacles
 
     const inRange = dist(e.x, e.z, target.x, target.z) <= e.stats.attackRange + target.stats.radius;
     if (!inRange) continue;
+    // Relief : aucun contact de corps a corps a travers une falaise (arete
+    // dont les hauteurs ne se raccordent pas). L'attaque reste prete ; le
+    // deplacement continue de chercher un passage (movementSystem).
+    if (isMeleeAttack(e.stats) && crossesTerrainCliff(e.x, e.z, target.x, target.z, obstacles)) continue;
 
     // target.footprintObstacle (2026-08-16) : un batiment ne doit jamais
     // bloquer sa PROPRE ligne de tir vers lui-meme, voir geometry.ts.

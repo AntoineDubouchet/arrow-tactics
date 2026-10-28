@@ -135,7 +135,144 @@ départ, ni les bâtiments, ni les vagues d'une run.
   décor** est dessus (décors traversables compris, pour qu'aucun ne reste
   suspendu dans le vide ; seule la case du centre compte, **KI-20**), ou si
   la case est sous l'empreinte de la Baliste (§16). Supprimer une case
-  retire aussi son entrée de territoire explicite.
+  retire aussi son entrée de territoire explicite, et son relief.
+
+**Relief**
+
+La catégorie « Relief » a deux parties :
+
+- **SCULPTURE** (la façon normale de modeler une carte) : **+1 Surélever**,
+  **−1 Abaisser**.
+- **AJUSTEMENTS** (corrections fines, cas spéciaux, inspection ; boutons
+  plus discrets) : **◢ Pente**, **◩ Coin extérieur**, **◪ Coin intérieur**.
+
+- **Niveaux** : 0 (sol), 1 et 2 ; un niveau vaut une demi-case de hauteur.
+  Une pente ne relie jamais que deux niveaux voisins (N ↔ N + 1).
+- **+1 Surélever / −1 Abaisser** : pinceaux continus. L'appui commence le
+  trait, le glisser l'étend, le relâchement le termine. Le designer modifie
+  des **couches** (hauteur logique de chaque case) ; plateaux, pentes
+  cardinales, coins extérieurs et coins intérieurs sont produits
+  automatiquement autour de la forme peinte (ligne, rectangle, L,
+  diagonale, forme libre).
+  - **TAILLE** : sélection **[1×1] [4×4]** sous les deux boutons, commune à
+    +1 et −1. **4×4** : cœur logique 2 × 2 centré sur l'intersection la
+    plus proche, transitions dans la couronne (grandes formes, sculpture
+    rapide). **1×1** : la seule case sous le curseur, transitions calculées
+    autour (retouches fines, rogner un coin, ajouter ou enlever une case).
+    Même moteur pour les deux tailles ; on passe librement de l'une à
+    l'autre.
+  - **Une couche par trait** : repasser plusieurs fois sur une case pendant
+    le même trait ne la monte (ou ne la descend) qu'une fois. Pour la
+    couche suivante, relâcher puis repeindre (nouveau trait) : 0 → 1, puis
+    1 → 2 ; 2 → 1, puis 1 → 0.
+  - **Réversible** : −1 sur les cases d'un +1 redonne exactement le terrain
+    d'avant (niveaux, pentes, coins, liaisons diagonales ; les décors
+    retrouvent leur hauteur) ; +1 +1 −1 −1 aussi. Le terrain ne dépend que
+    des couches, jamais de l'ordre des traits.
+  - **Limites** : rien au-delà du niveau 2 en montant ; rien sous le
+    niveau 0 en descendant (ni niveau négatif, ni trou). Ligne d'état :
+    « limite atteinte » ; aucune entrée d'historique.
+  - **Où vont les pentes** : une zone entourée garde son plat jusqu'à son
+    bord, les pentes vont dans la zone qui l'entoure — une butte a ses
+    pentes au pied, un creux sur son pourtour (fond plat). Un sommet de
+    niveau 2 sur du niveau 0 reçoit deux anneaux (pente 1 → 2, puis 0 → 1) ;
+    un creux de deux niveaux aussi, vers l'extérieur.
+  - **Bord de carte et trous** : le pinceau peut **dépasser** de la carte
+    ou chevaucher un trou ; seule sa partie sur des cases de terrain est
+    appliquée (rien n'est refusé pour cela). Il n'y a pas de terrain
+    au-delà du bord ni dans un trou : un relief collé au bord ou à un trou
+    se termine par une **face verticale** jusqu'au vide, et seules les
+    transitions entre cases existantes sont créées (coins compris). Rien
+    n'est jamais créé dans un trou ; il reste infranchissable.
+  - Le trait vise le terrain **tel qu'il était à l'appui** : le relief qui
+    monte sous le curseur ne fait pas dériver le pinceau.
+  - Un mouvement rapide est interpolé tampon par tampon (aucun trou).
+  - **Aperçu** : la surface finale de toutes les cases que le trait change,
+    transitions comprises (vert), coupée au bord de la carte ; tampon refusé
+    ou à la limite : son carré dans la carte en rouge. Ligne d'état :
+    « Surélever +1 (4×4) : niveau 0 → 1 », « Abaisser −1 (1×1) : niveau 2 →
+    1 »… ou « plusieurs niveaux, une couche de plus chacun ».
+  - **Liaison diagonale** : deux zones qui ne se toucheraient que par un
+    coin sont reliées par la case entre elles (entre buttes comme entre
+    creux). Cette case est en **orange** dans l'aperçu et la ligne d'état
+    l'annonce (« liaison diagonale comblée : N cases »). Une case
+    théorique hors de la carte ne compte pas.
+  - **Refus** : un tampon est refusé (aperçu rouge, raison et case dans la
+    ligne d'état) si une case dont la surface devrait changer — liaison
+    diagonale comprise — porte un bâtiment, une muraille, une porte, la
+    Baliste, une unité ou un obstacle / structure. Le vide (hors carte,
+    trou) n'est jamais une contrainte. Un tampon refusé est simplement
+    sauté : le reste du trait est conservé.
+  - Seules les cases dont la surface change sont recalculées : **sculpter
+    une zone ancienne la normalise** (une falaise de carte ancienne ou
+    d'ajustement y devient définitivement canonique), visible dans
+    l'aperçu ; jamais à distance.
+  - Reprendre une carte rechargée donne le même résultat qu'une édition
+    continue (les couches sont enregistrées, voir `reliefLogic`).
+  - Un trait = une seule entrée d'historique (Ctrl+Z / Ctrl+Y), quel que
+    soit le nombre de cases, pentes, coins et décors touchés, même le long
+    de tout un bord.
+- **Pente** (ajustement) : quatre orientations ; la carte affiche la
+  direction de montée (flèche) et **R** la tourne d'un quart de tour (nord →
+  est → sud → ouest ; nord = haut de l'écran en vue de jeu). Une même pente
+  se monte et se descend. L'aperçu montre la future surface inclinée (verte,
+  rouge si refusée), le **bord bas** (bande bleue), le **bord haut** (bande
+  jaune) et une flèche blanche vers le haut. Le niveau de la pente vient de
+  ses voisines : la case au pied (bande bleue) doit présenter un bord plat
+  au niveau N, celle au sommet (bande jaune) un bord plat au niveau N + 1.
+  Refusée si les deux sont au même niveau, à deux niveaux d'écart, si
+  l'une manque (vide, trou) ou si la même pente est déjà posée.
+- **Rampe large** (Pente) : poser plusieurs pentes de même orientation côte
+  à côte ; leurs côtés communs se raccordent (aucune falaise entre elles).
+- **Orientation déduite** (Pente) : si l'orientation de R est refusée sur la
+  case et qu'**une seule** orientation convient à ses voisines, l'aperçu et
+  la pose la prennent d'office (R n'est pas modifié) ; si plusieurs
+  conviennent, R décide. La ligne d'état et la carte « Pente » affichent
+  toujours la direction qui sera réellement posée sur la case survolée
+  (« imposée par les voisins » quand elle est déduite, et la raison d'un
+  refus) ; hors survol, celle de R.
+- **◩ Coin extérieur** / **◪ Coin intérieur** (ajustements) : pose manuelle
+  d'une pente de coin.
+  - Coin extérieur : un seul coin haut, NE, SE, SW ou NW (point blanc dans
+    l'aperçu) ; angle saillant d'un plateau.
+  - Coin intérieur : un seul coin **bas**, les trois autres hauts (point
+    bleu sur le coin bas) ; creux d'un plateau en L. Ligne d'état : « Coin
+    intérieur — coin bas SW (sud-ouest), les 3 autres coins hauts ».
+  - **R** : NE → SE → SW → NW, dans la famille de l'outil ; chaque outil
+    garde sa dernière orientation.
+  - Valide seulement si les quatre arêtes se raccordent aux voisines (et que
+    les deux voisines qui touchent le coin nommé existent) : poser d'abord
+    les pentes cardinales, puis le coin. Sinon, aperçu rouge et raison
+    (« falaise côté nord », « vide ou trou côté est »…).
+  - Si une seule orientation convient, elle est prise d'office (« imposé par
+    les voisins ») ; sinon R décide.
+  - Remplace une case plate, une pente cardinale ou une autre pente de coin,
+    extérieure ou intérieure. Même donnée que les coins des pinceaux
+    (`slope` NE… / NEi…).
+- **Case occupée** (bâtiment de scénario, muraille ou porte, Baliste,
+  obstacle / structure dont le centre est sur la case ou dont l'emprise la
+  chevauche, unité) : son relief ne change jamais (Surélever, Abaisser,
+  Pente et Coin refusés), pour ne jamais laisser un objet flotter ou
+  s'enfoncer ; l'objet n'est jamais déplacé verticalement. Retirer l'objet
+  d'abord.
+- **Décors** : jamais un refus. Le relief se modifie sous un décor, qui
+  reste en place (X/Z) et suit la nouvelle surface à son point d'ancrage
+  (pente comprise, sans inclinaison), y compris en annuler / rétablir et
+  au rechargement : sa hauteur n'est jamais enregistrée.
+- **Falaise** : toute arête entre deux cases dont les hauteurs ne se
+  raccordent pas aux deux extrémités (niveaux différents, flanc d'une pente
+  contre un plat). Les unités ne la franchissent pas et ne frappent pas au
+  corps à corps à travers (« Tester le scénario ») ; les tirs passent.
+- **Pose sur le relief** : bâtiments, murailles, portes et Baliste exigent
+  une emprise **plate à un seul niveau** (aperçu rouge sinon) ; une portion
+  de muraille ne change jamais de niveau (le tracé devient rouge s'il
+  franchit une falaise ou une pente). Un obstacle / structure de plus d'une
+  case exige aussi une emprise plate. Un décor se pose partout, quelle que
+  soit sa taille : il suit la hauteur sous son point d'ancrage, sans
+  inclinaison. Les unités se posent sur toute case, pente comprise.
+- Le pointage vise la surface **visible** : sur un plateau, le curseur
+  désigne la case du plateau ; en visant la face d'une falaise, la case du
+  haut.
 
 ## 4. Territoire
 
@@ -215,17 +352,25 @@ la carte (`MapDef.territory`, §14) et sert :
 
 ## 6. Catalogue des décors
 
-Rangement du catalogue, par catégories dépliables (seule « Obstacles » est
-ouverte au départ) :
+Rubrique **« Obstacles / structures »** (au-dessus des décors) : les seuls
+objets posés qui **bloquent** — catégorie « Murailles et clôtures » (angles
+de muraille décoratifs, clôtures en pierre et en bois). Ils gardent le
+verrou du relief.
+
+Rubrique **« Décors »** : tout le reste, **purement visuel et
+traversable**, rangé par catégories dépliables (seule « Arbres et rochers »
+est ouverte au départ) :
 
 | Catégorie | Contenu |
 |---|---|
-| Obstacles | Rochers, arbres (bloquants) |
+| Arbres et rochers | Rochers, arbres |
 | Végétation | Buissons et plantes, champignons |
 | Fleurs | Fleurs |
 | Bois | Bûches, souches |
 | Accessoires | Accessoires KayKit |
 | Nature | Éléments de nature KayKit |
+| Relief et forêts | Collines, montagnes, bosquets |
+| Militaire | Charrettes, catapulte, canon, navire, bannière |
 | Structures décoratives | Bâtiments KayKit : teinte bleue, teinte rouge, neutres |
 | Divers | Autres décors |
 
@@ -248,12 +393,12 @@ ouverte au départ) :
   survie et d'une session à l'autre. Déplacer un décor lui donne un nouvel
   aspect, visible dès le relâchement ; une `rotationY` explicite (§9) reste
   prioritaire.
-- **Collisions en bataille** : les décors traversables (fleurs, plantes,
-  accessoires…) n'ont pas de collision ; rochers, arbres et structures
-  bloquent le passage et la ligne de tir.
+- **Collisions en bataille** : aucun décor n'a de collision (passage,
+  trajets, tirs, placement) ; seuls les obstacles / structures bloquent le
+  passage et la ligne de tir.
 - **Structures décoratives ≠ bâtiments gameplay** : une Forge, une Mine ou
-  une Caserne du catalogue n'est qu'un **décor bloquant**, sans PV ni effet
-  (§16).
+  une Caserne du catalogue n'est qu'un **décor** traversable, sans PV ni
+  effet (§16).
 
 ## 7. Sélection
 
@@ -488,7 +633,11 @@ Différences avec la partie :
   - un chargement réussi remplace le brouillon, vide l'historique, recadre
     la caméra, et la carte chargée devient la référence « enregistrée » ;
   - la validation est minimale : seule la présence des champs principaux est
-    vérifiée.
+    vérifiée ; les entrées de relief invalides (`elevationCells` : niveau
+    hors de 0 à 2, pente au niveau 2, direction inconnue) sont écartées.
+- **Relief** : `elevationCells` n'est écrit que si une case n'est pas plate
+  au niveau 0, trié par z puis x ; une carte plate garde exactement son
+  fichier d'avant le relief.
 
 **État non enregistré**
 
@@ -729,6 +878,13 @@ Limitations de l'éditeur, sans entrée dans `KNOWN_ISSUES.md` :
 - **Aperçu de déplacement** : une silhouette rouge peut s'afficher hors du
   plateau, à la case visée ; l'outil de pose d'unité garde son propre
   fantôme.
+- **Relief** : trois niveaux (0 à 2), pas de niveau négatif ni de vrai
+  trou creusé, pas d'escalier, de pont ni de chute ; ligne de tir et
+  portées restent 2D ; pinceaux Surélever / Abaisser en deux tailles
+  seulement (1×1, 4×4) ; les ajustements (Pente, Coin) peuvent
+  encore laisser une falaise à côté d'un plat ; pendant un trait, le
+  pinceau vise le terrain du début du trait (léger décalage visuel avec le
+  curseur au-dessus des cases déjà modifiées par ce trait).
 
 ## 19. Pour les développeurs
 
@@ -785,6 +941,8 @@ Les raccourcis clavier sont **ignorés pendant la saisie dans un champ**
 | Clic gauche (outil de pose actif) | Poser l'unité ou le décor |
 | Clic ou glisser (outil de case actif) | Ajouter ou supprimer les cases survolées |
 | Clic ou glisser (outil Territoire actif) | Peindre les cases |
+| Clic ou glisser (+1 Surélever / −1 Abaisser) | Ajouter / retirer une couche de relief sous le pinceau (une par trait, taille 1×1 ou 4×4, jusqu'au bord de la carte) |
+| Clic ou glisser (Pente / Coin extérieur / Coin intérieur) | Ajuster la case survolée |
 | Glisser une flèche du gizmo | Déplacer le décor |
 | Glisser l'anneau jaune | Tourner le décor |
 | Clic droit seul | Annuler l'outil actif, sinon désélectionner |
@@ -801,7 +959,7 @@ Les raccourcis clavier sont **ignorés pendant la saisie dans un champ**
 |---|---|
 | V | Outil Sélection |
 | 1 / 2 / 3 | Territoire Joueur / Ennemi / Neutre (outil Territoire actif) |
-| R | +90° au décor sélectionné (sans effet sur la Baliste) |
+| R | +90° au décor sélectionné (sans effet sur la Baliste) ; outil Pente : tourner la direction de montée ; outils Coin extérieur / Coin intérieur : orientation suivante |
 | Suppr / Retour arrière | Supprimer la sélection (sans effet sur la Baliste) |
 | Échap | Revenir à l'outil Sélection, sinon désélectionner ; pendant un test, revenir à l'éditeur |
 | Ctrl+Z | Annuler |

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Team } from '../sim/entity';
 import { teamColor } from './unitSelectionRing';
+import { surfaceY } from './terrainSurface';
 
 /**
  * Retour visuel d'un ordre de deplacement accepte en bataille, a la couleur
@@ -55,7 +56,7 @@ function buildMarker(geometry: THREE.BufferGeometry, group: THREE.Group): Marker
 
 function start(marker: Marker, x: number, y: number, z: number, color: number): void {
   marker.material.color.setHex(color);
-  marker.mesh.position.set(x, y, z);
+  marker.mesh.position.set(x, y + surfaceY(x, z), z);
   marker.elapsed = 0;
   marker.active = true;
   marker.mesh.visible = true;

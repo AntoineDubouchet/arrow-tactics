@@ -75,11 +75,13 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | D7 | Départ de run, population et bâtiments de recrutement | Active |
 | D8 | Murailles du joueur | Active (mécanique) / Ouverte (coût) |
 | E1 | Manipulation directe pendant le placement | Active |
-| E2 | Collision des décors : emprise rectangulaire, props traversables | Active |
+| E2 | Collision des décors : emprise rectangulaire, props traversables | Remplacée (décors bloquants) / Active (emprise rectangulaire des obstacles) |
 | E3 | Rotation des décors dans l'éditeur | Remplacée (W/E) / Active (anneau et Ctrl+molette) |
 | E4 | Agrandissement progressif de la carte | Active (cycle A/B/C, étape C symétrique) / Remplacée (camp joueur fixe à l'étape C) / Ouverte (runs longues) |
 | E5 | Territoire par cases, couche séparée du terrain | Active (territoire de la carte, suit l'expansion) / Ouverte (territoire de run) |
 | E6 | Aspect des décors fixé par leur position | Active |
+| E7 | Relief 2.5D : falaises infranchissables, pentes, combat 2D | Active (prototype) / Ouverte (avantage de hauteur, ligne de vue, grande carte) |
+| E8 | Décors purement visuels, traversables, adaptatifs au relief | Active |
 | F1 | Intégration audio mise en pause après expérimentation | Historique / Ouverte |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -699,7 +701,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### E2 — Collision des décors : emprise rectangulaire, props traversables
 
-- **Statut** : Active, avec une évolution.
+- **Statut** : Remplacée pour les décors par E8 (plus aucun décor ne
+  bloque) ; Active pour l'emprise rectangulaire des obstacles qui bloquent
+  encore (« Obstacles / structures »).
 - **Contexte** : les premiers obstacles avaient une emprise approximative ;
   plus tard, des props décoratifs bloquaient le placement.
 - **Décision** :
@@ -839,6 +843,154 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   de décors.
 - **Sources** : `config/constants.ts` (`obstacleAppearanceSeed`),
   `render/obstacleFactory.ts`, `run/mapExpansion.ts`, `EDITOR.md` §6.
+
+### E7 — Relief 2.5D : falaises infranchissables, pentes, combat 2D
+
+- **Statut** : Active (prototype). Ouverte : avantage de hauteur, ligne de
+  vue en 3D, usage sur la future grande carte circulaire.
+- **Contexte** : préparer une grande carte circulaire avec du relief, sans
+  toucher aux vagues, au combat ni à l'équilibrage.
+- **Décision** (cahier des charges d'Antoine) :
+  - une altitude par case (niveaux 0 à 2, un niveau = une demi-case), jamais
+    d'empilement ; champ `elevationCells` optionnel et sparse, toute carte
+    ancienne reste plate ;
+  - falaise infranchissable entre deux niveaux, pente traversable d'un
+    niveau au suivant dans les deux sens, quatre orientations ; pathfinding
+    déterministe qui connaît les deux ;
+  - **continuité dérivée des coins** (correction d'Antoine) : chaque case a
+    une hauteur à ses coins NW, NE, SW, SE ; deux cases se raccordent si
+    leur arête commune a les mêmes hauteurs aux deux extrémités, sinon c'est
+    une falaise. Aucune règle propre aux côtés de pente : deux pentes
+    parallèles forment une rampe large ; une diagonale n'est franchissable
+    que si les quatre arêtes autour du coin se raccordent ;
+  - **pas de corps à corps à travers une falaise**, même critère d'arête ;
+  - bâtiments, murailles, portes et Baliste seulement sur une emprise plate
+    à un seul niveau ; une portion de muraille ne change pas de niveau ;
+  - **aucun avantage de hauteur** et **ligne de tir 2D** : le combat est
+    inchangé, seule la trajectoire visuelle des projectiles suit le relief ;
+  - pas de pont, d'escalier ni de chute ;
+  - **pentes de coin** (demande d'Antoine, dessin de référence) : un coin
+    haut, triangulation coin extérieur bas ↔ coin intérieur haut, hauteur
+    gameplay calculée sur les mêmes triangles que le mesh ; premier outil :
+    pinceau « Plateau niv.1 — 4×4 » (générateur générique, seul 4 × 4 / 0 → 1
+    exposé ; depuis remplacé par Surélever / Abaisser) ;
+  - **pinceau continu et autotiling** (demande d'Antoine, validés) : la
+    forme est l'union des cœurs peints, le contour est re-tuilé par un
+    autotiler unique fondé sur les hauteurs de coins ;
+  - **UX de sculpture** (demande d'Antoine) : deux outils principaux,
+    **+1 Surélever** / **−1 Abaisser** (une couche par trait, empilables
+    trait après trait, 0 à 2), qui fabriquent eux-mêmes plateaux, pentes et
+    coins ; Pente, Coin extérieur et Coin intérieur deviennent des
+    ajustements secondaires ; Monter / Descendre retirés de l'interface ;
+    un seul algorithme (`sculptRelief`) pour butte et creux ; une liaison
+    diagonale bloquée par une case occupée refuse le tampon (plus de
+    falaise silencieuse) ;
+  - **coins intérieurs** NEi / NWi / SEi / SWi (un coin bas, validés par
+    Antoine) : au creux d'une forme en L, la case de transition a 3 coins
+    hauts, sans forme sans falaise parmi les autres types ; posables aussi à
+    la main (outils Coin extérieur / Coin intérieur, demande d'Antoine).
+- **Validé provisoirement** : une « selle » (deux zones de plateau qui ne se
+  touchent que par un coin) est comblée en plateau plutôt que d'ajouter un
+  type ; la case comblée est signalée dans l'aperçu (orange).
+- **Validé** par Antoine (coins manuels) : l'outil exige que les quatre
+  arêtes se raccordent (pentes cardinales avant le coin) ; deux outils
+  (Coin extérieur, Coin intérieur), déduction limitée à la famille choisie.
+- **Décidé** par Antoine (sculpture) : +1 / −1 réellement réversibles et
+  terrain canonique (il ne dépend que des hauteurs logiques, pas de
+  l'historique) ; tailles 1×1 et 4×4 ; sculpture autorisée jusqu'au bord de
+  carte, pinceau coupé à la carte, bord vertical accepté — **annule** la
+  décision précédente « transition hors carte = tampon refusé » ;
+  ~~propagation dans le sens du trait, +1 jusqu'au point haut d'une pente~~
+  (passe précédente) : remplacés par les couches logiques par case.
+- **Validé** par Antoine (sculpture) : hauteur logique **par case** (une
+  couche par trait ; par sommet de grille, elle créait une arête de niveau 2
+  à la jonction de deux traits voisins) ; géométrie entièrement dérivée des
+  couches ; changement de côté d'une pente lors d'une canonicalisation,
+  s'il est visible dans l'aperçu ; +1 au niveau 2 sans effet, puis −1 =
+  descente normale ; **sculpter une zone ancienne la normalise** (une
+  falaise ancienne touchée devient définitivement canonique) ; un **trou**
+  n'est plus jamais bloquant : bord local, comme le bord de carte (face
+  verticale, aucune transition ni donnée dans le trou, toujours
+  infranchissable) — **annule** « transition touchant un trou = tampon
+  refusé ».
+- **Choix d'implémentation à valider** (sculpture) :
+  - où vont les pentes (règle du rendu canonique) : une zone enclavée garde
+    son plat, les pentes vont dans la zone qui l'entoure (profondeur depuis
+    le bord ou un trou) ; à égalité, la plus haute garde son plat. Effets :
+    rogner le bord d'un plateau (zone ouverte sur la plaine) met la pente
+    dans la case rognée ; un creux qui finit par rejoindre la plaine, le
+    bord ou un trou change de côté de pente sur tout son pourtour (visible
+    dans l'aperçu) ;
+  - donnée persistante minimale : `MapDef.reliefLogic`, seulement les cases
+    dont la couche diffère de celle déduite du relief (niveau d'une case
+    plate, bas d'une pente) ;
+  - pendant un trait, le pinceau vise le terrain du début du trait ; un
+    curseur placé loin au-delà du bord (le rayon passe derrière la carte)
+    peut ne toucher aucune case.
+- **Choix d'implémentation à valider** (pris pendant le chantier) :
+  - une case portant un objet (bâtiment, Baliste, obstacle / structure,
+    unité) ne change pas d'altitude dans l'éditeur (règle recommandée par
+    Antoine) ; depuis E8, un décor ne verrouille plus rien ;
+  - ~~les côtés d'une pente sont des falaises sur toute leur longueur~~ :
+    **annulé** par Antoine, remplacé par la continuité dérivée des coins ;
+  - seuil de raccord physique `SLOPE_SIDE_BLOCK_THRESHOLD` (un quart de
+    niveau, **validé provisoirement** par Antoine) :
+    le mur de collision commence là où l'écart l'atteint (pas de mur
+    invisible au pied d'un flanc de pente) ; le pathfinding bloque l'arête
+    entière ;
+  - corps à corps = portée d'attaque ≤ `MELEE_CONTACT_RANGE` (1,5 case,
+    aucun champ dédié dans `data/units.ts`), via `isMeleeAttack` ; plateau
+    sans rampe hors d'atteinte du corps à corps : **validé** par Antoine ;
+  - outil Pente : orientation déduite des voisins quand une seule convient ;
+  - falaises sans épaisseur (segments) : une pente d'une case laisse passer
+    exactement un Fantassin (rayon 0,5) ;
+  - les plateaux sont éclaircis de 15 % par niveau pour rester lisibles vus
+    du dessus.
+- **Conséquences acceptées** : une falaise n'arrête aucun tir ; un
+  plateau sans rampe est hors d'atteinte du corps à corps (seuls les tirs
+  l'atteignent).
+- **Limites connues du prototype** : deux ordres de déplacement qui arrivent
+  ensemble devant un passage d'une case (rampe d'une case, comme tout
+  passage étroit) peuvent se bloquer, les ordres de déplacement n'ayant pas
+  de manœuvre de dégagement (la poursuite en a une) — préférer des rampes
+  de deux cases ; les disques d'effets au sol restent plats, à la hauteur
+  de leur centre, et coupent le relief sur une pente ou au bord d'une
+  falaise.
+- **À ne pas faire** : ne pas faire lire la hauteur à `sim/` hors des
+  obstacles de falaise ; ne pas ajouter de bonus de hauteur ni de ligne de
+  vue 3D sans décision d'Antoine.
+- **Sources** : `config/terrainElevation.ts`, `sim/world.ts`,
+  `sim/pathfinding.ts`, `render/terrainSurface.ts`,
+  `render/terrainCells.ts`, `EDITOR.md` §3, `CURRENT_STATE.md` §11.
+
+---
+
+### E8 — Décors purement visuels, traversables, adaptatifs au relief
+
+- **Statut** : Active.
+- **Contexte** : des éléments posés pour embellir la carte (arbres,
+  rochers, structures) créaient des obstacles invisibles, détournaient les
+  unités et bloquaient l'édition du relief.
+- **Décision** (Antoine, familles choisies par lui) :
+  - « Décor » = purement visuel : jamais bloquant (passage, trajets, tirs,
+    placement), il n'empêche pas d'éditer le relief et suit la hauteur du
+    terrain à son point d'ancrage (pente comprise, sans inclinaison) ;
+  - deviennent des décors : arbres et rochers, relief et forêts, structures
+    décoratives, militaire (les buissons, fleurs et accessoires l'étaient
+    déjà) ;
+  - reclassés en « Obstacles / structures » (bloquants, verrou du relief) :
+    angles de muraille décoratifs et clôtures
+    (`BLOCKING_STRUCTURE_MODELS`).
+- **Conséquences acceptées** : l'arène du Mode survie perd ses 24 arbres et
+  7 rochers bloquants (passage, tirs, placement) — changement
+  d'équilibrage ; un bâtiment ou une unité peut se poser sur un décor (le
+  modèle peut alors traverser visuellement le bâtiment).
+- **À ne pas faire** : ne pas redonner une collision à un décor ; un objet
+  qui doit bloquer va dans « Obstacles / structures ». Ne pas enregistrer
+  d'altitude de décor.
+- **Sources** : `config/constants.ts` (`isBlockingMapObstacle`,
+  `BLOCKING_STRUCTURE_MODELS`), `sim/world.ts`, `editor/editorState.ts`,
+  `editor/editorUI.ts` (`OBSTACLE_CATALOG`), `EDITOR.md` §3 et §6.
 
 ---
 

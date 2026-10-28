@@ -17,9 +17,9 @@ const BUILDING_MODEL_ROTATION_OFFSET: Readonly<Record<string, number>> = {
  * l'echelle UNIFORME (jamais deforme) pour tenir dans son emprise reelle
  * (`tilesX x tilesZ` cases, potentiellement rectangulaire — contrairement a
  * un prop, toujours 1x1) plutot que sur un seul axe (voir
- * cloneScaledToFootprint). `kind: 'building'` reste COLLIDABLE (voir
- * config/constants.ts, isCollidableObstacle) — un batiment bloque
- * mouvement ET ligne de tir comme un rocher/arbre, contrairement a un prop.
+ * cloneScaledToFootprint). Collision : voir config/constants.ts,
+ * isBlockingMapObstacle (decor traversable, sauf « Obstacles / structures » ;
+ * les batiments gameplay ont leur propre emprise bloquante).
  */
 /** Raccord VISUEL des virages de muraille (ObstacleDef.wallJoin) : le
  *  modele est plus etroit que sa case (0,8 sur 1), un segment qui bute
