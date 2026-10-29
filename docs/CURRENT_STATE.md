@@ -1014,6 +1014,40 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   trajets, ni territoire, ni règles de pose, et la simulation ne la lit
   pas. L'arène du Mode survie n'a pas de `surfaceCells` : son sol est
   inchangé.
+- **Rendu du terrain** (`render/terrainStylized.ts`, 2026-10-29) : par
+  défaut `faceted-plus`, en jeu comme dans l'éditeur (arène du Mode survie
+  comprise). Les bords libres (bord de carte, trous) reçoivent une bande
+  irrégulière qui prolonge le dessus vers le vide (sa « lèvre »), et une
+  falaise facettée ; les falaises intérieures sont subdivisées ; une vraie
+  rupture de niveau intérieure (falaise d'au moins un niveau, comme dans
+  une ancienne carte) reçoit une jupe facettée qui déborde de quelques
+  centimètres au-dessus de la case basse ; les anneaux de pentes produits
+  par la sculpture et les flancs de rampe restent fidèles. Témoins de
+  comparaison : `?terrain=grid` (l'ancien rendu case par case, inchangé),
+  `?terrain=faceted` (sans jupe) et `?terrain=faceted-plus-shadow` (même
+  géométrie, le terrain projette ses ombres ; expérimental, jamais activé
+  par défaut). (La piste `organic`, facettes sur les plats, a été retirée.)
+  Purement visuel : carte, cases, relief logique, surfaces, pointage, règles
+  de pose, grille, territoire et simulation sont identiques dans tous les
+  modes.
+- **Transitions entre surfaces** (`render/surfaceBlend.ts`, 2026-10-29) :
+  par défaut `irregular`. À une frontière, la surface prioritaire (terre
+  au-dessus des herbes, herbes travaillées au-dessus de l'herbe par défaut)
+  déborde sur sa voisine avec un bord net, polygonal, de largeur variable
+  (un chemin peint en 1×1 paraît large de 1,1 à 1,3 case) ; un coin
+  rentrant (marche d'escalier, intérieur d'un virage) est arrondi. Le
+  débord suit exactement le sol (pentes et coins compris), jamais
+  par-dessus une falaise ; au bord de la carte et autour d'un trou, il
+  continue sur la lèvre facettée de la case, jamais dans le vide ; le cœur
+  des zones reste intact. Témoin : `?surfaceBlend=hard` (frontière case par
+  case). (`feather`, bande de fondu, a été abandonné.) Tout se déduit de
+  `surfaceCells` : rien de nouveau n'est enregistré, l'outil Surface est
+  inchangé.
+- **Sol de l'éditeur en morceaux** (`render/terrainChunks.ts`) : découpé en
+  carrés de 16 × 16 cases ; un coup de pinceau Surface (ou son annulation)
+  ne reconstruit que les morceaux qui contiennent une case repeinte ou une
+  voisine. Une modification de forme ou de relief reconstruit tout. Même
+  sol, triangle pour triangle, que le plateau d'un seul tenant du jeu.
 
 ## 12. Talents
 

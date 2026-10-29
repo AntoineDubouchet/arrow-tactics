@@ -976,7 +976,31 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     flancs gardent leur logique propre (une falaise ne change pas quand on
     peint le plateau) ; « Par défaut » = la surface d'origine du jeu, jamais
     écrite ; `terre-strates` seulement dans la section Expérimental (elle
-    raye un dessus de case). Purement visuel, sans effet de jeu.
+    raye un dessus de case). Purement visuel, sans effet de jeu ;
+  - **rendu du terrain** (2026-10-29, `?terrain=`) : « grille logique ≠
+    silhouette visuelle », même carte et mêmes règles, seul le mesh affiché
+    change. **Décidé** (Antoine) : `faceted-plus` (bords et trous facettés,
+    jupe des vraies ruptures intérieures) est le rendu par défaut ; la jupe
+    ne traite que les vraies ruptures verticales, les anneaux de pentes de
+    la sculpture et les rampes restent fidèles ; `organic` (facettes sur les
+    plats) abandonné, gain invisible à la caméra de jeu ; `grid` et
+    `faceted` restent des témoins de comparaison et de debug.
+    **Ouvert** : ombres portées du terrain (`faceted-plus-shadow`,
+    expérimental, jamais par défaut), à juger sur une vraie carte chargée ;
+  - **transitions entre surfaces** (2026-10-29, `?surfaceBlend=`) : rendu
+    seulement, dérivé de `surfaceCells` (aucune donnée, outil Surface
+    inchangé) ; **priorité visuelle** centralisée (`BLEND_PRIORITY`,
+    `render/surfaceBlend.ts`) : terre au-dessus des herbes, herbes
+    travaillées au-dessus de l'herbe par défaut, jamais l'ordre de peinture.
+    **Décidé** (Antoine) : `irregular` (bord net, polygonal, sans
+    transparence) est la transition par défaut ; `feather` (fondu) abandonné,
+    trop flou pour la direction low-poly ; `hard` reste un témoin. Largeur
+    visée d'un chemin 1×1 : environ 1,1 à 1,3 case (emprise logique encore
+    crédible) ; une surface peinte jusqu'au bord ou jusqu'à un trou continue
+    sur la lèvre facettée, la falaise garde le matériau de flanc ;
+  - **éditeur** : le sol est découpé en morceaux pour qu'un coup de pinceau
+    Surface ne reconstruise que la zone touchée ; organisation du rendu
+    seulement, sans incidence sur la carte ni le jeu.
 - **Conséquences acceptées** : une falaise n'arrête aucun tir ; un
   plateau sans rampe est hors d'atteinte du corps à corps (seuls les tirs
   l'atteignent).

@@ -283,7 +283,13 @@ les règles de pose, et la simulation ne la lit jamais.
   l'appui.
 - **Dessus seulement** : les flancs (falaises, bord de carte, bord d'un trou)
   gardent leur propre surface. Peindre de la terre sur un plateau ne change
-  donc pas sa falaise.
+  donc pas sa falaise. Une case peinte jusqu'au bord colore aussi la petite
+  lèvre facettée qui déborde au-dessus du vide.
+- **Transitions** : à la frontière de deux surfaces, la plus prioritaire
+  (terre au-dessus des herbes) déborde légèrement sur sa voisine, avec un
+  bord irrégulier ; les marches d'un chemin en escalier sont arrondies.
+  Purement visuel : la case peinte reste celle qui est enregistrée.
+  Témoin sans transition : `?surfaceBlend=hard`.
 - **Relief indépendant** : une surface est attachée à la case (x, z), pas à
   sa forme. Elle suit la case si on la sculpte ensuite (plat → pente →
   plateau), et on peut peindre un relief déjà sculpté. Supprimer une case
@@ -913,9 +919,10 @@ Limitations de l'éditeur, sans entrée dans `KNOWN_ISSUES.md` :
   falaise d'ancienne carte se corrige en sculptant dessus) ; pendant un trait, le
   pinceau vise le terrain du début du trait (léger décalage visuel avec le
   curseur au-dessus des cases déjà modifiées par ce trait).
-- **Surface** : pas de fondu entre deux surfaces voisines. La limite suit le
-  bord des cases, donc un chemin peint en 1×1 a des bords en escalier, et
-  les taches de « Mixte » sont coupées net au bord de leur case. Pas de
+- **Surface** : la peinture reste attachée à des cases entières ; seul le
+  rendu adoucit la limite (transition irrégulière, voir « Surface »). Un
+  chemin 1×1 paraît donc un peu plus large que sa case (1,1 à 1,3), et les
+  taches de « Mixte » restent coupées au bord de leur case. Pas de
   remplissage ni de pinceau plus grand que 4×4.
 - **Surfaces et agrandissement de run** : `run/mapExpansion.ts` recopie
   `surfaceCells` sans les déplacer, comme `elevationCells`, alors que les

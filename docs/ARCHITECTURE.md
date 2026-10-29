@@ -753,19 +753,68 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     compris), flancs (position le long du bord, y).
     Couleur de sommet du dessus : +15 % par niveau (rien sous y = 0),
     −`SLOPE_SHADE` (18 %) proportionnel à l'inclinaison. Matériaux
-    `MeshLambertMaterial` créés à chaque construction (l'éditeur les libère),
+    `MeshLambertMaterial` par clé (`TerrainMaterials` : dessus d'une
+    surface, flancs, transition), un seul par clé pour tout un plateau ;
     textures partagées jamais libérées (PNG chargés une fois ; lot
     exploratoire `public/textures/ground/variants/` via
     `loadGroundVariantTexture`, `NearestFilter` en agrandissement pour les
-    pixelisées). Un draw call par surface présente
-    plus un pour les flancs, géométrie reconstruite avec le plateau.
-    Après un coup de pinceau Surface, l'éditeur ne reconstruit **que** le
-    sol (`refreshEditorTerrainSurfaces`, `main.ts`) : ni grille, ni zones,
-    ni objets, ni relief, ni rien de la simulation. Coût mesuré sur une
-    carte de 64×64 (4 096 cases, Edge) : environ 12 à 16 ms par
-    reconstruction, de 1 à 10 surfaces, autant qu'une reconstruction
-    complète du plateau vide (le sol domine). Pendant un glisser, une
-    reconstruction a lieu à chaque mouvement qui change une case.
+    pixelisées). Plateau du jeu (`board.ts`) : un seul morceau, un draw call
+    par surface présente plus un pour les flancs et un par surface qui
+    déborde (transitions).
+  - Construction par morceau : `buildTerrainChunk(cells, ctx)` dessine les
+    cases `cells` en lisant la carte entière par un `TerrainContext`
+    (`terrainContext` : présence des cases, surface visuelle, champ de
+    hauteur, matériaux) ; `buildTerrainCellsView` = un morceau couvrant
+    tout. Tout calcul de voisinage (sommets décalés, arêtes libres, jupes,
+    transitions) est une fonction de la carte et de positions monde : un
+    morceau a exactement les triangles du plateau d'un seul tenant.
+  - Sol de l'éditeur (`render/terrainChunks.ts`, `ChunkedTerrainView`) :
+    morceaux de `TERRAIN_CHUNK_SIZE` (16) cases de côté, matériaux partagés.
+    `rebuild` (forme, relief, chargement : `rebuildEditorBoard`) refait
+    tout ; `updateSurfaces` (coup de pinceau Surface, annuler / rétablir :
+    `refreshEditorTerrainSurfaces`, `main.ts`) compare les surfaces au
+    dernier rendu et ne refait que les morceaux contenant une case
+    repeinte ou une voisine (rayon 1 : ce que lit une transition). Ni
+    grille, ni zones, ni objets, ni relief, ni rien de la simulation ne
+    sont recalculés. Précondition : forme et relief inchangés depuis le
+    dernier `rebuild`. Mesuré (Edge, 64×64 très peinte, `faceted-plus` +
+    `irregular`) : un coup de pinceau 1×1 coûte environ 5 ms (pire cas
+    15 ms) contre 100 ms quand tout le sol était reconstruit ; un long
+    trait, environ 4 ms par case, sans dérive ; une reconstruction
+    complète, environ 55 ms. Contrepartie : un mesh par surface et par
+    morceau (84 meshes et environ 60 draw calls de plus sur cette carte).
+  - Modes de rendu (`TerrainRenderMode`, `setTerrainRenderMode`, choisi
+    par `main.ts` d'après `?terrain=`) : `faceted-plus` (défaut),
+    `faceted` et `faceted-plus-shadow` = `render/terrainStylized.ts`
+    (`buildStylizedTerrain`, réglages centralisés dans
+    `TERRAIN_STYLE_PARAMS`) ; `grid` (témoin) = le code case par case
+    ci-dessus. Bande irrégulière (« lèvre », exportée par case pour les
+    transitions : `TerrainLips`) vers le vide sur chaque arête
+    libre (sommets de bord décalés une fois, partagés ; débord réduit dans
+    un vide d'une case de large), falaise facettée jusqu'à
+    −`CELL_THICKNESS`, falaises intérieures subdivisées. `faceted-plus` :
+    jupe des ruptures intérieures d'au moins un niveau (arête horizontale
+    des deux côtés ; sommets décalés vers la case basse seulement si les 4
+    cases sont plates et ne prennent que deux hauteurs), pied enfoncé de
+    2 cm dans le sol bas ; flanc de rampe inchangé. `faceted-plus-shadow` :
+    `castShadow` sur les meshes du terrain. Hash déterministe, aucun T de
+    jonction sur les arêtes de la grille, mêmes matériaux et mêmes surfaces
+    que `grid`. Rien d'autre ne
+    lit ce mode : le pointage (`intersectTerrain`), la pose et les hauteurs
+    d'objets restent sur `TerrainHeightField`.
+  - Transitions (`render/surfaceBlend.ts`, `setSurfaceBlendMode`,
+    `?surfaceBlend=`) : `appendSurfaceBlend` ajoute, après le dessus (tout
+    mode de terrain), un mesh par surface qui déborde : sous-grille 6 × 6
+    des cases voisines d'une surface prioritaire (`BLEND_PRIORITY`), alignée
+    sur leur diagonale (sol exact), alpha par sommet (distance aux cases
+    prioritaires, arrondi des coins rentrants, bruit déterministe ; coupé
+    par `alphaTest`), texture et ombrage de la surface, décalage de
+    profondeur croissant avec la priorité. Réglages centralisés
+    (`SURFACE_BLEND_PARAMS`). Les lèvres facettées d'une case (bord de
+    carte, trou, jupe) sont subdivisées de même, leur alpha étant celui du
+    point ramené sur le bord de la case. Débord seulement à travers un
+    raccord continu, jamais hors du dessus dessiné. `irregular` (défaut) ;
+    `hard` (témoin) : rien.
   - Surface active (`render/terrainSurface.ts`) : le champ de hauteur de la
     carte affichée (brouillon de l'éditeur, sinon `currentMap`), fixé par
     `syncActiveTerrain` (`main.ts`) à chaque image et à chaque changement

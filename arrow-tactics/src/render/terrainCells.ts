@@ -4,6 +4,8 @@ import type { GroundTextureId } from '../config/groundSurfaces';
 import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, EDGE_CORNERS, FLAT_TERRAIN, TERRAIN_ELEVATION_STEP, OPPOSITE_SLOPE_DIRECTION, SLOPE_DIRECTIONS, SLOPE_DIRECTION_VECTORS, type TerrainHeightField } from '../config/terrainElevation';
 import { GROUND_SURFACES, groundFlankSurface, groundSurfaceAt, type GroundSurfaceId } from './groundSurfaces';
+import { appendSurfaceBlend } from './surfaceBlend';
+import { buildStylizedTerrain } from './terrainStylized';
 
 /**
  * Rendu des cellules de terrain RÉELLEMENT présentes (2026-08-16, chantier
@@ -51,40 +53,139 @@ export const CELL_THICKNESS = 0.45;
 
 /** Eclaircissement du dessus par niveau de relief, pour lire les plateaux
  *  vus de dessus meme quand leurs falaises sont cachees. */
-const RELIEF_TINT_PER_LEVEL = 0.15;
+export const RELIEF_TINT_PER_LEVEL = 0.15;
 
 /** Assombrissement d'une pente (normale inclinee d'un niveau par case) : la
  *  lumiere reelle marque deja son orientation, ce leger voile la distingue
  *  d'un plat meme face au soleil. Proportionnel a l'inclinaison reelle. */
-const SLOPE_SHADE = 0.18;
+export const SLOPE_SHADE = 0.18;
 /** Composante verticale de la normale d'une pente cardinale (un niveau par
  *  case : pente 1/2). */
-const SLOPE_NORMAL_Y = 1 / Math.hypot(1, TERRAIN_ELEVATION_STEP / TILE);
+export const SLOPE_NORMAL_Y = 1 / Math.hypot(1, TERRAIN_ELEVATION_STEP / TILE);
 
 /** Assombrissement au pied d'un flanc (haut du flanc : 1) : ombre de contact
  *  qui ancre la falaise dans le sol. */
-const FLANK_FOOT_SHADE = 0.65;
+export const FLANK_FOOT_SHADE = 0.65;
 
 export interface TerrainCellsView {
   group: THREE.Group;
 }
 
-interface LayerBuffers {
+/** Rendu du terrain (`?terrain=`) : `faceted-plus` (defaut, direction
+ *  retenue le 2026-10-29) = render/terrainStylized.ts, bords et trous
+ *  facettes plus jupe des ruptures interieures. Temoins de comparaison :
+ *  `grid` = le rendu ci-dessous (case par case, inchange), `faceted` (sans
+ *  jupe) et `faceted-plus-shadow` (meme geometrie, terrain qui projette ses
+ *  ombres, experimental). Purement visuel : meme MapDef, memes cases, meme
+ *  surface logique (heightAt) pour le jeu, le pointage et la pose ; seul le
+ *  mesh affiche change. Jamais enregistre dans une carte. */
+export type TerrainRenderMode = 'grid' | 'faceted' | 'faceted-plus' | 'faceted-plus-shadow';
+export const TERRAIN_RENDER_MODES: readonly TerrainRenderMode[] = ['grid', 'faceted', 'faceted-plus', 'faceted-plus-shadow'];
+let terrainRenderMode: TerrainRenderMode = 'faceted-plus';
+
+/** Mode applique aux plateaux construits ensuite (main.ts : `?terrain=`). */
+export function setTerrainRenderMode(mode: TerrainRenderMode): void {
+  terrainRenderMode = mode;
+}
+
+export interface LayerBuffers {
   positions: number[];
   normals: number[];
   uvs: number[];
   colors: number[];
 }
 
-const newBuffers = (): LayerBuffers => ({ positions: [], normals: [], uvs: [], colors: [] });
+export const newBuffers = (): LayerBuffers => ({ positions: [], normals: [], uvs: [], colors: [] });
+
+/** Materiaux du sol par cle (dessus d'une surface, flancs, transition),
+ *  partages par tous les morceaux d'un meme plateau (render/terrainChunks.ts) :
+ *  leur nombre ne depend pas du decoupage. Les textures, elles, sont
+ *  partagees par tout le jeu (render/textures.ts) et jamais liberees ici. */
+export class TerrainMaterials {
+  private readonly cache = new Map<string, THREE.Material>();
+
+  get<T extends THREE.Material>(key: string, make: () => T): T {
+    let material = this.cache.get(key) as T | undefined;
+    if (!material) {
+      material = make();
+      material.name = key;
+      this.cache.set(key, material);
+    }
+    return material;
+  }
+
+  dispose(): void {
+    for (const material of this.cache.values()) material.dispose();
+    this.cache.clear();
+  }
+}
+
+/** Materiau d'une surface (dessus ou flancs) : texture multipliee par la
+ *  couleur de sommet (ombrage du relief). */
+export function groundMaterial(materials: TerrainMaterials, key: string, id: GroundSurfaceId): THREE.MeshLambertMaterial {
+  return materials.get(key, () => {
+    const def = GROUND_SURFACES[id];
+    const material = new THREE.MeshLambertMaterial({ map: def.texture(), vertexColors: true });
+    material.color.setRGB(def.color[0], def.color[1], def.color[2], THREE.LinearSRGBColorSpace);
+    return material;
+  });
+}
+
+/** La carte ENTIERE vue par la construction d'un morceau du sol : un
+ *  morceau ne dessine que ses cases mais lit leurs voisines (flancs,
+ *  bords facettes, transitions). Meme carte, memes sommets, quel que soit
+ *  le decoupage. */
+export interface TerrainContext {
+  readonly field: TerrainHeightField;
+  has(x: number, z: number): boolean;
+  /** Surface visuelle du dessus d'une case existante (peinte, sinon palette). */
+  surfaceAt(x: number, z: number): GroundSurfaceId | undefined;
+  readonly materials: TerrainMaterials;
+}
+
+/** `painted` est lu a chaque appel de surfaceAt (jamais copie) : une carte
+ *  repeinte en place se lit sans reconstruire le contexte. */
+export function terrainContext(cells: readonly TerrainCellDef[], field: TerrainHeightField, painted: ReadonlyMap<string, GroundTextureId>, materials = new TerrainMaterials()): TerrainContext {
+  const byKey = new Map(cells.map((c) => [cellKey(c.x, c.z), c]));
+  return {
+    field,
+    materials,
+    has: (x, z) => byKey.has(cellKey(x, z)),
+    surfaceAt: (x, z) => {
+      const key = cellKey(x, z);
+      const cell = byKey.get(key);
+      return cell && groundSurfaceAt(cell.terrain, x, z, painted.get(key));
+    },
+  };
+}
 
 /** `painted` : surface peinte du dessus par case (cle cellKey, voir
  *  config/groundSurfaces.ts buildSurfaceIndex) ; une case absente garde la
- *  surface de la palette. */
+ *  surface de la palette. Plateau entier en un seul morceau (jeu) ; l'editeur
+ *  decoupe (render/terrainChunks.ts). */
 export function buildTerrainCellsView(cells: TerrainCellDef[], field: TerrainHeightField = FLAT_TERRAIN, painted: ReadonlyMap<string, GroundTextureId> = new Map()): TerrainCellsView {
+  return { group: buildTerrainChunk(cells, terrainContext(cells, field, painted)) };
+}
+
+/** Sol des cases `cells` (toutes, ou celles d'un morceau), dans le mode de
+ *  rendu courant, transitions entre surfaces comprises. */
+export function buildTerrainChunk(cells: readonly TerrainCellDef[], ctx: TerrainContext): THREE.Group {
+  if (terrainRenderMode === 'grid') {
+    const group = buildGridTerrain(cells, ctx);
+    appendSurfaceBlend(group, cells, ctx);
+    return group;
+  }
+  const { group, lips } = buildStylizedTerrain(cells, ctx, terrainRenderMode === 'faceted' ? 'faceted' : 'faceted-plus', terrainRenderMode === 'faceted-plus-shadow');
+  // Transitions entre surfaces (`?surfaceBlend=`, render/surfaceBlend.ts) : rien en `hard`.
+  appendSurfaceBlend(group, cells, ctx, lips);
+  return group;
+}
+
+/** Rendu `grid` (temoin) : voir le commentaire du module. */
+function buildGridTerrain(cells: readonly TerrainCellDef[], ctx: TerrainContext): THREE.Group {
   const group = new THREE.Group();
-  const present = new Set(cells.map((c) => cellKey(c.x, c.z)));
-  const hasCell = (x: number, z: number) => present.has(cellKey(x, z));
+  const { field } = ctx;
+  const hasCell = ctx.has;
 
   const tops = new Map<GroundSurfaceId, LayerBuffers>();
   const flanks = newBuffers();
@@ -127,7 +228,7 @@ export function buildTerrainCellsView(cells: TerrainCellDef[], field: TerrainHei
     const z1 = cell.z + TILE;
     // Dessus : les deux triangles de la case (cellTriangles, meme diagonale
     // que la hauteur gameplay heightAt), plats, en pente ou en pente de coin.
-    const surface = groundSurfaceAt(cell.terrain, cell.x, cell.z, painted.get(cellKey(cell.x, cell.z)));
+    const surface = ctx.surfaceAt(cell.x, cell.z)!;
     let top = tops.get(surface);
     if (!top) tops.set(surface, (top = newBuffers()));
     const tiles = GROUND_SURFACES[surface].tiles;
@@ -176,22 +277,13 @@ export function buildTerrainCellsView(cells: TerrainCellDef[], field: TerrainHei
   // dernier.
   for (const id of Object.keys(GROUND_SURFACES) as GroundSurfaceId[]) {
     const top = tops.get(id);
-    if (!top) continue;
-    const def = GROUND_SURFACES[id];
-    const material = new THREE.MeshLambertMaterial({ map: def.texture(), vertexColors: true });
-    material.color.setRGB(def.color[0], def.color[1], def.color[2], THREE.LinearSRGBColorSpace);
-    group.add(layerMesh(top, material));
+    if (top) group.add(layerMesh(top, groundMaterial(ctx.materials, `top:${id}`, id)));
   }
-  if (flanks.positions.length > 0) {
-    const def = GROUND_SURFACES[flankSurface];
-    const material = new THREE.MeshLambertMaterial({ map: def.texture(), vertexColors: true });
-    material.color.setRGB(def.color[0], def.color[1], def.color[2], THREE.LinearSRGBColorSpace);
-    group.add(layerMesh(flanks, material));
-  }
-  return { group };
+  if (flanks.positions.length > 0) group.add(layerMesh(flanks, groundMaterial(ctx.materials, 'flank', flankSurface)));
+  return group;
 }
 
-function layerMesh(buffers: LayerBuffers, material: THREE.Material): THREE.Mesh {
+export function layerMesh(buffers: LayerBuffers, material: THREE.Material): THREE.Mesh {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(buffers.positions, 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(buffers.normals, 3));

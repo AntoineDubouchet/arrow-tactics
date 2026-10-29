@@ -110,7 +110,9 @@ import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
 import { buildObstacleMesh, obstaclePlacementOffset, placeObstacleMesh } from './render/obstacleFactory';
 import { GROUND_PALETTES, setGroundPalette } from './render/groundSurfaces';
-import { buildCellGridLines, buildTerrainCellsView } from './render/terrainCells';
+import { buildCellGridLines, setTerrainRenderMode, TERRAIN_RENDER_MODES } from './render/terrainCells';
+import { ChunkedTerrainView } from './render/terrainChunks';
+import { setSurfaceBlendMode, SURFACE_BLEND_MODES } from './render/surfaceBlend';
 import { activeTerrain, intersectSculptSurface, intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
 import { reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, type ReliefBrushSize, type ReliefDelta, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
 import { UnitMovePreview, type UnitMovePreviewItem } from './render/unitMovePreview';
@@ -319,6 +321,19 @@ renderer.setTargetConstraint((x, z) => {
 const groundParam = new URLSearchParams(location.search).get('sol');
 const groundPalette = GROUND_PALETTES.find((p) => p === groundParam);
 if (groundPalette) setGroundPalette(groundPalette);
+// Rendu du terrain : `faceted-plus` par defaut (render/terrainStylized.ts) ;
+// temoins de comparaison `?terrain=grid` (case par case), `faceted` et
+// `faceted-plus-shadow` (ombres du terrain, experimental).
+// Purement visuel, jamais enregistre dans une carte.
+const terrainParam = new URLSearchParams(location.search).get('terrain');
+const terrainMode = TERRAIN_RENDER_MODES.find((m) => m === terrainParam);
+if (terrainMode) setTerrainRenderMode(terrainMode);
+// Transitions entre surfaces du dessus : `irregular` par defaut
+// (render/surfaceBlend.ts) ; temoin `?surfaceBlend=hard` (frontiere case par
+// case). Purement visuel.
+const blendParam = new URLSearchParams(location.search).get('surfaceBlend');
+const blendMode = SURFACE_BLEND_MODES.find((m) => m === blendParam);
+if (blendMode) setSurfaceBlendMode(blendMode);
 
 // Chargement asynchrone : les rochers/arbres viennent de vrais modeles .glb
 // (voir render/assetLibrary.ts), pas de geometrie generee — le reste de
@@ -2527,7 +2542,7 @@ function rebuildEditorBoard(): void {
   // sont liberes. Les textures du sol sont partagees (render/textures.ts) et
   // les zones utilisent des ressources partagees : jamais liberees ici.
   for (const child of editorBoardGroup.children) {
-    if (child === editorZonesGroup) continue;
+    if (child === editorZonesGroup || child === editorTerrainView?.group) continue;
     child.traverse((object) => {
       const mesh = object as THREE.Mesh;
       if (!mesh.geometry) return;
@@ -2542,8 +2557,12 @@ function rebuildEditorBoard(): void {
   // Supprimer case — jamais un simple rectangle width x height.
   const cells = editorState.cells;
   const field = editorState.heightField();
-  editorTerrainGroup = buildTerrainCellsView(cells, field, editorState.surfaceIndex).group;
-  editorBoardGroup.add(editorTerrainGroup);
+  // Sol en morceaux (render/terrainChunks.ts) : un coup de pinceau Surface
+  // ne reconstruira que les morceaux touches.
+  editorTerrainView?.dispose();
+  editorTerrainView = new ChunkedTerrainView();
+  editorTerrainView.rebuild(cells, field, editorState.surfaceIndex);
+  editorBoardGroup.add(editorTerrainView.group);
   editorBoardGroup.add(buildCellGridLines(cells, COLORS.gridLine, field));
   editorZonesGroup = null;
   refreshEditorZones();
@@ -2554,23 +2573,16 @@ function rebuildEditorBoard(): void {
 
 /** Zones de l'editeur actuellement affichees (enfant de editorBoardGroup). */
 let editorZonesGroup: THREE.Group | null = null;
-/** Sol de l'editeur actuellement affiche (enfant de editorBoardGroup). */
-let editorTerrainGroup: THREE.Group | null = null;
+/** Sol de l'editeur actuellement affiche (son groupe est enfant de editorBoardGroup). */
+let editorTerrainView: ChunkedTerrainView | null = null;
 
-/** Remplace seulement le sol de l'editeur (dessus et flancs) — apres un coup
- *  de pinceau Surface, purement visuel : ni grille, ni zones, ni objets, ni
- *  relief, ni rien de la simulation ne sont recalcules. */
+/** Met a jour seulement le sol de l'editeur — apres un coup de pinceau
+ *  Surface (ou son annulation), purement visuel : seuls les morceaux du sol
+ *  autour des cases repeintes sont reconstruits ; ni grille, ni zones, ni
+ *  objets, ni relief, ni rien de la simulation ne sont recalcules. */
 function refreshEditorTerrainSurfaces(): void {
-  if (!editorState || !editorTerrainGroup) return;
-  editorBoardGroup.remove(editorTerrainGroup);
-  editorTerrainGroup.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    if (!mesh.geometry) return;
-    mesh.geometry.dispose();
-    (mesh.material as THREE.Material).dispose();
-  });
-  editorTerrainGroup = buildTerrainCellsView(editorState.cells, editorState.heightField(), editorState.surfaceIndex).group;
-  editorBoardGroup.add(editorTerrainGroup);
+  if (!editorState || !editorTerrainView) return;
+  editorTerrainView.updateSurfaces(editorState.surfaceIndex);
   scheduleEditorMapStatus();
 }
 
