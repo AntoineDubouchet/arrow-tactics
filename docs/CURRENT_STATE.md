@@ -943,7 +943,8 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
 `sim/pathfinding.ts`, `render/terrainCells.ts`, `render/terrainSurface.ts`.
 
 - Une carte peut définir une altitude par case (`elevationCells`) : niveaux
-  0, 1 et 2, un niveau valant une demi-case de hauteur. Une case est plate
+  0, 1, 2 et 3, un niveau valant une demi-case de hauteur (niveau 3 :
+  y = 1,5). Une case est plate
   ou en **pente** (d'un niveau au suivant, dans une direction). Aucune carte
   livrée n'en a : l'arène du Mode survie est entièrement plate ; le relief
   ne se voit qu'avec une carte de l'éditeur (« Tester le scénario »).
@@ -962,8 +963,8 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   pentes perpendiculaires au coin d'un plateau (aucune falaise, aucun saut),
   praticable dans tous les sens, y compris pour monter directement par le
   coin. **Coin intérieur** (un seul coin bas) : au creux d'un plateau en L.
-  Produites par les pinceaux Surélever / Abaisser (contour automatique) ou
-  posées à la main (ajustements Coin extérieur et Coin intérieur).
+  Produites par les pinceaux Surélever / Abaisser (contour automatique),
+  jamais posées à la main.
 - **Pente** : quatre orientations (montée vers le nord, l'est, le sud ou
   l'ouest), praticable dans les deux sens ; l'unité s'élève progressivement.
   Des pentes parallèles côte à côte forment une rampe large (2, 3 cases…) :
@@ -994,12 +995,25 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
 - **Surfaces visuelles du sol** (`render/groundSurfaces.ts`) : apparence du
   dessus des cases, indépendante du relief et sans effet de jeu (passage,
   trajets, hauteur, territoire). Par défaut, palette **classique** : l'herbe
-  `ground_grass.png` partout, comme avant. Pour comparaison, `?sol=variee`
-  (plaques claires et denses de la même herbe) et `?sol=pixel` (herbes
-  pixelisées A et B, textures 32 × 32 générées, 16 texels par case, pixels
-  nets) dans l'URL. Choix automatique et déterministe par case (bruit sur
-  x, z, plaques de 4 cases) : même sol à chaque chargement, rien
-  d'enregistré dans la carte. Aucune sélection dans l'éditeur.
+  `ground_grass.png` partout, comme avant. Lot exploratoire de 10
+  textures (6 herbes dont 2 pixelisées, 2 terres, 2 mixtes ;
+  `public/textures/ground/variants/`, générées par
+  `tools/ground-textures/generate.mjs`), comparables dans l'URL :
+  `?sol=variee` (herbes classique, prairie et dense en plaques, taches de
+  terre), `?sol=stylisee`, `?sol=pixel`, `?sol=catalogue` (les 10 en
+  bandes de 2 cases) ou une texture seule (`?sol=herbe-dense`…) ; flancs
+  en `terre-strates` hors défaut. Choix automatique et déterministe par
+  case (bruit sur x, z, plaques de 4 cases) : même sol à chaque chargement.
+- **Peinture des surfaces** (outil Surface de l'éditeur, `EDITOR.md` §3) :
+  le designer peint le **dessus** des cases avec l'une des 10 textures
+  (pinceau 1×1 ou 4×4, « Par défaut » pour effacer). La carte enregistre
+  seulement les cases peintes (`MapDef.surfaceCells`, `{ x, z, surface }`,
+  identifiants de `config/groundSurfaces.ts`). Une surface peinte l'emporte
+  toujours ; `?sol=` ne décide que des cases non peintes. Les flancs gardent
+  la surface de flanc de la palette. Purement visuel : ni hauteur, ni
+  trajets, ni territoire, ni règles de pose, et la simulation ne la lit
+  pas. L'arène du Mode survie n'a pas de `surfaceCells` : son sol est
+  inchangé.
 
 ## 12. Talents
 
@@ -1144,10 +1158,11 @@ Accessible depuis le menu principal ; le détail d'usage est dans
 ces cartes servent à « Tester le scénario ». L'arène du Mode survie est une
 carte exportée de l'éditeur puis intégrée au code (§11).
 
-- **Relief** : catégorie « Relief » en deux parties. **Sculpture** :
-  pinceaux continus **+1 Surélever** et **−1 Abaisser**, taille **1×1**
-  (une case) ou **4×4** (cœur 2 × 2) ; une couche par trait, niveaux 0 à
-  2, réversibles (−1 sur un +1 redonne le terrain exact) ; plateaux,
+- **Relief** : catégorie « Relief » réduite à deux pinceaux continus,
+  **+1 Surélever** et **−1 Abaisser**, taille **1×1** (une case) ou **4×4**
+  (cœur 2 × 2) ; une couche par trait, niveaux 0 à 3, réversibles (−1 sur
+  un +1 redonne le terrain exact, +1 ×3 puis −1 ×3 aussi) ; un sommet 3
+  sur du 0 reçoit trois anneaux de pentes (2 → 3, 1 → 2, 0 → 1) ; plateaux,
   pentes, coins extérieurs et intérieurs automatiques, butte comme creux ;
   liaisons diagonales comblées et signalées en orange ; le pinceau peut
   dépasser de la carte ou chevaucher un trou (seules les cases de terrain
@@ -1156,9 +1171,11 @@ carte exportée de l'éditeur puis intégrée au code (§11).
   la hauteur des cases voisines) : un trait peut commencer
   hors carte, contourner un coin ou traverser un trou ; un trait resté dans
   le vide ne fait rien (aucune entrée d'historique) ; tampon refusé
-  seulement si une case à changer est occupée. **Ajustements** : Pente
-  (R : tourner), Coin extérieur et Coin intérieur (R : NE → SE → SW → NW).
-  Monter / Descendre n'existent plus. Une case portant un bâtiment, la
+  seulement si une case à changer est occupée. Les outils manuels Pente,
+  Coin extérieur et Coin intérieur ont été retirés (2026-10-29) : pentes et
+  coins viennent uniquement de la sculpture ; les formes restent dans le
+  moteur et les anciennes cartes qui en contiennent se chargent à
+  l'identique. Une case portant un bâtiment, la
   Baliste, un obstacle / structure ou une unité ne change pas d'altitude ; un décor ne
   verrouille rien et suit la nouvelle surface ; enregistré dans la carte
   (`elevationCells`), annulable, testé par « Tester le scénario ». Détail :

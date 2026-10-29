@@ -1,4 +1,5 @@
 import { isBlockingMapObstacle, obstacleBounds, obstacleCenter, PLACEMENT_ROWS, type ObstacleBounds, type ObstacleDef } from '../config/constants';
+import { surfaceBrushOrigin, type GroundTextureId, type SurfaceBrushSize, type SurfaceCellDef } from '../config/groundSurfaces';
 import {
   BALLISTA_PLACEMENT_TILES,
   buildCellIndex,
@@ -15,26 +16,18 @@ import {
   type TerrainType,
 } from '../config/mapDef';
 import {
-  CONCAVE_CORNER_SLOPE_DIRECTIONS,
-  CORNER_SLOPE_DIRECTIONS,
-  evaluateCornerSlope,
-  evaluateSlope,
-  isConcaveCornerSlope,
   deriveReliefLogic,
   reliefBrushCore,
   reliefBrushOrigin,
   renderReliefLogic,
   sculptRelief,
-  SLOPE_DIRECTIONS,
   TerrainHeightField,
   TERRAIN_LEVEL_MAX,
   TERRAIN_LEVEL_MIN,
-  type CornerShape,
   type ReliefBrushSize,
   type ReliefDelta,
   type ReliefSculptContext,
   type RenderedRelief,
-  type SlopeDirection,
   type SlopeShape,
   type TerrainElevationCellDef,
 } from '../config/terrainElevation';
@@ -122,14 +115,6 @@ export type EditorSelection =
   | { kind: 'ballista' }
   | null;
 
-/** Pente resolue sur une case (voir EditorState.resolveSlope). */
-export interface SlopeResolution<D extends SlopeShape = SlopeDirection> {
-  dir: D;
-  /** Orientation imposee par les voisins (differente de celle de R). */
-  deduced: boolean;
-  status: { ok: true; level: number } | { ok: false; reason: string };
-}
-
 /** Etat du relief au DEBUT d'un trait de sculpture (EditorState.reliefStrokeStart) :
  *  tout le trait se mesure sur lui (une case logique ne change qu'une fois). */
 export interface ReliefStrokeStart {
@@ -178,16 +163,13 @@ export type EditorTool =
    *  pinceau continu Surelever (+1) / Abaisser (-1), une couche par trait,
    *  taille 1×1 ou 4×4. */
   | { type: 'relief-brush'; delta: ReliefDelta; size: ReliefBrushSize }
-  /** Ajustement : pente montant vers `dir` sur la case survolee (R :
-   *  tourner). Pinceau repetable, comme les outils de case. */
-  | { type: 'slope-cell'; dir: SlopeDirection }
-  /** Pente de coin manuelle : exterieure (`dir` NE… = coin haut) ou
-   *  interieure (`dir` NEi… = coin bas) ; R tourne dans la meme famille
-   *  (NE → SE → SW → NW). Pinceau repetable, comme Pente. */
-  | { type: 'corner-slope-cell'; dir: CornerShape }
   /** Pinceau de territoire : `team` peint la case pour ce camp, `null`
    *  l'efface (case neutre). */
-  | { type: 'paint-territory'; team: TerritoryTeam | null };
+  | { type: 'paint-territory'; team: TerritoryTeam | null }
+  /** Pinceau Surface (purement visuel, config/groundSurfaces.ts) : peint le
+   *  dessus des cases du carre `size × size` avec `surface` ; `null` (Par
+   *  defaut) efface la peinture. */
+  | { type: 'paint-surface'; surface: GroundTextureId | null; size: SurfaceBrushSize };
 
 /** Proprietaire de la Baliste de la carte : toujours le joueur (meme camp
  *  que spawnBallistaBuilding en jeu) ; son placement interactif exige une
@@ -244,6 +226,9 @@ export interface EditorMapShapeSnapshot {
   elevation: TerrainElevationCellDef[];
   /** Champ logique de la sculpture (entrees [cle de sommet, niveau]). */
   reliefLogic: [string, number][];
+  /** Surfaces peintes : une case supprimee perd la sienne, que l'annulation
+   *  restaure avec la case. */
+  surfaces: SurfaceCellDef[];
   ballista: { x: number; z: number };
   ballistaExplicit: boolean;
 }
@@ -285,6 +270,9 @@ export class EditorState {
   private reliefLogicMap: Map<string, number>;
   /** Surface canonique du champ logique (renderReliefLogic), a la demande. */
   private renderedReliefCache: RenderedRelief | null = null;
+  /** Surfaces peintes du brouillon (voir MapDef.surfaceCells), clees par
+   *  cellKey : seulement des cases existantes, jamais la surface par defaut. */
+  private surfaceMap: Map<string, GroundTextureId>;
 
   private nextId = 1;
 
@@ -334,6 +322,9 @@ export class EditorState {
       else this.reliefLogicMap.set(cellKey(v.x, v.z), v.level);
     }
     this.territory = source.territory?.map((c) => ({ x: c.x, z: c.z, team: c.team }));
+    // Entree sur une case absente (trou, fichier modifie a la main) : ecartee.
+    this.surfaceMap = new Map();
+    for (const c of source.surfaceCells ?? []) if (this.cellMap.has(cellKey(c.x, c.z))) this.surfaceMap.set(cellKey(c.x, c.z), c.surface);
 
     this.ballistaExplicit = source.ballista !== undefined;
     this.ballista = source.ballista ? { x: source.ballista.x, z: source.ballista.z } : computePlayerArrowOrigin(source);
@@ -505,40 +496,6 @@ export class EditorState {
     this.invalidateHeightField();
   }
 
-  /** Validite d'une pente montant vers `dir` sur la case : case libre (voir
-   *  isCellOccupied), pas deja cette meme pente, et voisins bas/haut
-   *  exactement a un niveau d'ecart (evaluateSlope). Le niveau de la pente
-   *  vient de ses voisins, jamais de la case elle-meme. */
-  slopeStatus(x: number, z: number, dir: SlopeDirection): { ok: true; level: number } | { ok: false; reason: string } {
-    if (!this.hasCellAt(x, z)) return { ok: false, reason: 'aucune case' };
-    if (this.isCellOccupied(x, z)) return { ok: false, reason: 'case occupée' };
-    const result = evaluateSlope(this.heightField(), (cx, cz) => this.hasCellAt(cx, cz), x, z, dir);
-    if (!result.ok) return result;
-    const current = this.elevationAt(x, z);
-    if (current.slope === dir && current.level === result.level) return { ok: false, reason: 'pente déjà posée' };
-    return result;
-  }
-
-  /** Pente qui serait REELLEMENT posee sur la case : orientation `preferred`
-   *  (outil, R) si elle est valide ; sinon la SEULE orientation valide
-   *  d'apres les voisins, quand il n'y en a qu'une (le cote bas et le cote
-   *  haut se deduisent du terrain, sans convention cachee) ; sinon
-   *  `preferred`, refusee. SOURCE UNIQUE de l'apercu, de la pose et du texte
-   *  de l'interface (main.ts) : `status` est la validation de `dir`. */
-  resolveSlope(x: number, z: number, preferred: SlopeDirection): SlopeResolution {
-    const status = this.slopeStatus(x, z, preferred);
-    if (status.ok) return { dir: preferred, deduced: false, status };
-    let only: SlopeResolution | null = null;
-    for (const dir of SLOPE_DIRECTIONS) {
-      if (dir === preferred) continue;
-      const s = this.slopeStatus(x, z, dir);
-      if (!s.ok) continue;
-      if (only) return { dir: preferred, deduced: false, status };
-      only = { dir, deduced: true, status: s };
-    }
-    return only ?? { dir: preferred, deduced: false, status };
-  }
-
   /** Surface canonique du champ logique courant (voir renderReliefLogic). */
   renderedRelief(): RenderedRelief {
     this.renderedReliefCache ??= renderReliefLogic(this.reliefLogicMap, this.cells);
@@ -654,53 +611,6 @@ export class EditorState {
     return changed;
   }
 
-  /** Validite d'une pente de coin manuelle (exterieure ou interieure) :
-   *  case libre, aretes raccordees a toutes les voisines
-   *  (evaluateCornerSlope), pas deja cette meme pente. Remplace une case
-   *  plate, une pente ou une autre pente de coin. */
-  cornerSlopeStatus(x: number, z: number, dir: CornerShape): { ok: true; level: number } | { ok: false; reason: string } {
-    if (!this.hasCellAt(x, z)) return { ok: false, reason: 'aucune case' };
-    if (this.isCellOccupied(x, z)) return { ok: false, reason: 'case occupée' };
-    const result = evaluateCornerSlope(this.heightField(), (cx, cz) => this.hasCellAt(cx, cz), x, z, dir);
-    if (!result.ok) return result;
-    const current = this.elevationAt(x, z);
-    if (current.slope === dir && current.level === result.level) return { ok: false, reason: 'pente de coin déjà posée' };
-    return result;
-  }
-
-  /** Pente de coin qui serait REELLEMENT posee : `preferred` (R) si elle est
-   *  valide, sinon la seule orientation valide d'apres les voisins DANS LA
-   *  MEME FAMILLE (exterieure ou interieure, celle de l'outil), sinon
-   *  `preferred` refusee. Source unique de l'apercu, de la pose et du texte. */
-  resolveCornerSlope(x: number, z: number, preferred: CornerShape): SlopeResolution<CornerShape> {
-    const status = this.cornerSlopeStatus(x, z, preferred);
-    if (status.ok) return { dir: preferred, deduced: false, status };
-    let only: SlopeResolution<CornerShape> | null = null;
-    const family: readonly CornerShape[] = isConcaveCornerSlope(preferred) ? CONCAVE_CORNER_SLOPE_DIRECTIONS : CORNER_SLOPE_DIRECTIONS;
-    for (const dir of family) {
-      if (dir === preferred) continue;
-      const s = this.cornerSlopeStatus(x, z, dir);
-      if (!s.ok) continue;
-      if (only) return { dir: preferred, deduced: false, status };
-      only = { dir, deduced: true, status: s };
-    }
-    return only ?? { dir: preferred, deduced: false, status };
-  }
-
-  setCornerSlope(x: number, z: number, dir: CornerShape): boolean {
-    const status = this.cornerSlopeStatus(x, z, dir);
-    if (!status.ok) return false;
-    this.setElevation(x, z, status.level, dir);
-    return true;
-  }
-
-  setSlope(x: number, z: number, dir: SlopeDirection): boolean {
-    const status = this.slopeStatus(x, z, dir);
-    if (!status.ok) return false;
-    this.setElevation(x, z, status.level, dir);
-    return true;
-  }
-
   hasCellAt(x: number, z: number): boolean {
     return this.cellMap.has(cellKey(x, z));
   }
@@ -778,6 +688,8 @@ export class EditorState {
     if (this.elevationMap.delete(cellKey(x, z))) this.invalidateHeightField();
     this.reliefLogicMap.delete(cellKey(x, z));
     if (this.territory) this.territory = this.territory.filter((c) => c.x !== x || c.z !== z);
+    // Aucune surface peinte sur un trou.
+    this.surfaceMap.delete(cellKey(x, z));
     this.invalidateTerritoryIndex();
     this.invalidateRenderedRelief();
     return true;
@@ -845,6 +757,52 @@ export class EditorState {
   restoreTerritory(snapshot: TerritoryCell[] | undefined): void {
     this.territory = snapshot?.map((c) => ({ x: c.x, z: c.z, team: c.team }));
     this.invalidateTerritoryIndex();
+  }
+
+  /** Surfaces peintes pour l'export (MapDef.surfaceCells), triees par z
+   *  puis x : meme fichier quel que soit l'ordre de la peinture. */
+  get surfaceCells(): SurfaceCellDef[] {
+    return [...this.surfaceMap].map(([key, surface]) => {
+      const [x, z] = key.split(',').map(Number) as [number, number];
+      return { x, z, surface };
+    }).sort((a, b) => a.z - b.z || a.x - b.x);
+  }
+
+  /** Surface peinte par case (cle cellKey), pour le rendu. */
+  get surfaceIndex(): ReadonlyMap<string, GroundTextureId> {
+    return this.surfaceMap;
+  }
+
+  /** Cases existantes du carre `size × size` d'un pinceau Surface pose pres
+   *  de (x, z) — hors carte et trous exclus. */
+  surfaceBrushCells(size: SurfaceBrushSize, x: number, z: number): { x: number; z: number }[] {
+    const origin = surfaceBrushOrigin(size, x, z);
+    return this.surfaceBrushCellsAt(size, origin.x, origin.z);
+  }
+
+  /** Meme chose depuis la case nord-ouest du carre (trait interpole). */
+  surfaceBrushCellsAt(size: SurfaceBrushSize, originX: number, originZ: number): { x: number; z: number }[] {
+    const cells: { x: number; z: number }[] = [];
+    for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) if (this.hasCellAt(originX + i, originZ + j)) cells.push({ x: originX + i, z: originZ + j });
+    return cells;
+  }
+
+  /** Peint le dessus de la case (x, z) avec `surface`, ou efface sa peinture
+   *  (`null`, surface par defaut : aucune entree). Visuel seulement :
+   *  jamais bloque par un objet, une unite ou un batiment. Renvoie false si
+   *  rien ne change (case absente, ou deja dans cet etat). */
+  paintSurfaceCell(x: number, z: number, surface: GroundTextureId | null): boolean {
+    const key = cellKey(x, z);
+    if (!this.cellMap.has(key) || (this.surfaceMap.get(key) ?? null) === surface) return false;
+    if (surface) this.surfaceMap.set(key, surface);
+    else this.surfaceMap.delete(key);
+    return true;
+  }
+
+  /** Remet les surfaces peintes dans un etat capture par surfaceCells
+   *  (annuler / retablir), sans validation. */
+  restoreSurfaces(snapshot: readonly SurfaceCellDef[]): void {
+    this.surfaceMap = new Map(snapshot.map((c) => [cellKey(c.x, c.z), c.surface]));
   }
 
   private toEditorUnit(u: MapUnitPlacement, team: Team): EditorUnit {
@@ -1210,6 +1168,7 @@ export class EditorState {
       cells: this.cells.map((c) => ({ ...c })),
       elevation: this.elevationCells,
       reliefLogic: [...this.reliefLogicMap.entries()],
+      surfaces: this.surfaceCells,
       ballista: { ...this.ballista },
       ballistaExplicit: this.ballistaExplicit,
     };
@@ -1225,6 +1184,7 @@ export class EditorState {
     this.invalidateHeightField();
     this.reliefLogicMap = new Map(snapshot.reliefLogic);
     this.invalidateRenderedRelief();
+    this.restoreSurfaces(snapshot.surfaces);
     this.ballista = { ...snapshot.ballista };
     this.ballistaExplicit = snapshot.ballistaExplicit;
     this.invalidateTerritoryIndex();

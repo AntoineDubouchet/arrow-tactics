@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { COLORS, obstacleCenter, PLACEMENT_ROWS, TILE } from '../config/constants';
 import { cellKey, computeMapCellBounds, resolveMapCells, type MapDef, type TerrainCellDef } from '../config/mapDef';
+import { buildSurfaceIndex } from '../config/groundSurfaces';
 import { FLAT_TERRAIN, resolveMapHeightField, type TerrainHeightField } from '../config/terrainElevation';
 import { resolveMapTerritory, type TerritoryCell, type TerritoryTeam } from '../config/territory';
 import { ensureModels, loadEnvironmentAssets, obstacleModelKeys } from './assetLibrary';
@@ -58,7 +59,8 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   // Relief (config/terrainElevation.ts) : sol, grille, zones, debris et
   // decors suivent la hauteur de chaque case.
   const field = resolveMapHeightField(map);
-  const terrain = buildTerrainCellsView(cells, field);
+  // Surfaces peintes (MapDef.surfaceCells) : purement visuelles.
+  const terrain = buildTerrainCellsView(cells, field, buildSurfaceIndex(map.surfaceCells));
   group.add(terrain.group);
 
   // Zones de camp : le territoire de la map (config/territory.ts,

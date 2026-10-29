@@ -851,7 +851,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Contexte** : préparer une grande carte circulaire avec du relief, sans
   toucher aux vagues, au combat ni à l'équilibrage.
 - **Décision** (cahier des charges d'Antoine) :
-  - une altitude par case (niveaux 0 à 2, un niveau = une demi-case), jamais
+  - une altitude par case (niveaux 0 à 2 au départ, 0 à 3 depuis le
+    2026-10-29 ; un niveau = une demi-case), jamais
     d'empilement ; champ `elevationCells` optionnel et sparse, toute carte
     ancienne reste plate ;
   - falaise infranchissable entre deux niveaux, pente traversable d'un
@@ -879,16 +880,25 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     autotiler unique fondé sur les hauteurs de coins ;
   - **UX de sculpture** (demande d'Antoine) : deux outils principaux,
     **+1 Surélever** / **−1 Abaisser** (une couche par trait, empilables
-    trait après trait, 0 à 2), qui fabriquent eux-mêmes plateaux, pentes et
-    coins ; Pente, Coin extérieur et Coin intérieur deviennent des
-    ajustements secondaires ; Monter / Descendre retirés de l'interface ;
+    trait après trait, 0 à 2 à l'époque), qui fabriquent eux-mêmes
+    plateaux, pentes et coins ; Pente, Coin extérieur et Coin intérieur
+    deviennent des ajustements secondaires (retirés depuis, voir
+    2026-10-29 ci-dessous) ; Monter / Descendre retirés de l'interface ;
     un seul algorithme (`sculptRelief`) pour butte et creux ; une liaison
     diagonale bloquée par une case occupée refuse le tampon (plus de
     falaise silencieuse) ;
   - **coins intérieurs** NEi / NWi / SEi / SWi (un coin bas, validés par
     Antoine) : au creux d'une forme en L, la case de transition a 3 coins
-    hauts, sans forme sans falaise parmi les autres types ; posables aussi à
-    la main (outils Coin extérieur / Coin intérieur, demande d'Antoine).
+    hauts, sans forme sans falaise parmi les autres types ; ~~posables aussi à
+    la main (outils Coin extérieur / Coin intérieur)~~ (outils retirés, voir
+    ci-dessous) ;
+  - **Décidé** par Antoine (2026-10-29) : **quatre niveaux, 0 à 3**
+    (`TERRAIN_LEVEL_MAX` = 3, pas inchangé : niveau 3 à y = 1,5), sans type
+    spécial pour le niveau 3 ; outils manuels **Pente**, **Coin extérieur**
+    et **Coin intérieur** retirés de l'éditeur : l'autotiling de la
+    sculpture est la seule façon de produire pentes et coins. Les formes
+    (pentes cardinales, coins extérieurs et intérieurs) restent dans le
+    moteur, et une ancienne carte qui en contient se charge à l'identique.
 - **Validé provisoirement** : une « selle » (deux zones de plateau qui ne se
   touchent que par un coin) est comblée en plateau plutôt que d'ajouter un
   type ; la case comblée est signalée dans l'aperçu (orange).
@@ -942,7 +952,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - corps à corps = portée d'attaque ≤ `MELEE_CONTACT_RANGE` (1,5 case,
     aucun champ dédié dans `data/units.ts`), via `isMeleeAttack` ; plateau
     sans rampe hors d'atteinte du corps à corps : **validé** par Antoine ;
-  - outil Pente : orientation déduite des voisins quand une seule convient ;
+  - ~~outil Pente : orientation déduite des voisins quand une seule
+    convient~~ (outil retiré le 2026-10-29) ;
   - falaises sans épaisseur (segments) : une pente d'une case laisse passer
     exactement un Fantassin (rayon 0,5) ;
   - les plateaux sont éclaircis de 15 % par niveau pour rester lisibles vus
@@ -952,11 +963,20 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     pleine inclinaison (sinon une pente face au soleil se confond avec un
     plat) ; éclairage de la scène inchangé ;
   - surfaces visuelles du sol séparées du relief (`render/groundSurfaces.ts`),
-    choix automatique déterministe par case, rien d'enregistré ; palette
-    **classique** par défaut ; palettes `variee` et `pixel` seulement pour
-    comparaison (`?sol=`). **Ouvert** : palette à garder, et une éventuelle
-    peinture manuelle des surfaces dans l'éditeur (donnée optionnelle et
-    clairsemée), non commencée.
+    choix automatique déterministe par case ; palette
+    **classique** par défaut ; lot exploratoire de 10 textures générées
+    (`tools/ground-textures/`) et palettes `variee`, `stylisee`, `pixel`,
+    `catalogue` seulement pour comparaison (`?sol=`). **Ouvert** : textures
+    et palette à garder ;
+  - **peinture manuelle des surfaces** dans l'éditeur (2026-10-29, outil
+    Surface) : donnée optionnelle et clairsemée (`MapDef.surfaceCells`,
+    seulement les cases peintes, identifiants stables) ; la surface
+    peinte prime, `?sol=` ne sert plus que de repli de debug sur les cases
+    non peintes ; la peinture n'habille que le **dessus** des cases, les
+    flancs gardent leur logique propre (une falaise ne change pas quand on
+    peint le plateau) ; « Par défaut » = la surface d'origine du jeu, jamais
+    écrite ; `terre-strates` seulement dans la section Expérimental (elle
+    raye un dessus de case). Purement visuel, sans effet de jeu.
 - **Conséquences acceptées** : une falaise n'arrête aucun tir ; un
   plateau sans rampe est hors d'atteinte du corps à corps (seuls les tirs
   l'atteignent).

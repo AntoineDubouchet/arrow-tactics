@@ -77,8 +77,12 @@ départ, ni les bâtiments, ni les vagues d'une run.
   - **Sélection** : outil par défaut, toujours visible en haut de la colonne,
     même quand le reste défile ;
   - **Carte** : Taille (§3) et outils de cases ;
-  - **Territoire** : outil « Peindre le territoire », valeur Joueur / Ennemi
-    / Neutre et légende (§4) ;
+  - **Surface** : outil « Peindre la surface », taille et liste des textures
+    de sol (§3, « Surface ») ; l'explication (visuel uniquement) est dans
+    l'infobulle de l'outil et dans la ligne d'état ;
+  - **Territoire** : outil « Peindre le territoire » et valeur Joueur /
+    Ennemi / Neutre (§4) ; la signification des camps est dans l'infobulle
+    de l'outil ;
   - **Unités** : le bestiaire (§5) ;
   - **Décors** : recherche et catalogue par catégories (§6).
 - **Panneau de droite** (240 px) : **Propriétés** de la sélection (§12).
@@ -139,15 +143,13 @@ départ, ni les bâtiments, ni les vagues d'une run.
 
 **Relief**
 
-La catégorie « Relief » a deux parties :
+La catégorie « Relief » ne contient que deux outils, **+1 Surélever** et
+**−1 Abaisser**, et leur taille. On ne pose jamais une pente ou un coin à la
+main : la sculpture les produit automatiquement.
 
-- **SCULPTURE** (la façon normale de modeler une carte) : **+1 Surélever**,
-  **−1 Abaisser**.
-- **AJUSTEMENTS** (corrections fines, cas spéciaux, inspection ; boutons
-  plus discrets) : **◢ Pente**, **◩ Coin extérieur**, **◪ Coin intérieur**.
-
-- **Niveaux** : 0 (sol), 1 et 2 ; un niveau vaut une demi-case de hauteur.
-  Une pente ne relie jamais que deux niveaux voisins (N ↔ N + 1).
+- **Niveaux** : quatre, 0 (sol), 1, 2 et 3 ; un niveau vaut une demi-case
+  de hauteur (niveau 3 : y = 1,5). Une pente ne relie jamais que deux
+  niveaux voisins (N ↔ N + 1). L'infobulle des deux boutons le rappelle.
 - **+1 Surélever / −1 Abaisser** : pinceaux continus. L'appui commence le
   trait, le glisser l'étend, le relâchement le termine. Le designer modifie
   des **couches** (hauteur logique de chaque case) ; plateaux, pentes
@@ -164,19 +166,21 @@ La catégorie « Relief » a deux parties :
   - **Une couche par trait** : repasser plusieurs fois sur une case pendant
     le même trait ne la monte (ou ne la descend) qu'une fois. Pour la
     couche suivante, relâcher puis repeindre (nouveau trait) : 0 → 1, puis
-    1 → 2 ; 2 → 1, puis 1 → 0.
+    1 → 2, puis 2 → 3 ; 3 → 2, puis 2 → 1, puis 1 → 0.
   - **Réversible** : −1 sur les cases d'un +1 redonne exactement le terrain
     d'avant (niveaux, pentes, coins, liaisons diagonales ; les décors
-    retrouvent leur hauteur) ; +1 +1 −1 −1 aussi. Le terrain ne dépend que
+    retrouvent leur hauteur) ; +1 +1 +1 −1 −1 −1 aussi. Le terrain ne dépend que
     des couches, jamais de l'ordre des traits.
-  - **Limites** : rien au-delà du niveau 2 en montant ; rien sous le
+  - **Limites** : rien au-delà du niveau 3 en montant ; rien sous le
     niveau 0 en descendant (ni niveau négatif, ni trou). Ligne d'état :
     « limite atteinte » ; aucune entrée d'historique.
   - **Où vont les pentes** : une zone entourée garde son plat jusqu'à son
     bord, les pentes vont dans la zone qui l'entoure — une butte a ses
     pentes au pied, un creux sur son pourtour (fond plat). Un sommet de
-    niveau 2 sur du niveau 0 reçoit deux anneaux (pente 1 → 2, puis 0 → 1) ;
-    un creux de deux niveaux aussi, vers l'extérieur.
+    niveau 3 sur du niveau 0 reçoit trois anneaux (pente 2 → 3, puis 1 → 2,
+    puis 0 → 1), sans palier entre eux ; des paliers plats apparaissent si
+    l'on peint des zones de plus en plus petites (une grande à +1, une plus
+    petite à +2…). Un creux de plusieurs niveaux aussi, vers l'extérieur.
   - **Bord de carte et trous** : le pinceau peut **dépasser** de la carte
     ou chevaucher un trou ; seule sa partie sur des cases de terrain est
     appliquée (rien n'est refusé pour cela). Il n'y a pas de terrain
@@ -215,55 +219,18 @@ La catégorie « Relief » a deux parties :
     trou) n'est jamais une contrainte. Un tampon refusé est simplement
     sauté : le reste du trait est conservé.
   - Seules les cases dont la surface change sont recalculées : **sculpter
-    une zone ancienne la normalise** (une falaise de carte ancienne ou
-    d'ajustement y devient définitivement canonique), visible dans
+    une zone ancienne la normalise** (une falaise de carte ancienne y
+    devient définitivement canonique), visible dans
     l'aperçu ; jamais à distance.
   - Reprendre une carte rechargée donne le même résultat qu'une édition
     continue (les couches sont enregistrées, voir `reliefLogic`).
   - Un trait = une seule entrée d'historique (Ctrl+Z / Ctrl+Y), quel que
     soit le nombre de cases, pentes, coins et décors touchés, même le long
     de tout un bord.
-- **Pente** (ajustement) : quatre orientations ; la carte affiche la
-  direction de montée (flèche) et **R** la tourne d'un quart de tour (nord →
-  est → sud → ouest ; nord = haut de l'écran en vue de jeu). Une même pente
-  se monte et se descend. L'aperçu montre la future surface inclinée (verte,
-  rouge si refusée), le **bord bas** (bande bleue), le **bord haut** (bande
-  jaune) et une flèche blanche vers le haut. Le niveau de la pente vient de
-  ses voisines : la case au pied (bande bleue) doit présenter un bord plat
-  au niveau N, celle au sommet (bande jaune) un bord plat au niveau N + 1.
-  Refusée si les deux sont au même niveau, à deux niveaux d'écart, si
-  l'une manque (vide, trou) ou si la même pente est déjà posée.
-- **Rampe large** (Pente) : poser plusieurs pentes de même orientation côte
-  à côte ; leurs côtés communs se raccordent (aucune falaise entre elles).
-- **Orientation déduite** (Pente) : si l'orientation de R est refusée sur la
-  case et qu'**une seule** orientation convient à ses voisines, l'aperçu et
-  la pose la prennent d'office (R n'est pas modifié) ; si plusieurs
-  conviennent, R décide. La ligne d'état et la carte « Pente » affichent
-  toujours la direction qui sera réellement posée sur la case survolée
-  (« imposée par les voisins » quand elle est déduite, et la raison d'un
-  refus) ; hors survol, celle de R.
-- **◩ Coin extérieur** / **◪ Coin intérieur** (ajustements) : pose manuelle
-  d'une pente de coin.
-  - Coin extérieur : un seul coin haut, NE, SE, SW ou NW (point blanc dans
-    l'aperçu) ; angle saillant d'un plateau.
-  - Coin intérieur : un seul coin **bas**, les trois autres hauts (point
-    bleu sur le coin bas) ; creux d'un plateau en L. Ligne d'état : « Coin
-    intérieur — coin bas SW (sud-ouest), les 3 autres coins hauts ».
-  - **R** : NE → SE → SW → NW, dans la famille de l'outil ; chaque outil
-    garde sa dernière orientation.
-  - Valide seulement si les quatre arêtes se raccordent aux voisines (et que
-    les deux voisines qui touchent le coin nommé existent) : poser d'abord
-    les pentes cardinales, puis le coin. Sinon, aperçu rouge et raison
-    (« falaise côté nord », « vide ou trou côté est »…).
-  - Si une seule orientation convient, elle est prise d'office (« imposé par
-    les voisins ») ; sinon R décide.
-  - Remplace une case plate, une pente cardinale ou une autre pente de coin,
-    extérieure ou intérieure. Même donnée que les coins des pinceaux
-    (`slope` NE… / NEi…).
 - **Case occupée** (bâtiment de scénario, muraille ou porte, Baliste,
   obstacle / structure dont le centre est sur la case ou dont l'emprise la
-  chevauche, unité) : son relief ne change jamais (Surélever, Abaisser,
-  Pente et Coin refusés), pour ne jamais laisser un objet flotter ou
+  chevauche, unité) : son relief ne change jamais (Surélever et Abaisser
+  refusés), pour ne jamais laisser un objet flotter ou
   s'enfoncer ; l'objet n'est jamais déplacé verticalement. Retirer l'objet
   d'abord.
 - **Décors** : jamais un refus. Le relief se modifie sous un décor, qui
@@ -284,6 +251,47 @@ La catégorie « Relief » a deux parties :
 - Le pointage vise la surface **visible** : sur un plateau, le curseur
   désigne la case du plateau ; en visant la face d'une falaise, la case du
   haut.
+
+**Surface**
+
+Le groupe « Surface » habille le **dessus** des cases avec une texture de
+sol. C'est **purement visuel** : une surface ne change ni la hauteur, ni la
+pente, ni les coins, ni les collisions, ni les trajets, ni le territoire, ni
+les règles de pose, et la simulation ne la lit jamais.
+
+- **Outil** : « Peindre la surface », puis une vignette :
+  - **Par défaut** : efface la peinture ; la case reprend la surface par
+    défaut du jeu (l'herbe ou la terre d'origine selon son type) ;
+  - **Herbe** : Classique, Prairie, Dense, Stylisée, Pixel touffes, Pixel
+    nette ;
+  - **Terre** : Terre battue ;
+  - **Mixte** : Taches, Usée ;
+  - **Expérimental** : Terre strates, dessinée pour les flancs. Sur le dessus
+    d'une case, elle forme des rayures (infobulle).
+- **Taille** : 1×1 (détails) ou 4×4 (grandes zones), propre à Surface. Le
+  carré 4×4 est centré sur l'intersection de grille la plus proche du
+  curseur.
+- **Geste** : clic ou glisser, comme le pinceau Relief. Un trait n'a jamais
+  de trou, même si la souris va vite. Il peut commencer ou passer hors de la
+  carte et au-dessus d'un trou : ces cases sont ignorées, le trait continue.
+  Une case trou ne reçoit jamais de surface.
+- **Objets** : la peinture passe sous les décors, bâtiments, murailles, la
+  Baliste et les unités, sans être refusée ni rien déplacer. On peut donc
+  peindre une cour en terre sous et autour d'une Caserne.
+- **Aperçu** : un contour clair et un voile très léger sur les cases qui
+  seront peintes, sans masquer la texture actuelle. La texture change dès
+  l'appui.
+- **Dessus seulement** : les flancs (falaises, bord de carte, bord d'un trou)
+  gardent leur propre surface. Peindre de la terre sur un plateau ne change
+  donc pas sa falaise.
+- **Relief indépendant** : une surface est attachée à la case (x, z), pas à
+  sa forme. Elle suit la case si on la sculpte ensuite (plat → pente →
+  plateau), et on peut peindre un relief déjà sculpté. Supprimer une case
+  efface sa surface ; l'annulation la restaure.
+- **Annuler** : un trait complet est **une** entrée d'historique, quelle que
+  soit sa longueur.
+- **Enregistrement** : seules les cases peintes sont écrites
+  (`surfaceCells`, §14), jamais la surface par défaut.
 
 ## 4. Territoire
 
@@ -543,6 +551,7 @@ est ouverte au départ) :
     §16) ;
   - trait d'ajout ou de suppression de cases (cases et territoire) ;
   - trait de peinture du territoire ;
+  - trait de peinture de surface (toutes les cases du trait) ;
   - changement de Taille.
 - **Annuler une pose ou une suppression** restaure aussi la sélection.
 - **Remise à zéro** : l'historique est vidé à l'ouverture de l'éditeur, au
@@ -645,10 +654,17 @@ Différences avec la partie :
     la caméra, et la carte chargée devient la référence « enregistrée » ;
   - la validation est minimale : seule la présence des champs principaux est
     vérifiée ; les entrées de relief invalides (`elevationCells` : niveau
-    hors de 0 à 2, pente au niveau 2, direction inconnue) sont écartées.
+    hors de 0 à 3, pente au niveau 3, direction inconnue) sont écartées.
+    Une ancienne carte limitée aux niveaux 0 à 2 se charge à l'identique,
+    sans migration.
 - **Relief** : `elevationCells` n'est écrit que si une case n'est pas plate
   au niveau 0, trié par z puis x ; une carte plate garde exactement son
   fichier d'avant le relief.
+- **Surfaces** : `surfaceCells` n'est écrit que si au moins une case est
+  peinte, trié par z puis x, une entrée par case peinte. Au chargement, les
+  entrées invalides (identifiant inconnu, coordonnées non entières) sont
+  écartées avec un avertissement en console, et celles qui tombent sur un
+  trou sont ignorées : aucune n'est réécrite.
 
 **État non enregistré**
 
@@ -660,7 +676,7 @@ Différences avec la partie :
   celui de la référence. L'ordre des cases et du territoire ne compte pas.
   - Comptent : unités (pose, suppression, déplacement, camp), bâtiments de
     scénario (pose, suppression), décors (position, rotation), cases,
-    Taille, territoire, Baliste.
+    Taille, territoire, Baliste, surfaces peintes.
   - Ne comptent pas : sélection, caméra, recherche, catégories ouvertes,
     outil actif, panneaux repliés, valeur tapée dans Taille sans Appliquer,
     « Tester le scénario ».
@@ -693,6 +709,7 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
 | `playerUnits`, `enemyUnits` | Unités du scénario de test : `unitId`, `x`, `z` |
 | `ballista` | Centre de la Baliste : `{ x, z }`. Optionnel : absent = repli historique (coin +X +Z) |
 | `territory` | Territoire : liste de `{ x, z, team }`, `team` valant `'player'` ou `'enemy'`, dans la convention de `cells` (coin entier de la case). Optionnel : absent = repli historique ; `[]` = territoire vide |
+| `surfaceCells` | Surfaces peintes : liste de `{ x, z, surface }`, `surface` étant un identifiant stable (`herbe-classique`, `terre-battue`…, `config/groundSurfaces.ts`), jamais un libellé. Optionnel et clairsemé : une case absente garde la surface par défaut. Purement visuel |
 
 - **Camp des unités** : ce n'est pas un champ. Il est porté par la liste
   (`playerUnits` ou `enemyUnits`) dans laquelle l'unité est enregistrée.
@@ -889,20 +906,30 @@ Limitations de l'éditeur, sans entrée dans `KNOWN_ISSUES.md` :
 - **Aperçu de déplacement** : une silhouette rouge peut s'afficher hors du
   plateau, à la case visée ; l'outil de pose d'unité garde son propre
   fantôme.
-- **Relief** : trois niveaux (0 à 2), pas de niveau négatif ni de vrai
+- **Relief** : quatre niveaux (0 à 3), pas de niveau négatif ni de vrai
   trou creusé, pas d'escalier, de pont ni de chute ; ligne de tir et
   portées restent 2D ; pinceaux Surélever / Abaisser en deux tailles
-  seulement (1×1, 4×4) ; les ajustements (Pente, Coin) peuvent
-  encore laisser une falaise à côté d'un plat ; pendant un trait, le
+  seulement (1×1, 4×4) ; pas de pose manuelle de pente ou de coin (une
+  falaise d'ancienne carte se corrige en sculptant dessus) ; pendant un trait, le
   pinceau vise le terrain du début du trait (léger décalage visuel avec le
   curseur au-dessus des cases déjà modifiées par ce trait).
+- **Surface** : pas de fondu entre deux surfaces voisines. La limite suit le
+  bord des cases, donc un chemin peint en 1×1 a des bords en escalier, et
+  les taches de « Mixte » sont coupées net au bord de leur case. Pas de
+  remplissage ni de pinceau plus grand que 4×4.
+- **Surfaces et agrandissement de run** : `run/mapExpansion.ts` recopie
+  `surfaceCells` sans les déplacer, comme `elevationCells`, alors que les
+  cases et le territoire sont transformés. C'est sans effet aujourd'hui,
+  puisque l'arène du Mode survie n'a ni relief ni surface peinte. À
+  traiter si elle en reçoit un jour.
 
 ## 19. Pour les développeurs
 
 | Fichier | Rôle |
 |---|---|
 | `config/territory.ts` | Territoire pur : `TerritoryCell`, index (`buildTerritoryIndex`), repli (`resolveMapTerritory`, `deriveLegacyTerritory`), requêtes de case et d'empreinte |
-| `config/mapDef.ts` | Format `MapDef` (dont `territory?`) ; `resolveBallistaOrigin`, `snapBallistaOrigin` (grille de 3×3) |
+| `config/mapDef.ts` | Format `MapDef` (dont `territory?`, `surfaceCells?`) ; `resolveBallistaOrigin`, `snapBallistaOrigin` (grille de 3×3) |
+| `config/groundSurfaces.ts` | Surfaces peignables : `GROUND_TEXTURES` (identifiant, libellés, famille, fichier, cycle), sections de l'éditeur, `SurfaceCellDef`, `buildSurfaceIndex`, `surfaceBrushOrigin`. Source unique de l'éditeur, de la sauvegarde et du rendu |
 | `editor/editorState.ts` | État de l'éditeur et règles de validité (`canPlaceUnitAt`, `canAddCell`, `canRemoveCell`, `canPlaceBallistaAt`, `canMoveBallistaTo`) ; territoire (`territory`, `resolvedTerritory`, `territoryOwnerAt` avec index en cache, `paintTerritoryCell`) ; sélection et déplacement d'unités (`moveUnits`, `setUnitStates`) ; instantanés pour l'historique (`objectsSnapshot`, `mapShapeSnapshot`, `territorySnapshot`) ; Baliste (`ballista`, `ballistaExplicit`, `moveBallista`) |
 | `editor/editorScene.ts` | Meshes, fantômes des outils de pose, aperçus de cases, anneau de sélection des décors et de la Baliste |
 | `editor/editorUI.ts` | Barre du haut, colonne de gauche (outils, catalogue `DECOR_CATALOG`, recherche), panneau de propriétés, ligne d'état, panneaux repliables, mesure de l'espace libre (`getViewportInsets`) |
@@ -952,8 +979,8 @@ Les raccourcis clavier sont **ignorés pendant la saisie dans un champ**
 | Clic gauche (outil de pose actif) | Poser l'unité ou le décor |
 | Clic ou glisser (outil de case actif) | Ajouter ou supprimer les cases survolées |
 | Clic ou glisser (outil Territoire actif) | Peindre les cases |
+| Clic ou glisser (outil Surface actif) | Peindre le dessus des cases avec la surface choisie (1×1 ou 4×4), ou l'effacer (Par défaut) |
 | Clic ou glisser (+1 Surélever / −1 Abaisser) | Ajouter / retirer une couche de relief sous le pinceau (une par trait, taille 1×1 ou 4×4, jusqu'au bord de la carte) |
-| Clic ou glisser (Pente / Coin extérieur / Coin intérieur) | Ajuster la case survolée |
 | Glisser une flèche du gizmo | Déplacer le décor |
 | Glisser l'anneau jaune | Tourner le décor |
 | Clic droit seul | Annuler l'outil actif, sinon désélectionner |
@@ -970,7 +997,7 @@ Les raccourcis clavier sont **ignorés pendant la saisie dans un champ**
 |---|---|
 | V | Outil Sélection |
 | 1 / 2 / 3 | Territoire Joueur / Ennemi / Neutre (outil Territoire actif) |
-| R | +90° au décor sélectionné (sans effet sur la Baliste) ; outil Pente : tourner la direction de montée ; outils Coin extérieur / Coin intérieur : orientation suivante |
+| R | +90° au décor sélectionné (sans effet sur la Baliste) ; outil de pose d'une muraille ou d'une porte : orientation suivante |
 | Suppr / Retour arrière | Supprimer la sélection (sans effet sur la Baliste) |
 | Échap | Revenir à l'outil Sélection, sinon désélectionner ; pendant un test, revenir à l'éditeur |
 | Ctrl+Z | Annuler |

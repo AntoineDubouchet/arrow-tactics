@@ -235,6 +235,7 @@ ligne), sauf 4 versions différentes **non remplacées** : ponts A/B et moulin
 | Fichier(s) | Usage | Code |
 |---|---|---|
 | `textures/ground/ground_grass.png`, `ground_dirt.png` | Sol du plateau (texture répétée) | `render/textures.ts` |
+| `textures/ground/variants/*.png` (10) | Lot de sol (herbes, terres, mixtes), peignable dans l'éditeur (outil Surface) et comparable avec `?sol=` ; généré par `tools/ground-textures/generate.mjs` (procédural, déterministe, sans source externe) | `config/groundSurfaces.ts` (définitions), `render/groundSurfaces.ts`, `render/textures.ts`, vignettes de `editor/editorUI.ts` |
 | `textures/sky_background.png` | Fond fixe de la scène (pas un vrai skybox) | `render/renderer.ts` |
 | `textures/vfx/*.png` (16 sur 18) | Effets : Boule de feu, projectiles d'ombre, soin, Nova de glace, Blizzard, aura Recyclage | `render/vfxTextures.ts` et les vues d'effets |
 | `textures/ui/battle-spells/*.png` | Icônes du parchemin de soin et de la Nova de glace | `ui/itemIcons.ts` |

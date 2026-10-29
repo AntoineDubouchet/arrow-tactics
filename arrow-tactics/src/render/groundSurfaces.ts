@@ -1,31 +1,40 @@
 import * as THREE from 'three';
+import { GROUND_TEXTURES, type GroundTextureId } from '../config/groundSurfaces';
 import type { TerrainType } from '../config/mapDef';
-import { createDirtTexture, createGrassTexture, createPixelGrassTexture, PIXEL_GRASS_TILES } from './textures';
+import { createDirtTexture, createGrassTexture, loadGroundVariantTexture } from './textures';
 
 /**
  * SURFACES VISUELLES du sol : l'apparence du DESSUS d'une case (herbe et ses
- * variantes, terre), independante de sa FORME (relief : plat, pente, coin,
- * voir config/terrainElevation.ts) et de tout gameplay — une surface ne
- * bloque rien, ne change ni trajet, ni hauteur, ni territoire. Une meme
- * surface habille toutes les formes : ses UV sont projetees a plat (x, z
- * monde), continues d'une case a l'autre, pentes et coins compris.
+ * variantes, terre) et des FLANCS, independante de leur FORME (relief : plat,
+ * pente, coin, falaise, voir config/terrainElevation.ts) et de tout gameplay —
+ * une surface ne bloque rien, ne change ni trajet, ni hauteur, ni territoire,
+ * et la simulation ne la lit jamais. Une meme surface habille toutes les
+ * formes : ses UV sont projetees en coordonnees monde (render/terrainCells.ts),
+ * continues d'une case a l'autre, pentes et coins compris.
  *
- * Choix automatique, deterministe : la PALETTE active (setGroundPalette)
- * decide, pour chaque case d'herbe, d'une surface d'apres un bruit de
- * valeur sur (x, z) (groundNoise) — jamais Math.random, la meme carte
- * rechargee a exactement le meme sol, rien n'est sauvegarde. Plus tard, une
- * peinture manuelle (donnee optionnelle et clairsemee dans MapDef) pourra
- * imposer une surface a une case avant ce choix automatique.
+ * Une PALETTE (setGroundPalette) choisit, pour chaque case, la surface du
+ * dessus selon son type de terrain et sa position — choix deterministe (bruit
+ * de valeur sur x, z, groundNoise ; jamais Math.random) : la meme carte
+ * rechargee a exactement le meme sol — et la surface commune des flancs.
  *
- * Rendu : un materiau (donc un draw call) par surface REELLEMENT presente
- * sur la carte, jamais par case (render/terrainCells.ts).
+ * PRIORITE : une surface PEINTE dans la carte (MapDef.surfaceCells, outil
+ * Surface de l'editeur ; identifiants, libelles et fichiers dans
+ * config/groundSurfaces.ts) l'emporte toujours ; la palette (`?sol=`, debug)
+ * ne decide que des cases non peintes. La peinture n'habille que le dessus :
+ * les flancs gardent la surface de flanc de la palette.
+ *
+ * Rendu : un materiau (donc un draw call) par surface REELLEMENT presente sur
+ * la carte, jamais par case.
  */
-export type GroundSurfaceId = 'grass' | 'grass-light' | 'grass-dense' | 'grass-pixel-a' | 'grass-pixel-b' | 'dirt';
+
+/** `grass` / `dirt` : les PNG d'origine du dessus ; `flank` : la terre
+ *  d'origine assombrie des flancs ; les autres : le lot de textures
+ *  (config/groundSurfaces.ts, GROUND_TEXTURES). */
+export type GroundSurfaceId = 'grass' | 'dirt' | 'flank' | GroundTextureId;
 
 interface GroundSurfaceDef {
   texture: () => THREE.Texture;
-  /** Multiplicateur de la texture (lineaire) : variantes claire / dense de
-   *  l'herbe classique sans texture supplementaire. */
+  /** Multiplicateur de la texture (lineaire). */
   color: readonly [number, number, number];
   /** Cases couvertes par un cycle de texture. */
   tiles: number;
@@ -33,33 +42,88 @@ interface GroundSurfaceDef {
 
 export const GROUND_SURFACES: Readonly<Record<GroundSurfaceId, GroundSurfaceDef>> = {
   grass: { texture: createGrassTexture, color: [1, 1, 1], tiles: 1 },
-  'grass-light': { texture: createGrassTexture, color: [1.1, 1.1, 0.96], tiles: 1 },
-  'grass-dense': { texture: createGrassTexture, color: [0.84, 0.9, 0.86], tiles: 1 },
-  'grass-pixel-a': { texture: () => createPixelGrassTexture('a'), color: [1, 1, 1], tiles: PIXEL_GRASS_TILES },
-  'grass-pixel-b': { texture: () => createPixelGrassTexture('b'), color: [1, 1, 1], tiles: PIXEL_GRASS_TILES },
   dirt: { texture: createDirtTexture, color: [1, 1, 1], tiles: 1 },
+  // Nettement plus sombre que le dessus : une falaise se lit comme une rupture.
+  flank: { texture: createDirtTexture, color: [1, 0.9, 0.8], tiles: 1 },
+  ...textureSurfaces(),
 };
 
-/** Palettes de surfaces pour l'herbe. `classique` (defaut) : l'herbe d'avant,
- *  partout. `variee` : herbe classique avec des plaques claires et denses.
- *  `pixel` : herbes pixelisees A et B en plaques. */
-export type GroundPalette = 'classique' | 'variee' | 'pixel';
-export const GROUND_PALETTES: readonly GroundPalette[] = ['classique', 'variee', 'pixel'];
-
-let palette: GroundPalette = 'classique';
-
-/** Palette appliquee aux plateaux construits ensuite (main.ts : `?sol=`). */
-export function setGroundPalette(next: GroundPalette): void {
-  palette = next;
+function textureSurfaces(): Record<GroundTextureId, GroundSurfaceDef> {
+  const out = {} as Record<GroundTextureId, GroundSurfaceDef>;
+  for (const v of GROUND_TEXTURES) {
+    const nearest = 'nearest' in v && v.nearest;
+    out[v.id] = { texture: () => loadGroundVariantTexture(v.file, nearest), color: [1, 1, 1], tiles: v.tiles };
+  }
+  return out;
 }
 
-/** Surface du dessus de la case (x, z) de terrain `terrain`. */
-export function groundSurfaceAt(terrain: TerrainType, x: number, z: number): GroundSurfaceId {
-  if (terrain === 'dirt') return 'dirt';
-  if (palette === 'classique') return 'grass';
-  const n = groundNoise(x, z);
-  if (palette === 'pixel') return n < 0.5 ? 'grass-pixel-a' : 'grass-pixel-b';
-  return n < 0.33 ? 'grass-dense' : n > 0.67 ? 'grass-light' : 'grass';
+interface GroundPaletteDef {
+  grass: (x: number, z: number) => GroundSurfaceId;
+  dirt: (x: number, z: number) => GroundSurfaceId;
+  flank: GroundSurfaceId;
+}
+
+/** Palettes nommees. `classique` (defaut) : le sol d'avant, a l'identique.
+ *  `variee` : herbes classique, prairie et dense en plaques, quelques taches
+ *  de terre. `stylisee`, `pixel` : une direction chacune. `catalogue` : les
+ *  10 textures du lot en bandes de 2 cases (x), pour les comparer cote a cote.
+ *  Toute texture du lot est aussi une palette a elle seule (son identifiant). */
+const NAMED_PALETTES = {
+  classique: { grass: () => 'grass', dirt: () => 'dirt', flank: 'flank' },
+  variee: {
+    grass: (x, z) => {
+      if (groundNoise(x + 101, z - 37) > 0.7) return 'mixte-taches';
+      const n = groundNoise(x, z);
+      return n < 0.36 ? 'herbe-dense' : n > 0.64 ? 'herbe-prairie' : 'herbe-classique';
+    },
+    dirt: () => 'terre-battue',
+    flank: 'terre-strates',
+  },
+  stylisee: { grass: () => 'herbe-stylisee', dirt: () => 'terre-battue', flank: 'terre-strates' },
+  pixel: { grass: (x, z) => (groundNoise(x, z) < 0.5 ? 'herbe-pixel-net' : 'herbe-pixel-touffes'), dirt: () => 'terre-battue', flank: 'terre-strates' },
+  catalogue: { grass: catalogueBand, dirt: catalogueBand, flank: 'terre-strates' },
+} satisfies Record<string, GroundPaletteDef>;
+
+export type GroundPalette = keyof typeof NAMED_PALETTES | GroundTextureId;
+
+/** Noms acceptes par setGroundPalette (main.ts : `?sol=`). */
+export const GROUND_PALETTES: readonly GroundPalette[] = [...(Object.keys(NAMED_PALETTES) as (keyof typeof NAMED_PALETTES)[]), ...GROUND_TEXTURES.map((v) => v.id)];
+
+function paletteDef(name: GroundPalette): GroundPaletteDef {
+  if (name in NAMED_PALETTES) return NAMED_PALETTES[name as keyof typeof NAMED_PALETTES];
+  // Une seule texture partout ; flancs : elle-meme si c'est une terre.
+  const variant = GROUND_TEXTURES.find((v) => v.id === name)!;
+  return { grass: () => variant.id, dirt: () => variant.id, flank: variant.id.startsWith('terre-') ? variant.id : 'terre-strates' };
+}
+
+let palette: GroundPaletteDef = NAMED_PALETTES.classique;
+
+/** Palette appliquee aux plateaux construits ensuite. */
+export function setGroundPalette(next: GroundPalette): void {
+  palette = paletteDef(next);
+}
+
+/** Surface du dessus de la case (x, z) de terrain `terrain` : `painted`
+ *  (MapDef.surfaceCells) si la case est peinte, sinon le choix de la
+ *  palette. */
+export function groundSurfaceAt(terrain: TerrainType, x: number, z: number, painted?: GroundTextureId): GroundSurfaceId {
+  if (painted) return painted;
+  return terrain === 'dirt' ? palette.dirt(x, z) : palette.grass(x, z);
+}
+
+/** Surface commune des flancs (falaises, bord de carte, trous). */
+export function groundFlankSurface(): GroundSurfaceId {
+  return palette.flank;
+}
+
+/** Bandes du catalogue, dans l'ordre historique du lot (classique, prairie,
+ *  dense, stylisee, pixel net, pixel touffes, battue, strates, taches,
+ *  usee). */
+const CATALOGUE_ORDER: readonly GroundTextureId[] = ['herbe-classique', 'herbe-prairie', 'herbe-dense', 'herbe-stylisee', 'herbe-pixel-net', 'herbe-pixel-touffes', 'terre-battue', 'terre-strates', 'mixte-taches', 'mixte-usee'];
+
+function catalogueBand(x: number): GroundSurfaceId {
+  const n = CATALOGUE_ORDER.length;
+  return CATALOGUE_ORDER[((Math.floor(x / 2) % n) + n) % n]!;
 }
 
 /** Taille (cases) des plaques du bruit : des groupes de cases plutot qu'un

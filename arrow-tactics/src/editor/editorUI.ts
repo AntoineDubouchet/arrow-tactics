@@ -1,29 +1,13 @@
 import { isBlockingMapObstacle, obstacleCenter, type ObstacleDef } from '../config/constants';
+import { GROUND_TEXTURE_CATEGORIES, GROUND_TEXTURES, type GroundTextureId, type SurfaceBrushSize } from '../config/groundSurfaces';
 import type { TerrainType } from '../config/mapDef';
-import { cornerOfShape, isConcaveCornerSlope, TERRAIN_LEVEL_MAX, type CornerShape, type CornerSlopeDirection, type ReliefBrushSize, type ReliefDelta, type SlopeDirection } from '../config/terrainElevation';
+import { TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type ReliefBrushSize, type ReliefDelta } from '../config/terrainElevation';
 import type { TerritoryTeam } from '../config/territory';
 import { getBuilding, listBuyableBuildingIds } from '../data/buildings';
 import { UNITS } from '../data/units';
+import { groundTextureUrl } from '../render/textures';
 import { teamColor } from '../render/unitSelectionRing';
-import type { EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate, SlopeResolution } from './editorState';
-
-/** Nom affiche de la direction de montee d'une pente (N = haut de l'ecran). */
-const SLOPE_NAMES: Record<SlopeDirection, string> = { N: 'le nord', E: 'l’est', S: 'le sud', W: 'l’ouest' };
-const SLOPE_ARROWS: Record<SlopeDirection, string> = { N: '↑', E: '→', S: '↓', W: '←' };
-
-/** Nom affiche et fleche du coin « different » d'une pente de coin : coin
- *  haut d'un coin exterieur, coin bas d'un coin interieur. */
-const CORNER_NAMES: Record<CornerSlopeDirection, string> = { NE: 'NE (nord-est)', SE: 'SE (sud-est)', SW: 'SW (sud-ouest)', NW: 'NW (nord-ouest)' };
-const CORNER_ARROWS: Record<CornerSlopeDirection, string> = { NE: '↗', SE: '↘', SW: '↙', NW: '↖' };
-
-function cornerLabel(dir: CornerShape): string {
-  const arrow = CORNER_ARROWS[cornerOfShape(dir)];
-  return isConcaveCornerSlope(dir) ? `◪ Coin intérieur ${arrow}` : `◩ Coin extérieur ${arrow}`;
-}
-
-function slopeLabel(dir: SlopeDirection): string {
-  return `◢ Pente ${SLOPE_ARROWS[dir]}`;
-}
+import type { EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate } from './editorState';
 
 export interface EditorUIHandlers {
   /** Bouton "Sélection" (outil par défaut) — même effet qu'Échap ou le clic
@@ -45,16 +29,14 @@ export interface EditorUIHandlers {
   onSelectReliefBrushTool: (delta: ReliefDelta) => void;
   /** Taille des pinceaux de sculpture (1×1 ou 4×4), commune a +1 et -1. */
   onSelectReliefBrushSize: (size: ReliefBrushSize) => void;
-  /** Ajustements du relief (Pente, Coin exterieur, Coin interieur),
-   *  pinceaux repetables. */
-  onSelectSlopeTool: () => void;
-  /** Outils « Coin extérieur » (coin haut NE / SE / SW / NW) et « Coin
-   *  intérieur » (coin bas NEi / SEi / SWi / NWi), poses manuelles. */
-  onSelectCornerSlopeTool: () => void;
-  onSelectInnerCornerSlopeTool: () => void;
   /** Pinceau de territoire : `team` peint pour ce camp, `null` efface
    *  (case neutre). Reste actif apres chaque trait, comme "Ajouter case". */
   onSelectTerritoryTool: (team: TerritoryTeam | null) => void;
+  /** Pinceau Surface (visuel) : `surface` peint le dessus des cases, `null`
+   *  (Par defaut) efface la peinture. Reste actif apres chaque trait. */
+  onSelectSurfaceTool: (surface: GroundTextureId | null) => void;
+  /** Taille du pinceau Surface (1×1 ou 4×4). */
+  onSelectSurfaceBrushSize: (size: SurfaceBrushSize) => void;
   onRotate: () => void;
   /** Rotation du decor selectionne de `degrees` (boutons −15° / +15° du
    *  panneau) — meme operation que Ctrl+molette. */
@@ -850,11 +832,13 @@ export class EditorUI {
   private readonly raiseReliefButton: HTMLButtonElement;
   private readonly lowerReliefButton: HTMLButtonElement;
   private readonly reliefSizeButtons = new Map<ReliefBrushSize, HTMLButtonElement>();
-  private readonly slopeButton: HTMLButtonElement;
-  private readonly cornerSlopeButton: HTMLButtonElement;
-  private readonly innerCornerSlopeButton: HTMLButtonElement;
   private readonly territoryButton: HTMLButtonElement;
   private readonly territoryValueButtons = new Map<TerritoryTeam | null, HTMLButtonElement>();
+  private readonly surfaceButton: HTMLButtonElement;
+  private readonly surfaceValueButtons = new Map<GroundTextureId | null, HTMLButtonElement>();
+  private readonly surfaceSizeButtons = new Map<SurfaceBrushSize, HTMLButtonElement>();
+  /** Surface que reprend le bouton "Peindre la surface" : la derniere choisie. */
+  private surfaceValue: GroundTextureId | null = 'herbe-classique';
   private readonly unitCards = new Map<string, HTMLButtonElement>();
   private readonly buildingCards = new Map<string, HTMLButtonElement>();
   private readonly assetCards = new Map<PlacementTemplate, { button: HTMLButtonElement; label: string }>();
@@ -864,11 +848,6 @@ export class EditorUI {
   /** Dernier outil et derniere selection recus par syncTool. */
   private lastTool: EditorTool = { type: 'select' };
   private lastSelection: EditorSelection = null;
-  /** Pente resolue sur la case survolee (EditorState.resolveSlope), ou null
-   *  hors survol : la ligne d'etat et la carte Pente affichent alors R. */
-  private slopeResolution: SlopeResolution | null = null;
-  /** Pente de coin resolue sur la case survolee (resolveCornerSlope), ou null. */
-  private cornerResolution: SlopeResolution<CornerShape> | null = null;
   /** Pinceau de relief sur la position survolee (main.ts) : changement de
    *  niveau, raison du refus, cases comblees par une liaison diagonale. */
   private reliefBrushInfo: { levels: string; refusal: string | null; bridged: number } | null = null;
@@ -1000,13 +979,14 @@ export class EditorUI {
     this.removeCellButton = this.toolCard('− Supprimer case', handlers.onSelectRemoveCellTool);
     this.removeCellButton.classList.add('editor-asset-card--danger');
     browser.append(this.addGrassButton, this.addDirtButton, this.removeCellButton);
-    // Relief 2.5D (config/terrainElevation.ts) : niveaux 0 a TERRAIN_LEVEL_MAX.
-    // Sculpture (facon normale de modeler le terrain) puis Ajustements
-    // (corrections fines, visuellement secondaires).
+    // Relief 2.5D (config/terrainElevation.ts) : la sculpture est la seule
+    // facon de modeler le terrain ; pentes et coins sont automatiques.
     browser.appendChild(this.categoryHeader('Relief'));
-    browser.appendChild(this.subcategoryHeader('Sculpture'));
+    const levels = `Niveaux ${TERRAIN_LEVEL_MIN}–${TERRAIN_LEVEL_MAX} · pentes et coins automatiques · case occupée : relief verrouillé`;
     this.raiseReliefButton = this.toolCard('+1 Surélever', () => handlers.onSelectReliefBrushTool(1));
     this.lowerReliefButton = this.toolCard('−1 Abaisser', () => handlers.onSelectReliefBrushTool(-1));
+    this.raiseReliefButton.title = levels;
+    this.lowerReliefButton.title = levels;
     browser.append(this.raiseReliefButton, this.lowerReliefButton);
     // Taille : une seule selection pour +1 et -1.
     const brushSizeRow = document.createElement('div');
@@ -1026,20 +1006,50 @@ export class EditorUI {
     }
     browser.appendChild(brushSizeRow);
     this.setReliefBrushSize(4);
-    const reliefLegend = document.createElement('div');
-    reliefLegend.className = 'editor-legend';
-    reliefLegend.textContent = `Niveaux 0 à ${TERRAIN_LEVEL_MAX} · une couche par trait · pentes et coins automatiques · Case occupée : relief verrouillé`;
-    browser.appendChild(reliefLegend);
-    browser.appendChild(this.subcategoryHeader('Ajustements'));
-    this.slopeButton = this.toolCard(slopeLabel('N'), handlers.onSelectSlopeTool);
-    this.cornerSlopeButton = this.toolCard(cornerLabel('NE'), handlers.onSelectCornerSlopeTool);
-    this.innerCornerSlopeButton = this.toolCard(cornerLabel('NEi'), handlers.onSelectInnerCornerSlopeTool);
-    for (const button of [this.slopeButton, this.cornerSlopeButton, this.innerCornerSlopeButton]) button.classList.add('editor-asset-card--secondary');
-    browser.append(this.slopeButton, this.cornerSlopeButton, this.innerCornerSlopeButton);
+
+    // Surface : habillage VISUEL du dessus des cases (config/groundSurfaces.ts),
+    // independant du relief et du gameplay. UN outil, une taille, une valeur.
+    browser.appendChild(this.groupHeader('Surface'));
+    this.surfaceButton = this.toolCard('Peindre la surface', () => handlers.onSelectSurfaceTool(this.surfaceValue));
+    this.surfaceButton.title = 'Visuel uniquement : dessus des cases, flancs inchangés · ni hauteur, ni trajets, ni territoire · se peint sous les objets';
+    browser.appendChild(this.surfaceButton);
+    const surfaceSizeRow = document.createElement('div');
+    surfaceSizeRow.className = 'editor-segmented';
+    const surfaceSizeLabel = document.createElement('span');
+    surfaceSizeLabel.className = 'editor-segmented-label';
+    surfaceSizeLabel.textContent = 'Taille';
+    surfaceSizeRow.appendChild(surfaceSizeLabel);
+    for (const size of [1, 4] as const) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'editor-segment';
+      button.textContent = `${size}×${size}`;
+      button.addEventListener('click', () => handlers.onSelectSurfaceBrushSize(size));
+      this.surfaceSizeButtons.set(size, button);
+      surfaceSizeRow.appendChild(button);
+    }
+    browser.appendChild(surfaceSizeRow);
+    this.setSurfaceBrushSize(4);
+    const defaultGrid = document.createElement('div');
+    defaultGrid.className = 'editor-surface-grid';
+    defaultGrid.appendChild(this.surfaceSwatch(null, 'Par défaut', 'ground_grass.png', 'Efface la peinture : la case reprend la surface par défaut du jeu (rien n’est enregistré).'));
+    browser.appendChild(defaultGrid);
+    for (const category of GROUND_TEXTURE_CATEGORIES) {
+      browser.appendChild(this.subcategoryHeader(category.label));
+      const grid = document.createElement('div');
+      grid.className = 'editor-surface-grid';
+      for (const t of GROUND_TEXTURES) {
+        if (t.category !== category.id) continue;
+        const hint = t.id === 'terre-strates' ? 'Conçue pour les flancs de falaise : sur le dessus d’une case, elle forme des rayures.' : t.label;
+        grid.appendChild(this.surfaceSwatch(t.id, t.short, `variants/${t.file}`, hint, 'nearest' in t && t.nearest));
+      }
+      browser.appendChild(grid);
+    }
 
     // Territoire : UN outil (le pinceau) et une valeur (le camp peint).
     browser.appendChild(this.groupHeader('Territoire'));
     this.territoryButton = this.toolCard('Peindre le territoire', () => handlers.onSelectTerritoryTool(this.territoryValue));
+    this.territoryButton.title = 'Bleu : unités joueur · Rouge : unités ennemies · Neutre : aucune unité · Baliste : 3×3 en territoire joueur';
     browser.appendChild(this.territoryButton);
     const segmented = document.createElement('div');
     segmented.className = 'editor-segmented';
@@ -1061,10 +1071,6 @@ export class EditorUI {
       segmented.appendChild(button);
     }
     browser.appendChild(segmented);
-    const legend = document.createElement('div');
-    legend.className = 'editor-legend';
-    legend.textContent = 'Bleu : unités joueur · Rouge : unités ennemies · Neutre : aucune unité · Baliste : 3×3 en territoire joueur';
-    browser.appendChild(legend);
 
     browser.appendChild(this.groupHeader('Unités'));
     browser.appendChild(this.categoryHeader('Bestiaire'));
@@ -1225,6 +1231,7 @@ export class EditorUI {
     this.lastSelection = selection;
     if (this.testMode) return;
     if (tool.type === 'paint-territory') this.territoryValue = tool.team;
+    if (tool.type === 'paint-surface') this.surfaceValue = tool.surface;
     const active: HTMLButtonElement[] = [];
     let status: string;
     switch (tool.type) {
@@ -1270,40 +1277,20 @@ export class EditorUI {
         status = `Outil : ${name} (${tool.size}×${tool.size})${levels}${refusal}${bridged} · Clic / glisser : une couche ${tool.delta > 0 ? 'de plus' : 'de moins'}, pentes et coins automatiques, jusqu'au bord de la carte · nouveau trait : couche suivante · décors conservés · Échap : Sélection`;
         break;
       }
-      case 'slope-cell': {
-        // Direction REELLEMENT posee sur la case survolee (deduite des
-        // voisins le cas echeant), sinon celle de R.
-        const resolved = this.slopeResolution;
-        const dir = resolved?.dir ?? tool.dir;
-        active.push(this.slopeButton);
-        if (this.slopeButton.textContent !== slopeLabel(dir)) this.slopeButton.textContent = slopeLabel(dir);
-        const origin = resolved?.deduced ? ' (imposée par les voisins)' : '';
-        const refusal = resolved && !resolved.status.ok ? ` · refusée : ${resolved.status.reason}` : '';
-        status = `Outil : Pente — montée vers ${SLOPE_NAMES[dir]}${origin}${refusal} · R : tourner · bande bleue : bas, jaune : haut · Clic / glisser : poser · Échap : Sélection`;
-        break;
-      }
-      case 'corner-slope-cell': {
-        // Variante REELLEMENT posee sur la case survolee, sinon celle de R.
-        const resolved = this.cornerResolution;
-        const dir = resolved?.dir ?? tool.dir;
-        const inner = isConcaveCornerSlope(dir);
-        const button = inner ? this.innerCornerSlopeButton : this.cornerSlopeButton;
-        active.push(button);
-        if (button.textContent !== cornerLabel(dir)) button.textContent = cornerLabel(dir);
-        const origin = resolved?.deduced ? ' (imposé par les voisins)' : '';
-        const refusal = resolved && !resolved.status.ok ? ` · refusé : ${resolved.status.reason}` : '';
-        const corner = CORNER_NAMES[cornerOfShape(dir)];
-        status = inner
-          ? `Outil : Coin intérieur — coin bas ${corner}, les 3 autres coins hauts${origin}${refusal} · R : tourner (NE → SE → SW → NW) · point bleu : coin bas · Clic / glisser : poser · Échap : Sélection`
-          : `Outil : Coin extérieur — coin haut ${corner}${origin}${refusal} · R : tourner (NE → SE → SW → NW) · point blanc : coin haut · Clic / glisser : poser · Échap : Sélection`;
-        break;
-      }
       case 'paint-territory': {
         active.push(this.territoryButton);
         const value = this.territoryValueButtons.get(tool.team);
         if (value) active.push(value);
         const name = tool.team === 'player' ? 'Joueur' : tool.team === 'enemy' ? 'Ennemi' : 'Neutre';
         status = `Outil : Territoire — ${name} · Clic / glisser : peindre · 1 / 2 / 3 : Joueur / Ennemi / Neutre · Échap : Sélection`;
+        break;
+      }
+      case 'paint-surface': {
+        active.push(this.surfaceButton);
+        const value = this.surfaceValueButtons.get(tool.surface);
+        if (value) active.push(value);
+        const name = tool.surface ? (GROUND_TEXTURES.find((t) => t.id === tool.surface)?.label ?? tool.surface) : 'Par défaut (effacer)';
+        status = `Outil : Surface — ${name} (${tool.size}×${tool.size}) · Clic / glisser : peindre le dessus des cases, sous les objets compris · visuel uniquement · Échap : Sélection`;
         break;
       }
     }
@@ -1320,11 +1307,30 @@ export class EditorUI {
     if (this.statusLine.textContent !== status) this.statusLine.textContent = status;
   }
 
-  /** Pente de coin resolue sur la case survolee (main.ts), ou null. */
-  setCornerResolution(resolution: SlopeResolution<CornerShape> | null): void {
-    if (JSON.stringify(this.cornerResolution) === JSON.stringify(resolution)) return;
-    this.cornerResolution = resolution;
-    if (this.lastTool.type === 'corner-slope-cell') this.syncTool(this.lastTool, this.lastSelection);
+  /** Taille du pinceau Surface choisie (main.ts) : bouton actif. */
+  setSurfaceBrushSize(size: SurfaceBrushSize): void {
+    for (const [s, button] of this.surfaceSizeButtons) {
+      button.classList.toggle('is-active', s === size);
+      button.setAttribute('aria-pressed', String(s === size));
+    }
+  }
+
+  /** Bouton d'une surface : vignette de la texture (`texture` : PNG du sol,
+   *  voir groundTextureUrl) et nom court ; choisit la surface et active le
+   *  pinceau. */
+  private surfaceSwatch(surface: GroundTextureId | null, label: string, texture: string, hint: string, pixelated = false): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'editor-surface-swatch';
+    button.title = hint;
+    const thumb = document.createElement('span');
+    thumb.className = 'editor-surface-thumb';
+    thumb.style.backgroundImage = `url("${groundTextureUrl(texture)}")`;
+    if (pixelated) thumb.classList.add('editor-surface-thumb--pixel');
+    button.append(thumb, label);
+    button.addEventListener('click', () => this.handlers.onSelectSurfaceTool(surface));
+    this.surfaceValueButtons.set(surface, button);
+    return button;
   }
 
   /** Taille des pinceaux de sculpture choisie (main.ts) : bouton actif. */
@@ -1341,15 +1347,6 @@ export class EditorUI {
     if (JSON.stringify(this.reliefBrushInfo) === JSON.stringify(info)) return;
     this.reliefBrushInfo = info;
     if (this.lastTool.type === 'relief-brush') this.syncTool(this.lastTool, this.lastSelection);
-  }
-
-  /** Pente resolue sur la case survolee (main.ts, updateEditorGhost), ou
-   *  null : met a jour la ligne d'etat et la carte Pente. */
-  setSlopeResolution(resolution: SlopeResolution | null): void {
-    const same = (a: SlopeResolution | null, b: SlopeResolution | null) => JSON.stringify(a) === JSON.stringify(b);
-    if (same(this.slopeResolution, resolution)) return;
-    this.slopeResolution = resolution;
-    if (this.lastTool.type === 'slope-cell') this.syncTool(this.lastTool, this.lastSelection);
   }
 
   /** Pendant "Tester le scénario" : seule la ligne d'etat reste affichee,
@@ -1471,7 +1468,7 @@ export class EditorUI {
     return h;
   }
 
-  /** Sous-titre d'une categorie (Relief : Sculpture, Ajustements). */
+  /** Sous-titre d'une categorie (Surface : Herbe, Terre…). */
   private subcategoryHeader(label: string): HTMLElement {
     const h = document.createElement('div');
     h.className = 'editor-asset-subcategory';

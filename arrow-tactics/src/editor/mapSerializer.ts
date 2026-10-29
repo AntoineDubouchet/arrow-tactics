@@ -1,3 +1,4 @@
+import { isGroundTextureId, type SurfaceCellDef } from '../config/groundSurfaces';
 import type { MapBuildingPlacement, MapDef } from '../config/mapDef';
 import { SLOPE_SHAPES, TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type SlopeShape, type TerrainElevationCellDef } from '../config/terrainElevation';
 import { BUILDINGS } from '../data/buildings';
@@ -56,6 +57,9 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
     // Hauteurs logiques de la sculpture (MapDef.reliefLogic) : seulement
     // celles qui ne se deduisent pas du relief, champ absent sinon.
     ...(state.reliefLogicEntries.length > 0 ? { reliefLogic: state.reliefLogicEntries } : {}),
+    // Surfaces peintes (MapDef.surfaceCells) : seulement les cases peintes,
+    // jamais la surface par defaut ; champ absent s'il n'y en a aucune.
+    ...(state.surfaceCells.length > 0 ? { surfaceCells: state.surfaceCells } : {}),
   };
 }
 
@@ -126,6 +130,9 @@ export async function loadMapDefFromFile(file: File): Promise<MapDef> {
     // `reliefLogic` OPTIONNEL (voir MapDef.reliefLogic) : entrees invalides
     // ecartees.
     ...(Array.isArray(data.reliefLogic) ? { reliefLogic: readReliefLogic(data.reliefLogic) } : {}),
+    // `surfaceCells` OPTIONNEL (voir MapDef.surfaceCells) : absent -> surface
+    // par defaut partout ; entrees invalides (identifiant inconnu) ecartees.
+    ...(Array.isArray(data.surfaceCells) ? { surfaceCells: readSurfaceCells(data.surfaceCells) } : {}),
   };
 }
 
@@ -140,6 +147,23 @@ function readReliefLogic(entries: unknown[]): { x: number; z: number; level: num
   }
   if (out.length < entries.length) console.warn(`Relief logique : ${entries.length - out.length} sommet(s) invalide(s) ignore(s).`);
   return out;
+}
+
+/** Surfaces peintes valides : x/z entiers, identifiant connu
+ *  (config/groundSurfaces.ts) ; une seule entree par case (la derniere). */
+function readSurfaceCells(entries: unknown[]): SurfaceCellDef[] {
+  const cells = new Map<string, SurfaceCellDef>();
+  let invalid = 0;
+  for (const entry of entries) {
+    const { x, z, surface } = (typeof entry === 'object' && entry !== null ? entry : {}) as Record<string, unknown>;
+    if (!Number.isInteger(x) || !Number.isInteger(z) || !isGroundTextureId(surface)) {
+      invalid++;
+      continue;
+    }
+    cells.set(`${x},${z}`, { x: x as number, z: z as number, surface });
+  }
+  if (invalid > 0) console.warn(`Surfaces : ${invalid} case(s) invalide(s) ignoree(s).`);
+  return [...cells.values()];
 }
 
 function readElevation(entries: unknown[]): TerrainElevationCellDef[] {

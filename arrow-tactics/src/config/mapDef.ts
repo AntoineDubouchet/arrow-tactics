@@ -1,4 +1,5 @@
 import { BALLISTA_TOWER_FOOTPRINT, BOARD_H, BOARD_W, PLACEMENT_ROWS, PLAYER_ARROW_CORNER_INSET, TILE, type ObstacleDef } from './constants';
+import type { SurfaceCellDef } from './groundSurfaces';
 import type { TerrainElevationCellDef } from './terrainElevation';
 import type { TerritoryCell } from './territory';
 
@@ -113,6 +114,13 @@ export interface MapDef {
    *  sculpture reversible apres un rechargement ; ignore par le jeu.
    *  OPTIONNEL : absent = tout se deduit du relief. */
   reliefLogic?: { x: number; z: number; level: number }[];
+  /** Surfaces PEINTES (outil Surface de l'editeur, 2026-10-29, voir
+   *  config/groundSurfaces.ts) : texture du dessus des cases peintes,
+   *  identifiant stable. Purement visuel, jamais lu par la simulation.
+   *  OPTIONNEL et SPARSE : une case absente garde la surface par defaut
+   *  (herbe ou terre d'origine selon `terrain`, ou la palette `?sol=`) ;
+   *  absent sur toute map anterieure, rendue a l'identique. */
+  surfaceCells?: SurfaceCellDef[];
 }
 
 /** Cle stable d'une cellule — sert de cle de Map/Set (lookup O(1) "cette

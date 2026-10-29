@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { TILE } from '../config/constants';
+import type { GroundTextureId } from '../config/groundSurfaces';
 import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, EDGE_CORNERS, FLAT_TERRAIN, TERRAIN_ELEVATION_STEP, OPPOSITE_SLOPE_DIRECTION, SLOPE_DIRECTIONS, SLOPE_DIRECTION_VECTORS, type TerrainHeightField } from '../config/terrainElevation';
-import { GROUND_SURFACES, groundSurfaceAt, type GroundSurfaceId } from './groundSurfaces';
-import { createDirtTexture } from './textures';
+import { GROUND_SURFACES, groundFlankSurface, groundSurfaceAt, type GroundSurfaceId } from './groundSurfaces';
 
 /**
  * Rendu des cellules de terrain RÉELLEMENT présentes (2026-08-16, chantier
@@ -22,8 +22,10 @@ import { createDirtTexture } from './textures';
  * absente (bord du plateau, trou : jusqu'à -CELL_THICKNESS). Aucune face
  * cachée entre deux cases au même niveau, aucune dalle superposée (pas de
  * z-fighting). Apparence : le dessus prend la SURFACE VISUELLE de la case
- * (render/groundSurfaces.ts : herbe, variantes, terre), les flancs une terre
- * plus sombre (FLANK_COLOR), commune à toutes les cases : une falaise se lit
+ * (render/groundSurfaces.ts : la surface PEINTE de la case si elle en a une,
+ * MapDef.surfaceCells, sinon celle de la palette), les flancs la surface
+ * de flanc de la palette (par défaut une terre plus sombre), commune à toutes
+ * les cases : une falaise se lit
  * comme une rupture verticale, sans contour. Une géométrie fusionnée par
  * surface présente plus une pour tous les flancs : un draw call par surface
  * utilisée sur la carte (plus un), quel que soit le nombre de cases.
@@ -59,9 +61,6 @@ const SLOPE_SHADE = 0.18;
  *  case : pente 1/2). */
 const SLOPE_NORMAL_Y = 1 / Math.hypot(1, TERRAIN_ELEVATION_STEP / TILE);
 
-/** Terre des flancs (multiplie ground_dirt.png, lineaire) : nettement plus
- *  sombre que le dessus. */
-const FLANK_COLOR: readonly [number, number, number] = [1, 0.9, 0.8];
 /** Assombrissement au pied d'un flanc (haut du flanc : 1) : ombre de contact
  *  qui ancre la falaise dans le sol. */
 const FLANK_FOOT_SHADE = 0.65;
@@ -79,13 +78,18 @@ interface LayerBuffers {
 
 const newBuffers = (): LayerBuffers => ({ positions: [], normals: [], uvs: [], colors: [] });
 
-export function buildTerrainCellsView(cells: TerrainCellDef[], field: TerrainHeightField = FLAT_TERRAIN): TerrainCellsView {
+/** `painted` : surface peinte du dessus par case (cle cellKey, voir
+ *  config/groundSurfaces.ts buildSurfaceIndex) ; une case absente garde la
+ *  surface de la palette. */
+export function buildTerrainCellsView(cells: TerrainCellDef[], field: TerrainHeightField = FLAT_TERRAIN, painted: ReadonlyMap<string, GroundTextureId> = new Map()): TerrainCellsView {
   const group = new THREE.Group();
   const present = new Set(cells.map((c) => cellKey(c.x, c.z)));
   const hasCell = (x: number, z: number) => present.has(cellKey(x, z));
 
   const tops = new Map<GroundSurfaceId, LayerBuffers>();
   const flanks = newBuffers();
+  const flankSurface = groundFlankSurface();
+  const flankTiles = GROUND_SURFACES[flankSurface].tiles;
   const n = new THREE.Vector3();
   const ab = new THREE.Vector3();
   const ac = new THREE.Vector3();
@@ -123,7 +127,7 @@ export function buildTerrainCellsView(cells: TerrainCellDef[], field: TerrainHei
     const z1 = cell.z + TILE;
     // Dessus : les deux triangles de la case (cellTriangles, meme diagonale
     // que la hauteur gameplay heightAt), plats, en pente ou en pente de coin.
-    const surface = groundSurfaceAt(cell.terrain, cell.x, cell.z);
+    const surface = groundSurfaceAt(cell.terrain, cell.x, cell.z, painted.get(cellKey(cell.x, cell.z)));
     let top = tops.get(surface);
     if (!top) tops.set(surface, (top = newBuffers()));
     const tiles = GROUND_SURFACES[surface].tiles;
@@ -154,16 +158,18 @@ export function buildTerrainCellsView(cells: TerrainCellDef[], field: TerrainHei
       const minY = Math.min(bottom0, bottom1);
       const span = Math.max(top0, top1) - minY || 1;
       const flankShade = (y: number) => FLANK_FOOT_SHADE + (1 - FLANK_FOOT_SHADE) * ((y - minY) / span);
-      // u : position le long du bord (monde), v : hauteur (monde).
+      // u : position le long du bord (monde), v : hauteur (monde), divises
+      // par le cycle de la surface des flancs.
       const along = v.dx === 0 ? (x: number) => x : (_x: number, z: number) => z;
-      const u0 = along(ax, az);
-      const u1 = along(bx, bz);
+      const u0 = along(ax, az) / flankTiles;
+      const u1 = along(bx, bz) / flankTiles;
+      const t = flankTiles;
       const pTop0 = new THREE.Vector3(ax, top0, az);
       const pTop1 = new THREE.Vector3(bx, top1, bz);
       const pBot0 = new THREE.Vector3(ax, bottom0, az);
       const pBot1 = new THREE.Vector3(bx, bottom1, bz);
-      pushTriangle(flanks, [pTop0, pBot0, pTop1], [[u0, top0], [u0, bottom0], [u1, top1]], outward, flankShade);
-      pushTriangle(flanks, [pTop1, pBot0, pBot1], [[u1, top1], [u0, bottom0], [u1, bottom1]], outward, flankShade);
+      pushTriangle(flanks, [pTop0, pBot0, pTop1], [[u0, top0 / t], [u0, bottom0 / t], [u1, top1 / t]], outward, flankShade);
+      pushTriangle(flanks, [pTop1, pBot0, pBot1], [[u1, top1 / t], [u0, bottom0 / t], [u1, bottom1 / t]], outward, flankShade);
     }
   }
   // Ordre stable des meshes (ordre des surfaces du catalogue), flancs en
@@ -177,8 +183,9 @@ export function buildTerrainCellsView(cells: TerrainCellDef[], field: TerrainHei
     group.add(layerMesh(top, material));
   }
   if (flanks.positions.length > 0) {
-    const material = new THREE.MeshLambertMaterial({ map: createDirtTexture(), vertexColors: true });
-    material.color.setRGB(FLANK_COLOR[0], FLANK_COLOR[1], FLANK_COLOR[2], THREE.LinearSRGBColorSpace);
+    const def = GROUND_SURFACES[flankSurface];
+    const material = new THREE.MeshLambertMaterial({ map: def.texture(), vertexColors: true });
+    material.color.setRGB(def.color[0], def.color[1], def.color[2], THREE.LinearSRGBColorSpace);
     group.add(layerMesh(flanks, material));
   }
   return { group };

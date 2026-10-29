@@ -238,7 +238,8 @@ voir §9.
   `sim/`, `render/` et `editor/`) :
   - données : `MapDef.elevationCells`, liste **sparse** `{x, z, level,
     slope?}` (case absente = plate au niveau 0) ; niveaux 0 à
-    `TERRAIN_LEVEL_MAX` (2), `TERRAIN_ELEVATION_STEP` = 0,5 case ; une pente
+    `TERRAIN_LEVEL_MAX` (3, limite unique : sculpture, validation du
+    chargement, plan de pointage), `TERRAIN_ELEVATION_STEP` = 0,5 case ; une pente
     monte de `level` à `level + 1` : cardinale (`slope` N / E / S / W, N = −Z)
     ou de **coin** (`slope` NE / NW / SE / SW : seul ce coin est haut) ;
     hauteurs des 4 coins (NW, NE, SW, SE) = `cornerHeightsOf`, seule source de
@@ -285,11 +286,6 @@ voir §9.
     tampons interpolés, tampon refusé ignoré, relief appliqué en direct,
     pointage sur le terrain de départ via `intersectTerrain(ray, target,
     field)`, une entrée d'historique au relâchement) ;
-  - pente de coin manuelle, extérieure ou intérieure (`CornerShape`) :
-    `evaluateCornerSlope` (niveau pour lequel toutes les arêtes voisines se
-    raccordent), `EditorState.resolveCornerSlope` (variante de R ou imposée
-    par les voisins, dans la famille de l'outil : source unique de
-    l'aperçu, de la pose et du texte) ;
   - `TerrainHeightField` (`resolveMapHeightField(map)`, en cache par
     tableau) : hauteurs des 4 coins d'une case, `heightAt(x, z)` (linéaire
     sur une pente), `edgeMatches` (même hauteur aux deux extrémités de
@@ -739,19 +735,37 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     basse (falaise, entre les deux hauteurs) ou vers une case absente (bord,
     trou : jusqu'à −`CELL_THICKNESS`, 0,45). Aucune face cachée, aucune
     dalle superposée. Forme et apparence séparées : le dessus prend la
-    surface visuelle de la case (`groundSurfaceAt` : palette active,
-    `setGroundPalette`, choisie par `main.ts` d'après `?sol=` ; bruit de
-    valeur déterministe sur x, z, jamais `Math.random`), les flancs une
-    terre commune (`ground_dirt.png`, `FLANK_COLOR`, assombrie vers le
-    pied). UV en coordonnées monde : dessus (x, −z) / cycle de la surface
-    (continu, pente et coin compris), flancs (position le long du bord, y).
+    surface visuelle de la case (`groundSurfaceAt` : la surface **peinte**
+    de la case si elle en a une, `MapDef.surfaceCells` passé par
+    `buildSurfaceIndex` au paramètre `painted` de `buildTerrainCellsView` ;
+    sinon la palette active, `setGroundPalette`, choisie par `main.ts`
+    d'après `?sol=` ; bruit de valeur déterministe sur x, z, jamais
+    `Math.random`), les flancs la
+    surface de flanc de la palette (`groundFlankSurface` ; par défaut
+    `ground_dirt.png` teinte (1, 0,9, 0,8)), assombrie vers le pied. Une
+    palette choisit la surface de l'herbe, de la terre et des flancs ;
+    toute texture du lot est aussi une palette à elle seule. Le lot est
+    défini **une seule fois** dans `config/groundSurfaces.ts`
+    (`GROUND_TEXTURES` : identifiant stable, libellés, famille, fichier,
+    cycle, filtrage), lu par le rendu, l'éditeur (liste, vignettes) et la
+    sauvegarde (validation). UV en coordonnées monde divisées par le cycle de la
+    surface (cases par répétition) : dessus (x, −z) (continu, pente et coin
+    compris), flancs (position le long du bord, y).
     Couleur de sommet du dessus : +15 % par niveau (rien sous y = 0),
     −`SLOPE_SHADE` (18 %) proportionnel à l'inclinaison. Matériaux
     `MeshLambertMaterial` créés à chaque construction (l'éditeur les libère),
-    textures partagées jamais libérées (PNG chargés une fois, herbes
-    pixelisées générées une fois : `DataTexture` 32 × 32, graine fixe,
-    `NearestFilter` en agrandissement). Un draw call par surface présente
+    textures partagées jamais libérées (PNG chargés une fois ; lot
+    exploratoire `public/textures/ground/variants/` via
+    `loadGroundVariantTexture`, `NearestFilter` en agrandissement pour les
+    pixelisées). Un draw call par surface présente
     plus un pour les flancs, géométrie reconstruite avec le plateau.
+    Après un coup de pinceau Surface, l'éditeur ne reconstruit **que** le
+    sol (`refreshEditorTerrainSurfaces`, `main.ts`) : ni grille, ni zones,
+    ni objets, ni relief, ni rien de la simulation. Coût mesuré sur une
+    carte de 64×64 (4 096 cases, Edge) : environ 12 à 16 ms par
+    reconstruction, de 1 à 10 surfaces, autant qu'une reconstruction
+    complète du plateau vide (le sol domine). Pendant un glisser, une
+    reconstruction a lieu à chaque mouvement qui change une case.
   - Surface active (`render/terrainSurface.ts`) : le champ de hauteur de la
     carte affichée (brouillon de l'éditeur, sinon `currentMap`), fixé par
     `syncActiveTerrain` (`main.ts`) à chaque image et à chaque changement
@@ -931,7 +945,7 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 | `editor/editorScene.ts` | Construction des meshes (réutilise les fabriques du jeu), fantômes des outils de pose, aperçus de cellule, anneau de sélection des décors (doré) et de la Baliste (couleur de son camp, fixée par `main.ts`) |
 | `editor/editorUI.ts` | Interface DOM : barre du haut, colonne de gauche (outils, catalogue `DECOR_CATALOG`, recherche), panneau de propriétés, ligne d'état, panneaux repliables, mesure de l'espace libre (`getViewportInsets`) |
 | `editor/history.ts` | Pile de commandes undo/redo (`{undo, redo}`) ; la coalescence d'un geste en une commande est faite par l'appelant |
-| `editor/mapSerializer.ts` | `MapDef` ↔ JSON (export par téléchargement, import par fichier) ; `territory` et `ballista` écrits seulement s'ils sont explicites, `buildings` et `elevationCells` (trié par z puis x, entrées invalides écartées au chargement) seulement s'il y en a |
+| `editor/mapSerializer.ts` | `MapDef` ↔ JSON (export par téléchargement, import par fichier) ; `territory` et `ballista` écrits seulement s'ils sont explicites, `buildings`, `elevationCells` et `surfaceCells` (triés par z puis x, entrées invalides écartées au chargement) seulement s'il y en a |
 
 L'orchestration reste dans `main.ts` :
 
@@ -946,15 +960,15 @@ L'orchestration reste dans `main.ts` :
   (`pushEditorObjectsCommand`, `pushObstacleRotationCommand`,
   `applyEditorMapShape` pour la Taille) ;
 - relief : `EditorState` garde `elevationMap` (sparse) et un
-  `heightField()` en cache ; `raiseCell` / `lowerCell` / `setSlope`
-  (`slopeStatus` → `evaluateSlope`) refusent une case occupée
-  (`isCellOccupied` : bâtiment, Baliste, décor, unité) ; `canPlaceBuildingAt`,
+  `heightField()` en cache ; la sculpture (`reliefBrushPlanAt` →
+  `sculptRelief`, `isLocked`) refuse de changer une case occupée
+  (`isCellOccupied` : bâtiment, Baliste, obstacle / structure, unité) ; `canPlaceBuildingAt`,
   `canPlaceBallistaAt` et `canPlaceObstacleFootprintAt` (décor de plus d'une
   case) exigent une emprise plate (`flatLevelOver`) ; `mapShapeSnapshot`
   inclut le relief. Murailles : `wallStepSplitsLevels` (`main.ts`) refuse
   une étape de tracé qui ne tient pas sur un seul niveau plat, en
   préparation comme dans l'éditeur ;
-- pinceaux (Territoire, + Case, − Case, Pente, Coin extérieur, Coin intérieur) : un seul mécanisme de trait
+- pinceaux (Territoire, + Case, − Case) : un seul mécanisme de trait
   (`startBrushStroke`, `brushAt`, `endBrushStroke`). Chaque case survolée est
   traitée une fois par trait, le plateau n'est reconstruit que si une case
   change, et le relâchement crée une seule commande d'historique

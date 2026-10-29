@@ -6,7 +6,8 @@ import { cellKey } from './mapDef';
  * d'empilement. Module pur (aucune dependance a Three.js ni au DOM) partage
  * par la simulation (falaises, voir computeCliffObstacles), le rendu
  * (hauteur de surface, faces de falaise, raycast) et l'editeur (pinceaux
- * Surelever / Abaisser, outils Pente et Coin, regles de pose).
+ * Surelever / Abaisser, regles de pose). Pentes et coins ne se posent jamais
+ * a la main : la sculpture les deduit des hauteurs logiques.
  *
  * Une case est soit PLATE au niveau `level` (0..TERRAIN_LEVEL_MAX), soit une
  * PENTE qui monte de `level` (bord bas) a `level + 1` (bord haut, du cote
@@ -19,14 +20,13 @@ import { cellKey } from './mapDef';
 /** Hauteur monde d'un niveau de relief. */
 export const TERRAIN_ELEVATION_STEP = TILE * 0.5;
 export const TERRAIN_LEVEL_MIN = 0;
-export const TERRAIN_LEVEL_MAX = 2;
+export const TERRAIN_LEVEL_MAX = 3;
 
 /** Direction de MONTEE d'une pente. N = -Z (haut de l'ecran en vue de jeu),
  *  S = +Z, E = +X, W = -X. */
 export type SlopeDirection = 'N' | 'E' | 'S' | 'W';
 
-/** Ordre de rotation (touche R de l'outil Pente) : sens horaire vu du
- *  dessus. */
+/** Les quatre directions, dans le sens horaire vu du dessus. */
 export const SLOPE_DIRECTIONS: readonly SlopeDirection[] = ['N', 'E', 'S', 'W'];
 
 export const SLOPE_DIRECTION_VECTORS: Readonly<Record<SlopeDirection, { dx: number; dz: number }>> = {
@@ -56,8 +56,7 @@ export const CONCAVE_CORNER_SLOPE_DIRECTIONS: readonly ConcaveCornerSlopeDirecti
 export type SlopeShape = SlopeDirection | CornerSlopeDirection | ConcaveCornerSlopeDirection;
 export const SLOPE_SHAPES: readonly SlopeShape[] = [...SLOPE_DIRECTIONS, ...CORNER_SLOPE_DIRECTIONS, ...CONCAVE_CORNER_SLOPE_DIRECTIONS];
 
-/** Pente de coin, exterieure (un coin haut) ou interieure (un coin bas) :
- *  les variantes de l'outil manuel Coin de pente. */
+/** Pente de coin, exterieure (un coin haut) ou interieure (un coin bas). */
 export type CornerShape = CornerSlopeDirection | ConcaveCornerSlopeDirection;
 
 export function isCornerSlope(shape: SlopeShape | null | undefined): shape is CornerSlopeDirection {
@@ -673,84 +672,4 @@ function cliffSpans(d0: number, d1: number): [number, number][] {
     else spans.push([a / (a - b), 1]);
   }
   return spans.filter(([t0, t1]) => t1 - t0 > 1e-9).sort((x, y) => x[0] - y[0]);
-}
-
-/**
- * Validation d'une pente de coin manuelle sur la case (cx, cz), exterieure
- * (`dir` = coin haut) ou interieure (`dir` = 'NEi'… : coin bas) : son niveau
- * est celui pour lequel CHAQUE voisine existante a, sur l'arete commune,
- * exactement le meme profil (aucune falaise involontaire) ; les deux
- * voisines qui touchent le coin « different » (les deux pentes a raccorder)
- * doivent exister. Memes donnees et meme geometrie que les coins de
- * la sculpture (sculptRelief).
- */
-export function evaluateCornerSlope(
-  field: TerrainHeightField,
-  hasCell: (cx: number, cz: number) => boolean,
-  cx: number,
-  cz: number,
-  dir: CornerShape,
-): { ok: true; level: number } | { ok: false; reason: string } {
-  if (!hasCell(cx, cz)) return { ok: false, reason: 'aucune case' };
-  const sideNames: Record<SlopeDirection, string> = { N: 'nord', E: 'est', S: 'sud', W: 'ouest' };
-  // Aretes inclinees, qui touchent le coin different : vers les deux pentes
-  // a raccorder.
-  const highSides: SlopeDirection[] = [dir[0] as SlopeDirection, dir[1] as SlopeDirection];
-  for (const side of highSides) {
-    const v = SLOPE_DIRECTION_VECTORS[side];
-    if (!hasCell(cx + v.dx, cz + v.dz)) return { ok: false, reason: `vide ou trou côté ${sideNames[side]}` };
-  }
-  let best: { level: number; firstMismatch: SlopeDirection | null; matches: number } | null = null;
-  for (let level = TERRAIN_LEVEL_MIN; level <= TERRAIN_LEVEL_MAX - 1; level++) {
-    const own = cornerHeightsOf(level, dir);
-    let matches = 0;
-    let firstMismatch: SlopeDirection | null = null;
-    for (const side of SLOPE_DIRECTIONS) {
-      const v = SLOPE_DIRECTION_VECTORS[side];
-      if (!hasCell(cx + v.dx, cz + v.dz)) continue;
-      const other = field.cornerHeights(cx + v.dx, cz + v.dz);
-      const [a0, a1] = EDGE_CORNERS[side];
-      const [b0, b1] = EDGE_CORNERS[OPPOSITE_SLOPE_DIRECTION[side]];
-      if (own[a0] === other[b0] && own[a1] === other[b1]) matches++;
-      else firstMismatch ??= side;
-    }
-    if (firstMismatch === null) return { ok: true, level };
-    if (!best || matches > best.matches) best = { level, firstMismatch, matches };
-  }
-  return { ok: false, reason: `falaise côté ${sideNames[best!.firstMismatch!]}` };
-}
-
-/**
- * Validation d'une pente posee sur la case (cx, cz), montant vers `dir` :
- * la case basse (cote oppose) et la case haute (cote `dir`) doivent exister,
- * et leurs aretes tournees vers la pente doivent etre horizontales aux
- * hauteurs N et N + 1. Renvoie le niveau N de la pente, ou la raison du
- * refus. Partagee par l'outil Pente de l'editeur et son apercu.
- */
-export function evaluateSlope(
-  field: TerrainHeightField,
-  hasCell: (cx: number, cz: number) => boolean,
-  cx: number,
-  cz: number,
-  dir: SlopeDirection,
-): { ok: true; level: number } | { ok: false; reason: string } {
-  if (!hasCell(cx, cz)) return { ok: false, reason: 'aucune case' };
-  const v = SLOPE_DIRECTION_VECTORS[dir];
-  const lowX = cx - v.dx;
-  const lowZ = cz - v.dz;
-  const highX = cx + v.dx;
-  const highZ = cz + v.dz;
-  if (!hasCell(lowX, lowZ) || !hasCell(highX, highZ)) return { ok: false, reason: 'vide ou trou au pied ou au sommet' };
-  const edgeHeight = (x: number, z: number, side: SlopeDirection): number | null => {
-    const h = field.cornerHeights(x, z);
-    const [a, b] = EDGE_CORNERS[side];
-    return h[a] === h[b] ? h[a]! : null;
-  };
-  const low = edgeHeight(lowX, lowZ, dir);
-  const high = edgeHeight(highX, highZ, OPPOSITE_SLOPE_DIRECTION[dir]);
-  if (low === null || high === null) return { ok: false, reason: 'bord voisin incliné' };
-  const step = Math.round((high - low) / TERRAIN_ELEVATION_STEP);
-  if (step === 0) return { ok: false, reason: 'même niveau des deux côtés' };
-  if (step !== 1) return { ok: false, reason: step < 0 ? 'le sommet est plus bas que le pied (tourner : R)' : 'différence de deux niveaux' };
-  return { ok: true, level: Math.round(low / TERRAIN_ELEVATION_STEP) };
 }

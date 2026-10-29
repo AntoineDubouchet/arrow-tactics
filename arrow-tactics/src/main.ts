@@ -85,12 +85,12 @@ import {
   type EditorTool,
 } from './editor/editorState';
 import { EditorHistory } from './editor/history';
+import { surfaceBrushOrigin, type GroundTextureId, type SurfaceBrushSize, type SurfaceCellDef } from './config/groundSurfaces';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
   buildCellPreview,
-  buildCornerSlopePreview,
   buildReliefBrushPreview,
-  buildSlopePreview,
+  buildSurfaceBrushPreview,
   buildWallEndMarker,
   buildGhost,
   buildObstacleView,
@@ -112,7 +112,7 @@ import { buildObstacleMesh, obstaclePlacementOffset, placeObstacleMesh } from '.
 import { GROUND_PALETTES, setGroundPalette } from './render/groundSurfaces';
 import { buildCellGridLines, buildTerrainCellsView } from './render/terrainCells';
 import { activeTerrain, intersectSculptSurface, intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
-import { CONCAVE_CORNER_SLOPE_DIRECTIONS, CORNER_SLOPE_DIRECTIONS, isConcaveCornerSlope, reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, SLOPE_DIRECTIONS, type ConcaveCornerSlopeDirection, type CornerShape, type CornerSlopeDirection, type ReliefBrushSize, type ReliefDelta, type SlopeDirection, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
+import { reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, type ReliefBrushSize, type ReliefDelta, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
 import { UnitMovePreview, type UnitMovePreviewItem } from './render/unitMovePreview';
 import { DEFAULT_LAUNCH_HEIGHT, PlayerArrowView, preloadPlayerArrowModel } from './render/playerArrowView';
 import { Projectiles } from './render/projectiles';
@@ -312,9 +312,10 @@ renderer.setTargetConstraint((x, z) => {
   return clampToCellsDistance(cameraBoundsCells, x, z, CAMERA.maxTargetDistanceFromTerrain);
 });
 
-// Sol : herbe classique par defaut ; `?sol=variee` ou `?sol=pixel` pour
-// comparer les variantes visuelles (render/groundSurfaces.ts), en attendant
-// le choix d'Antoine. Avant toute construction de plateau.
+// Sol : herbe classique par defaut ; `?sol=<palette>` pour comparer les
+// variantes visuelles (render/groundSurfaces.ts : variee, stylisee, pixel,
+// catalogue, ou une texture du lot seule, ex. `?sol=herbe-dense`), en
+// attendant le choix d'Antoine. Avant toute construction de plateau.
 const groundParam = new URLSearchParams(location.search).get('sol');
 const groundPalette = GROUND_PALETTES.find((p) => p === groundParam);
 if (groundPalette) setGroundPalette(groundPalette);
@@ -2541,7 +2542,8 @@ function rebuildEditorBoard(): void {
   // Supprimer case — jamais un simple rectangle width x height.
   const cells = editorState.cells;
   const field = editorState.heightField();
-  editorBoardGroup.add(buildTerrainCellsView(cells, field).group);
+  editorTerrainGroup = buildTerrainCellsView(cells, field, editorState.surfaceIndex).group;
+  editorBoardGroup.add(editorTerrainGroup);
   editorBoardGroup.add(buildCellGridLines(cells, COLORS.gridLine, field));
   editorZonesGroup = null;
   refreshEditorZones();
@@ -2552,6 +2554,25 @@ function rebuildEditorBoard(): void {
 
 /** Zones de l'editeur actuellement affichees (enfant de editorBoardGroup). */
 let editorZonesGroup: THREE.Group | null = null;
+/** Sol de l'editeur actuellement affiche (enfant de editorBoardGroup). */
+let editorTerrainGroup: THREE.Group | null = null;
+
+/** Remplace seulement le sol de l'editeur (dessus et flancs) — apres un coup
+ *  de pinceau Surface, purement visuel : ni grille, ni zones, ni objets, ni
+ *  relief, ni rien de la simulation ne sont recalcules. */
+function refreshEditorTerrainSurfaces(): void {
+  if (!editorState || !editorTerrainGroup) return;
+  editorBoardGroup.remove(editorTerrainGroup);
+  editorTerrainGroup.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.geometry) return;
+    mesh.geometry.dispose();
+    (mesh.material as THREE.Material).dispose();
+  });
+  editorTerrainGroup = buildTerrainCellsView(editorState.cells, editorState.heightField(), editorState.surfaceIndex).group;
+  editorBoardGroup.add(editorTerrainGroup);
+  scheduleEditorMapStatus();
+}
 
 /** Remplace seulement les zones de l'editeur — apres un coup de pinceau de
  *  territoire, sans reconstruire sol ni grille. Territoire explicite du
@@ -2931,29 +2952,25 @@ const editorUI = new EditorUI({
     refreshEditorObjects();
     updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
   },
-  onSelectCornerSlopeTool: () => {
-    if (!editorState) return;
-    editorState.setTool({ type: 'corner-slope-cell', dir: editorCornerDir });
-    clearEditorGhost();
-    refreshEditorObjects();
-  },
-  onSelectInnerCornerSlopeTool: () => {
-    if (!editorState) return;
-    editorState.setTool({ type: 'corner-slope-cell', dir: editorInnerCornerDir });
-    clearEditorGhost();
-    refreshEditorObjects();
-  },
-  onSelectSlopeTool: () => {
-    if (!editorState) return;
-    editorState.setTool({ type: 'slope-cell', dir: editorSlopeDir });
-    clearEditorGhost();
-    refreshEditorObjects();
-  },
   onSelectTerritoryTool: (team) => {
     if (!editorState) return;
     editorState.setTool({ type: 'paint-territory', team });
     clearEditorGhost();
     refreshEditorObjects();
+  },
+  onSelectSurfaceTool: (surface) => {
+    if (!editorState) return;
+    editorState.setTool({ type: 'paint-surface', surface, size: editorSurfaceSize });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
+  onSelectSurfaceBrushSize: (size) => {
+    editorSurfaceSize = size;
+    editorUI.setSurfaceBrushSize(size);
+    if (!editorState || editorState.tool.type !== 'paint-surface') return;
+    editorState.setTool({ ...editorState.tool, size });
+    refreshEditorObjects();
+    updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
   },
   onRotate: () => rotateSelectedObstacleBy(Math.PI / 2),
   onRotateBy: (degrees) => rotateSelectedObstacleBy(THREE.MathUtils.degToRad(degrees)),
@@ -3047,10 +3064,8 @@ window.addEventListener('resize', () => {
 });
 
 function clearEditorGhost(): void {
-  // Plus de case survolee : la ligne d'etat de l'outil Pente revient a R.
-  editorUI.setSlopeResolution(null);
+  // Plus de case survolee : la ligne d'etat du pinceau de relief se vide.
   editorUI.setReliefBrushInfo(null);
-  editorUI.setCornerResolution(null);
   if (!editorGhost) return;
   editorGhostGroup.remove(editorGhost);
   editorGhost = null;
@@ -3567,26 +3582,13 @@ function updateEditorGhost(x: number, z: number): void {
     editorGhost = buildReliefBrushPreview(plan.cells, plan.status.ok, new Set(plan.bridged));
     editorGhostGroup.add(editorGhost);
     editorUI.setReliefBrushInfo({ levels: plan.levels, refusal: plan.status.ok ? null : plan.status.reason, bridged: plan.bridged.length });
-  } else if (editorState.tool.type === 'corner-slope-cell') {
-    // Surface future et point du coin different (haut : exterieur, bas :
-    // interieur) ; variante de R, ou imposee par les voisins
-    // (resolveCornerSlope, meme resolution que la pose).
-    const cellX = Math.floor(x);
-    const cellZ = Math.floor(z);
-    const corner = editorState.resolveCornerSlope(cellX, cellZ, editorState.tool.dir);
-    editorGhost = buildCornerSlopePreview(cellX, cellZ, corner.dir, corner.status.ok ? corner.status.level : null);
+  } else if (editorState.tool.type === 'paint-surface') {
+    // Cases qui seront peintes (contour leger, la texture actuelle reste
+    // visible) ; hors carte et trous : rien.
+    const cells = editorState.surfaceBrushCells(editorState.tool.size, x, z);
+    if (cells.length === 0) return;
+    editorGhost = buildSurfaceBrushPreview(cells, editorState.tool.surface === null);
     editorGhostGroup.add(editorGhost);
-    editorUI.setCornerResolution(corner);
-  } else if (editorState.tool.type === 'slope-cell') {
-    // Future surface inclinee (verte / rouge), bord bas (bleu), bord haut
-    // (jaune) et fleche de montee ; orientation de R, ou deduite des
-    // voisins si R est refusee et qu'une seule orientation convient.
-    const cellX = Math.floor(x);
-    const cellZ = Math.floor(z);
-    const slope = editorState.resolveSlope(cellX, cellZ, editorState.tool.dir);
-    editorGhost = buildSlopePreview(cellX, cellZ, slope.dir, slope.status.ok ? slope.status.level : null);
-    editorGhostGroup.add(editorGhost);
-    editorUI.setSlopeResolution(slope);
   } else if (editorState.tool.type === 'paint-territory') {
     // Case qui sera peinte, teintee de la couleur du pinceau (gris pour
     // Effacer) ; aucun apercu sur une case absente, impossible a peindre.
@@ -3605,12 +3607,6 @@ function updateEditorGhost(x: number, z: number): void {
  *  trait forme UNE entree d'historique, creee au relachement s'il a change
  *  quelque chose. `before` : territoire (et forme de la carte pour les
  *  outils de case) a l'appui. */
-/** Derniere direction de montee choisie pour l'outil Pente (R : tourner). */
-let editorSlopeDir: SlopeDirection = 'N';
-/** Derniers coins choisis pour les outils Coin exterieur (coin haut) et Coin
- *  interieur (coin bas) ; R : NE → SE → SW → NW dans la meme famille. */
-let editorCornerDir: CornerSlopeDirection = 'NE';
-let editorInnerCornerDir: ConcaveCornerSlopeDirection = 'NEi';
 
 /** Trait d'un pinceau de relief (Surelever / Abaisser, bouton gauche
  *  maintenu) : union des coeurs des tampons valides (`painted`), relief
@@ -3665,11 +3661,7 @@ function reliefStrokeAt(x: number, z: number): void {
   const stroke = reliefStroke;
   if (!editorState || !stroke) return;
   const target = reliefBrushOrigin(stroke.size, x, z);
-  const origins: { x: number; z: number }[] = [];
-  const from = stroke.last ?? target;
-  const steps = Math.max(Math.abs(target.x - from.x), Math.abs(target.z - from.z));
-  if (steps === 0) origins.push(target);
-  for (let k = 1; k <= steps; k++) origins.push({ x: from.x + Math.round(((target.x - from.x) * k) / steps), z: from.z + Math.round(((target.z - from.z) * k) / steps) });
+  const origins = strokeOriginsBetween(stroke.last, target);
   stroke.last = target;
   let next: { cells: TerrainElevationCellDef[]; logic: Map<string, number> } | null = null;
   for (const o of origins) {
@@ -3700,7 +3692,76 @@ function endReliefStroke(): void {
   editorHistory.push({ undo: () => applyEditorMapShape(before), redo: () => applyEditorMapShape(after) });
 }
 
-type BrushTool = 'paint-territory' | 'add-cell' | 'remove-cell' | 'slope-cell' | 'corner-slope-cell';
+/** Coins de tampon d'un trait de pinceau entre le tampon precedent `from`
+ *  (null : debut du trait) et `target`, `target` compris : un par case de
+ *  grille parcourue, pour qu'une souris rapide ne laisse aucun trou. */
+function strokeOriginsBetween(from: { x: number; z: number } | null, target: { x: number; z: number }): { x: number; z: number }[] {
+  const start = from ?? target;
+  const steps = Math.max(Math.abs(target.x - start.x), Math.abs(target.z - start.z));
+  if (steps === 0) return [target];
+  const origins: { x: number; z: number }[] = [];
+  for (let k = 1; k <= steps; k++) origins.push({ x: start.x + Math.round(((target.x - start.x) * k) / steps), z: start.z + Math.round(((target.z - start.z) * k) / steps) });
+  return origins;
+}
+
+/** Taille du pinceau Surface (1×1 : details, 4×4 : grandes zones). */
+let editorSurfaceSize: SurfaceBrushSize = 4;
+
+/** Trait du pinceau Surface (bouton gauche maintenu) : purement visuel,
+ *  applique en direct (seul le sol est reconstruit), une seule entree
+ *  d'historique au relachement. Hors carte et trous ignores sans
+ *  interrompre le trait. `before` : surfaces a l'appui ; `last` : coin du
+ *  dernier tampon, pour interpoler. */
+interface SurfaceStroke {
+  before: SurfaceCellDef[];
+  surface: GroundTextureId | null;
+  size: SurfaceBrushSize;
+  last: { x: number; z: number } | null;
+  changed: boolean;
+}
+let surfaceStroke: SurfaceStroke | null = null;
+
+function startSurfaceStroke(surface: GroundTextureId | null, size: SurfaceBrushSize): void {
+  if (!editorState) return;
+  if (surfaceStroke) endSurfaceStroke();
+  surfaceStroke = { before: editorState.surfaceCells, surface, size, last: null, changed: false };
+}
+
+/** Peint le tampon sous (x, z) et les tampons intermediaires si la souris a
+ *  saute des cases ; seul le sol est reconstruit, et seulement si une case
+ *  a change. */
+function surfaceStrokeAt(x: number, z: number): void {
+  const stroke = surfaceStroke;
+  if (!editorState || !stroke) return;
+  const target = surfaceBrushOrigin(stroke.size, x, z);
+  let changed = false;
+  for (const o of strokeOriginsBetween(stroke.last, target)) {
+    for (const c of editorState.surfaceBrushCellsAt(stroke.size, o.x, o.z)) {
+      if (editorState.paintSurfaceCell(c.x, c.z, stroke.surface)) changed = true;
+    }
+  }
+  stroke.last = target;
+  if (!changed) return;
+  stroke.changed = true;
+  refreshEditorTerrainSurfaces();
+}
+
+/** Fin du trait : une seule entree d'historique, qui restaure toutes les
+ *  surfaces d'avant (annuler) ou d'apres (retablir) le trait. */
+function endSurfaceStroke(): void {
+  const stroke = surfaceStroke;
+  surfaceStroke = null;
+  if (!editorState || !stroke?.changed) return;
+  const before = stroke.before;
+  const after = editorState.surfaceCells;
+  const apply = (surfaces: SurfaceCellDef[]) => {
+    editorState?.restoreSurfaces(surfaces);
+    refreshEditorTerrainSurfaces();
+  };
+  editorHistory.push({ undo: () => apply(before), redo: () => apply(after) });
+}
+
+type BrushTool = 'paint-territory' | 'add-cell' | 'remove-cell';
 interface BrushStroke {
   tool: BrushTool;
   visited: Set<string>;
@@ -3711,7 +3772,7 @@ interface BrushStroke {
 let brushStroke: BrushStroke | null = null;
 
 function isBrushTool(type: EditorTool['type']): type is BrushTool {
-  return type === 'paint-territory' || type === 'add-cell' || type === 'remove-cell' || type === 'slope-cell' || type === 'corner-slope-cell';
+  return type === 'paint-territory' || type === 'add-cell' || type === 'remove-cell';
 }
 
 /** Commence un trait avec l'outil actif (appui gauche au sol). */
@@ -3746,16 +3807,9 @@ function brushAt(x: number, z: number): void {
     return;
   }
   // Memes regles qu'un clic isole (addCell / removeCell, qui retire aussi le
-  // territoire explicite de la case supprimee ; relief : Pente, Coin,
-  // chaque case une seule fois par trait).
-  const changed =
-    tool.type === 'add-cell'
-      ? editorState.addCell(cellX, cellZ, tool.terrain)
-      : tool.type === 'remove-cell'
-        ? editorState.removeCell(cellX, cellZ)
-        : tool.type === 'slope-cell'
-          ? editorState.setSlope(cellX, cellZ, editorState.resolveSlope(cellX, cellZ, tool.dir).dir)
-          : editorState.setCornerSlope(cellX, cellZ, editorState.resolveCornerSlope(cellX, cellZ, tool.dir).dir);
+  // territoire explicite de la case supprimee), chaque case une seule fois
+  // par trait.
+  const changed = tool.type === 'add-cell' ? editorState.addCell(cellX, cellZ, tool.terrain) : editorState.removeCell(cellX, cellZ);
   if (!changed) return;
   stroke.changed = true;
   rebuildEditorBoard();
@@ -3852,15 +3906,19 @@ function endBrushStroke(): void {
 }
 
 window.addEventListener('mousemove', (event) => {
-  if ((!brushStroke && !reliefStroke) || !inEditorMode) return;
+  if ((!brushStroke && !reliefStroke && !surfaceStroke) || !inEditorMode) return;
   setRaycasterFromEvent(event);
   // Trait de sculpture : on vise le terrain du DEBUT du trait, sinon le
   // relief qui monte sous le curseur intercepte le rayon et le pinceau
   // derive vers la camera a chaque mouvement ; le vide prolonge ce terrain
   // (pickReliefPoint), le trait n'est jamais interrompu.
-  if (!(reliefStroke ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
+  // Pinceau Surface : meme pointage (le trait traverse trous et bord).
+  if (!(reliefStroke || surfaceStroke ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
   if (reliefStroke) {
     reliefStrokeAt(groundHit.x, groundHit.z);
+    updateEditorGhost(groundHit.x, groundHit.z);
+  } else if (surfaceStroke) {
+    surfaceStrokeAt(groundHit.x, groundHit.z);
     updateEditorGhost(groundHit.x, groundHit.z);
   } else {
     brushAt(groundHit.x, groundHit.z);
@@ -3869,17 +3927,19 @@ window.addEventListener('mousemove', (event) => {
 window.addEventListener('mouseup', (event) => {
   if (event.button === 0 && brushStroke) endBrushStroke();
   if (event.button === 0 && reliefStroke) endReliefStroke();
+  if (event.button === 0 && surfaceStroke) endSurfaceStroke();
 });
 window.addEventListener('blur', () => {
   if (brushStroke) endBrushStroke();
   if (reliefStroke) endReliefStroke();
+  if (surfaceStroke) endSurfaceStroke();
 });
 
 function handleEditorClick(event: MouseEvent): void {
   if (!editorState || !editorAssets) return;
   setRaycasterFromEvent(event);
   // Pinceaux de relief : un trait peut commencer dans le vide.
-  if (!(editorState.tool.type === 'relief-brush' ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
+  if (!(editorState.tool.type === 'relief-brush' || editorState.tool.type === 'paint-surface' ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
 
   if (editorState.tool.type === 'place-obstacle') {
     // Placement LIBRE : position exacte du clic, jamais arrondie a une case
@@ -3949,6 +4009,15 @@ function handleEditorClick(event: MouseEvent): void {
   if (editorState.tool.type === 'relief-brush') {
     startReliefStroke(editorState.tool.delta, editorState.tool.size);
     reliefStrokeAt(groundHit.x, groundHit.z);
+    updateEditorGhost(groundHit.x, groundHit.z);
+    return;
+  }
+
+  // Pinceau Surface : meme geste (appui, glisser, relachement : une entree
+  // d'historique) ; jamais bloque par un objet pose sur la case.
+  if (editorState.tool.type === 'paint-surface') {
+    startSurfaceStroke(editorState.tool.surface, editorState.tool.size);
+    surfaceStrokeAt(groundHit.x, groundHit.z);
     updateEditorGhost(groundHit.x, groundHit.z);
     return;
   }
@@ -7230,6 +7299,7 @@ window.addEventListener('keydown', (event) => {
     // Un trait de territoire en cours est d'abord enregistre : annuler /
     // retablir agit toujours sur un historique complet.
     if (brushStroke) endBrushStroke();
+    if (surfaceStroke) endSurfaceStroke();
     if ((event.key === 'z' || event.key === 'Z' || event.key === 'y' || event.key === 'Y') && editorWallTrace) {
       editorWallTrace = null;
       clearEditorGhost();
@@ -7293,26 +7363,7 @@ window.addEventListener('keydown', (event) => {
       // reinitialiser la camera (voir CLAUDE.md, conflit identifie des
       // l'etape 2) — la camera reste pilotable normalement par ailleurs.
       if (inEditorMode) {
-        if (editorState?.tool.type === 'corner-slope-cell') {
-          // Outils Coin exterieur / interieur : orientation suivante dans la
-          // meme famille (NE → SE → SW → NW, ou NEi → SEi → SWi → NWi).
-          const current: CornerShape = editorState.tool.dir;
-          if (isConcaveCornerSlope(current)) {
-            editorInnerCornerDir = CONCAVE_CORNER_SLOPE_DIRECTIONS[(CONCAVE_CORNER_SLOPE_DIRECTIONS.indexOf(current) + 1) % CONCAVE_CORNER_SLOPE_DIRECTIONS.length]!;
-            editorState.setTool({ type: 'corner-slope-cell', dir: editorInnerCornerDir });
-          } else {
-            editorCornerDir = CORNER_SLOPE_DIRECTIONS[(CORNER_SLOPE_DIRECTIONS.indexOf(current) + 1) % CORNER_SLOPE_DIRECTIONS.length]!;
-            editorState.setTool({ type: 'corner-slope-cell', dir: editorCornerDir });
-          }
-          refreshEditorObjects();
-          updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
-        } else if (editorState?.tool.type === 'slope-cell') {
-          // Outil Pente : la direction de montee tourne d'un quart de tour.
-          editorSlopeDir = SLOPE_DIRECTIONS[(SLOPE_DIRECTIONS.indexOf(editorState.tool.dir) + 1) % SLOPE_DIRECTIONS.length]!;
-          editorState.setTool({ type: 'slope-cell', dir: editorSlopeDir });
-          refreshEditorObjects();
-          updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
-        } else if (editorState?.rotateBuildingTool()) updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
+        if (editorState?.rotateBuildingTool()) updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
         else rotateSelectedObstacleBy(Math.PI / 2);
       } else {
         renderer.resetCamera();
@@ -7868,7 +7919,7 @@ window.addEventListener('mousemove', (event) => {
   setRaycasterFromEvent(event);
   // Pinceaux de relief : meme pointage que le trait (terrain de son debut,
   // prolonge dans le vide) ; l'apercu suit le curseur hors de la carte.
-  if (!(editorState.tool.type === 'relief-brush' ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
+  if (!(editorState.tool.type === 'relief-brush' || editorState.tool.type === 'paint-surface' ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
   updateEditorGhost(groundHit.x, groundHit.z);
 });
 

@@ -1606,22 +1606,13 @@ img {
   background: rgba(231, 227, 216, 0.14);
 }
 
-/* Sous-titre d'une categorie (Relief : Sculpture, Ajustements). */
+/* Sous-titre d'une categorie (Surface : Herbe, Terre…). */
 .editor-asset-subcategory {
   margin: 6px 0 4px;
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-dim);
-}
-
-/* Outil secondaire (Ajustements du relief) : plus discret que les outils
-   principaux. */
-.editor-asset-card--secondary {
-  padding: 5px 10px;
-  font-size: 11px;
-  color: var(--ink-dim);
-  background: transparent;
 }
 
 /* Outil actif (bouton d'outil ou carte du catalogue) : fond plus clair,
@@ -1842,11 +1833,53 @@ img {
   border: 1px solid var(--ink-dim);
 }
 
-.editor-legend {
-  margin-bottom: 4px;
-  font-size: 10.5px;
-  line-height: 1.45;
-  color: var(--ink-dim);
+/* Surface : liste compacte de vignettes, deux par ligne. */
+.editor-surface-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.editor-surface-swatch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 5px 3px 3px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: left;
+  overflow: hidden;
+  color: var(--ink);
+  background: rgba(231, 227, 216, 0.06);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.editor-surface-swatch:hover {
+  background: rgba(231, 227, 216, 0.14);
+}
+
+.editor-surface-swatch.is-active {
+  background: rgba(231, 227, 216, 0.2);
+  border-color: rgba(231, 227, 216, 0.7);
+  font-weight: 600;
+}
+
+.editor-surface-thumb {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  background-size: cover;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.editor-surface-thumb--pixel {
+  image-rendering: pixelated;
 }
 
 /* "Tester le scénario" : seule la ligne d'état reste affichée. */
