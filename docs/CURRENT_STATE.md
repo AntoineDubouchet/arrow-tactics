@@ -896,6 +896,30 @@ Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
   complète (unités de scénario comprises, `SURVIVAL_ARENA_MAP`) ; elle ne
   fournit plus que les dimensions de « Nouvelle carte ».
 
+**Arène candidate (île ronde)** — `config/maps/islandArena.ts`,
+`ISLAND_ARENA_MAP`, 2026-10-30, transcription d'un export de l'éditeur.
+**Pas utilisée par le jeu** : le Mode survie part toujours de l'arène
+ci-dessus.
+
+- 34 × 34, 860 cases, silhouette ronde irrégulière (avancées, anses), 3 trous
+  (crevasse au nord-est).
+- Relief 0 à 3 : massif ouest (niveau 1, crête de niveau 2, sommet rocheux
+  de niveau 3), colline est (niveaux 1 et 2), deux petites hauteurs de
+  niveau 1. Plusieurs versants praticables par relief ; 14 arêtes de
+  falaise, sur les faces nord (posées dans `elevationCells` : l'éditeur les
+  conserve à l'enregistrement mais ne sait pas en créer).
+- Camp joueur au sud : territoire joueur de 159 cases, toutes plates
+  (111 emplacements 3×3) ; Baliste en (0.5, 14.5) ; aucun territoire
+  ennemi. Chemins et aire tassée en terre battue, herbes de zone, 59 décors
+  composés à la main (32 arbres KayKit, 3 bosquets, 17 rochers, 7 petits).
+- Testée en Mode survie réel sans modifier le dépôt : construction de tous
+  les bâtiments et d'une enceinte avec porte dans le camp, pas d'ouverture
+  des unités conforme (§2), vague 1 gagnée.
+- **Bloque son adoption** : l'agrandissement de run ne déplace ni le relief
+  ni les surfaces (`KNOWN_ISSUES.md` KI-27). Les ennemis apparaissent
+  toujours dans la bande nord (§10) : les autres accès de l'île ne servent
+  pas encore.
+
 **Territoire**
 
 - Chaque case appartient au joueur, à l'ennemi, ou à personne (neutre).
@@ -945,9 +969,10 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
 - Une carte peut définir une altitude par case (`elevationCells`) : niveaux
   0, 1, 2 et 3, un niveau valant une demi-case de hauteur (niveau 3 :
   y = 1,5). Une case est plate
-  ou en **pente** (d'un niveau au suivant, dans une direction). Aucune carte
-  livrée n'en a : l'arène du Mode survie est entièrement plate ; le relief
-  ne se voit qu'avec une carte de l'éditeur (« Tester le scénario »).
+  ou en **pente** (d'un niveau au suivant, dans une direction). L'arène du
+  Mode survie est entièrement plate ; seule l'arène candidate
+  (`islandArena.ts`, non utilisée en run) en a. Le relief ne se voit en jeu
+  qu'avec une carte de l'éditeur (« Tester le scénario »).
 - **Raccord** : chaque case a une hauteur à ses quatre coins ; deux cases
   voisines se raccordent si leur arête commune a la même hauteur aux deux
   extrémités (plat ↔ plat au même niveau, pied et sommet d'une pente,

@@ -659,6 +659,9 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   `EditorState`). `DEFAULT_MAP` (`config/mapDef.ts`) ne fournit plus que les
   dimensions de « Nouvelle carte » (et le paramètre par défaut, inutilisé, du
   constructeur d'`EditorState`). Aucune de ces cartes n'est jamais mutée.
+  `config/maps/islandArena.ts` (`ISLAND_ARENA_MAP`) : arène candidate, même
+  convention (transcription d'un export de l'éditeur), importée par aucun
+  module ; voir `CURRENT_STATE.md` §11.
 - **Expansion de map** (`run/mapExpansion.ts`) : fonctions pures sur `MapDef`
   et un état d'expansion. `main.ts` les applique derrière l'écran de
   transition, après une victoire.

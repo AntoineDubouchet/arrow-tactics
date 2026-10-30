@@ -927,8 +927,12 @@ Limitations de l'éditeur, sans entrée dans `KNOWN_ISSUES.md` :
 - **Surfaces et agrandissement de run** : `run/mapExpansion.ts` recopie
   `surfaceCells` sans les déplacer, comme `elevationCells`, alors que les
   cases et le territoire sont transformés. C'est sans effet aujourd'hui,
-  puisque l'arène du Mode survie n'a ni relief ni surface peinte. À
-  traiter si elle en reçoit un jour.
+  puisque l'arène du Mode survie n'a ni relief ni surface peinte ; mesuré
+  sur l'arène candidate (`islandArena.ts`) : falaises et poches isolées
+  dès la vague 2 (`KNOWN_ISSUES.md` KI-27).
+- **Falaises** : la carte peut en contenir (`elevationCells`), l'éditeur les
+  conserve à l'enregistrement, mais ses pinceaux ne produisent que des
+  pentes ; sculpter sur une falaise la remplace par des pentes.
 
 ## 19. Pour les développeurs
 

@@ -38,6 +38,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-23 | Raycast sur un modèle animé avant son premier rendu | Dette |
 | KI-24 | Espace réactive le bouton qui a gardé le focus | Confirmé (éditeur) / À vérifier (jeu) |
 | KI-26 | Arbres et props pivotent autour de l'origine de leur modèle | Dette (lecture du code) |
+| KI-27 | L'agrandissement de run ne déplace ni le relief ni les surfaces | Confirmé (mesuré, arène candidate) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19 et
@@ -190,6 +191,31 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 - **Vérification** : relire `onValidatePlacement` et `applyBattleOutcome` à
   chaque modification de l'un des deux.
 - **Piste** : un identifiant explicite reliant `OwnedUnit` et entité.
+
+### KI-27 — L'agrandissement de run ne déplace ni le relief ni les surfaces
+
+- **Statut** : Confirmé, mesuré sur l'arène candidate
+  (`config/maps/islandArena.ts`) avec les fonctions du jeu
+  (`applyMapExpansionStep`, `run/mapExpansion.ts`). Sans effet sur l'arène
+  officielle actuelle, plate et sans surface peinte.
+- **Cause** : `expandedMap` transforme `cells`, `territory`, décors et
+  unités, mais recopie `elevationCells`, `reliefLogic` et `surfaceCells`
+  sans les déplacer (`EDITOR.md`, « Surfaces et agrandissement de run »).
+  Le relief et les chemins restent sur leurs anciennes coordonnées pendant
+  que des rangées et des colonnes de cases sont décalées ou dupliquées.
+- **Mesure** (arène candidate, départ : 14 arêtes de falaise, une seule zone
+  accessible) :
+  - étape A (vague 1) : rien ne bouge, aucun dégât ;
+  - étape B (vague 2) : 55 arêtes de falaise, 13 zones dont 12 poches
+    isolées, 4 cases de chemin hors carte, 2 décors au-dessus du vide ;
+  - étape C (vague 3) : 63 arêtes de falaise, 6 poches isolées.
+- **Impact** : falaises inattendues, poches de terrain inaccessibles,
+  chemins décalés par rapport aux pentes, silhouette de plus en plus
+  rectangulaire. Bloque l'adoption d'une arène avec relief ou surfaces
+  peintes en Mode survie.
+- **Piste** : faire suivre au relief et aux surfaces les déplacements de
+  cases, ou repenser l'agrandissement pour une arène ronde (décision de
+  design, à trancher avec la passe des zones de spawn).
 
 ## B. Éditeur de maps
 
