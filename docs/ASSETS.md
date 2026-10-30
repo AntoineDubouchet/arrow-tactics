@@ -279,7 +279,10 @@ Détail du préchargement et de l'ordre de démarrage : voir `ARCHITECTURE.md`.
   - Chaque objet posé est ensuite un **clone** ; le même objet n'est jamais
     ajouté deux fois à la scène.
   - `THREE.Cache.enabled = true` : la texture KayKit partagée n'est téléchargée
-    qu'une fois.
+    qu'une fois. Le **premier** modèle KayKit est chargé seul, les autres
+    ensuite (`loadKaykitModel`) : avec ce cache, three.js ne donne l'image
+    qu'au premier chargement, et ceux lancés en même temps recevaient une
+    texture vide (décors KayKit noirs, corrigé le 2026-10-30).
 - **Pack KayKit complet, à la demande** : `ensureModels(keys)` charge une
   fois les modèles demandés et les range dans `buildingsByName` /
   `propsByName`, le rendu restant synchrone. Appelé au démarrage pour les
@@ -470,6 +473,7 @@ Pratique actuelle, telle qu'elle se dégage du code :
 | La lueur d'origine disparaît au premier coup reçu | Le flash suppose un émissif nul au repos | Émissif mis à 0 au chargement |
 | Un clip venant d'un autre fichier ne bouge rien | Noms d'os différents | Noms identiques, ou réécriture des pistes (Baliste) |
 | Texture KayKit introuvable | `.gltf` et texture dans des dossiers différents | Texture copiée à côté des `.gltf` |
+| Décors KayKit noirs (tonneaux, caisses, rochers, arbres A/B) ; three.js : « Texture marked for update but no image data found » | `THREE.Cache` actif et plusieurs `.gltf` chargeant la même texture en même temps : seul le premier reçoit l'image | Premier modèle KayKit chargé seul, les suivants après (`loadKaykitModel`) |
 | Couleurs délavées ou trop sombres | Espace couleur incorrect | `SRGBColorSpace` sur les textures de couleur uniquement |
 | Texture vide après un clone | Texture clonée avant la fin de son chargement | Jamais de clone : une instance partagée par fichier (sol, VFX) |
 | Sol noir un instant à chaque reconstruction du plateau | Texture du sol rechargée à chaque construction | Instance partagée chargée une seule fois (`render/textures.ts`) |

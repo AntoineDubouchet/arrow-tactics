@@ -56,6 +56,14 @@ function loadModel(name: string): Promise<THREE.Group> {
   return pending;
 }
 
+/** Premier modele KayKit, charge SEUL (2026-10-30, bug confirme : decors
+ *  KayKit rendus en noir). Avec THREE.Cache actif, l'ImageBitmapLoader de
+ *  three.js (0.185) ne donne l'image de la texture partagee
+ *  `hexagons_medieval.png` qu'au premier chargement : ceux lances PENDANT
+ *  celui-ci attendent une promesse qui se resout sans image (texture vide,
+ *  rendue noire). Une fois l'image en cache, les suivants la recoivent. */
+let firstKaykitModel: Promise<unknown> | null = null;
+
 /** Meme principe que loadModel, mais `.gltf` (pas `.glb`) et un dossier
  *  distinct (voir KAYKIT_BASE_PATH) — mis en cache separement (cle prefixee
  *  `kaykit:`) pour ne jamais entrer en collision avec un nom Kenney identique. */
@@ -63,7 +71,13 @@ function loadKaykitModel(name: string): Promise<THREE.Group> {
   const cacheKey = `kaykit:${name}`;
   let pending = rawCache.get(cacheKey);
   if (!pending) {
-    pending = loader.loadAsync(`${KAYKIT_BASE_PATH}${name}.gltf`).then((gltf) => gltf.scene);
+    const load = () => loader.loadAsync(`${KAYKIT_BASE_PATH}${name}.gltf`).then((gltf) => gltf.scene);
+    if (firstKaykitModel) {
+      pending = firstKaykitModel.then(load);
+    } else {
+      pending = load();
+      firstKaykitModel = pending.catch(() => undefined);
+    }
     rawCache.set(cacheKey, pending);
   }
   return pending;
