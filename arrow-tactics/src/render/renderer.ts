@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BOARD_H, BOARD_W, CAMERA, COLORS } from '../config/constants';
 import { clamp, degToRad } from '../core/math';
+import { createBackgroundVeil, type LookSettings } from './look';
 
 /** Marges en pixels CSS entre les bords de la fenetre et la zone libre. */
 export interface ViewportInsets {
@@ -58,6 +59,8 @@ export class Renderer {
   viewHeight = CAMERA.viewHeight;
 
   private readonly target = new THREE.Vector3(0, 0, 0);
+  private readonly hemisphere: THREE.HemisphereLight;
+  private readonly fill: THREE.DirectionalLight;
   private readonly sun: THREE.DirectionalLight;
 
   /** Zone d'affichage logique (editeur, E6) : marges en pixels CSS de la
@@ -105,7 +108,8 @@ export class Renderer {
     // rochers/arbres sont maintenant de vrais modeles .glb (voir
     // render/assetLibrary.ts) avec leur propre relief et leurs propres
     // materiaux : ils n'ont pas besoin d'un ambiant faible pour se lire.
-    this.scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x4a5236, 1.0));
+    this.hemisphere = new THREE.HemisphereLight(0xbcd4ff, 0x4a5236, 1.0);
+    this.scene.add(this.hemisphere);
 
     // Lumiere de remplissage, opposee au soleil et sans ombre : sans elle,
     // les faces a l'ombre des modeles .glb (rochers, arbres) tombent presque
@@ -114,9 +118,9 @@ export class Renderer {
     // (l'inverse du soleil chaud) pour rester une "lumiere de ciel" discrete,
     // pas une deuxieme source dramatique : les faces a l'ombre doivent rester
     // plus sombres que les faces eclairees, juste jamais illisibles.
-    const fill = new THREE.DirectionalLight(0xbcd4ff, 0.45);
-    fill.position.set(10, 10, -8);
-    this.scene.add(fill);
+    this.fill = new THREE.DirectionalLight(0xbcd4ff, 0.45);
+    this.fill.position.set(10, 10, -8);
+    this.scene.add(this.fill);
 
     this.sun = new THREE.DirectionalLight(0xfff2d6, 1.7);
     this.sun.position.set(-12, 20, 10);
@@ -139,6 +143,28 @@ export class Renderer {
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
+  }
+
+  /** Preset de lookdev (render/look.ts, `?look=`), une fois au demarrage :
+   *  seuls les reglages presents changent (baseline : aucun). */
+  applyLook(look: LookSettings): void {
+    if (look.hemisphereIntensity !== undefined) this.hemisphere.intensity = look.hemisphereIntensity;
+    if (look.sunIntensity !== undefined) this.sun.intensity = look.sunIntensity;
+    if (look.fillIntensity !== undefined) this.fill.intensity = look.fillIntensity;
+    if (look.backgroundIntensity !== undefined) this.scene.backgroundIntensity = look.backgroundIntensity;
+    if (look.backgroundVeil) this.scene.add(createBackgroundVeil(look.backgroundVeil));
+  }
+
+  /** Eclairement d'un sol plat a decouvert (lineaire, divise par pi : ce que
+   *  multiplie l'albedo d'un materiau Lambert), lumieres et preset courants :
+   *  vignettes de l'outil Surface (render/groundLook.ts). */
+  groundIrradiance(): [number, number, number] {
+    const sum = this.hemisphere.color.clone().multiplyScalar(this.hemisphere.intensity);
+    for (const light of [this.sun, this.fill]) {
+      const up = light.position.clone().sub(light.target.position).normalize().y;
+      sum.add(light.color.clone().multiplyScalar(light.intensity * Math.max(0, up)));
+    }
+    return [sum.r / Math.PI, sum.g / Math.PI, sum.b / Math.PI];
   }
 
   /** Tampon de rendu a la taille CSS × devicePixelRatio, ET taille

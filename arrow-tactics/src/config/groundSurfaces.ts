@@ -43,6 +43,19 @@ export const GROUND_TEXTURE_CATEGORIES: readonly { id: GroundTextureCategory; la
   { id: 'experimental', label: 'Expérimental' },
 ];
 
+/** Palette SIMPLIFIEE de l'outil Surface (rendu `?groundLook=living`,
+ *  render/groundLook.ts, 2026-10-30) : une herbe et deux de ses etats, une
+ *  terre, dans l'ordre d'affichage. Les autres identifiants (herbes
+ *  stylisee et pixel, mixtes, terre en strates, reservee aux flancs)
+ *  restent valides : une carte qui les contient se charge, se rend et
+ *  s'enregistre telle quelle ; ils ne sont seulement plus proposes. */
+export const GROUND_SURFACE_PALETTE: readonly { id: GroundTextureId; label: string; hint: string }[] = [
+  { id: 'herbe-classique', label: 'Herbe', hint: 'Herbe : la matière de base du sol' },
+  { id: 'herbe-dense', label: 'Herbe dense', hint: 'La même herbe, plus sombre et plus riche (sous-bois, zones grasses)' },
+  { id: 'herbe-prairie', label: 'Prairie claire', hint: 'La même herbe, plus claire et plus sèche (zones exposées, abords usés)' },
+  { id: 'terre-battue', label: 'Terre battue', hint: 'Chemins, cours, abords des bâtiments' },
+];
+
 const TEXTURE_IDS: ReadonlySet<string> = new Set(GROUND_TEXTURES.map((t) => t.id));
 
 export function isGroundTextureId(value: unknown): value is GroundTextureId {

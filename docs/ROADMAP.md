@@ -370,3 +370,19 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
   besoins (T4).
 - **Travail audio** : en attente d'une direction (L6).
 - **Réécriture de `CLAUDE.md`** : en dernier, après les autres documents (C1).
+- **Sol : points parqués** (après le choix de `?groundLook=living`,
+  2026-10-30 ; voir `DESIGN_DECISIONS.md` E7) :
+  1. **contact visuel au pied des bâtiments et des murs** : sur l'herbe, un
+     bâtiment ou un mur paraît posé sur une nappe. Une cour ou un tablier
+     de terre battue et quelques rochers aident déjà, mais rien n'assombrit
+     le contact ; il faudrait un rendu qui connaisse les bâtiments (le sol
+     ne lit que la carte) ;
+  2. **palette des petites plantes 3D** : plantes Kenney et plantes
+     aquatiques KayKit lisibles à partir d'environ 0,6 case, mais d'un vert
+     bleuté sombre qui tranche sur l'herbe ; fleurs, champignons et
+     cailloux Kenney invisibles à la caméra de jeu ou hors palette. À
+     reprendre avec une teinte accordée à l'herbe ;
+  3. **coût du shader `living` sur GPU modeste** : états et accents
+     calculés au pixel ; +0,3 à 0,6 ms mesurés sur une RTX 2070 seulement.
+     À mesurer sur une puce graphique intégrée ; si besoin, précalculer les
+     accents dans une petite texture.

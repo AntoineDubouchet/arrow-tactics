@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, EDGE_CORNERS, OPPOSITE_SLOPE_DIRECTION, SLOPE_DIRECTIONS, SLOPE_DIRECTION_VECTORS, TERRAIN_ELEVATION_STEP, type SlopeDirection } from '../config/terrainElevation';
 import { GROUND_SURFACES, groundFlankSurface, type GroundSurfaceId } from './groundSurfaces';
+import { groundMacro, groundRenderSurface, groundStates, groundSurfaceDef } from './groundLook';
 import { CELL_THICKNESS, FLANK_FOOT_SHADE, groundMaterial, layerMesh, newBuffers, RELIEF_TINT_PER_LEVEL, SLOPE_NORMAL_Y, SLOPE_SHADE, type LayerBuffers, type TerrainContext } from './terrainCells';
 
 /**
@@ -164,7 +165,10 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
   const n = new THREE.Vector3();
   const ab = new THREE.Vector3();
   const ac = new THREE.Vector3();
-  const push = (out: LayerBuffers, p: THREE.Vector3[], uv: [number, number][], outward: THREE.Vector3, shade: (y: number, normal: THREE.Vector3) => number) => {
+  // `surface` (dessus et levres seulement) : variation `?groundLook=` au point monde ;
+  // `cell` : case qui emet le triangle (etats de l'herbe, `living`).
+  const states = groundStates(ctx);
+  const push = (out: LayerBuffers, p: THREE.Vector3[], uv: [number, number][], outward: THREE.Vector3, shade: (y: number, normal: THREE.Vector3) => number, surface?: GroundSurfaceId, cell?: TerrainCellDef) => {
     ab.subVectors(p[1]!, p[0]!);
     ac.subVectors(p[2]!, p[0]!);
     n.crossVectors(ab, ac);
@@ -175,7 +179,11 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
     for (const i of order) {
       out.positions.push(p[i]!.x, p[i]!.y, p[i]!.z);
       const s = shade(p[i]!.y, n);
-      out.colors.push(s, s, s);
+      const m = surface ? groundMacro(surface, p[i]!.x, p[i]!.z) : null;
+      if (m) out.colors.push(s * m[0], s * m[1], s * m[2]);
+      else out.colors.push(s, s, s);
+      const st = surface && cell && states ? states.at(surface, p[i]!.x, p[i]!.z, cell.x, cell.z) : null;
+      if (st) out.states.push(st[0], st[1], st[2]);
       out.normals.push(n.x, n.y, n.z);
       out.uvs.push(uv[i]![0], uv[i]![1]);
     }
@@ -185,10 +193,10 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
     const tilt = Math.min(1, Math.max(0, (1 - normal.y) / (1 - SLOPE_NORMAL_Y)));
     return (1 + RELIEF_TINT_PER_LEVEL * (Math.max(0, y) / TERRAIN_ELEVATION_STEP)) * (1 - SLOPE_SHADE * tilt);
   };
-  // Triangle de dessus (UV monde / cycle de la surface).
-  const topTri = (surface: GroundSurfaceId, p: THREE.Vector3[]) => {
-    const t = GROUND_SURFACES[surface].tiles;
-    push(topOf(surface), p, p.map((q) => [q.x / t, -q.z / t] as [number, number]), up, topShade);
+  // Triangle de dessus de la case `cell` (UV monde / cycle de la surface).
+  const topTri = (surface: GroundSurfaceId, p: THREE.Vector3[], cell: TerrainCellDef) => {
+    const t = groundSurfaceDef(surface).tiles;
+    push(topOf(surface), p, p.map((q) => [q.x / t, -q.z / t] as [number, number]), up, topShade, surface, cell);
   };
   // Zigzag entre une ligne de 2 points (a, b) et une polyligne O[0..S] (O[0] cote a) : aucun T de jonction sur [a, b].
   const zipper = (a: THREE.Vector3, b: THREE.Vector3, O: THREE.Vector3[], emit: (p: THREE.Vector3[]) => void) => {
@@ -206,10 +214,10 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
   // ---------- Dessus des cases ----------
   for (const cell of cells) {
     const h = field.cornerHeights(cell.x, cell.z);
-    const surface = ctx.surfaceAt(cell.x, cell.z)!;
+    const surface = groundRenderSurface(ctx.surfaceAt(cell.x, cell.z)!);
     const slope = field.slopeAt(cell.x, cell.z);
     const corner = (i: number): THREE.Vector3 => new THREE.Vector3(cell.x + (i % 2), h[i]!, cell.z + (i < 2 ? 0 : 1));
-    for (const tri of cellTriangles(slope)) topTri(surface, tri.map(corner));
+    for (const tri of cellTriangles(slope)) topTri(surface, tri.map(corner), cell);
   }
 
   // ---------- Bords libres : sommets decales (calcules une fois, partages) ----------
@@ -252,7 +260,7 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
   const freeEdges: FreeEdge[] = [];
   for (const cell of cells) {
     const h = field.cornerHeights(cell.x, cell.z);
-    const surface = ctx.surfaceAt(cell.x, cell.z)!;
+    const surface = groundRenderSurface(ctx.surfaceAt(cell.x, cell.z)!);
     for (const dir of SLOPE_DIRECTIONS) {
       const v = SLOPE_DIRECTION_VECTORS[dir];
       if (has(cell.x + v.dx, cell.z + v.dz)) continue;
@@ -304,7 +312,7 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
       return new THREE.Vector3(lerp(e.a.x, e.b.x, t) + e.n.x * off, y, lerp(e.a.z, e.b.z, t) + e.n.z * off);
     });
     // Bande de dessus, de l'arete logique a la polyligne.
-    zipper(e.a, e.b, O, (p) => { topTri(e.surface, p); lip(e.cell, p); });
+    zipper(e.a, e.b, O, (p) => { topTri(e.surface, p, e.cell); lip(e.cell, p); });
     // Falaise facettee : colonnes (direction de decalage par sommet / normale de l'arete), lignes jusqu'au pied.
     // Colonne verticale a un sommet verrouille ou a un coin rentrant (son evasement reculerait sous la colonne voisine).
     const colDir = (k: number): { x: number; z: number } | null => {
@@ -410,7 +418,7 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
   // au-dessus de la case basse, paroi facettee (ligne haute, intermediaire, pied enfonce dans le sol bas).
   const emitSkirt = (cell: TerrainCellDef, dir: SlopeDirection, ax: number, az: number, bx: number, bz: number, hi: number, lo: number, key: [number, number, number], Q: InnerSkirtParams) => {
     const v = SLOPE_DIRECTION_VECTORS[dir];
-    const surface = ctx.surfaceAt(cell.x, cell.z)!;
+    const surface = groundRenderSurface(ctx.surfaceAt(cell.x, cell.z)!);
     const a = new THREE.Vector3(ax, hi, az), b = new THREE.Vector3(bx, hi, bz);
     const da = innerDispAt(ax, az), db = innerDispAt(bx, bz);
     const S = Q.segments;
@@ -426,7 +434,7 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
       const off = Math.min(pick(Q.edgeOffset, hash(tag, kx, kz, 70 + k)) * narrow, 0.85 * Math.min(t, 1 - t));
       return new THREE.Vector3(lerp(ax, bx, t) + v.dx * off, hi, lerp(az, bz, t) + v.dz * off);
     });
-    zipper(a, b, O, (p) => { topTri(surface, p); lip(cell, p); });
+    zipper(a, b, O, (p) => { topTri(surface, p, cell); lip(cell, p); });
     // Colonnes : verticales a un sommet non decale ou a un coin rentrant (aucune facette repliee).
     const colDir = (k: number) => (k === 0 ? (da.concave ? null : da.dir) : k === S ? (db.concave ? null : db.dir) : { x: v.dx, z: v.dz });
     const colHash = (k: number, r: number) => (k === 0 ? hash(TAG_SKIRT_VERTEX, ax, az, 80 + r) : k === S ? hash(TAG_SKIRT_VERTEX, bx, bz, 80 + r) : hash(tag, kx, kz, 90 + 10 * k + r));

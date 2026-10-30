@@ -967,7 +967,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     **classique** par défaut ; lot exploratoire de 10 textures générées
     (`tools/ground-textures/`) et palettes `variee`, `stylisee`, `pixel`,
     `catalogue` seulement pour comparaison (`?sol=`). **Ouvert** : textures
-    et palette à garder ;
+    et palette à garder (tranché pour la matière `living`, voir plus bas) ;
   - **peinture manuelle des surfaces** dans l'éditeur (2026-10-29, outil
     Surface) : donnée optionnelle et clairsemée (`MapDef.surfaceCells`,
     seulement les cases peintes, identifiants stables) ; la surface
@@ -998,6 +998,25 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     visée d'un chemin 1×1 : environ 1,1 à 1,3 case (emprise logique encore
     crédible) ; une surface peinte jusqu'au bord ou jusqu'à un trou continue
     sur la lèvre facettée, la falaise garde le matériau de flanc ;
+  - **matière du sol** (2026-10-30, `?groundLook=`, `?look=`) : rendu
+    seulement, rien n'est enregistré. **Décidé** (Antoine) : `living` est la
+    direction retenue — variation macro en coordonnées monde, seconde
+    lecture de texture, Irregular, herbes unifiées (herbe classique ; dense
+    et prairie claire sont des états de la même herbe), terre battue comme
+    terre principale, accents matière, usure discrète au bord des chemins,
+    palette Surface simplifiée aux vignettes calculées. Combinaison de
+    référence : `?look=stylized&groundLook=living`, toujours par l'URL (le
+    rendu sans paramètre n'a pas changé). Les paramètres de debug
+    (`look=baseline`, `stylized`, `stylized-strong` ; `groundLook=baseline`,
+    `layered`, `living`) restent tant que la direction artistique n'est pas
+    terminée ; `groundLook=macro`, étape intermédiaire, existe encore (son
+    retrait n'est pas décidé). Les anciens identifiants de surface, masqués
+    dans la palette `living`, se chargent, se rendent et s'enregistrent sans
+    migration ni changement de sens. **Règle artistique** : pas d'accents
+    3D automatiques ; seulement quelques rochers KayKit posés à la main,
+    rares, d'au moins 0,6 case environ ; fleurs, champignons, plantes
+    Kenney, plantes aquatiques et cailloux Kenney ne sont pas utilisés pour
+    l'instant. Points parqués : `ROADMAP.md` §7 ;
   - **éditeur** : le sol est découpé en morceaux pour qu'un coup de pinceau
     Surface ne reconstruise que la zone touchée ; organisation du rendu
     seulement, sans incidence sur la carte ni le jeu.
@@ -1013,10 +1032,12 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   falaise.
 - **À ne pas faire** : ne pas faire lire la hauteur à `sim/` hors des
   obstacles de falaise ; ne pas ajouter de bonus de hauteur ni de ligne de
-  vue 3D sans décision d'Antoine.
+  vue 3D sans décision d'Antoine ; ne pas disperser automatiquement des
+  accents 3D (plantes, rochers) sur le sol.
 - **Sources** : `config/terrainElevation.ts`, `sim/world.ts`,
   `sim/pathfinding.ts`, `render/terrainSurface.ts`,
-  `render/terrainCells.ts`, `EDITOR.md` §3, `CURRENT_STATE.md` §11.
+  `render/terrainCells.ts`, `render/groundLook.ts`, `EDITOR.md` §3,
+  `CURRENT_STATE.md` §11.
 
 ---
 

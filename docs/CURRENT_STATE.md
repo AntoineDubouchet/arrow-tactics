@@ -898,8 +898,11 @@ Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
 
 **Arène candidate (île ronde)** — `config/maps/islandArena.ts`,
 `ISLAND_ARENA_MAP`, 2026-10-30, transcription d'un export de l'éditeur.
-**Pas utilisée par le jeu** : le Mode survie part toujours de l'arène
-ci-dessus.
+**Pas utilisée par défaut** : le Mode survie part de l'arène ci-dessus.
+Débogage : `?map=island` (par exemple `http://localhost:5173/?map=island`)
+fait partir le Mode survie de l'arène candidate, sans ses unités de
+scénario ; combinable avec `?terrain=` et `?surfaceBlend=`. L'éditeur
+s'ouvre toujours sur l'arène officielle.
 
 - 34 × 34, 860 cases, silhouette ronde irrégulière (avancées, anses), 3 trous
   (crevasse au nord-est).
@@ -971,8 +974,9 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   y = 1,5). Une case est plate
   ou en **pente** (d'un niveau au suivant, dans une direction). L'arène du
   Mode survie est entièrement plate ; seule l'arène candidate
-  (`islandArena.ts`, non utilisée en run) en a. Le relief ne se voit en jeu
-  qu'avec une carte de l'éditeur (« Tester le scénario »).
+  (`islandArena.ts`, utilisée en run seulement avec `?map=island`) en a.
+  Sinon, le relief ne se voit en jeu qu'avec une carte de l'éditeur
+  (« Tester le scénario »).
 - **Raccord** : chaque case a une hauteur à ses quatre coins ; deux cases
   voisines se raccordent si leur arête commune a la même hauteur aux deux
   extrémités (plat ↔ plat au même niveau, pied et sommet d'une pente,
@@ -1068,11 +1072,66 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   case). (`feather`, bande de fondu, a été abandonné.) Tout se déduit de
   `surfaceCells` : rien de nouveau n'est enregistré, l'outil Surface est
   inchangé.
+- **Lookdev** (`render/look.ts`, 2026-10-30) : par défaut
+  `baseline`, le rendu actuel, sans aucun réglage. `?look=stylized` et
+  `?look=stylized-strong` (par exemple
+  `http://localhost:5173/?map=island&look=stylized`) changent seulement
+  l'intensité des trois lumières (couleurs et directions inchangées),
+  celle de l'image de fond (`stylized-strong` : plus un voile uni devant le
+  fond, jamais devant le plateau) et la couleur des surfaces de l'arène
+  ronde (herbe par défaut, classique, dense, terre battue) et des flancs.
+  Mêmes textures, aucun shader ni tone mapping ; géométrie, cartes et jeu
+  inchangés. Les autres textures du lot ne sont pas réglées. Purement
+  visuel, éditeur compris. `stylized` est le preset de la combinaison de
+  référence (voir Matière du sol) ; `baseline` et `stylized-strong` restent
+  des témoins de debug.
+- **Matière du sol** (`render/groundLook.ts`, 2026-10-30) : par
+  défaut `baseline`, le rendu actuel, rien ne change. `?groundLook=macro` :
+  les herbes et les terres prennent leur matière principale (herbe
+  classique, terre battue) à la couleur moyenne de la surface peinte, et
+  une variation de grande échelle (4 à 12 cases), calculée en coordonnées
+  monde, les éclaircit, les assombrit, les réchauffe ou les sèche par larges
+  zones douces (couleur de sommet : même point, même valeur, quels que
+  soient la case, le morceau, la pente ou la lèvre). `?groundLook=layered`
+  ajoute une seconde lecture de la même texture, tournée et plus grande
+  (deux lectures de texture au lieu d'une), et de rares accents larges.
+  Flancs, textures mixtes et terre en strates inchangés. Rien n'est
+  enregistré dans la carte ; vaut aussi dans l'éditeur (en `macro` et
+  `layered`, les vignettes de l'outil Surface montrent toujours les PNG
+  d'origine).
+  `?groundLook=living` (seconde passe, même jour) : `layered`, plus :
+  - une seule herbe : herbe par défaut, classique, dense, prairie et herbes
+    écartées sous la même texture et la même teinte (celle de l'herbe par
+    défaut). Dense (plus sombre, plus riche) et prairie (plus claire, plus
+    sèche) sont des états portés par les sommets, au contour doux et
+    irrégulier ; plus aucune transition Irregular entre deux herbes. La
+    terre par défaut est rendue comme la terre battue ;
+  - de rares accents de 1,5 à 5 cases, calculés au pixel en coordonnées
+    monde (plaque sèche, herbe plus claire, herbe usée ; terre tassée, plus
+    claire, plus rouge). Ils couvrent environ 10 % de l'herbe, avec des
+    zones calmes, et 20 % de la terre ;
+  - une herbe un peu plus sèche, par endroits seulement, au bord des terres
+    (chemins, cours).
+
+  Mixtes et terre en strates gardent leur PNG. Dans l'éditeur, `living`
+  propose une palette Surface simplifiée (Herbe, Herbe dense, Prairie
+  claire, Terre battue), aux vignettes calculées depuis la matière rendue.
+  Les autres surfaces restent valides dans les cartes : elles se chargent,
+  se rendent et s'enregistrent telles quelles.
+
+  **Direction retenue** (Antoine, 2026-10-30) : `living`. Combinaison de
+  référence : `?look=stylized&groundLook=living` (par exemple
+  `http://localhost:5173/?map=island&look=stylized&groundLook=living`),
+  toujours par l'URL : le rendu sans paramètre n'a pas changé. Les autres
+  valeurs restent comme témoins de debug. Aucun accent 3D n'est posé
+  automatiquement (règle : `DESIGN_DECISIONS.md` E7) ; points parqués :
+  `ROADMAP.md` §7.
 - **Sol de l'éditeur en morceaux** (`render/terrainChunks.ts`) : découpé en
   carrés de 16 × 16 cases ; un coup de pinceau Surface (ou son annulation)
   ne reconstruit que les morceaux qui contiennent une case repeinte ou une
-  voisine. Une modification de forme ou de relief reconstruit tout. Même
-  sol, triangle pour triangle, que le plateau d'un seul tenant du jeu.
+  voisine (à deux cases en `?groundLook=living`). Une modification de forme
+  ou de relief reconstruit tout. Même sol, triangle pour triangle, que le
+  plateau d'un seul tenant du jeu.
 
 ## 12. Talents
 

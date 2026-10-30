@@ -36,6 +36,7 @@ import {
   type MapDef,
 } from './config/mapDef';
 import { SURVIVAL_ARENA_MAP, SURVIVAL_BASE_MAP } from './config/maps/survivalArena';
+import { ISLAND_ARENA_MAP } from './config/maps/islandArena';
 import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type TerritoryCell, type TerritoryIndex } from './config/territory';
 import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapExpansion';
 import { Loop } from './core/loop';
@@ -113,6 +114,8 @@ import { GROUND_PALETTES, setGroundPalette } from './render/groundSurfaces';
 import { buildCellGridLines, setTerrainRenderMode, TERRAIN_RENDER_MODES } from './render/terrainCells';
 import { ChunkedTerrainView } from './render/terrainChunks';
 import { setSurfaceBlendMode, SURFACE_BLEND_MODES } from './render/surfaceBlend';
+import { LOOK_PRESETS, lookSettings, setLookPreset } from './render/look';
+import { GROUND_LOOKS, setGroundLook, setGroundSwatchLight } from './render/groundLook';
 import { activeTerrain, intersectSculptSurface, intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
 import { reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, type ReliefBrushSize, type ReliefDelta, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
 import { UnitMovePreview, type UnitMovePreviewItem } from './render/unitMovePreview';
@@ -281,9 +284,18 @@ const vfxManager = new VfxManager(fireballView, shadowProjectileView);
 // test, currentMap devient temporairement la map en cours d'edition, puis
 // revient a la map d'avant le test au retour dans l'editeur — le Mode survie
 // ne doit jamais voir la map de test. Carte de depart du Mode survie :
-// SURVIVAL_BASE_MAP (config/maps/survivalArena.ts), jamais mutee (l'expansion
-// produit de nouvelles MapDef).
-let currentMap: MapDef = SURVIVAL_BASE_MAP;
+// survivalBaseMap ci-dessous, jamais mutee (l'expansion produit de nouvelles
+// MapDef).
+// Arene du Mode survie : l'officielle (SURVIVAL_BASE_MAP,
+// config/maps/survivalArena.ts) par defaut ; `?map=island` charge a la place
+// l'arene candidate (config/maps/islandArena.ts, sans ses unites de scenario)
+// pour la regarder en jeu. Debogage, jamais enregistre ; l'editeur s'ouvre
+// toujours sur l'arene officielle.
+const survivalBaseMap: MapDef =
+  new URLSearchParams(location.search).get('map') === 'island'
+    ? { ...ISLAND_ARENA_MAP, playerUnits: [], enemyUnits: [] }
+    : SURVIVAL_BASE_MAP;
+let currentMap: MapDef = survivalBaseMap;
 world.setMap(currentMap);
 
 /** Relief de la carte en jeu (currentMap), pour les regles de pose de la
@@ -334,6 +346,24 @@ if (terrainMode) setTerrainRenderMode(terrainMode);
 const blendParam = new URLSearchParams(location.search).get('surfaceBlend');
 const blendMode = SURFACE_BLEND_MODES.find((m) => m === blendParam);
 if (blendMode) setSurfaceBlendMode(blendMode);
+// Lookdev : `baseline` par defaut (rendu actuel) ; `?look=stylized` et
+// `?look=stylized-strong` (render/look.ts) reglent lumieres, fond et teintes
+// du sol ; `stylized` est celui de la combinaison de reference (avec
+// `?groundLook=living`). Purement visuel.
+const lookParam = new URLSearchParams(location.search).get('look');
+const lookPreset = LOOK_PRESETS.find((l) => l === lookParam);
+if (lookPreset) {
+  setLookPreset(lookPreset);
+  renderer.applyLook(lookSettings());
+}
+// Matiere du sol : `baseline` par defaut (rendu actuel) ; `?groundLook=macro`,
+// `layered` et `living` (render/groundLook.ts ; `living` = direction
+// retenue). Purement visuel, avant toute construction de plateau.
+// Eclairement de la scene : vignettes de l'outil Surface en `living`.
+const groundLookParam = new URLSearchParams(location.search).get('groundLook');
+const groundLook = GROUND_LOOKS.find((l) => l === groundLookParam);
+if (groundLook) setGroundLook(groundLook);
+setGroundSwatchLight(renderer.groundIrradiance());
 
 // Chargement asynchrone : les rochers/arbres viennent de vrais modeles .glb
 // (voir render/assetLibrary.ts), pas de geometrie generee — le reste de
@@ -956,7 +986,7 @@ async function applyMapExpansionForCompletedWave(completedWave: number): Promise
  * zero).
  */
 async function resetGameBoardToSurvivalMap(): Promise<void> {
-  currentMap = SURVIVAL_BASE_MAP;
+  currentMap = survivalBaseMap;
   rebuildCurrentTerritoryIndex();
   await rebuildGameBoardVisuals(currentRun.mapExpansion.spawnDepth);
   world.setMap(currentMap);
@@ -1180,7 +1210,7 @@ function currentTerritoryIndex(): TerritoryIndex {
  *  pendant la run) ; aucun niveau n'est conserve d'une run a l'autre. */
 function createFreshRun(): RunState {
   const upgrades: RunUpgradeLevels = {};
-  return createNewRun(computeStartingGoldBonus(metaProgress), playerUnitMaxHp('fantassin', 0), upgrades);
+  return createNewRun(computeStartingGoldBonus(metaProgress), playerUnitMaxHp('fantassin', 0), upgrades, survivalBaseMap);
 }
 
 /** SOURCE UNIQUE de la progression du joueur pour les statistiques
@@ -2185,7 +2215,7 @@ function startNewRun(): void {
   currentRun = createFreshRun();
   // Baliste native (Mode survie) : creee directement a la position definie
   // par la carte officielle (MapDef.ballista), sans placement par le joueur.
-  currentRun.ballistaPosition = resolveBallistaOrigin(SURVIVAL_BASE_MAP);
+  currentRun.ballistaPosition = resolveBallistaOrigin(survivalBaseMap);
   rebuildCurrentTerritoryIndex();
   resetRunPlacementState();
   // Une run PRECEDENTE peut avoir agrandi le plateau (2026-08-18, voir
@@ -2198,7 +2228,7 @@ function startNewRun(): void {
   // courant (carte de depart deja en place) demarre immediatement, seul le
   // retour d'une run agrandie attend la reconstruction. Plus de placement de
   // la tour : la preparation commence directement.
-  if (currentMap === SURVIVAL_BASE_MAP) {
+  if (currentMap === survivalBaseMap) {
     applyRunBallistaPosition();
     frameRunCamera();
     startPlacement();
@@ -2478,7 +2508,7 @@ let testBoard: Board | null = null;
 /** Map REELLE active juste avant "Tester le scenario" (voir testScenario),
  *  restauree au retour : le plateau visuel du jeu (`board`, masque mais
  *  jamais reconstruit pendant le test) a ete construit pour elle. */
-let mapBeforeTest: MapDef = SURVIVAL_BASE_MAP;
+let mapBeforeTest: MapDef = survivalBaseMap;
 
 // Mesh par id d'obstacle deja construit, pour eviter de rappeler
 // createRock/createTreeObstacle (qui tirent leur composition/orientation au
@@ -3402,9 +3432,9 @@ function returnToEditorAfterTest(): void {
 
   // La partie REELLE (menu -> Jouer) ne doit jamais heriter de la map de
   // test : on revient a la map active AVANT le test, comme si le test
-  // n'avait pas eu lieu. Pas SURVIVAL_BASE_MAP : apres une run agrandie, le
+  // n'avait pas eu lieu. Pas survivalBaseMap : apres une run agrandie, le
   // plateau visuel resterait a la taille agrandie, et startNewRun (qui ne
-  // reinitialise le plateau que si currentMap !== SURVIVAL_BASE_MAP) ne le
+  // reinitialise le plateau que si currentMap !== survivalBaseMap) ne le
   // reconstruirait jamais.
   currentMap = mapBeforeTest;
   rebuildCurrentTerritoryIndex();

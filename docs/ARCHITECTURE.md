@@ -660,8 +660,10 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   dimensions de « Nouvelle carte » (et le paramètre par défaut, inutilisé, du
   constructeur d'`EditorState`). Aucune de ces cartes n'est jamais mutée.
   `config/maps/islandArena.ts` (`ISLAND_ARENA_MAP`) : arène candidate, même
-  convention (transcription d'un export de l'éditeur), importée par aucun
-  module ; voir `CURRENT_STATE.md` §11.
+  convention (transcription d'un export de l'éditeur) ; `main.ts` la prend
+  comme carte de départ du Mode survie (`survivalBaseMap`) seulement avec le
+  paramètre de débogage `?map=island`, et la passe à `createNewRun` pour les
+  compteurs d'agrandissement ; voir `CURRENT_STATE.md` §11.
 - **Expansion de map** (`run/mapExpansion.ts`) : fonctions pures sur `MapDef`
   et un état d'expansion. `main.ts` les applique derrière l'écran de
   transition, après une victoire.
@@ -818,6 +820,44 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     point ramené sur le bord de la case. Débord seulement à travers un
     raccord continu, jamais hors du dessus dessiné. `irregular` (défaut) ;
     `hard` (témoin) : rien.
+  - Lookdev (`render/look.ts`, `setLookPreset`, `?look=` lu par
+    `main.ts`) : `LOOK_SETTINGS` ne donne que des écarts au rendu actuel
+    (`baseline` : aucun). `Renderer.applyLook` règle les intensités des
+    lumières, `scene.backgroundIntensity` et le voile du fond
+    (`createBackgroundVeil` : quad au fond du champ de la caméra, testé en
+    profondeur, jamais raycasté) ; `lookSurfaceTint` multiplie la couleur
+    des matériaux du sol (`groundMaterial`, matériaux de transition) à leur
+    création, lu au travers de `groundLookTint` (`render/groundLook.ts`).
+    Rien d'autre ne le lit.
+  - Matière du sol (`render/groundLook.ts`, `setGroundLook`, `?groundLook=`
+    lu par `main.ts`) : `groundSurfaceDef(id)` remplace `GROUND_SURFACES[id]`
+    pour la texture, le cycle et la couleur de base des dessus (matériaux,
+    UV des dessus, des lèvres et des transitions) ; en `macro` et `layered`,
+    une herbe ou une terre prend la matière principale de sa famille à sa
+    propre couleur moyenne (linéaire, mesurée sur le PNG, `TEXTURE_MEAN`).
+    `groundMacro(id, x, z)` multiplie la couleur de sommet des dessus, des
+    lèvres et des transitions : champs de bruit de valeur lissés, réseau
+    tourné, en coordonnées monde (réglages : `GROUND_LOOK_PARAMS`).
+    `applyGroundLayer` (`layered`) : `onBeforeCompile` du matériau, seconde
+    lecture de `map` dans le même repère UV. Flancs exclus ; `baseline` : ni
+    remplacement, ni variation, ni shader modifié.
+    `living` :
+    - `groundRenderSurface(id)` : surface dessinée (toutes les herbes, puis
+      toutes les terres, ne font qu'une ; meshes, matériaux et rangs des
+      transitions).
+    - `groundLookTint(id)` : une teinte par famille.
+    - `GroundStates` : attribut de sommet `groundState`, calculé aux coins de
+      la grille depuis la carte entière (part dense, part prairie, proximité
+      d'une terre) et interpolé ; absent hors de `living`.
+    - `applyGroundLayer` : en plus, contour bruité des états, usure et
+      accents en polygones (hash entier de la position monde, uniformes par
+      matériau et partagés dans `material.userData.groundLiving`).
+    - `groundRepaintReach()` : rayon de reconstruction des morceaux de
+      l'éditeur (`render/terrainChunks.ts`).
+    - `groundSwatchUrl(id)` : vignette de la palette simplifiée
+      (`GROUND_SURFACE_PALETTE`, `config/groundSurfaces.ts`, lue par
+      `editor/editorUI.ts`). Elle utilise l'éclairement d'un sol plat que
+      `main.ts` reçoit de `Renderer.groundIrradiance()`.
   - Surface active (`render/terrainSurface.ts`) : le champ de hauteur de la
     carte affichée (brouillon de l'éditeur, sinon `currentMap`), fixé par
     `syncActiveTerrain` (`main.ts`) à chaque image et à chaque changement

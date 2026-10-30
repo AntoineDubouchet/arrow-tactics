@@ -1,10 +1,11 @@
 import { isBlockingMapObstacle, obstacleCenter, type ObstacleDef } from '../config/constants';
-import { GROUND_TEXTURE_CATEGORIES, GROUND_TEXTURES, type GroundTextureId, type SurfaceBrushSize } from '../config/groundSurfaces';
+import { GROUND_SURFACE_PALETTE, GROUND_TEXTURE_CATEGORIES, GROUND_TEXTURES, type GroundTextureId, type SurfaceBrushSize } from '../config/groundSurfaces';
 import type { TerrainType } from '../config/mapDef';
 import { TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type ReliefBrushSize, type ReliefDelta } from '../config/terrainElevation';
 import type { TerritoryTeam } from '../config/territory';
 import { getBuilding, listBuyableBuildingIds } from '../data/buildings';
 import { UNITS } from '../data/units';
+import { currentGroundLook, groundSwatchUrl } from '../render/groundLook';
 import { groundTextureUrl } from '../render/textures';
 import { teamColor } from '../render/unitSelectionRing';
 import type { EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate } from './editorState';
@@ -654,6 +655,13 @@ function teamName(team: TerritoryTeam | null): string {
   return team === 'player' ? 'Joueur' : team === 'enemy' ? 'Ennemi' : 'Neutre';
 }
 
+/** Nom d'une surface : celui de la palette simplifiee en
+ *  `?groundLook=living`, sinon son libelle complet. */
+function surfaceLabel(id: GroundTextureId): string {
+  const simple = currentGroundLook() === 'living' ? GROUND_SURFACE_PALETTE.find((e) => e.id === id) : undefined;
+  return simple?.label ?? GROUND_TEXTURES.find((t) => t.id === id)?.label ?? id;
+}
+
 /** Coordonnee lisible : au plus deux decimales, virgule decimale. */
 function formatCoord(value: number): string {
   return String(Number(value.toFixed(2))).replace('.', ',');
@@ -1030,11 +1038,21 @@ export class EditorUI {
     }
     browser.appendChild(surfaceSizeRow);
     this.setSurfaceBrushSize(4);
+    // `?groundLook=living` (render/groundLook.ts) : palette simplifiee (une
+    // herbe, deux de ses etats, une terre), vignettes de la matiere rendue ;
+    // les autres surfaces restent valides dans les cartes, sans etre proposees.
+    const living = currentGroundLook() === 'living';
     const defaultGrid = document.createElement('div');
     defaultGrid.className = 'editor-surface-grid';
-    defaultGrid.appendChild(this.surfaceSwatch(null, 'Par défaut', 'ground_grass.png', 'Efface la peinture : la case reprend la surface par défaut du jeu (rien n’est enregistré).'));
+    defaultGrid.appendChild(this.surfaceSwatch(null, 'Par défaut', living ? groundSwatchUrl('grass') : 'ground_grass.png', 'Efface la peinture : la case reprend la surface par défaut du jeu (rien n’est enregistré).'));
     browser.appendChild(defaultGrid);
-    for (const category of GROUND_TEXTURE_CATEGORIES) {
+    if (living) {
+      const grid = document.createElement('div');
+      grid.className = 'editor-surface-grid';
+      for (const entry of GROUND_SURFACE_PALETTE) grid.appendChild(this.surfaceSwatch(entry.id, entry.label, groundSwatchUrl(entry.id), entry.hint));
+      browser.appendChild(grid);
+    }
+    for (const category of living ? [] : GROUND_TEXTURE_CATEGORIES) {
       browser.appendChild(this.subcategoryHeader(category.label));
       const grid = document.createElement('div');
       grid.className = 'editor-surface-grid';
@@ -1289,7 +1307,7 @@ export class EditorUI {
         active.push(this.surfaceButton);
         const value = this.surfaceValueButtons.get(tool.surface);
         if (value) active.push(value);
-        const name = tool.surface ? (GROUND_TEXTURES.find((t) => t.id === tool.surface)?.label ?? tool.surface) : 'Par défaut (effacer)';
+        const name = tool.surface ? surfaceLabel(tool.surface) : 'Par défaut (effacer)';
         status = `Outil : Surface — ${name} (${tool.size}×${tool.size}) · Clic / glisser : peindre le dessus des cases, sous les objets compris · visuel uniquement · Échap : Sélection`;
         break;
       }
@@ -1316,16 +1334,17 @@ export class EditorUI {
   }
 
   /** Bouton d'une surface : vignette de la texture (`texture` : PNG du sol,
-   *  voir groundTextureUrl) et nom court ; choisit la surface et active le
-   *  pinceau. */
-  private surfaceSwatch(surface: GroundTextureId | null, label: string, texture: string, hint: string, pixelated = false): HTMLButtonElement {
+   *  voir groundTextureUrl, ou image calculee, voir groundSwatchUrl) et nom
+   *  court ; choisit la surface et active le pinceau. */
+  private surfaceSwatch(surface: GroundTextureId | null, label: string, texture: string | Promise<string>, hint: string, pixelated = false): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'editor-surface-swatch';
     button.title = hint;
     const thumb = document.createElement('span');
     thumb.className = 'editor-surface-thumb';
-    thumb.style.backgroundImage = `url("${groundTextureUrl(texture)}")`;
+    if (typeof texture === 'string') thumb.style.backgroundImage = `url("${groundTextureUrl(texture)}")`;
+    else void texture.then((url) => (thumb.style.backgroundImage = `url("${url}")`));
     if (pixelated) thumb.classList.add('editor-surface-thumb--pixel');
     button.append(thumb, label);
     button.addEventListener('click', () => this.handlers.onSelectSurfaceTool(surface));

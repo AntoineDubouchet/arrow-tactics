@@ -268,6 +268,12 @@ les règles de pose, et la simulation ne la lit jamais.
   - **Mixte** : Taches, Usée ;
   - **Expérimental** : Terre strates, dessinée pour les flancs. Sur le dessus
     d'une case, elle forme des rayures (infobulle).
+  - Rendu `?groundLook=living` (direction retenue) : palette simplifiée,
+    Par défaut puis Herbe, Herbe dense, Prairie claire, Terre battue. Les
+    vignettes sont calculées à la couleur rendue en jeu, sur la même texture
+    pour toutes les herbes. Les autres surfaces ne sont plus proposées, mais
+    une carte qui les contient se charge, se rend et s'enregistre telle
+    quelle.
 - **Taille** : 1×1 (détails) ou 4×4 (grandes zones), propre à Surface. Le
   carré 4×4 est centré sur l'intersection de grille la plus proche du
   curseur.

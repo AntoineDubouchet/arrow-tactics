@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, surfaceHeightInCell, TERRAIN_ELEVATION_STEP, type SlopeDirection } from '../config/terrainElevation';
-import { GROUND_SURFACES, type GroundSurfaceId } from './groundSurfaces';
+import type { GroundSurfaceId } from './groundSurfaces';
+import { applyGroundLayer, groundLookTint, groundMacro, groundRenderSurface, groundStates, groundSurfaceDef } from './groundLook';
 import { newBuffers, RELIEF_TINT_PER_LEVEL, SLOPE_NORMAL_Y, SLOPE_SHADE, type LayerBuffers, type TerrainContext } from './terrainCells';
 import type { TerrainLips } from './terrainStylized';
 
@@ -126,9 +127,14 @@ export function appendSurfaceBlend(group: THREE.Group, cells: readonly TerrainCe
   const { field } = ctx;
   const buffers = new Map<GroundSurfaceId, LayerBuffers>();
   const ab = new THREE.Vector3(), ac = new THREE.Vector3(), nrm = new THREE.Vector3();
+  // Etats `living` (render/groundLook.ts), lus dans la case en cours (cellX, cellZ).
+  const states = groundStates(ctx);
+  let cellX = 0, cellZ = 0;
   // Triangle (indices dans des positions xyz a plat et leurs alphas) : emis s'il a un sommet visible, normale vers le haut.
-  const tri = (b: LayerBuffers, tiles: number, p: readonly number[], as: readonly number[], i0: number, i1: number, i2: number) => {
+  // Cycle de texture et variation `?groundLook=` (point monde) : ceux de la surface qui deborde.
+  const tri = (b: LayerBuffers, surface: GroundSurfaceId, p: readonly number[], as: readonly number[], i0: number, i1: number, i2: number) => {
     if (as[i0]! < 0.5 && as[i1]! < 0.5 && as[i2]! < 0.5) return;
+    const tiles = groundSurfaceDef(surface).tiles;
     const a = 3 * i0, bb = 3 * i1, cc = 3 * i2;
     ab.set(p[bb]! - p[a]!, p[bb + 1]! - p[a + 1]!, p[bb + 2]! - p[a + 2]!);
     ac.set(p[cc]! - p[a]!, p[cc + 1]! - p[a + 1]!, p[cc + 2]! - p[a + 2]!);
@@ -144,17 +150,27 @@ export function appendSurfaceBlend(group: THREE.Group, cells: readonly TerrainCe
       b.positions.push(x, y, z);
       b.normals.push(nrm.x, nrm.y, nrm.z);
       b.uvs.push(x / tiles, -z / tiles);
-      b.colors.push(shade, shade, shade, as[k]!);
+      const m = groundMacro(surface, x, z);
+      b.colors.push(shade * m[0], shade * m[1], shade * m[2], as[k]!);
+      const st = states?.at(surface, x, z, cellX, cellZ);
+      if (st) b.states.push(st[0], st[1], st[2]);
     }
   };
+  // Surfaces DESSINEES (`living` : une herbe, une terre ; aucune transition entre deux etats d'une meme matiere).
+  const drawnAt = (x: number, z: number) => {
+    const s = ctx.surfaceAt(x, z);
+    return s && groundRenderSurface(s);
+  };
   for (const c of cells) {
-    const own = ctx.surfaceAt(c.x, c.z)!;
+    cellX = c.x;
+    cellZ = c.z;
+    const own = drawnAt(c.x, c.z)!;
     const h = field.cornerHeights(c.x, c.z);
     // Surfaces prioritaires voisines par un raccord continu : cases sources et cotes bordes.
     const sources = new Map<GroundSurfaceId, { squares: [number, number][]; sides: SlopeDirection[] }>();
     for (const nb of NEIGHBORS) {
       const nx = c.x + nb.dx, nz = c.z + nb.dz;
-      const s = ctx.surfaceAt(nx, nz);
+      const s = drawnAt(nx, nz);
       if (!s || rankOf(s) <= rankOf(own)) continue;
       const continuous = nb.dir ? field.edgeMatches(c.x, c.z, nb.dir) : Math.abs(h[nb.corner![0]]! - field.cornerHeights(nx, nz)[nb.corner![1]]!) < 1e-6;
       if (!continuous) continue;
@@ -187,14 +203,13 @@ export function appendSurfaceBlend(group: THREE.Group, cells: readonly TerrainCe
       };
       let b = buffers.get(surface);
       if (!b) buffers.set(surface, (b = newBuffers()));
-      const tiles = GROUND_SURFACES[surface].tiles;
       // Dessus de la case : meme diagonale que la case, aucun sous-triangle ne la traverse (sol exact).
       const alpha: number[] = [];
       for (let k = 0; k < grid.length; k += 3) alpha.push(alphaAt(grid[k]!, grid[k + 2]!));
       const v = (i: number, j: number) => j * (N + 1) + i;
       for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-        if (nwSe) { tri(b, tiles, grid, alpha, v(i, j), v(i, j + 1), v(i + 1, j + 1)); tri(b, tiles, grid, alpha, v(i, j), v(i + 1, j + 1), v(i + 1, j)); }
-        else { tri(b, tiles, grid, alpha, v(i, j), v(i, j + 1), v(i + 1, j)); tri(b, tiles, grid, alpha, v(i + 1, j), v(i, j + 1), v(i + 1, j + 1)); }
+        if (nwSe) { tri(b, surface, grid, alpha, v(i, j), v(i, j + 1), v(i + 1, j + 1)); tri(b, surface, grid, alpha, v(i, j), v(i + 1, j + 1), v(i + 1, j)); }
+        else { tri(b, surface, grid, alpha, v(i, j), v(i, j + 1), v(i + 1, j)); tri(b, surface, grid, alpha, v(i + 1, j), v(i, j + 1), v(i + 1, j + 1)); }
       }
       // Levres : chaque triangle subdivise (barycentrique), dans son plan.
       for (const [p0, p1, p2] of cellLips) {
@@ -210,8 +225,8 @@ export function appendSurfaceBlend(group: THREE.Group, cells: readonly TerrainCe
         }
         if (al.every((a) => a < 0.5)) continue;
         for (let j = 0; j < N; j++) for (let i = 0; i + j < N; i++) {
-          tri(b, tiles, pts, al, idx(i, j), idx(i + 1, j), idx(i, j + 1));
-          if (i + j < N - 1) tri(b, tiles, pts, al, idx(i + 1, j), idx(i + 1, j + 1), idx(i, j + 1));
+          tri(b, surface, pts, al, idx(i, j), idx(i + 1, j), idx(i, j + 1));
+          if (i + j < N - 1) tri(b, surface, pts, al, idx(i + 1, j), idx(i + 1, j + 1), idx(i, j + 1));
         }
       }
     }
@@ -224,9 +239,13 @@ export function appendSurfaceBlend(group: THREE.Group, cells: readonly TerrainCe
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(b.normals, 3));
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(b.uvs, 2));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(b.colors, 4));
+    if (b.states.length > 0) geometry.setAttribute('groundState', new THREE.Float32BufferAttribute(b.states, 3));
     const rank = rankOf(id);
     const material = ctx.materials.get(`blend:${id}`, () => {
-      const def = GROUND_SURFACES[id];
+      // Meme matiere et meme teinte (`?groundLook=`, render/groundLook.ts ;
+      // preset `?look=`, render/look.ts) que le dessus de la surface.
+      const def = groundSurfaceDef(id);
+      const tint = groundLookTint(id);
       const m = new THREE.MeshLambertMaterial({
         map: def.texture(),
         vertexColors: true,
@@ -235,7 +254,8 @@ export function appendSurfaceBlend(group: THREE.Group, cells: readonly TerrainCe
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -4 - 4 * rank,
       });
-      m.color.setRGB(def.color[0], def.color[1], def.color[2], THREE.LinearSRGBColorSpace);
+      m.color.setRGB(def.color[0] * tint[0], def.color[1] * tint[1], def.color[2] * tint[2], THREE.LinearSRGBColorSpace);
+      applyGroundLayer(m, id);
       return m;
     });
     const mesh = new THREE.Mesh(geometry, material);

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GroundTextureId } from '../config/groundSurfaces';
 import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import type { TerrainHeightField } from '../config/terrainElevation';
+import { groundRepaintReach } from './groundLook';
 import { buildTerrainChunk, TerrainMaterials, terrainContext, type TerrainContext } from './terrainCells';
 
 /** Cote d'un morceau (cases). Mesure (2026-10-29, Edge, 64x64 tres peinte,
@@ -16,7 +17,8 @@ export const TERRAIN_CHUNK_SIZE = 16;
  * entiere : memes sommets que le plateau d'un seul tenant (jeu, board.ts),
  * aucune couture. Un coup de pinceau Surface ne reconstruit que les morceaux
  * qui contiennent une case repeinte ou une voisine (rayon 1 : ce que lit une
- * transition, render/surfaceBlend.ts). Toute autre modification (forme,
+ * transition, render/surfaceBlend.ts ; 2 en `?groundLook=living`, voir
+ * groundRepaintReach). Toute autre modification (forme,
  * relief) passe par rebuild. Materiaux partages par tous les morceaux.
  */
 export class ChunkedTerrainView {
@@ -53,13 +55,16 @@ export class ChunkedTerrainView {
     for (const [key, surface] of painted) if (this.painted.get(key) !== surface) changed.push(key);
     for (const key of this.painted.keys()) if (!painted.has(key)) changed.push(key);
     if (changed.length === 0) return 0;
+    // Voisines lues par le rendu d'une case : 1 (transitions), plus en
+    // `?groundLook=living` (etats de l'herbe, usure, render/groundLook.ts).
+    const reach = groundRepaintReach();
     const dirty = new Set<string>();
     for (const key of changed) {
       const surface = painted.get(key);
       if (surface) this.painted.set(key, surface);
       else this.painted.delete(key);
       const [x, z] = key.split(',').map(Number) as [number, number];
-      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) dirty.add(this.chunkOf(x + dx, z + dz));
+      for (let dz = -reach; dz <= reach; dz++) for (let dx = -reach; dx <= reach; dx++) dirty.add(this.chunkOf(x + dx, z + dz));
     }
     let rebuilt = 0;
     for (const key of dirty) {

@@ -4,6 +4,7 @@ import type { GroundTextureId } from '../config/groundSurfaces';
 import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, EDGE_CORNERS, FLAT_TERRAIN, TERRAIN_ELEVATION_STEP, OPPOSITE_SLOPE_DIRECTION, SLOPE_DIRECTIONS, SLOPE_DIRECTION_VECTORS, type TerrainHeightField } from '../config/terrainElevation';
 import { GROUND_SURFACES, groundFlankSurface, groundSurfaceAt, type GroundSurfaceId } from './groundSurfaces';
+import { applyGroundLayer, groundLookTint, groundMacro, groundRenderSurface, groundStates, groundSurfaceDef } from './groundLook';
 import { appendSurfaceBlend } from './surfaceBlend';
 import { buildStylizedTerrain } from './terrainStylized';
 
@@ -93,9 +94,12 @@ export interface LayerBuffers {
   normals: number[];
   uvs: number[];
   colors: number[];
+  /** Etats de l'herbe par sommet (`?groundLook=living`, render/groundLook.ts
+   *  GroundStates) ; vide sinon (aucun attribut). */
+  states: number[];
 }
 
-export const newBuffers = (): LayerBuffers => ({ positions: [], normals: [], uvs: [], colors: [] });
+export const newBuffers = (): LayerBuffers => ({ positions: [], normals: [], uvs: [], colors: [], states: [] });
 
 /** Materiaux du sol par cle (dessus d'une surface, flancs, transition),
  *  partages par tous les morceaux d'un meme plateau (render/terrainChunks.ts) :
@@ -121,12 +125,17 @@ export class TerrainMaterials {
 }
 
 /** Materiau d'une surface (dessus ou flancs) : texture multipliee par la
- *  couleur de sommet (ombrage du relief). */
+ *  couleur de sommet (ombrage du relief) et par le preset `?look=`
+ *  (render/look.ts ; baseline : rien). Texture, couleur de base et teinte :
+ *  celles de la matiere `?groundLook=` (render/groundLook.ts ; baseline : la
+ *  surface elle-meme). */
 export function groundMaterial(materials: TerrainMaterials, key: string, id: GroundSurfaceId): THREE.MeshLambertMaterial {
   return materials.get(key, () => {
-    const def = GROUND_SURFACES[id];
+    const def = groundSurfaceDef(id);
+    const tint = groundLookTint(id);
     const material = new THREE.MeshLambertMaterial({ map: def.texture(), vertexColors: true });
-    material.color.setRGB(def.color[0], def.color[1], def.color[2], THREE.LinearSRGBColorSpace);
+    material.color.setRGB(def.color[0] * tint[0], def.color[1] * tint[1], def.color[2] * tint[2], THREE.LinearSRGBColorSpace);
+    applyGroundLayer(material, id);
     return material;
   });
 }
@@ -196,8 +205,11 @@ function buildGridTerrain(cells: readonly TerrainCellDef[], ctx: TerrainContext)
   const ac = new THREE.Vector3();
   // Triangle oriente pour que sa normale geometrique pointe du cote de
   // `outward` (face avant visible, materiau FrontSide) ; `shade` : couleur
-  // de sommet (multiplie la texture) selon sa hauteur et la normale.
-  const pushTriangle = (out: LayerBuffers, p: THREE.Vector3[], uv: [number, number][], outward: THREE.Vector3, shade: (y: number, normal: THREE.Vector3) => number) => {
+  // de sommet (multiplie la texture) selon sa hauteur et la normale ;
+  // `surface` (dessus seulement) : variation `?groundLook=` au point monde ;
+  // `cell` : case qui emet le triangle (etats de l'herbe, `living`).
+  const states = groundStates(ctx);
+  const pushTriangle = (out: LayerBuffers, p: THREE.Vector3[], uv: [number, number][], outward: THREE.Vector3, shade: (y: number, normal: THREE.Vector3) => number, surface?: GroundSurfaceId, cell?: TerrainCellDef) => {
     ab.subVectors(p[1]!, p[0]!);
     ac.subVectors(p[2]!, p[0]!);
     n.crossVectors(ab, ac);
@@ -208,7 +220,11 @@ function buildGridTerrain(cells: readonly TerrainCellDef[], ctx: TerrainContext)
     for (const i of order) {
       out.positions.push(p[i]!.x, p[i]!.y, p[i]!.z);
       const s = shade(p[i]!.y, n);
-      out.colors.push(s, s, s);
+      const m = surface ? groundMacro(surface, p[i]!.x, p[i]!.z) : null;
+      if (m) out.colors.push(s * m[0], s * m[1], s * m[2]);
+      else out.colors.push(s, s, s);
+      const st = surface && cell && states ? states.at(surface, p[i]!.x, p[i]!.z, cell.x, cell.z) : null;
+      if (st) out.states.push(st[0], st[1], st[2]);
       out.normals.push(n.x, n.y, n.z);
       out.uvs.push(uv[i]![0], uv[i]![1]);
     }
@@ -228,14 +244,14 @@ function buildGridTerrain(cells: readonly TerrainCellDef[], ctx: TerrainContext)
     const z1 = cell.z + TILE;
     // Dessus : les deux triangles de la case (cellTriangles, meme diagonale
     // que la hauteur gameplay heightAt), plats, en pente ou en pente de coin.
-    const surface = ctx.surfaceAt(cell.x, cell.z)!;
+    const surface = groundRenderSurface(ctx.surfaceAt(cell.x, cell.z)!);
     let top = tops.get(surface);
     if (!top) tops.set(surface, (top = newBuffers()));
-    const tiles = GROUND_SURFACES[surface].tiles;
+    const tiles = groundSurfaceDef(surface).tiles;
     const point = (i: number) => new THREE.Vector3(i % 2 === 0 ? x0 : x1, h[i]!, i < 2 ? z0 : z1);
     const uvOf = (i: number): [number, number] => [(i % 2 === 0 ? x0 : x1) / tiles, -(i < 2 ? z0 : z1) / tiles];
     for (const tri of cellTriangles(field.slopeAt(cell.x, cell.z))) {
-      pushTriangle(top, tri.map(point), tri.map(uvOf), up, topShade);
+      pushTriangle(top, tri.map(point), tri.map(uvOf), up, topShade, surface, cell);
     }
     // Flancs visibles.
     const corner = (i: number): [number, number] => [i % 2 === 0 ? x0 : x1, i < 2 ? z0 : z1];
@@ -289,6 +305,7 @@ export function layerMesh(buffers: LayerBuffers, material: THREE.Material): THRE
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(buffers.normals, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(buffers.uvs, 2));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(buffers.colors, 3));
+  if (buffers.states.length > 0) geometry.setAttribute('groundState', new THREE.Float32BufferAttribute(buffers.states, 3));
   const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;
   return mesh;

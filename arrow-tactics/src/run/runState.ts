@@ -11,6 +11,7 @@ import type { Entity } from '../sim/entity';
 import { createInitialMapExpansionState, type MapExpansionState } from './mapExpansion';
 import type { RunUpgradeLevels } from './runUpgrades';
 import { SURVIVAL_BASE_MAP } from '../config/maps/survivalArena';
+import type { MapDef } from '../config/mapDef';
 
 /**
  * Arrondit au dixieme le plus proche — SOURCE UNIQUE utilisee par TOUTE
@@ -269,8 +270,11 @@ export const STARTING_FANTASSIN_COUNT = 4;
  *  EFFECTIF (deja boost) une fois spawne en combat (voir main.ts,
  *  playerStatOverrides) — l'unite apparaissait donc blessee des le debut.
  *  `upgrades` optionnel (par defaut aucun niveau) : niveaux d'amelioration
- *  de depart de la run, COPIES (jamais la meme reference que l'objet recu). */
-export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = getUnit('fantassin').stats.maxHp, upgrades: RunUpgradeLevels = {}): RunState {
+ *  de depart de la run, COPIES (jamais la meme reference que l'objet recu).
+ *  `baseMap` optionnel (par defaut l'arene officielle) : carte de depart dont
+ *  partent les compteurs d'agrandissement — main.ts y passe l'arene candidate
+ *  avec `?map=island` (debogage). */
+export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = getUnit('fantassin').stats.maxHp, upgrades: RunUpgradeLevels = {}, baseMap: Pick<MapDef, 'width' | 'height'> = SURVIVAL_BASE_MAP): RunState {
   return {
     gold: roundGold(STARTING_GOLD + startingGoldBonus),
     // Armee de depart : 4 Fantassins de niveau 1 (STARTING_FANTASSIN_COUNT),
@@ -280,7 +284,7 @@ export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = get
     buildings: [],
     waveNumber: 1,
     // Compteurs d'expansion de la carte de depart du Mode survie.
-    mapExpansion: createInitialMapExpansionState(SURVIVAL_BASE_MAP),
+    mapExpansion: createInitialMapExpansionState(baseMap),
     ballistaPosition: null,
     upgrades: { ...upgrades },
   };
