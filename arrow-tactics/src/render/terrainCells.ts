@@ -150,15 +150,19 @@ export interface TerrainContext {
   /** Surface visuelle du dessus d'une case existante (peinte, sinon palette). */
   surfaceAt(x: number, z: number): GroundSurfaceId | undefined;
   readonly materials: TerrainMaterials;
+  /** Morceaux de l'editeur (render/terrainChunks.ts) : les transitions d'une case inchangee sont rejouees d'une
+   *  reconstruction a l'autre (render/surfaceBlend.ts) ; le plateau du jeu, construit une fois, n'en a pas besoin. */
+  readonly reuseCells?: boolean;
 }
 
 /** `painted` est lu a chaque appel de surfaceAt (jamais copie) : une carte
  *  repeinte en place se lit sans reconstruire le contexte. */
-export function terrainContext(cells: readonly TerrainCellDef[], field: TerrainHeightField, painted: ReadonlyMap<string, GroundTextureId>, materials = new TerrainMaterials()): TerrainContext {
+export function terrainContext(cells: readonly TerrainCellDef[], field: TerrainHeightField, painted: ReadonlyMap<string, GroundTextureId>, materials = new TerrainMaterials(), reuseCells = false): TerrainContext {
   const byKey = new Map(cells.map((c) => [cellKey(c.x, c.z), c]));
   return {
     field,
     materials,
+    reuseCells,
     has: (x, z) => byKey.has(cellKey(x, z)),
     surfaceAt: (x, z) => {
       const key = cellKey(x, z);

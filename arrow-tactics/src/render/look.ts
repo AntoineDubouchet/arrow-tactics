@@ -60,7 +60,7 @@ export const LOOK_SETTINGS: Readonly<Record<LookPreset, LookSettings>> = {
       // l'eclairement d'un sol plat (environ x 1,36) est compense.
       sable: [0.69, 0.67, 0.64],
       'roche-sol': [1.1, 1.04, 0.96],
-      'sol-volcanique': [1.38, 1.4, 1.36],
+      'sol-volcanique': [2.4, 2.4, 2.36],
     },
   },
   // Plus loin dans la meme direction : ambiance 0,35, soleil 2,6, remplissage
@@ -79,7 +79,7 @@ export const LOOK_SETTINGS: Readonly<Record<LookPreset, LookSettings>> = {
       flank: [4.91, 9.35, 29.7],
       sable: [0.69, 0.67, 0.64],
       'roche-sol': [1.1, 1.04, 0.96],
-      'sol-volcanique': [1.38, 1.4, 1.36],
+      'sol-volcanique': [2.4, 2.4, 2.36],
     },
   },
 };

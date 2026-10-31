@@ -1138,24 +1138,66 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
     surface, elles ne bloquent rien** : une unité marche sur l'eau ou la
     lave (`ROADMAP.md`, surfaces bloquantes) ;
   - `?groundLook=rich` : `living`, plus des plaques de matière à
-    l'intérieur de chaque surface (herbe plus grasse, plus terne, plus
-    terreuse ; terre plus sèche, plus tassée, plus rouge ; tons propres aux
-    pavés, au sable, à la roche, au sol volcanique) et un léger mouchetis,
-    au pixel, en coordonnées monde, jamais par case ;
-  - `?surfaceBlend=lisiere` : frontières organiques dans les deux sens
-    (les escaliers d'un chemin peint case par case deviennent un tracé
-    continu, coins saillants et rentrants arrondis), toujours nettes, avec
-    une **lisière** selon les deux surfaces (herbe plus sèche au bord d'un
-    chemin, plus grasse au bord de l'eau, roussie près de la lave ; terre
-    tassée, bordure de pavés, sable mouillé, écume, croûte refroidie).
-    Deux cases d'une surface qui se touchent par un coin restent reliées.
-    `?surfaceBlend=melange` : la même chose, plus de petits îlots épars des
-    deux surfaces près de la frontière.
+    l'intérieur de chaque surface, au pixel, en coordonnées monde, jamais
+    par case. Calibrage du 2026-10-31 (consolidation) : l'herbe et la terre
+    alternent deux tons proches par grandes formes calmes d'environ 4 cases
+    (herbe plus verte / plus olive, avec de rares zones plus claires ;
+    terre tassée / sèche, avec de rares zones plus rouges) ; le sable aussi,
+    plus doucement ; tons propres aux pavés, à la roche et au sol
+    volcanique ; léger mouchetis ;
+  - `?surfaceBlend=lisiere` : frontières organiques dans les deux sens,
+    toujours nettes, avec une **lisière** selon les deux surfaces (herbe
+    plus sèche au bord d'un chemin, plus grasse au bord de l'eau, roussie
+    près de la lave ; terre tassée, bordure de pavés, sable mouillé, écume,
+    croûte refroidie). Direction low-poly (consolidation) : les coins sont
+    **biseautés** plutôt qu'arrondis (un angle reste un angle, une case
+    isolée devient un octogone, un escalier une bande droite) ; un chemin
+    en diagonale (cases qui se touchent par un coin) reste un tracé continu
+    de largeur régulière ; la forme dépend des deux matières : rivages de
+    l'eau et de la lave plus arrondis, sable plus doux, chemins et pierre
+    plus nets. `?surfaceBlend=melange` : la même chose, plus de petits îlots
+    épars des deux surfaces près de la frontière (suit les réglages de
+    `lisiere`).
+  - surfaces (consolidation) : pavés plus gros (environ 0,3 case) aux
+    joints plus fins et moins contrastés ; sol rocheux en grandes masses
+    aux fissures rares (plus de dallage), de la teinte des falaises
+    `hybrid` ; sol volcanique moins sombre ; reflets de l'eau plus fins.
+  - `?surfaceBlend=organic` (2026-10-31, en comparaison avec `lisiere`) :
+    les mêmes frontières (mêmes formes), mais la lisière devient une
+    **zone de transition par couple de matières**, en deux teintes douces :
+    un **contact** étroit collé à la frontière et une **zone** plus large
+    (jusqu'à environ 0,6 case), de profondeur et de force irrégulières (par
+    taches). Herbe moins verte, plus terreuse au bord d'un chemin, chemin
+    plus sombre et tassé à son bord ; pavés salis de terre au bord ; herbe
+    poussiéreuse près du sable, sable un peu plus sombre face à l'herbe ;
+    herbe plus grasse, terre boueuse et sable mouillé au bord de l'eau, eau
+    plus claire au bord (avec l'écume) ; sol brûlé autour de la lave, sol
+    volcanique plus chaud à son contact ; un peu de mousse au bord de la
+    roche. Jamais de contour noir ni de trait.
+  - `&surfaceBorder=subtile` et `&surfaceBorder=marquee` (2026-10-31, en
+    comparaison, avec `?surfaceBlend=organic` seulement ; `off` par
+    défaut) : **bordure de contact** qui rend les limites plus lisibles,
+    sans trait. Une bande douce, mesurée depuis la frontière visible
+    (environ 0,2 case en `subtile`, 0,32 case en `marquee`), pleine au bord
+    et fondue vers l'intérieur ; le centre des surfaces ne change pas.
+    Herbe plus sombre près de toute autre matière (le chemin, la roche, la
+    berge s'y posent), sable un peu plus chaud au bord, liseré clair de
+    l'eau, croûte plus sombre de la lave, roche à peine. Une teinte par
+    matière (pas par couple). Même nombre de draw calls et de programmes ;
+    quelques triangles de plus (moins de 1 % sur l'île, 2 % sur la vitrine)
+    et une construction du sol plus longue (environ 25 %).
+  - `?groundLook=organic` (2026-10-31, en comparaison avec `rich`) : `rich`,
+    l'herbe un peu plus variée (vert plus franc, olive plus chaud, ton rare
+    terreux au lieu de clair) ; le reste identique.
   Les dessus restent le sol logique ; carte, relief, trajets, pose et
   simulation inchangés ; rien de nouveau n'est enregistré (les surfaces
   nouvelles s'écrivent dans `surfaceCells` avec leur identifiant). Le rendu
   sans paramètre n'a pas changé. Combinaison proposée :
   `http://localhost:5173/?map=island&look=stylized&groundLook=rich&surfaceBlend=lisiere&relief=hybrid`.
+  Proposition en comparaison (transitions par couple, herbe plus variée) :
+  `http://localhost:5173/?map=island&look=stylized&groundLook=organic&surfaceBlend=organic&relief=hybrid`.
+  Avec la bordure de contact :
+  `http://localhost:5173/?map=island&look=stylized&groundLook=rich&surfaceBlend=organic&relief=hybrid&surfaceBorder=marquee`.
 - **Habillage du relief** (`render/reliefLook.ts`, 2026-10-31, en
   comparaison) : par défaut `baseline`, le rendu actuel, rien ne change.
   Trois variantes du rendu `faceted-plus`, par exemple
@@ -1187,9 +1229,13 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
 - **Sol de l'éditeur en morceaux** (`render/terrainChunks.ts`) : découpé en
   carrés de 16 × 16 cases ; un coup de pinceau Surface (ou son annulation)
   ne reconstruit que les morceaux qui contiennent une case repeinte ou une
-  voisine (à deux cases en `?groundLook=living`). Une modification de forme
-  ou de relief reconstruit tout. Même sol, triangle pour triangle, que le
-  plateau d'un seul tenant du jeu.
+  voisine (à deux cases en `?groundLook=living`). Depuis le 2026-10-31
+  (consolidation) : une sculpture ne reconstruit que les morceaux à moins
+  de 4 cases d'une case dont le relief a changé (une modification de forme
+  reconstruit toujours tout) ; dans un morceau reconstruit, une case dont
+  les surfaces voisines n'ont pas changé rejoue ses transitions déjà
+  calculées ; l'ombrage du relief est partagé par tous les morceaux. Même
+  sol, triangle pour triangle, que le plateau d'un seul tenant du jeu.
 
 ## 12. Talents
 

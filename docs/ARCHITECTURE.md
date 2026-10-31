@@ -775,11 +775,15 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     morceau a exactement les triangles du plateau d'un seul tenant.
   - Sol de l'éditeur (`render/terrainChunks.ts`, `ChunkedTerrainView`) :
     morceaux de `TERRAIN_CHUNK_SIZE` (16) cases de côté, matériaux partagés.
-    `rebuild` (forme, relief, chargement : `rebuildEditorBoard`) refait
-    tout ; `updateSurfaces` (coup de pinceau Surface, annuler / rétablir :
+    `rebuild` (forme, relief, chargement : `rebuildEditorBoard`, qui garde
+    désormais la même vue) refait tout, sauf si seules des hauteurs ont
+    changé (mêmes cases, mêmes surfaces) : il ne refait alors que les
+    morceaux à `RELIEF_REACH` (4) cases ou moins d'une case changée ;
+    `updateSurfaces` (coup de pinceau Surface, annuler / rétablir :
     `refreshEditorTerrainSurfaces`, `main.ts`) compare les surfaces au
     dernier rendu et ne refait que les morceaux contenant une case
-    repeinte ou une voisine (rayon 1 : ce que lit une transition). Ni
+    repeinte ou une voisine (rayon 1 : ce que lit une transition ; 2 en
+    `lisiere`, `melange`, `organic` et en `living`). Ni
     grille, ni zones, ni objets, ni relief, ni rien de la simulation ne
     sont recalculés. Précondition : forme et relief inchangés depuis le
     dernier `rebuild`. Mesuré (Edge, 64×64 très peinte, `faceted-plus` +
@@ -822,11 +826,33 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     `hard` (témoin) : rien. `lisiere` et `melange` (`appendLisiere`) : dans
     chaque case dont le voisinage 3 × 3 continu porte plusieurs surfaces,
     score par surface au sommet de la sous-grille (part des cases après flou
-    gaussien séparable, débord, bruit propre ; ponts aux coins en
-    diagonale), alpha = 0,5 + marge sur le meilleur des autres : chaque
-    surface est redessinée là où elle l'emporte, celle de la case seulement
-    dans sa bande de lisière ; teinte de lisière par sommet selon la famille
-    de la voisine (`SURFACE_EDGE_STYLES`, `SURFACE_LISIERE_PARAMS`).
+    gaussien séparable, flou propre à la matière ; débord, bruit propre ;
+    ponts le long des diagonales et biseaux des coins, propriétés des
+    sommets dont les quatre cases sont au même niveau), alpha = 0,5 + marge
+    sur le meilleur des autres : chaque surface est redessinée là où elle
+    l'emporte, celle de la case seulement dans sa bande de lisière ; teinte
+    de lisière par sommet selon la famille de la voisine
+    (`SURFACE_EDGE_STYLES`, `SURFACE_LISIERE_PARAMS`). Coût : valeurs par
+    point d'une zone calculées une fois (`PointCache`) ; contextes des
+    morceaux de l'éditeur (`TerrainContext.reuseCells`) : triangles d'une
+    case mémorisés avec la signature des surfaces à 2 cases ou moins, rejoués
+    à l'identique. `organic` : mêmes scores et mêmes alphas que `lisiere`
+    (mêmes contours) ; seule la teinte des sommets change, par couple de
+    familles (`SURFACE_ORGANIC_EDGES`, `SURFACE_ORGANIC_PARAMS`) : contact
+    selon la marge, zone selon la distance octogonale du point aux cases de
+    la voisine (fenêtre 3 × 3, jamais plus de `reach` < 1 case : une case
+    hors de portée n'est jamais redessinée), bruits en coordonnées monde ; la
+    surface de la case est redessinée là où sa teinte n'est pas neutre.
+    Bordure de contact (`setSurfaceBorder`, `?surfaceBorder=` lu par
+    `main.ts`, `organic` seulement) : teinte par matière
+    (`SURFACE_BORDER_TINTS`, `SURFACE_BORDER_PARAMS`) selon la vraie
+    distance du point au contour de sa surface (marge nulle), extrait par
+    carrés de la sous-grille de la case prolongée de 2 points (1/3 de case)
+    dans les cases voisines continues ; mêmes lectures que les ponts et
+    biseaux, donc même signature de mémo et même portée.
+    `surfaceBlendReach()` : 2 en `lisiere`, `melange` et `organic` (ponts et
+    biseaux lus à 2 cases), lu avec `groundRepaintReach()` par
+    `ChunkedTerrainView.updateSurfaces`.
   - Lookdev (`render/look.ts`, `setLookPreset`, `?look=` lu par
     `main.ts`) : `LOOK_SETTINGS` ne donne que des écarts au rendu actuel
     (`baseline` : aucun). `Renderer.applyLook` règle les intensités des
@@ -867,18 +893,21 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
       `main.ts` reçoit de `Renderer.groundIrradiance()`.
     `rich` (`groundLookIsLiving()` vrai, comme `living`) : `applyGroundLayer`
     définit `GROUND_PATCHES` (plaques de matière, `GROUND_LOOK_PARAMS.rich`).
+    `organic` : de même, avec les tons d'herbe de
+    `GROUND_LOOK_PARAMS.organicGrass` (uniformes seulement, mêmes sommets).
     Matières minérales (pavés, sable, roche, sol volcanique) : variation
     macro et seconde lecture (sauf pavés et roche) en `living` et `rich`.
     Eau et lave (`applyLiquid`, tous les modes) : shader animé ;
     `attachGroundClock(group)` (appelé par `buildTerrainChunk`) avance
     l'horloge partagée avant le rendu de leurs meshes ; au bord, la marge
-    portée par l'alpha des sommets (`lisiere`, `melange`) donne l'écume et
-    la croûte refroidie.
+    portée par l'alpha des sommets (`lisiere`, `melange`, `organic`) donne
+    l'écume et la croûte refroidie.
   - Habillage du relief (`render/reliefLook.ts`, `setReliefLook`,
     `?relief=` lu par `main.ts`), rendu `faceted-plus` seulement :
     `reliefParams()` (null en `baseline` : aucun calcul, rendu inchangé ;
     `setReliefShadows`, `&reliefShadows=on|off`, n'en force que
-    `castShadow`).
+    `castShadow`). `reliefShadingOf(ctx, ...)` : un ombrage par contexte de
+    terrain, partagé par les morceaux d'une même carte.
     `buildStylizedTerrain` émet alors les parois en roche (`rockFacetColor`,
     matériau `rock` sans texture, couleur par facette) au lieu des flancs :
     bords libres (`emitRockEdge`), jupes et autres ruptures ; une bande

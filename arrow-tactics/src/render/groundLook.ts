@@ -44,6 +44,9 @@ import { groundTextureUrl } from './textures';
  *   terreuse ; terre plus seche, plus tassee, plus rouge ; etc.) et un leger
  *   mouchetis qui casse la repetition du motif, au pixel, en coordonnees
  *   monde (jamais par case).
+ * - `organic` (2026-10-31, en comparaison avec `rich`) : `rich`, l'herbe un peu
+ *   plus variee (ton rare terreux plutot que clair, deux tons principaux un
+ *   peu plus ecartes) ; le reste identique. Va avec `?surfaceBlend=organic`.
  *
  * Direction retenue (Antoine, 2026-10-30) : `living`, avec `?look=stylized`
  * (combinaison de reference). Le defaut reste `baseline` ; les autres
@@ -58,8 +61,8 @@ import { groundTextureUrl } from './textures';
  * touches. Deterministe (hash de positions monde, jamais Math.random ; seule
  * l'animation de l'eau et de la lave suit l'horloge, rendu seulement).
  */
-export type GroundLook = 'baseline' | 'macro' | 'layered' | 'living' | 'rich';
-export const GROUND_LOOKS: readonly GroundLook[] = ['baseline', 'macro', 'layered', 'living', 'rich'];
+export type GroundLook = 'baseline' | 'macro' | 'layered' | 'living' | 'rich' | 'organic';
+export const GROUND_LOOKS: readonly GroundLook[] = ['baseline', 'macro', 'layered', 'living', 'rich', 'organic'];
 let groundLook: GroundLook = 'baseline';
 
 /** Matiere appliquee aux plateaux construits ensuite (main.ts : `?groundLook=`). */
@@ -73,10 +76,10 @@ export function currentGroundLook(): GroundLook {
   return groundLook;
 }
 
-/** `living` ou `rich` (meme base : herbes unifiees, etats, accents ; palette
- *  Surface simplifiee de l'editeur, editor/editorUI.ts). */
+/** `living`, `rich` ou `organic` (meme base : herbes unifiees, etats, accents ;
+ *  palette Surface simplifiee de l'editeur, editor/editorUI.ts). */
 export function groundLookIsLiving(): boolean {
-  return groundLook === 'living' || groundLook === 'rich';
+  return groundLook === 'living' || groundLook === 'rich' || groundLook === 'organic';
 }
 
 type Rgb = readonly [number, number, number];
@@ -157,21 +160,27 @@ export const GROUND_LOOK_PARAMS = {
   /** `rich` : plaques de matiere par famille. Trois tons (multiplicateurs
    *  lineaires : ton 1 et ton 2 de part et d'autre du champ principal, ton 3
    *  plus rare), puis forme : taille des plaques (cases), douceur du bord,
-   *  part du ton 3, mouchetis (amplitude). */
+   *  part du ton 3, mouchetis (amplitude) ; seuils du champ pour les tons 1,
+   *  2 et 3. Herbe et terre (calibrage du 2026-10-31) : seuils presque nuls,
+   *  deux tons proches qui s'alternent par grandes formes calmes (environ 4
+   *  cases), un ton clair (herbe) ou rouge (terre) plus rare. */
   rich: {
-    grass: { tones: [[0.86, 0.97, 0.8], [1.1, 1.05, 0.78], [1.14, 0.96, 0.72]] as const, shape: [3.2, 0.05, 0.75, 0.07] as const },
-    dirt: { tones: [[1.1, 1.08, 1.06], [0.9, 0.87, 0.85], [1.1, 0.92, 0.84]] as const, shape: [2.6, 0.05, 0.6, 0.08] as const },
-    'paves-gris': { tones: [[1.08, 1.07, 1.05], [0.9, 0.99, 0.84], [1.03, 0.94, 0.86]] as const, shape: [2.2, 0.06, 0.6, 0.05] as const },
-    sable: { tones: [[1.06, 1.05, 1.02], [0.9, 0.88, 0.86], [1.05, 0.98, 0.9]] as const, shape: [3, 0.07, 0.5, 0.04] as const },
-    'roche-sol': { tones: [[1.08, 1.07, 1.05], [0.93, 1.02, 0.86], [0.85, 0.84, 0.86]] as const, shape: [2.4, 0.05, 0.6, 0.07] as const },
-    'sol-volcanique': { tones: [[1.22, 1.18, 1.14], [0.84, 0.82, 0.82], [1.22, 0.95, 0.84]] as const, shape: [2.8, 0.05, 0.6, 0.06] as const },
+    grass: { tones: [[0.88, 0.99, 0.82], [1.13, 1.05, 0.76], [1.1, 1.09, 0.96]] as const, shape: [4.2, 0.08, 0.8, 0.035] as const, cut: [0.03, 0.03, 0.38] as const },
+    dirt: { tones: [[0.88, 0.86, 0.85], [1.1, 1.07, 1.0], [1.12, 0.92, 0.82]] as const, shape: [3.2, 0.07, 0.7, 0.04] as const, cut: [0.03, 0.03, 0.38] as const },
+    'paves-gris': { tones: [[1.08, 1.07, 1.05], [0.9, 0.99, 0.84], [1.03, 0.94, 0.86]] as const, shape: [2.2, 0.06, 0.6, 0.05] as const, cut: [0.16, 0.2, 0.38] as const },
+    sable: { tones: [[1.06, 1.05, 1.02], [0.92, 0.9, 0.88], [1.05, 0.98, 0.9]] as const, shape: [3.6, 0.08, 0.5, 0.03] as const, cut: [0.05, 0.05, 0.4] as const },
+    'roche-sol': { tones: [[1.08, 1.07, 1.05], [0.93, 1.02, 0.86], [0.85, 0.84, 0.86]] as const, shape: [2.4, 0.05, 0.6, 0.07] as const, cut: [0.16, 0.2, 0.38] as const },
+    'sol-volcanique': { tones: [[1.22, 1.18, 1.14], [0.84, 0.82, 0.82], [1.22, 0.95, 0.84]] as const, shape: [2.8, 0.05, 0.6, 0.06] as const, cut: [0.16, 0.2, 0.38] as const },
   },
+  /** `organic` : herbe de `rich` un peu plus variee (vert plus franc, olive plus chaud, ton rare terreux au lieu de
+   *  clair, un peu plus rare) ; les autres matieres comme `rich`. */
+  organicGrass: { tones: [[0.86, 0.99, 0.8], [1.15, 1.05, 0.74], [1.14, 0.93, 0.78]] as const, shape: [4.2, 0.08, 0.75, 0.035] as const, cut: [0.03, 0.03, 0.42] as const },
 };
 
-/** Famille de plaques (`rich`) d'une matiere dessinee. */
-function richOf(id: GroundSurfaceId): { tones: readonly (readonly [number, number, number])[]; shape: readonly [number, number, number, number] } | null {
+/** Famille de plaques (`rich`, `organic`) d'une matiere dessinee. */
+function richOf(id: GroundSurfaceId): { tones: readonly (readonly [number, number, number])[]; shape: readonly [number, number, number, number]; cut: readonly [number, number, number] } | null {
   const R = GROUND_LOOK_PARAMS.rich;
-  if (GRASS_FAMILY.includes(id)) return R.grass;
+  if (GRASS_FAMILY.includes(id)) return groundLook === 'organic' ? GROUND_LOOK_PARAMS.organicGrass : R.grass;
   if (DIRT_FAMILY.includes(id)) return R.dirt;
   return id in R ? R[id as keyof typeof R] : null;
 }
@@ -292,7 +301,7 @@ export interface GroundStateSource {
  * Un objet par construction (cache des coins).
  */
 export class GroundStates {
-  private readonly corners = new Map<string, Rgb>();
+  private readonly corners = new Map<number, Rgb>();
 
   constructor(private readonly src: GroundStateSource) {}
 
@@ -313,7 +322,7 @@ export class GroundStates {
   }
 
   private corner(vx: number, vz: number): Rgb {
-    const key = `${vx},${vz}`;
+    const key = (vx + 4096) * 8192 + (vz + 4096);
     const cached = this.corners.get(key);
     if (cached) return cached;
     const radius = GROUND_LOOK_PARAMS.living.wearRadius;
@@ -399,6 +408,7 @@ ${GROUND_NOISE_GLSL}
 #ifdef GROUND_PATCHES
 uniform vec3 groundPatchColors[ 3 ];
 uniform vec4 groundPatchShape;
+uniform vec4 groundPatchCut;
 // Plaques de matiere : deux champs deformes (aucun axe, aucune case), seuilles
 // en zones a bord net (douceur groundPatchShape.y), puis mouchetis moyen.
 vec3 groundPatches( vec2 p ) {
@@ -407,9 +417,9 @@ vec3 groundPatches( vec2 p ) {
 	float a = groundNoise( q + w, 33u ) * 0.7 + groundNoise( q * 2.3 + w, 34u ) * 0.3;
 	float b = groundNoise( q * 0.8 - w, 35u ) * 0.7 + groundNoise( q * 2.1, 36u ) * 0.3;
 	float s = groundPatchShape.y;
-	vec3 k = mix( vec3( 1.0 ), groundPatchColors[ 0 ], smoothstep( 0.16 - s, 0.16 + s, a ) );
-	k *= mix( vec3( 1.0 ), groundPatchColors[ 1 ], smoothstep( 0.2 - s, 0.2 + s, -a ) );
-	k *= mix( vec3( 1.0 ), groundPatchColors[ 2 ], smoothstep( 0.38 - s, 0.38 + s, b ) * groundPatchShape.z );
+	vec3 k = mix( vec3( 1.0 ), groundPatchColors[ 0 ], smoothstep( groundPatchCut.x - s, groundPatchCut.x + s, a ) );
+	k *= mix( vec3( 1.0 ), groundPatchColors[ 1 ], smoothstep( groundPatchCut.y - s, groundPatchCut.y + s, -a ) );
+	k *= mix( vec3( 1.0 ), groundPatchColors[ 2 ], smoothstep( groundPatchCut.z - s, groundPatchCut.z + s, b ) * groundPatchShape.z );
 	float m = groundNoise( p * 1.7, 37u ) * 0.6 + groundNoise( p * 4.1, 38u ) * 0.4;
 	return k * ( 1.0 + m * groundPatchShape.w );
 }
@@ -535,14 +545,14 @@ export function applyGroundLayer(material: THREE.MeshLambertMaterial, id: Ground
   livingShared.groundAccentSize.value.set(...L.accentSize);
   const grass = GRASS_FAMILY.includes(id);
   // Minerales : ni etats ni accents (presence nulle) ; leur couleur moyenne pour `groundTexMean`.
-  const rich = groundLook === 'rich' ? richOf(groundRenderSurface(id)) : null;
+  const rich = groundLook === 'rich' || groundLook === 'organic' ? richOf(groundRenderSurface(id)) : null;
   const uniforms = {
     ...livingShared,
     groundStateColors: { value: (grass ? [L.dense, L.dry, L.wear] : [ONE, ONE, ONE]).map((v) => new THREE.Vector3(...v)) },
     groundAccentColors: { value: (grass ? L.grassAccents : L.dirtAccents).map((v) => new THREE.Vector4(...v)) },
     groundAccentPresence: { value: new THREE.Vector2(...(grass ? L.grassPresence : mineral ? [0, 0] : L.dirtPresence)) },
     groundTexMean: { value: new THREE.Vector3(...TEXTURE_MEAN[groundRenderSurface(id)]!) },
-    ...(rich ? { groundPatchColors: { value: rich.tones.map((v) => new THREE.Vector3(...v)) }, groundPatchShape: { value: new THREE.Vector4(...rich.shape) } } : {}),
+    ...(rich ? { groundPatchColors: { value: rich.tones.map((v) => new THREE.Vector3(...v)) }, groundPatchShape: { value: new THREE.Vector4(...rich.shape) }, groundPatchCut: { value: new THREE.Vector4(...rich.cut, 0) } } : {}),
   };
   // Lus par les outils de laboratoire (reglage a chaud).
   material.userData['groundLiving'] = uniforms;

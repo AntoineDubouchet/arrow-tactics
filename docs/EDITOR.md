@@ -271,7 +271,7 @@ les règles de pose, et la simulation ne la lit jamais.
   - **Eau** : Eau (2026-10-31) ;
   - **Expérimental** : Terre strates, dessinée pour les flancs. Sur le dessus
     d'une case, elle forme des rayures (infobulle).
-  - Rendu `?groundLook=living` (direction retenue) et `rich` : palette
+  - Rendu `?groundLook=living` (direction retenue), `rich` et `organic` : palette
     simplifiée, Par défaut puis Herbe, Herbe dense, Prairie claire, Terre
     battue, Pavés, Sable, Sol rocheux, Sol volcanique, Lave, Eau. Eau et
     lave sont animées mais, comme toute surface, ne bloquent rien (leur
@@ -303,8 +303,11 @@ les règles de pose, et la simulation ne la lit jamais.
   Purement visuel : la case peinte reste celle qui est enregistrée.
   Témoin sans transition : `?surfaceBlend=hard`. En comparaison
   (2026-10-31) : `?surfaceBlend=lisiere` (frontière organique dans les deux
-  sens, avec une lisière) et `melange` (plus de petits îlots) ; la case
-  peinte reste celle qui est enregistrée.
+  sens, avec une lisière), `melange` (plus de petits îlots) et `organic`
+  (mêmes frontières que `lisiere`, transition douce selon le couple de
+  matières), avec ou sans `&surfaceBorder=subtile|marquee` (bordure de
+  contact plus sombre ou plus claire selon la matière) ; la case peinte
+  reste celle qui est enregistrée.
 - **Relief indépendant** : une surface est attachée à la case (x, z), pas à
   sa forme. Elle suit la case si on la sculpte ensuite (plat → pente →
   plateau), et on peut peindre un relief déjà sculpté. Supprimer une case

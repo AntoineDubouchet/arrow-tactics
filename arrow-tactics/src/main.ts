@@ -113,7 +113,7 @@ import { buildObstacleMesh, obstaclePlacementOffset, placeObstacleMesh } from '.
 import { GROUND_PALETTES, setGroundPalette } from './render/groundSurfaces';
 import { buildCellGridLines, setTerrainRenderMode, TERRAIN_RENDER_MODES } from './render/terrainCells';
 import { ChunkedTerrainView } from './render/terrainChunks';
-import { setSurfaceBlendMode, SURFACE_BLEND_MODES } from './render/surfaceBlend';
+import { setSurfaceBlendMode, setSurfaceBorder, SURFACE_BLEND_MODES, SURFACE_BORDERS } from './render/surfaceBlend';
 import { LOOK_PRESETS, lookSettings, setLookPreset } from './render/look';
 import { GROUND_LOOKS, setGroundLook, setGroundSwatchLight } from './render/groundLook';
 import { RELIEF_LOOKS, setReliefLook, setReliefShadows } from './render/reliefLook';
@@ -343,10 +343,15 @@ const terrainMode = TERRAIN_RENDER_MODES.find((m) => m === terrainParam);
 if (terrainMode) setTerrainRenderMode(terrainMode);
 // Transitions entre surfaces du dessus : `irregular` par defaut
 // (render/surfaceBlend.ts) ; temoin `?surfaceBlend=hard` (frontiere case par
-// case) ; `lisiere` et `melange` en comparaison. Purement visuel.
+// case) ; `lisiere`, `melange` et `organic` en comparaison. Purement visuel.
 const blendParam = new URLSearchParams(location.search).get('surfaceBlend');
 const blendMode = SURFACE_BLEND_MODES.find((m) => m === blendParam);
 if (blendMode) setSurfaceBlendMode(blendMode);
+// Bordure de contact en `organic` : `off` par defaut ; `?surfaceBorder=subtile`
+// et `marquee` en comparaison. Purement visuel.
+const borderParam = new URLSearchParams(location.search).get('surfaceBorder');
+const borderLevel = SURFACE_BORDERS.find((b) => b === borderParam);
+if (borderLevel) setSurfaceBorder(borderLevel);
 // Lookdev : `baseline` par defaut (rendu actuel) ; `?look=stylized` et
 // `?look=stylized-strong` (render/look.ts) reglent lumieres, fond et teintes
 // du sol ; `stylized` est celui de la combinaison de reference (avec
@@ -359,7 +364,7 @@ if (lookPreset) {
 }
 // Matiere du sol : `baseline` par defaut (rendu actuel) ; `?groundLook=macro`,
 // `layered`, `living` (render/groundLook.ts ; `living` = direction
-// retenue) et `rich` (en comparaison). Purement visuel, avant toute
+// retenue), `rich` et `organic` (en comparaison). Purement visuel, avant toute
 // construction de plateau.
 // Eclairement de la scene : vignettes de l'outil Surface en `living`.
 const groundLookParam = new URLSearchParams(location.search).get('groundLook');
@@ -2599,9 +2604,10 @@ function rebuildEditorBoard(): void {
   const cells = editorState.cells;
   const field = editorState.heightField();
   // Sol en morceaux (render/terrainChunks.ts) : un coup de pinceau Surface
-  // ne reconstruira que les morceaux touches.
-  editorTerrainView?.dispose();
-  editorTerrainView = new ChunkedTerrainView();
+  // ne reconstruira que les morceaux touches ; la meme vue est gardee, et un
+  // nouveau relief (memes cases, memes surfaces) ne reconstruit que les
+  // morceaux proches des cases changees.
+  if (!editorTerrainView) editorTerrainView = new ChunkedTerrainView();
   editorTerrainView.rebuild(cells, field, editorState.surfaceIndex);
   editorBoardGroup.add(editorTerrainView.group);
   editorBoardGroup.add(buildCellGridLines(cells, COLORS.gridLine, field));

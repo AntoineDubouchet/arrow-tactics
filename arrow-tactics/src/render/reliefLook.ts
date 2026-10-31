@@ -192,15 +192,30 @@ export interface ReliefShading {
 
 interface CornerData { factor: number; veil: number; normal: THREE.Vector3 }
 
+/** Ombrage partage par tous les morceaux d'une meme carte (`owner` : son TerrainContext, render/terrainCells.ts) :
+ *  ses coins ne sont calcules qu'une fois tant que la forme et le relief ne changent pas (un nouveau contexte a chaque
+ *  reconstruction complete). Meme resultat qu'un ombrage neuf, valeur pour valeur. */
+const shadingByOwner = new WeakMap<object, { look: ReliefLook; shading: ReliefShading | null }>();
+export function reliefShadingOf(owner: object, field: TerrainHeightField, has: (x: number, z: number) => boolean, slopeShade: number, slopeNormalY: number): ReliefShading | null {
+  const known = shadingByOwner.get(owner);
+  if (known && known.look === reliefLook) return known.shading;
+  const shading = reliefShading(field, has, slopeShade, slopeNormalY);
+  shadingByOwner.set(owner, { look: reliefLook, shading });
+  return shading;
+}
+
+/** Cle numerique d'un sommet de la grille (memos). */
+const vertexKey = (vx: number, vz: number) => (vx + 4096) * 8192 + (vz + 4096);
+
 export function reliefShading(field: TerrainHeightField, has: (x: number, z: number) => boolean, slopeShade: number, slopeNormalY: number): ReliefShading | null {
   const P = reliefParams();
   if (!P) return null;
   const step = TERRAIN_ELEVATION_STEP;
   const AROUND = [[-1, -1, 3], [0, -1, 2], [-1, 0, 1], [0, 0, 0]] as const;
   // Hauteurs presentes au sommet (vx, vz) : une par case existante qui le touche.
-  const heightsMemo = new Map<string, number[]>();
+  const heightsMemo = new Map<number, number[]>();
   const heightsAt = (vx: number, vz: number) => {
-    const key = `${vx},${vz}`;
+    const key = vertexKey(vx, vz);
     let hs = heightsMemo.get(key);
     if (!hs) {
       hs = [];
@@ -215,10 +230,13 @@ export function reliefShading(field: TerrainHeightField, has: (x: number, z: num
     const n = new THREE.Vector3().subVectors(p[1]!, p[0]!).cross(new THREE.Vector3().subVectors(p[2]!, p[0]!)).normalize();
     return n.y < 0 ? n.negate() : n;
   };
-  const corners = new Map<string, CornerData>();
+  // Coins par sommet, puis par hauteur.
+  const corners = new Map<number, Map<number, CornerData>>();
   const corner = (vx: number, vz: number, y: number): CornerData => {
-    const key = `${vx},${vz},${y}`;
-    let c = corners.get(key);
+    const vk = vertexKey(vx, vz);
+    let atVertex = corners.get(vk);
+    if (!atVertex) corners.set(vk, (atVertex = new Map()));
+    let c = atVertex.get(y);
     if (c) return c;
     // Normale lissee : facettes des cases qui touchent le sommet a CETTE hauteur (surface continue).
     const normal = new THREE.Vector3();
@@ -247,7 +265,7 @@ export function reliefShading(field: TerrainHeightField, has: (x: number, z: num
     const rel = wsum > 0 ? Math.max(-1.5, Math.min(1.5, (y - sum / wsum) / step)) : 0;
     const tilt = Math.min(1, Math.max(0, (1 - normal.y) / (1 - slopeNormalY)));
     c = { factor: (1 - P.contact * contact) * (1 + P.relief * rel), veil: 1 - slopeShade * tilt, normal };
-    corners.set(key, c);
+    atVertex.set(y, c);
     return c;
   };
   const bary = [0, 0, 0];
@@ -257,6 +275,15 @@ export function reliefShading(field: TerrainHeightField, has: (x: number, z: num
     at(cx, cz, x, z, normal) {
       const fx = Math.min(1, Math.max(0, x - cx)), fz = Math.min(1, Math.max(0, z - cz));
       const h = field.cornerHeights(cx, cz);
+      // Coin de la case (sommets des dessus, bords de la sous-grille) : sa valeur, exactement celle du calcul general
+      // (poids barycentriques 1, 0, 0).
+      if ((fx === 0 || fx === 1) && (fz === 0 || fz === 1)) {
+        const d = corner(cx + fx, cz + fz, h[fx + 2 * fz]!);
+        result.factor = d.factor;
+        result.veil = d.veil;
+        normal.copy(d.normal).normalize();
+        return result;
+      }
       // Triangle de la case qui contient le point, coordonnees barycentriques.
       let tri: readonly number[] = cellTriangles(field.slopeAt(cx, cz))[1]!;
       for (const t of cellTriangles(field.slopeAt(cx, cz))) {

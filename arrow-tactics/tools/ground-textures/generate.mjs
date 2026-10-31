@@ -200,8 +200,9 @@ function voronoi(rand, size, n, jitter) {
  *  joint de largeur `joint` (pixels) couleur `mortar`, bord de pierre assombri
  *  (`rim`, sans direction de lumiere : la scene eclaire). `fade` (0..1) :
  *  part des joints effacee par endroits (roche d'un seul tenant, fissures
- *  interrompues). */
-function stones(size, seed, { n, jitter, joint, mortar, tone, rim, grain, fade = 0 }) {
+ *  interrompues). `shift` (pixels) : decalage du motif (un joint ne tombe pas
+ *  sur le bord de l'image). */
+function stones(size, seed, { n, jitter, joint, mortar, tone, rim, grain, fade = 0, shift = 0 }) {
   const rand = rngOf(seed);
   const v = voronoi(rand, size, n, jitter);
   const g = fbm(rand, size, 8, 2);
@@ -210,7 +211,7 @@ function stones(size, seed, { n, jitter, joint, mortar, tone, rim, grain, fade =
   const img = new Image(size, mortar);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const c = v(x + 0.5, y + 0.5);
+      const c = v(x + 0.5 + shift, y + 0.5 + shift);
       const edge = (c.d2 - c.d1) / 2;
       const open = fade > 0 ? smooth(Math.max(0, Math.min(1, (gaps(x, y) - fade * 0.6 - 0.2) / 0.12))) : 1;
       const inside = 1 - (1 - smooth(Math.max(0, Math.min(1, (edge - joint) / 1.5)))) * open;
@@ -490,15 +491,17 @@ const TEXTURES = [
     file: 'paves-gris.png',
     size: 256,
     draw: (size) => {
-      // Paves gris irreguliers (environ 0,2 case), joints terreux.
+      // Paves gris irreguliers (environ 0,3 case), joints terreux fins et peu contrastes : chemin construit lisible
+      // sans devenir la texture la plus detaillee du jeu.
       const { img } = stones(size, 0x91a2b3c4, {
-        n: 10,
+        n: 7,
         jitter: 0.75,
-        joint: 1.4,
-        mortar: [92, 84, 72],
-        tone: (a, b) => mix(mix([142, 140, 136], [168, 164, 156], a), [150, 140, 124], b * 0.5),
-        rim: 0.16,
-        grain: 0.1,
+        joint: 1.1,
+        mortar: [108, 100, 88],
+        tone: (a, b) => mix(mix([140, 138, 133], [160, 156, 148], a), [148, 139, 124], b * 0.5),
+        rim: 0.1,
+        grain: 0.08,
+        shift: 9,
       });
       return img;
     },
@@ -528,17 +531,17 @@ const TEXTURES = [
     file: 'roche-sol.png',
     size: 256,
     draw: (size) => {
-      // Sol rocheux : grandes dalles grises chaudes (environ 0,5 case),
-      // fissures sombres, graviers.
+      // Sol rocheux : grandes masses grises chaudes (environ 0,7 case) qui se
+      // fondent, fissures rares et fines, graviers ; pas un dallage.
       const { img, rand } = stones(size, 0xb3c4d5e6, {
-        n: 4,
+        n: 3,
         jitter: 0.9,
-        joint: 0.9,
-        mortar: [78, 72, 64],
-        tone: (a, b) => mix(mix([128, 122, 112], [162, 154, 140], a), [126, 128, 130], b * 0.7),
-        rim: 0.1,
-        grain: 0.2,
-        fade: 0.55,
+        joint: 0.7,
+        mortar: [92, 86, 76],
+        tone: (a, b) => mix(mix([132, 126, 116], [156, 149, 136], a), [128, 129, 128], b * 0.6),
+        rim: 0.05,
+        grain: 0.22,
+        fade: 0.85,
       });
       for (let k = 0; k < 120; k++) {
         const x = rand() * size;
@@ -611,9 +614,9 @@ const TEXTURES = [
       for (let y = 0; y < size; y++) {
         for (let x = 0; x < size; x++) {
           const c = v(x + 0.5, y + 0.5);
-          const line = 1 - smooth(Math.max(0, Math.min(1, (c.d2 - c.d1) / 4)));
+          const line = 1 - smooth(Math.max(0, Math.min(1, (c.d2 - c.d1) / 3)));
           const base = mix([46, 118, 142], [66, 146, 160], body(x, y));
-          img.data.set(mix(base, [140, 206, 210], line * 0.35), (y * size + x) * 3);
+          img.data.set(mix(base, [132, 198, 204], line * 0.22), (y * size + x) * 3);
         }
       }
       return img;

@@ -3,7 +3,7 @@ import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, EDGE_CORNERS, OPPOSITE_SLOPE_DIRECTION, SLOPE_DIRECTIONS, SLOPE_DIRECTION_VECTORS, TERRAIN_ELEVATION_STEP, type SlopeDirection } from '../config/terrainElevation';
 import { GROUND_SURFACES, groundFlankSurface, type GroundSurfaceId } from './groundSurfaces';
 import { groundMacro, groundRenderSurface, groundStates, groundSurfaceDef } from './groundLook';
-import { reliefParams, reliefShading, rockFacetColor, rockMaterial, type ReliefShading } from './reliefLook';
+import { reliefParams, reliefShadingOf, rockFacetColor, rockMaterial, type ReliefShading } from './reliefLook';
 import { CELL_THICKNESS, FLANK_FOOT_SHADE, groundMaterial, layerMesh, newBuffers, RELIEF_TINT_PER_LEVEL, SLOPE_NORMAL_Y, SLOPE_SHADE, type LayerBuffers, type TerrainContext } from './terrainCells';
 
 /**
@@ -157,7 +157,8 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
   const { field, has } = ctx;
   // Habillage du relief (`?relief=`, render/reliefLook.ts) : null en `baseline` et dans les temoins.
   const RL = style === 'faceted-plus' ? reliefParams() : null;
-  const RS = RL ? reliefShading(field, has, SLOPE_SHADE, SLOPE_NORMAL_Y) : null;
+  // Partage par tous les morceaux de la carte (meme contexte) : coins calcules une fois.
+  const RS = RL ? reliefShadingOf(ctx, field, has, SLOPE_SHADE, SLOPE_NORMAL_Y) : null;
   const rocks = newBuffers();
   const lips: TerrainLips = new Map();
   const lip = (cell: TerrainCellDef, p: THREE.Vector3[]) => { const key = cellKey(cell.x, cell.z); let l = lips.get(key); if (!l) lips.set(key, (l = [])); l.push(p); };

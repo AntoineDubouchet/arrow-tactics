@@ -1029,10 +1029,21 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     autres (rendu seulement, identifiants stables dans `surfaceCells`).
     **Règle maintenue** : une surface ne bloque rien, eau et lave comprises ;
     les rendre bloquantes changerait cette règle (cadrage : `ROADMAP.md`,
-    surfaces bloquantes). **Ouvert** : `?groundLook=rich` (plaques de
-    matière) contre `living` ; `?surfaceBlend=lisiere` ou `melange` contre
-    `irregular` ; le rendu par défaut ne change pas tant qu'Antoine n'a pas
-    tranché ;
+    surfaces bloquantes). Direction visuellement validée (Antoine,
+    2026-10-31) : `look=stylized`, `groundLook=rich`, `surfaceBlend=lisiere`,
+    `relief=hybrid` ; consolidée le même jour (biseaux low-poly, diagonales
+    continues, alternance de deux tons, coût de l'éditeur). `lisiere` est retenue
+    devant `melange` (qui reste un témoin). **Ouvert** : faire de cette
+    combinaison le rendu par défaut ; d'ici là, le rendu sans paramètre ne
+    change pas et `living`, `irregular` restent accessibles pour comparer.
+    **En comparaison** (2026-10-31) : `surfaceBlend=organic` (mêmes
+    frontières que `lisiere`, transition douce choisie par couple de
+    matières) et `groundLook=organic` (`rich`, herbe un peu plus variée).
+    **Ouvert** : les retenir à la place de `lisiere` et `rich` ;
+    **en comparaison** (2026-10-31) avec `organic` : `surfaceBorder=subtile`
+    ou `marquee` (bordure de contact : herbe plus sombre au bord des autres
+    matières, liseré clair de l'eau, croûte de la lave ; jamais de trait).
+    **Ouvert** : la retenir, et à quelle intensité ;
   - **éditeur** : le sol est découpé en morceaux pour qu'un coup de pinceau
     Surface ne reconstruise que la zone touchée ; organisation du rendu
     seulement, sans incidence sur la carte ni le jeu.

@@ -408,3 +408,9 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
        l'eau, apparition jamais dans l'eau, sauvegarde et rechargement.
      Coût estimé : un chantier moyen, surtout dans `main.ts` (pose) et
      l'éditeur ; la simulation ne change que dans `World.setMap`.
+  5. **relief `hybrid` : grandes facettes planes aux coins rentrants**
+     des parois (noté lors de la passe relief, revu le 2026-10-31) : les
+     colonnes de roche restent verticales aux sommets rentrants pour que les
+     parois voisines partagent leurs sommets ; la paroi y forme une grande
+     facette plane. Pas de correctif simple et sûr : à reprendre avec le
+     découpage des parois (`emitRockEdge`, `render/terrainStylized.ts`).
