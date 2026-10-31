@@ -1017,6 +1017,22 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     rares, d'au moins 0,6 case environ ; fleurs, champignons, plantes
     Kenney, plantes aquatiques et cailloux Kenney ne sont pas utilisés pour
     l'instant. Points parqués : `ROADMAP.md` §7 ;
+  - **habillage du relief** (2026-10-31, `?relief=`) : rendu seulement,
+    dessus inchangés (sol logique exact), rien n'est enregistré.
+    Direction provisoire (Antoine, 2026-10-31) : `hybrid` (collines et
+    roche de `massif`, bords d'île de la profondeur de `roche`).
+    **Ouvert** : ombres du relief activées ou non (`&reliefShadows=`) ;
+    `roche` et `massif` restent en comparaison ; le rendu par défaut reste
+    `baseline` tant qu'Antoine n'a pas validé ;
+  - **catalogue élargi, richesse et lisières** (2026-10-31) : pavés, sable,
+    sol rocheux, sol volcanique, lave et eau sont des surfaces comme les
+    autres (rendu seulement, identifiants stables dans `surfaceCells`).
+    **Règle maintenue** : une surface ne bloque rien, eau et lave comprises ;
+    les rendre bloquantes changerait cette règle (cadrage : `ROADMAP.md`,
+    surfaces bloquantes). **Ouvert** : `?groundLook=rich` (plaques de
+    matière) contre `living` ; `?surfaceBlend=lisiere` ou `melange` contre
+    `irregular` ; le rendu par défaut ne change pas tant qu'Antoine n'a pas
+    tranché ;
   - **éditeur** : le sol est découpé en morceaux pour qu'un coup de pinceau
     Surface ne reconstruise que la zone touchée ; organisation du rendu
     seulement, sans incidence sur la carte ni le jeu.

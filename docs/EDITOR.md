@@ -266,10 +266,16 @@ les règles de pose, et la simulation ne la lit jamais.
     nette ;
   - **Terre** : Terre battue ;
   - **Mixte** : Taches, Usée ;
+  - **Pierre et sable** : Pavés, Sable, Roche (2026-10-31) ;
+  - **Volcanique** : Volcan, Lave (2026-10-31) ;
+  - **Eau** : Eau (2026-10-31) ;
   - **Expérimental** : Terre strates, dessinée pour les flancs. Sur le dessus
     d'une case, elle forme des rayures (infobulle).
-  - Rendu `?groundLook=living` (direction retenue) : palette simplifiée,
-    Par défaut puis Herbe, Herbe dense, Prairie claire, Terre battue. Les
+  - Rendu `?groundLook=living` (direction retenue) et `rich` : palette
+    simplifiée, Par défaut puis Herbe, Herbe dense, Prairie claire, Terre
+    battue, Pavés, Sable, Sol rocheux, Sol volcanique, Lave, Eau. Eau et
+    lave sont animées mais, comme toute surface, ne bloquent rien (leur
+    infobulle le rappelle). Les
     vignettes sont calculées à la couleur rendue en jeu, sur la même texture
     pour toutes les herbes. Les autres surfaces ne sont plus proposées, mais
     une carte qui les contient se charge, se rend et s'enregistre telle
@@ -295,7 +301,10 @@ les règles de pose, et la simulation ne la lit jamais.
   (terre au-dessus des herbes) déborde légèrement sur sa voisine, avec un
   bord irrégulier ; les marches d'un chemin en escalier sont arrondies.
   Purement visuel : la case peinte reste celle qui est enregistrée.
-  Témoin sans transition : `?surfaceBlend=hard`.
+  Témoin sans transition : `?surfaceBlend=hard`. En comparaison
+  (2026-10-31) : `?surfaceBlend=lisiere` (frontière organique dans les deux
+  sens, avec une lisière) et `melange` (plus de petits îlots) ; la case
+  peinte reste celle qui est enregistrée.
 - **Relief indépendant** : une surface est attachée à la case (x, z), pas à
   sa forme. Elle suit la case si on la sculpte ensuite (plat → pente →
   plateau), et on peut peindre un relief déjà sculpté. Supprimer une case

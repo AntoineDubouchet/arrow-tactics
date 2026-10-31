@@ -386,3 +386,25 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
      calculés au pixel ; +0,3 à 0,6 ms mesurés sur une RTX 2070 seulement.
      À mesurer sur une puce graphique intégrée ; si besoin, précalculer les
      accents dans une petite texture.
+  4. **surfaces bloquantes (eau, lave)** (cadré le 2026-10-31, non fait) :
+     aujourd'hui une unité marche sur l'eau ou la lave (règle : une surface
+     ne bloque rien, `DESIGN_DECISIONS.md` E7). Pour les rendre
+     infranchissables à pied sans bloquer les tirs :
+     - décision d'Antoine : changer la règle (une surface peut porter une
+       propriété de jeu), et dire si la lave blesse ou bloque seulement ;
+     - donnée : une table de propriétés par surface (`data/` ou `config/`,
+       par exemple `walkable: false`) et une fonction pure
+       `blockedSurfaceCells(map)` partagée par la simulation, l'éditeur et la
+       pose ;
+     - simulation : `World.setMap` ajoute, comme pour les trous
+       (`computeVoidObstacles`), un obstacle par case bloquante avec
+       `blocksShots: false` (collision et `buildPathGrid` le voient, les tirs
+       passent) ; la simulation ne lit toujours pas la surface elle-même ;
+     - pose et éditeur : `isValidPlacementTile`, bâtiments, Baliste, murs et
+       portes, territoire, points d'apparition et renforts ennemis, et un
+       refus (ou un avertissement) quand on peint de l'eau sous une unité, un
+       bâtiment ou un décor, comme les refus du pinceau de relief ;
+     - tests : trajets qui contournent un lac, cible inatteignable derrière
+       l'eau, apparition jamais dans l'eau, sauvegarde et rechargement.
+     Coût estimé : un chantier moyen, surtout dans `main.ts` (pose) et
+     l'éditeur ; la simulation ne change que dans `World.setMap`.

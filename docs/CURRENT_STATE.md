@@ -1034,8 +1034,10 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   en `terre-strates` hors défaut. Choix automatique et déterministe par
   case (bruit sur x, z, plaques de 4 cases) : même sol à chaque chargement.
 - **Peinture des surfaces** (outil Surface de l'éditeur, `EDITOR.md` §3) :
-  le designer peint le **dessus** des cases avec l'une des 10 textures
-  (pinceau 1×1 ou 4×4, « Par défaut » pour effacer). La carte enregistre
+  le designer peint le **dessus** des cases avec l'une des 16 textures
+  (10 d'origine, plus pavés, sable, sol rocheux, sol volcanique, lave et
+  eau depuis le 2026-10-31 ; pinceau 1×1 ou 4×4, « Par défaut » pour
+  effacer). La carte enregistre
   seulement les cases peintes (`MapDef.surfaceCells`, `{ x, z, surface }`,
   identifiants de `config/groundSurfaces.ts`). Une surface peinte l'emporte
   toujours ; `?sol=` ne décide que des cases non peintes. Les flancs gardent
@@ -1126,6 +1128,62 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   valeurs restent comme témoins de debug. Aucun accent 3D n'est posé
   automatiquement (règle : `DESIGN_DECISIONS.md` E7) ; points parqués :
   `ROADMAP.md` §7.
+- **Catalogue élargi, richesse et lisières** (2026-10-31, en comparaison) :
+  - six surfaces nouvelles, peignables dans tous les modes (palette `living`
+    comprise) : **Pavés**, **Sable**, **Sol rocheux**, **Sol volcanique**,
+    **Lave**, **Eau** (`config/groundSurfaces.ts`, textures générées par
+    `tools/ground-textures/generate.mjs`). Accordées au preset `stylized`.
+    L'eau (reflets qui glissent) et la lave (croûte qui dérive, fissures
+    incandescentes qui pulsent) sont animées, rendu seulement. **Comme toute
+    surface, elles ne bloquent rien** : une unité marche sur l'eau ou la
+    lave (`ROADMAP.md`, surfaces bloquantes) ;
+  - `?groundLook=rich` : `living`, plus des plaques de matière à
+    l'intérieur de chaque surface (herbe plus grasse, plus terne, plus
+    terreuse ; terre plus sèche, plus tassée, plus rouge ; tons propres aux
+    pavés, au sable, à la roche, au sol volcanique) et un léger mouchetis,
+    au pixel, en coordonnées monde, jamais par case ;
+  - `?surfaceBlend=lisiere` : frontières organiques dans les deux sens
+    (les escaliers d'un chemin peint case par case deviennent un tracé
+    continu, coins saillants et rentrants arrondis), toujours nettes, avec
+    une **lisière** selon les deux surfaces (herbe plus sèche au bord d'un
+    chemin, plus grasse au bord de l'eau, roussie près de la lave ; terre
+    tassée, bordure de pavés, sable mouillé, écume, croûte refroidie).
+    Deux cases d'une surface qui se touchent par un coin restent reliées.
+    `?surfaceBlend=melange` : la même chose, plus de petits îlots épars des
+    deux surfaces près de la frontière.
+  Les dessus restent le sol logique ; carte, relief, trajets, pose et
+  simulation inchangés ; rien de nouveau n'est enregistré (les surfaces
+  nouvelles s'écrivent dans `surfaceCells` avec leur identifiant). Le rendu
+  sans paramètre n'a pas changé. Combinaison proposée :
+  `http://localhost:5173/?map=island&look=stylized&groundLook=rich&surfaceBlend=lisiere&relief=hybrid`.
+- **Habillage du relief** (`render/reliefLook.ts`, 2026-10-31, en
+  comparaison) : par défaut `baseline`, le rendu actuel, rien ne change.
+  Trois variantes du rendu `faceted-plus`, par exemple
+  `http://localhost:5173/?map=island&look=stylized&groundLook=living&relief=massif` :
+  - `?relief=roche` : falaises, bords d'île et trous en roche low-poly
+    (facettes à plat, couleur par facette, gris chaud proche des rochers
+    KayKit, terre sous la crête, pied plus sombre) ; bande d'herbe qui
+    déborde sous la crête, crête légèrement arrondie ; bords d'île plus
+    profonds (environ 0,85 case sous le sol) au pied irrégulier ; ombre de
+    contact au pied des falaises ; collines à l'ombrage à moitié lissé
+    (arêtes de pente adoucies, facettes encore lisibles) ;
+  - `?relief=massif` : la même roche, plus massive (bords d'île profonds
+    d'environ 1,55 case qui se resserrent vers le bas, strates) ; collines
+    à l'ombrage lissé (les anneaux de pente ne se lisent presque plus),
+    creux plus sombres et bosses plus claires ; le relief projette ses
+    ombres ;
+  - `?relief=hybrid` : `massif` (collines, ombrage, roche, falaises
+    intérieures, ombres), mais des bords d'île et de trous de la
+    profondeur de `roche` (environ 0,85 case), au pied irrégulier et à la
+    base un peu resserrée.
+
+  `&reliefShadows=off` (ou `on`) force les ombres du relief de la variante,
+  sans autre différence (comparaison). Les dessus restent exactement le sol
+  logique (mêmes triangles : unités, grille, pose et pointage inchangés) ;
+  seuls l'ombrage des dessus et les parois changent. Carte, relief,
+  collisions, trajets et simulation inchangés ; rien n'est enregistré. Vaut
+  aussi dans l'éditeur. Les trois variantes corrigent les faces de raccord
+  sombres (KI-28).
 - **Sol de l'éditeur en morceaux** (`render/terrainChunks.ts`) : découpé en
   carrés de 16 × 16 cases ; un coup de pinceau Surface (ou son annulation)
   ne reconstruit que les morceaux qui contiennent une case repeinte ou une

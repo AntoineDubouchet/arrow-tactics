@@ -38,15 +38,28 @@ import { groundTextureUrl } from './textures';
  *   Seul mode a une palette Surface simplifiee et des vignettes calculees
  *   (editor/editorUI.ts).
  *
+ * - `rich` (2026-10-31, en comparaison) : `living`, plus des PLAQUES de
+ *   matiere a l'interieur de chaque surface (deux champs de bruit deformes,
+ *   seuilles en zones a bord net : herbe plus grasse, plus terne, plus
+ *   terreuse ; terre plus seche, plus tassee, plus rouge ; etc.) et un leger
+ *   mouchetis qui casse la repetition du motif, au pixel, en coordonnees
+ *   monde (jamais par case).
+ *
  * Direction retenue (Antoine, 2026-10-30) : `living`, avec `?look=stylized`
  * (combinaison de reference). Le defaut reste `baseline` ; les autres
  * valeurs restent comme temoins de debug.
  *
+ * Catalogue elargi (2026-10-31) : paves, sable, sol rocheux et sol volcanique
+ * sont des matieres a part (seconde lecture et variation macro en `living`,
+ * plaques en `rich`) ; eau et lave ont leur propre shader anime dans tous
+ * les modes (applyGroundLayer, attachGroundClock).
+ *
  * Les flancs et les textures ecartees (mixtes, terre en strates) ne sont pas
- * touches. Deterministe (hash de positions monde, jamais Math.random).
+ * touches. Deterministe (hash de positions monde, jamais Math.random ; seule
+ * l'animation de l'eau et de la lave suit l'horloge, rendu seulement).
  */
-export type GroundLook = 'baseline' | 'macro' | 'layered' | 'living';
-export const GROUND_LOOKS: readonly GroundLook[] = ['baseline', 'macro', 'layered', 'living'];
+export type GroundLook = 'baseline' | 'macro' | 'layered' | 'living' | 'rich';
+export const GROUND_LOOKS: readonly GroundLook[] = ['baseline', 'macro', 'layered', 'living', 'rich'];
 let groundLook: GroundLook = 'baseline';
 
 /** Matiere appliquee aux plateaux construits ensuite (main.ts : `?groundLook=`). */
@@ -55,9 +68,15 @@ export function setGroundLook(next: GroundLook): void {
   renderDefs.clear();
 }
 
-/** Matiere courante (palette de l'outil Surface, editor/editorUI.ts). */
+/** Matiere courante. */
 export function currentGroundLook(): GroundLook {
   return groundLook;
+}
+
+/** `living` ou `rich` (meme base : herbes unifiees, etats, accents ; palette
+ *  Surface simplifiee de l'editeur, editor/editorUI.ts). */
+export function groundLookIsLiving(): boolean {
+  return groundLook === 'living' || groundLook === 'rich';
 }
 
 type Rgb = readonly [number, number, number];
@@ -66,6 +85,10 @@ const MAIN_GRASS: GroundSurfaceId = 'herbe-classique';
 const MAIN_DIRT: GroundSurfaceId = 'terre-battue';
 const GRASS_FAMILY: readonly GroundSurfaceId[] = ['grass', 'herbe-classique', 'herbe-prairie', 'herbe-dense', 'herbe-stylisee', 'herbe-pixel-net', 'herbe-pixel-touffes'];
 const DIRT_FAMILY: readonly GroundSurfaceId[] = ['dirt', 'terre-battue'];
+/** Matieres minerales du catalogue elargi (chacune la sienne). */
+const MINERALS: readonly GroundSurfaceId[] = ['paves-gris', 'sable', 'roche-sol', 'sol-volcanique'];
+/** Surfaces liquides : shader anime propre (eau, lave). */
+const LIQUIDS: readonly GroundSurfaceId[] = ['eau', 'lave'];
 
 /** Couleur moyenne LINEAIRE de chaque PNG (mesuree sur tous ses texels) : la
  *  matiere principale prend celle de la surface qu'elle remplace. A remesurer
@@ -80,6 +103,10 @@ const TEXTURE_MEAN: Partial<Record<GroundSurfaceId, Rgb>> = {
   'herbe-pixel-net': [0.0532, 0.1634, 0.0316],
   'herbe-pixel-touffes': [0.0552, 0.1681, 0.033],
   'terre-battue': [0.1969, 0.0963, 0.0359],
+  'paves-gris': [0.2208, 0.202, 0.1728],
+  sable: [0.6972, 0.549, 0.3034],
+  'roche-sol': [0.2355, 0.223, 0.2005],
+  'sol-volcanique': [0.0543, 0.0443, 0.0411],
 };
 
 /** Reglages (champs en cases ; amplitudes en fraction, lineaires). */
@@ -95,6 +122,8 @@ export const GROUND_LOOK_PARAMS = {
   accent: { period: 14, angle: 0.87, salt: 4, from: 0.18, to: 0.45 },
   grass: { light: 0.32, dry: [0.22, 0.08, -0.18] as Rgb, accent: [0.16, 0.1, -0.08] as Rgb },
   dirt: { light: 0.24, dry: [0.08, 0.1, 0.15] as Rgb, accent: [0.1, 0.1, 0.12] as Rgb },
+  /** Matieres minerales (`living`, `rich`) : variation plus discrete. */
+  mineral: { light: 0.16, dry: [0.05, 0.04, 0.02] as Rgb, accent: [0, 0, 0] as Rgb },
   /** Seconde lecture de `layered` : echelle de la texture (plus petite =
    *  motif plus grand), rotation (radians), part du melange. */
   layer: { scale: 0.29, angle: 0.5, weight: 0.4 },
@@ -125,7 +154,27 @@ export const GROUND_LOOK_PARAMS = {
     dirtAccents: [[0.8, 0.78, 0.8, 0.6], [1.15, 1.15, 1.18, 0], [1.12, 0.9, 0.8, 0]] as const,
     dirtPresence: [0.8, 0] as const,
   },
+  /** `rich` : plaques de matiere par famille. Trois tons (multiplicateurs
+   *  lineaires : ton 1 et ton 2 de part et d'autre du champ principal, ton 3
+   *  plus rare), puis forme : taille des plaques (cases), douceur du bord,
+   *  part du ton 3, mouchetis (amplitude). */
+  rich: {
+    grass: { tones: [[0.86, 0.97, 0.8], [1.1, 1.05, 0.78], [1.14, 0.96, 0.72]] as const, shape: [3.2, 0.05, 0.75, 0.07] as const },
+    dirt: { tones: [[1.1, 1.08, 1.06], [0.9, 0.87, 0.85], [1.1, 0.92, 0.84]] as const, shape: [2.6, 0.05, 0.6, 0.08] as const },
+    'paves-gris': { tones: [[1.08, 1.07, 1.05], [0.9, 0.99, 0.84], [1.03, 0.94, 0.86]] as const, shape: [2.2, 0.06, 0.6, 0.05] as const },
+    sable: { tones: [[1.06, 1.05, 1.02], [0.9, 0.88, 0.86], [1.05, 0.98, 0.9]] as const, shape: [3, 0.07, 0.5, 0.04] as const },
+    'roche-sol': { tones: [[1.08, 1.07, 1.05], [0.93, 1.02, 0.86], [0.85, 0.84, 0.86]] as const, shape: [2.4, 0.05, 0.6, 0.07] as const },
+    'sol-volcanique': { tones: [[1.22, 1.18, 1.14], [0.84, 0.82, 0.82], [1.22, 0.95, 0.84]] as const, shape: [2.8, 0.05, 0.6, 0.06] as const },
+  },
 };
+
+/** Famille de plaques (`rich`) d'une matiere dessinee. */
+function richOf(id: GroundSurfaceId): { tones: readonly (readonly [number, number, number])[]; shape: readonly [number, number, number, number] } | null {
+  const R = GROUND_LOOK_PARAMS.rich;
+  if (GRASS_FAMILY.includes(id)) return R.grass;
+  if (DIRT_FAMILY.includes(id)) return R.dirt;
+  return id in R ? R[id as keyof typeof R] : null;
+}
 
 interface SurfaceRender {
   texture: () => THREE.Texture;
@@ -140,7 +189,7 @@ const renderDefs = new Map<GroundSurfaceId, SurfaceRender>();
  *  la terre battue (leurs etats passent par les sommets, voir GroundStates) ;
  *  sinon la surface elle-meme. */
 export function groundRenderSurface(id: GroundSurfaceId): GroundSurfaceId {
-  if (groundLook !== 'living') return id;
+  if (!groundLookIsLiving()) return id;
   return GRASS_FAMILY.includes(id) ? MAIN_GRASS : DIRT_FAMILY.includes(id) ? MAIN_DIRT : id;
 }
 
@@ -148,7 +197,7 @@ export function groundRenderSurface(id: GroundSurfaceId): GroundSurfaceId {
  *  matiere principale a sa couleur moyenne (texture, cycle et couleur) ; en
  *  `living`, sa matiere principale telle quelle. */
 export function groundSurfaceDef(id: GroundSurfaceId): SurfaceRender {
-  if (groundLook === 'living') return GROUND_SURFACES[groundRenderSurface(id)];
+  if (groundLookIsLiving()) return GROUND_SURFACES[groundRenderSurface(id)];
   const def = GROUND_SURFACES[id];
   const main = groundLook === 'baseline' ? null : GRASS_FAMILY.includes(id) ? MAIN_GRASS : DIRT_FAMILY.includes(id) ? MAIN_DIRT : null;
   if (!main || main === id) return def;
@@ -168,7 +217,7 @@ export function groundSurfaceDef(id: GroundSurfaceId): SurfaceRender {
  *  defaut pour toutes les herbes, celui de la terre battue pour les terres) ;
  *  sinon celui de la surface. */
 export function groundLookTint(id: GroundSurfaceId): Rgb {
-  if (groundLook === 'living') {
+  if (groundLookIsLiving()) {
     if (GRASS_FAMILY.includes(id)) return lookSurfaceTint('grass');
     if (DIRT_FAMILY.includes(id)) return lookSurfaceTint(MAIN_DIRT);
   }
@@ -206,11 +255,11 @@ const ZERO: Rgb = [0, 0, 0];
 
 /** Multiplicateur (lineaire) de la couleur de sommet du dessus de la surface
  *  `id` au point monde (x, z) : [1, 1, 1] en `baseline` et hors des herbes et
- *  des terres. */
+ *  des terres (et des matieres minerales en `living` et `rich`). */
 export function groundMacro(id: GroundSurfaceId, x: number, z: number): Rgb {
   if (groundLook === 'baseline') return ONE;
   const P = GROUND_LOOK_PARAMS;
-  const k = GRASS_FAMILY.includes(id) ? P.grass : DIRT_FAMILY.includes(id) ? P.dirt : null;
+  const k = GRASS_FAMILY.includes(id) ? P.grass : DIRT_FAMILY.includes(id) ? P.dirt : groundLookIsLiving() && MINERALS.includes(id) ? P.mineral : null;
   if (!k) return ONE;
   let light = 0;
   for (const f of P.light) light += f.weight * field(x, z, f);
@@ -293,29 +342,19 @@ export class GroundStates {
 
 /** Etats de la carte `src` en `living`, sinon null (aucun attribut). */
 export function groundStates(src: GroundStateSource): GroundStates | null {
-  return groundLook === 'living' ? new GroundStates(src) : null;
+  return groundLookIsLiving() ? new GroundStates(src) : null;
 }
 
 /** Rayon (cases) des cases a redessiner autour d'une case repeinte
- *  (render/terrainChunks.ts) : 1 (transitions), plus en `living` (etats et
- *  usure lus jusqu'a wearRadius). */
+ *  (render/terrainChunks.ts) : 1 (transitions), plus en `living` et `rich`
+ *  (etats et usure lus jusqu'a wearRadius). */
 export function groundRepaintReach(): number {
-  return groundLook === 'living' ? Math.floor(GROUND_LOOK_PARAMS.living.wearRadius) + 1 : 1;
+  return groundLookIsLiving() ? Math.floor(GROUND_LOOK_PARAMS.living.wearRadius) + 1 : 1;
 }
 
-/** Shader `living` : declarations et fonctions (voir le commentaire du
- *  module). Hash entier : memes valeurs sur toutes les cartes graphiques. */
-const LIVING_FRAGMENT_HEAD = `
-varying vec3 vGroundState;
-varying vec2 vGroundXZ;
-uniform vec3 groundStateColors[ 3 ];
-uniform vec4 groundAccentColors[ 3 ];
-uniform vec3 groundTexMean;
-uniform vec2 groundAccentPresence;
-uniform vec4 groundStateShape;
-uniform vec4 groundAccentShape;
-uniform vec4 groundAccentSize;
-uniform vec2 groundGain;
+/** Bruit et hash des shaders du sol (`living`, `rich`, eau, lave). Hash
+ *  entier : memes valeurs sur toutes les cartes graphiques. */
+const GROUND_NOISE_GLSL = `
 uint groundHash( uint x ) {
 	x ^= x >> 16u;
 	x *= 0x7feb352du;
@@ -341,7 +380,40 @@ float groundNoise( vec2 p, uint salt ) {
 	float d = float( groundSeed( c + ivec2( 0, 1 ), salt ) >> 8u );
 	float e = float( groundSeed( c + ivec2( 1, 1 ), salt ) >> 8u );
 	return mix( mix( a, b, u.x ), mix( d, e, u.x ), u.y ) * ( 2.0 / 16777216.0 ) - 1.0;
+}`;
+
+/** Shader `living` : declarations et fonctions (voir le commentaire du
+ *  module). `rich` : plaques de matiere en plus (GROUND_PATCHES). */
+const LIVING_FRAGMENT_HEAD = `
+varying vec3 vGroundState;
+varying vec2 vGroundXZ;
+uniform vec3 groundStateColors[ 3 ];
+uniform vec4 groundAccentColors[ 3 ];
+uniform vec3 groundTexMean;
+uniform vec2 groundAccentPresence;
+uniform vec4 groundStateShape;
+uniform vec4 groundAccentShape;
+uniform vec4 groundAccentSize;
+uniform vec2 groundGain;
+${GROUND_NOISE_GLSL}
+#ifdef GROUND_PATCHES
+uniform vec3 groundPatchColors[ 3 ];
+uniform vec4 groundPatchShape;
+// Plaques de matiere : deux champs deformes (aucun axe, aucune case), seuilles
+// en zones a bord net (douceur groundPatchShape.y), puis mouchetis moyen.
+vec3 groundPatches( vec2 p ) {
+	vec2 q = p / groundPatchShape.x;
+	vec2 w = vec2( groundNoise( q * 0.7, 31u ), groundNoise( q * 0.7 + 5.3, 32u ) ) * 0.65;
+	float a = groundNoise( q + w, 33u ) * 0.7 + groundNoise( q * 2.3 + w, 34u ) * 0.3;
+	float b = groundNoise( q * 0.8 - w, 35u ) * 0.7 + groundNoise( q * 2.1, 36u ) * 0.3;
+	float s = groundPatchShape.y;
+	vec3 k = mix( vec3( 1.0 ), groundPatchColors[ 0 ], smoothstep( 0.16 - s, 0.16 + s, a ) );
+	k *= mix( vec3( 1.0 ), groundPatchColors[ 1 ], smoothstep( 0.2 - s, 0.2 + s, -a ) );
+	k *= mix( vec3( 1.0 ), groundPatchColors[ 2 ], smoothstep( 0.38 - s, 0.38 + s, b ) * groundPatchShape.z );
+	float m = groundNoise( p * 1.7, 37u ) * 0.6 + groundNoise( p * 4.1, 38u ) * 0.4;
+	return k * ( 1.0 + m * groundPatchShape.w );
 }
+#endif
 // Pentagone convexe irregulier de rayon ~r autour de l'origine (distance signee).
 float groundPolygon( vec2 e, float r, inout uint s ) {
 	float phi = groundRand( s ) * 6.28318;
@@ -366,6 +438,9 @@ vec3 groundLiving( vec3 tex ) {
 	k *= mix( vec3( 1.0 ), groundStateColors[ 0 ], dense * groundGain.y );
 	k *= mix( vec3( 1.0 ), groundStateColors[ 1 ], dry * groundGain.y );
 	k *= mix( vec3( 1.0 ), groundStateColors[ 2 ], wear * groundGain.y );
+#ifdef GROUND_PATCHES
+	k *= groundPatches( p );
+#endif
 	// Accents : au plus un par maille d'un reseau tourne (polygone doux, parfois
 	// deux lobes), present selon un tirage et, pour l'herbe, hors des zones calmes.
 	float cell = groundAccentShape.x;
@@ -420,15 +495,24 @@ const livingShared = {
 /** `layered` : seconde lecture de la texture du materiau (herbes et terres
  *  seulement), dans le meme repere monde que la premiere (UV), tournee et
  *  agrandie, melangee a la premiere. `living` : la meme, puis etats de
- *  l'herbe, usure et accents (voir le commentaire du module). Aucun effet
- *  sinon. */
+ *  l'herbe, usure et accents (voir le commentaire du module) ; matieres
+ *  minerales : seconde lecture seulement. `rich` : `living`, plus les plaques
+ *  de matiere (minerales comprises). Eau et lave : leur shader anime, dans
+ *  tous les modes (applyLiquid). Aucun effet sinon. */
 export function applyGroundLayer(material: THREE.MeshLambertMaterial, id: GroundSurfaceId): void {
-  if (!(groundLook === 'layered' || groundLook === 'living') || !(GRASS_FAMILY.includes(id) || DIRT_FAMILY.includes(id))) return;
-  const { scale, angle, weight } = GROUND_LOOK_PARAMS.layer;
+  if (LIQUIDS.includes(id)) {
+    applyLiquid(material, id);
+    return;
+  }
+  const living = groundLookIsLiving();
+  const mineral = living && MINERALS.includes(id);
+  if (!(groundLook === 'layered' || living) || !(GRASS_FAMILY.includes(id) || DIRT_FAMILY.includes(id) || mineral)) return;
+  const { scale, angle } = GROUND_LOOK_PARAMS.layer;
+  // Paves et dalles : pas de seconde lecture (deux motifs de pierres decales se dedoubleraient).
+  const weight = id === 'paves-gris' || id === 'roche-sol' ? 0 : GROUND_LOOK_PARAMS.layer.weight;
   const f = (v: number) => v.toFixed(5);
   const c = Math.cos(angle);
   const s = Math.sin(angle);
-  const living = groundLook === 'living';
   const layer = `vec4 sampledDiffuseColor = texture2D( map, vMapUv );
 	vec2 groundLayerUv = mat2( ${f(c)}, ${f(s)}, ${f(-s)}, ${f(c)} ) * vMapUv * ${f(scale)} + vec2( 0.37, 0.61 );
 	sampledDiffuseColor.rgb = mix( sampledDiffuseColor.rgb, texture2D( map, groundLayerUv ).rgb, ${f(weight)} );`;
@@ -450,12 +534,15 @@ export function applyGroundLayer(material: THREE.MeshLambertMaterial, id: Ground
   livingShared.groundAccentShape.value.set(...L.accentShape);
   livingShared.groundAccentSize.value.set(...L.accentSize);
   const grass = GRASS_FAMILY.includes(id);
+  // Minerales : ni etats ni accents (presence nulle) ; leur couleur moyenne pour `groundTexMean`.
+  const rich = groundLook === 'rich' ? richOf(groundRenderSurface(id)) : null;
   const uniforms = {
     ...livingShared,
     groundStateColors: { value: (grass ? [L.dense, L.dry, L.wear] : [ONE, ONE, ONE]).map((v) => new THREE.Vector3(...v)) },
     groundAccentColors: { value: (grass ? L.grassAccents : L.dirtAccents).map((v) => new THREE.Vector4(...v)) },
-    groundAccentPresence: { value: new THREE.Vector2(...(grass ? L.grassPresence : L.dirtPresence)) },
+    groundAccentPresence: { value: new THREE.Vector2(...(grass ? L.grassPresence : mineral ? [0, 0] : L.dirtPresence)) },
     groundTexMean: { value: new THREE.Vector3(...TEXTURE_MEAN[groundRenderSurface(id)]!) },
+    ...(rich ? { groundPatchColors: { value: rich.tones.map((v) => new THREE.Vector3(...v)) }, groundPatchShape: { value: new THREE.Vector4(...rich.shape) } } : {}),
   };
   // Lus par les outils de laboratoire (reglage a chaud).
   material.userData['groundLiving'] = uniforms;
@@ -464,7 +551,7 @@ export function applyGroundLayer(material: THREE.MeshLambertMaterial, id: Ground
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec3 groundState;\nvarying vec3 vGroundState;\nvarying vec2 vGroundXZ;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvGroundState = groundState;\n\tvGroundXZ = ( modelMatrix * vec4( transformed, 1.0 ) ).xz;');
-    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>${LIVING_FRAGMENT_HEAD}`).replace(
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>${rich ? '\n#define GROUND_PATCHES' : ''}${LIVING_FRAGMENT_HEAD}`).replace(
       '#include <map_fragment>',
       `#ifdef USE_MAP
 	${layer}
@@ -473,7 +560,64 @@ export function applyGroundLayer(material: THREE.MeshLambertMaterial, id: Ground
 #endif`,
     );
   };
-  material.customProgramCacheKey = () => `ground-living-${scale}-${angle}-${weight}`;
+  material.customProgramCacheKey = () => `ground-living-${scale}-${angle}-${weight}${rich ? '-rich' : ''}`;
+}
+
+/** Horloge des liquides (secondes, rendu seulement), partagee par tous leurs
+ *  materiaux ; avancee par attachGroundClock. */
+const groundClock = { value: 0 };
+const tickGroundClock = () => {
+  groundClock.value = (performance.now() / 1000) % 3600;
+};
+
+/** Anime l'eau et la lave du groupe `group` (sol d'un plateau ou d'un
+ *  morceau) : l'horloge avance avant le rendu de leurs meshes. */
+export function attachGroundClock(group: THREE.Object3D): void {
+  group.traverse((o) => {
+    if (o instanceof THREE.Mesh && !Array.isArray(o.material) && o.material.userData['groundLiquid']) o.onBeforeRender = tickGroundClock;
+  });
+}
+
+/**
+ * EAU et LAVE (rendu seulement, tous les modes) : la texture glisse
+ * lentement (eau : deux lectures croisees, reflets ; lave : croute qui
+ * derive, fissures incandescentes qui pulsent, lueur en emissif). Au bord
+ * (transitions `lisiere` et `melange`, render/surfaceBlend.ts), la marge
+ * portee par l'alpha des sommets donne l'ecume de l'eau et la croute
+ * refroidie de la lave.
+ */
+function applyLiquid(material: THREE.MeshLambertMaterial, id: GroundSurfaceId): void {
+  const lava = id === 'lave';
+  material.userData['groundLiquid'] = true;
+  const body = lava
+    ? `vec3 groundLava = texture2D( map, vMapUv + fract( vec2( 0.008, 0.005 ) * groundTime ) ).rgb;
+	float groundHot = clamp( ( groundLava.r - groundLava.b ) * 2.0 - 0.3, 0.0, 1.0 );
+	float groundPulse = 0.7 + 0.3 * sin( groundTime * 1.6 + groundNoise( vGroundXZ * 0.5, 71u ) * 5.0 );
+	float groundCool = 1.0;
+#ifdef USE_COLOR_ALPHA
+	groundCool = smoothstep( 0.0, 0.35, vColor.a - 0.5 );
+#endif
+	diffuseColor.rgb *= groundLava;
+	totalEmissiveRadiance += groundLava * groundHot * groundPulse * groundCool * 1.6;`
+    : `vec2 groundUvA = vMapUv + fract( vec2( 0.031, 0.017 ) * groundTime );
+	vec2 groundUvB = mat2( 0.8, 0.6, -0.6, 0.8 ) * vMapUv * 1.31 + fract( vec2( -0.019, 0.027 ) * groundTime );
+	vec3 groundWater = max( texture2D( map, groundUvA ).rgb, texture2D( map, groundUvB ).rgb );
+	groundWater *= 1.0 + 0.12 * groundNoise( vGroundXZ * 0.22 + vec2( groundTime * 0.02, 0.0 ), 61u );
+#ifdef USE_COLOR_ALPHA
+	float groundFoam = 1.0 - smoothstep( 0.02, 0.16 + 0.06 * groundNoise( vGroundXZ * 3.0 + groundTime * 0.4, 62u ), vColor.a - 0.5 );
+	groundWater = mix( groundWater, vec3( 0.75, 0.85, 0.85 ), groundFoam * 0.8 );
+#endif
+	diffuseColor.rgb *= groundWater;`;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms['groundTime'] = groundClock;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvGroundXZ = ( modelMatrix * vec4( transformed, 1.0 ) ).xz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec2 vGroundXZ;\nuniform float groundTime;${GROUND_NOISE_GLSL}`)
+      .replace('#include <map_fragment>', `#ifdef USE_MAP\n\t${body}\n#endif`);
+  };
+  material.customProgramCacheKey = () => `ground-liquid-${lava ? 'lave' : 'eau'}`;
 }
 
 /** Eclairement d'un sol plat (lineaire, deja divise par pi : ce que

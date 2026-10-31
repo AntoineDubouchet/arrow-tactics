@@ -3,6 +3,7 @@ import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, EDGE_CORNERS, OPPOSITE_SLOPE_DIRECTION, SLOPE_DIRECTIONS, SLOPE_DIRECTION_VECTORS, TERRAIN_ELEVATION_STEP, type SlopeDirection } from '../config/terrainElevation';
 import { GROUND_SURFACES, groundFlankSurface, type GroundSurfaceId } from './groundSurfaces';
 import { groundMacro, groundRenderSurface, groundStates, groundSurfaceDef } from './groundLook';
+import { reliefParams, reliefShading, rockFacetColor, rockMaterial, type ReliefShading } from './reliefLook';
 import { CELL_THICKNESS, FLANK_FOOT_SHADE, groundMaterial, layerMesh, newBuffers, RELIEF_TINT_PER_LEVEL, SLOPE_NORMAL_Y, SLOPE_SHADE, type LayerBuffers, type TerrainContext } from './terrainCells';
 
 /**
@@ -150,10 +151,14 @@ const TAG_SKIRT_VERTEX = 6;
  * (cle cellKey) : prolongees par les transitions (render/surfaceBlend.ts). */
 export type TerrainLips = Map<string, THREE.Vector3[][]>;
 
-export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: TerrainContext, style: TerrainStyle, castShadow = false): { group: THREE.Group; lips: TerrainLips } {
+export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: TerrainContext, style: TerrainStyle, castShadow = false): { group: THREE.Group; lips: TerrainLips; shading: ReliefShading | null } {
   const P = TERRAIN_STYLE_PARAMS[style];
   const group = new THREE.Group();
   const { field, has } = ctx;
+  // Habillage du relief (`?relief=`, render/reliefLook.ts) : null en `baseline` et dans les temoins.
+  const RL = style === 'faceted-plus' ? reliefParams() : null;
+  const RS = RL ? reliefShading(field, has, SLOPE_SHADE, SLOPE_NORMAL_Y) : null;
+  const rocks = newBuffers();
   const lips: TerrainLips = new Map();
   const lip = (cell: TerrainCellDef, p: THREE.Vector3[]) => { const key = cellKey(cell.x, cell.z); let l = lips.get(key); if (!l) lips.set(key, (l = [])); l.push(p); };
   const tops = new Map<GroundSurfaceId, LayerBuffers>();
@@ -168,7 +173,10 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
   // `surface` (dessus et levres seulement) : variation `?groundLook=` au point monde ;
   // `cell` : case qui emet le triangle (etats de l'herbe, `living`).
   const states = groundStates(ctx);
-  const push = (out: LayerBuffers, p: THREE.Vector3[], uv: [number, number][], outward: THREE.Vector3, shade: (y: number, normal: THREE.Vector3) => number, surface?: GroundSurfaceId, cell?: TerrainCellDef) => {
+  // `lit` (variantes `?relief=`) : couleur et normale PAR SOMMET (ombrage du relief) au lieu de `shade` et de la
+  // normale de la facette.
+  const vn = new THREE.Vector3();
+  const push = (out: LayerBuffers, p: THREE.Vector3[], uv: [number, number][], outward: THREE.Vector3, shade: (y: number, normal: THREE.Vector3) => number, surface?: GroundSurfaceId, cell?: TerrainCellDef, lit?: (q: THREE.Vector3, facet: THREE.Vector3, normal: THREE.Vector3) => number) => {
     ab.subVectors(p[1]!, p[0]!);
     ac.subVectors(p[2]!, p[0]!);
     n.crossVectors(ab, ac);
@@ -178,13 +186,14 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
     if (n.dot(outward) < 0) n.negate();
     for (const i of order) {
       out.positions.push(p[i]!.x, p[i]!.y, p[i]!.z);
-      const s = shade(p[i]!.y, n);
+      const s = lit ? lit(p[i]!, n, vn) : shade(p[i]!.y, n);
       const m = surface ? groundMacro(surface, p[i]!.x, p[i]!.z) : null;
       if (m) out.colors.push(s * m[0], s * m[1], s * m[2]);
       else out.colors.push(s, s, s);
       const st = surface && cell && states ? states.at(surface, p[i]!.x, p[i]!.z, cell.x, cell.z) : null;
       if (st) out.states.push(st[0], st[1], st[2]);
-      out.normals.push(n.x, n.y, n.z);
+      const nn = lit ? vn : n;
+      out.normals.push(nn.x, nn.y, nn.z);
       out.uvs.push(uv[i]![0], uv[i]![1]);
     }
   };
@@ -193,10 +202,44 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
     const tilt = Math.min(1, Math.max(0, (1 - normal.y) / (1 - SLOPE_NORMAL_Y)));
     return (1 + RELIEF_TINT_PER_LEVEL * (Math.max(0, y) / TERRAIN_ELEVATION_STEP)) * (1 - SLOPE_SHADE * tilt);
   };
+  // Variantes : ombrage du relief au point (case `cell`, point ramene dans la case), facteur `k` en plus.
+  const sm = new THREE.Vector3();
+  const reliefLit = (cell: TerrainCellDef, k = 1) => (q: THREE.Vector3, facet: THREE.Vector3, normal: THREE.Vector3) => {
+    const r = RS!.at(cell.x, cell.z, q.x, q.z, sm);
+    if (RS!.smooth > 0) normal.copy(facet).lerp(sm, RS!.smooth).normalize();
+    else normal.copy(facet);
+    const veil = RS!.smooth > 0 ? r.veil : 1 - SLOPE_SHADE * Math.min(1, Math.max(0, (1 - facet.y) / (1 - SLOPE_NORMAL_Y)));
+    return (1 + RELIEF_TINT_PER_LEVEL * (Math.max(0, q.y) / TERRAIN_ELEVATION_STEP)) * veil * r.factor * k;
+  };
   // Triangle de dessus de la case `cell` (UV monde / cycle de la surface).
   const topTri = (surface: GroundSurfaceId, p: THREE.Vector3[], cell: TerrainCellDef) => {
     const t = groundSurfaceDef(surface).tiles;
-    push(topOf(surface), p, p.map((q) => [q.x / t, -q.z / t] as [number, number]), up, topShade, surface, cell);
+    push(topOf(surface), p, p.map((q) => [q.x / t, -q.z / t] as [number, number]), up, topShade, surface, cell, RS ? reliefLit(cell) : undefined);
+  };
+  // Variantes : bande d'herbe sous la crete (face de la meme surface que le dessus, assombrie).
+  const turfTri = (surface: GroundSurfaceId, p: THREE.Vector3[], cell: TerrainCellDef, outward: THREE.Vector3) => {
+    const t = groundSurfaceDef(surface).tiles;
+    const lit = reliefLit(cell, RL!.turfShade);
+    push(topOf(surface), p, p.map((q) => [q.x / t, -q.z / t] as [number, number]), outward, topShade, surface, cell, (q, facet, normal) => { const s = lit(q, facet, normal); normal.copy(facet); return s; });
+  };
+  // Variantes : facette de roche (couleur par facette : terre sous la crete, roche, pied plus sombre).
+  const rn = new THREE.Vector3();
+  const rockTri = (p: THREE.Vector3[], outward: THREE.Vector3, crest: number, span: number) => {
+    ab.subVectors(p[1]!, p[0]!);
+    ac.subVectors(p[2]!, p[0]!);
+    rn.crossVectors(ab, ac);
+    if (rn.lengthSq() < 1e-12) return;
+    const order = rn.dot(outward) >= 0 ? [0, 1, 2] : [0, 2, 1];
+    rn.normalize();
+    if (rn.dot(outward) < 0) rn.negate();
+    const cx = (p[0]!.x + p[1]!.x + p[2]!.x) / 3, cy = (p[0]!.y + p[1]!.y + p[2]!.y) / 3, cz = (p[0]!.z + p[1]!.z + p[2]!.z) / 3;
+    const c = rockFacetColor(RL!, crest - cy, span, cx, cy, cz);
+    for (const i of order) {
+      rocks.positions.push(p[i]!.x, p[i]!.y, p[i]!.z);
+      rocks.colors.push(c[0], c[1], c[2]);
+      rocks.normals.push(rn.x, rn.y, rn.z);
+      rocks.uvs.push(0, 0);
+    }
   };
   // Zigzag entre une ligne de 2 points (a, b) et une polyligne O[0..S] (O[0] cote a) : aucun T de jonction sur [a, b].
   const zipper = (a: THREE.Vector3, b: THREE.Vector3, O: THREE.Vector3[], emit: (p: THREE.Vector3[]) => void) => {
@@ -250,6 +293,8 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
       d = pick(P.straightVertex, u) * (absent.some(([cx, cz]) => narrowVoid(cx!, cz!)) ? NARROW_VOID_SCALE : 1);
     }
     const absentAround = [[vx - 1, vz - 1], [vx, vz - 1], [vx - 1, vz], [vx, vz]].filter(([cx, cz]) => !has(cx!, cz!));
+    // Variantes `?relief=` : un sommet verrouille (bord qui change de niveau) reste en place, sans face de raccord.
+    if (RL && locked(vx, vz)) { dir = null; d = 0; }
     const r = { x: dir ? dir.x * d : 0, z: dir ? dir.z * d : 0, dir, concave: count === 3, narrow: absentAround.some(([cx, cz]) => narrowVoid(cx!, cz!)) };
     vertexDisp.set(key, r);
     return r;
@@ -292,6 +337,61 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
   const locked = (vx: number, vz: number) => { const hs = heightsAt(vx, vz); return hs.some((y) => Math.abs(y - hs[0]!) > 1e-6); };
   const bottom = -CELL_THICKNESS;
   const rows = P.cliffRows + 1;
+  // Variantes `?relief=` : crete arrondie, bande d'herbe, paroi de roche jusqu'a un pied irregulier.
+  type Disp = ReturnType<typeof dispAt>;
+  const emitRockEdge = (e: FreeEdge, O: THREE.Vector3[], ts: number[], da: Disp, db: Disp) => {
+    const R = RL!;
+    const S = O.length - 1;
+    const [tag, kx, kz] = e.key;
+    // Crete : la levre s'abaisse vers le vide, en proportion de son debord.
+    O.forEach((o, k) => {
+      const bx = k === 0 ? e.a.x : k === S ? e.b.x : lerp(e.a.x, e.b.x, ts[k]!);
+      const bz = k === 0 ? e.a.z : k === S ? e.b.z : lerp(e.a.z, e.b.z, ts[k]!);
+      o.y -= R.crestDrop * Math.min(1, Math.hypot(o.x - bx, o.z - bz) / 0.1);
+    });
+    zipper(e.a, e.b, O, (p) => { topTri(e.surface, p, e.cell); lip(e.cell, p); });
+    // Colonnes : verticales a un sommet verrouille, rentrant ou sans direction propre (partagees exactement).
+    const colDir = (k: number): { x: number; z: number } | null => {
+      if (k === 0) return locked(...e.va) || da.concave || !da.dir ? null : da.dir;
+      if (k === S) return locked(...e.vb) || db.concave || !db.dir ? null : db.dir;
+      return e.n;
+    };
+    const colScale = (k: number) => ((k === 0 ? da.narrow : k === S ? db.narrow : e.narrow) ? NARROW_VOID_SCALE : 1);
+    const colHash = (k: number, r: number) => (k === 0 ? hash(TAG_VERTEX, e.va[0], e.va[1], 30 + r) : k === S ? hash(TAG_VERTEX, e.vb[0], e.vb[1], 30 + r) : hash(tag, kx, kz, 30 + 10 * k + r));
+    const outward = new THREE.Vector3(e.n.x, 0, e.n.z);
+    const at = (o: THREE.Vector3, k: number, off: number, y: number) => { const d = colDir(k); return new THREE.Vector3(o.x + (d?.x ?? 0) * off, y, o.z + (d?.z ?? 0) * off); };
+    // Bande d'herbe sous la crete.
+    const T = O.map((o, k) => at(o, k, R.turfOut * colScale(k), o.y - R.turf));
+    ladder(O, T, (p) => turfTri(e.surface, p, e.cell, outward));
+    // Roche : lignes jusqu'au pied irregulier ; bombement, strates (une ligne sur deux en retrait), resserrement.
+    const crest = Math.max(e.a.y, e.b.y);
+    const lines: THREE.Vector3[][] = [T];
+    for (let r = 1; r <= R.edgeRows; r++) {
+      const f = r / R.edgeRows;
+      lines.push(T.map((o, k) => {
+        const foot = -(R.edgeDepth + R.edgeDepthJitter * colHash(k, 9));
+        const y = r === R.edgeRows ? foot : lerp(o.y, foot, f + (colHash(k, 60 + r) - 0.5) * 0.35 / R.edgeRows);
+        let off = (R.bulge * Math.sin(Math.PI * f) + pick(R.rowJitter, colHash(k, r)) - (r % 2 === 0 ? R.strata * R.rowJitter[1] : 0) - R.taper * f * f) * colScale(k);
+        if (k > 0 && k < S) { const lim = 0.85 * Math.min(ts[k]!, 1 - ts[k]!); off = Math.max(-lim, Math.min(lim, off)); }
+        return at(o, k, off, y);
+      }));
+    }
+    const span = crest + R.edgeDepth;
+    for (let r = 0; r < R.edgeRows; r++) ladder(lines[r]!, lines[r + 1]!, (p) => rockTri(p, outward, crest, span));
+    // Marche le long du bord (sommet verrouille) : face de roche entre le sommet logique et son decalage.
+    for (const [vv, p0, o] of [[e.va, e.a, O[0]!], [e.vb, e.b, O[S]!]] as const) {
+      if (!locked(vv[0], vv[1]) || Math.hypot(p0.x - o.x, p0.z - o.z) < 1e-6) continue;
+      const others = heightsAt(vv[0], vv[1]).filter((y) => y < p0.y - 1e-6);
+      if (others.length === 0) continue;
+      const low = Math.max(...others);
+      const away = new THREE.Vector3(-(o.z - p0.z), 0, o.x - p0.x);
+      const far = p0 === e.a ? e.b : e.a;
+      if (away.x * (far.x - p0.x) + away.z * (far.z - p0.z) > 0) away.negate();
+      const pl = new THREE.Vector3(p0.x, low, p0.z), ol = new THREE.Vector3(o.x, low, o.z);
+      rockTri([p0, o, pl], away, crest, span);
+      rockTri([o, ol, pl], away, crest, span);
+    }
+  };
   for (const e of freeEdges) {
     const S = P.edgeSegments;
     const [tag, kx, kz] = e.key;
@@ -311,6 +411,10 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
       const off = Math.min(pick(P.edgeOffset, hash(tag, kx, kz, 20 + k)) * (e.narrow ? NARROW_VOID_SCALE : 1), 0.85 * Math.min(t, 1 - t));
       return new THREE.Vector3(lerp(e.a.x, e.b.x, t) + e.n.x * off, y, lerp(e.a.z, e.b.z, t) + e.n.z * off);
     });
+    if (RL) {
+      emitRockEdge(e, O, ts, da, db);
+      continue;
+    }
     // Bande de dessus, de l'arete logique a la polyligne.
     zipper(e.a, e.b, O, (p) => { topTri(e.surface, p, e.cell); lip(e.cell, p); });
     // Falaise facettee : colonnes (direction de decalage par sommet / normale de l'arete), lignes jusqu'au pied.
@@ -434,11 +538,37 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
       const off = Math.min(pick(Q.edgeOffset, hash(tag, kx, kz, 70 + k)) * narrow, 0.85 * Math.min(t, 1 - t));
       return new THREE.Vector3(lerp(ax, bx, t) + v.dx * off, hi, lerp(az, bz, t) + v.dz * off);
     });
+    // Variantes `?relief=` : la levre s'abaisse vers la case basse, en proportion de son debord.
+    if (RL) O.forEach((o, k) => {
+      const t = Math.min(1, Math.max(0, ts[k]!));
+      o.y -= RL.crestDrop * Math.min(1, Math.hypot(o.x - lerp(ax, bx, k === 0 ? 0 : k === S ? 1 : t), o.z - lerp(az, bz, k === 0 ? 0 : k === S ? 1 : t)) / 0.1);
+    });
     zipper(a, b, O, (p) => { topTri(surface, p, cell); lip(cell, p); });
     // Colonnes : verticales a un sommet non decale ou a un coin rentrant (aucune facette repliee).
     const colDir = (k: number) => (k === 0 ? (da.concave ? null : da.dir) : k === S ? (db.concave ? null : db.dir) : { x: v.dx, z: v.dz });
     const colHash = (k: number, r: number) => (k === 0 ? hash(TAG_SKIRT_VERTEX, ax, az, 80 + r) : k === S ? hash(TAG_SKIRT_VERTEX, bx, bz, 80 + r) : hash(tag, kx, kz, 90 + 10 * k + r));
     const shifted = (o: THREE.Vector3, k: number, off: number) => { const d = colDir(k); return { x: o.x + (d?.x ?? 0) * off, z: o.z + (d?.z ?? 0) * off }; };
+    if (RL) {
+      // Bande d'herbe sous la crete, roche jusqu'au pied enfonce dans le sol bas (decalage limite : on marche dessous).
+      const out = new THREE.Vector3(v.dx, 0, v.dz);
+      const T = O.map((o, k) => { const p = shifted(o, k, RL.turfOut * narrow); return new THREE.Vector3(p.x, o.y - RL.turf, p.z); });
+      ladder(O, T, (p) => turfTri(surface, p, cell, out));
+      const footLine = O.map((o, k) => {
+        const p = shifted(o, k, pick(Q.foot, colHash(k, 2)) * narrow);
+        const inside = (p.x - ax) * v.dx + (p.z - az) * v.dz > 1e-6;
+        return new THREE.Vector3(p.x, (inside ? field.heightAt(p.x, p.z) : lo) - Q.embed, p.z);
+      });
+      const lines: THREE.Vector3[][] = [T];
+      for (let r = 1; r < RL.skirtRows; r++) {
+        lines.push(T.map((o, k) => {
+          const p = shifted(o, k, pick(RL.skirtJitter, colHash(k, 10 + r)) * narrow);
+          return new THREE.Vector3(p.x, lerp(o.y, footLine[k]!.y, r / RL.skirtRows + (colHash(k, 20 + r) - 0.5) * 0.3 / RL.skirtRows), p.z);
+        }));
+      }
+      lines.push(footLine);
+      for (let r = 0; r + 1 < lines.length; r++) ladder(lines[r]!, lines[r + 1]!, (p) => rockTri(p, out, hi, hi - lo));
+      return;
+    }
     const mid = O.map((o, k) => { const p = shifted(o, k, Q.rowJitter * colHash(k, 1) * narrow); return new THREE.Vector3(p.x, (hi + lo) / 2, p.z); });
     const foot = O.map((o, k) => {
       const p = shifted(o, k, pick(Q.foot, colHash(k, 2)) * narrow);
@@ -489,7 +619,9 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
       const span = Math.max(top0, top1) - minY || 1;
       const shade = (y: number) => FLANK_FOOT_SHADE + (1 - FLANK_FOOT_SHADE) * ((y - minY) / span);
       const along = v.dx === 0 ? (q: THREE.Vector3) => q.x : (q: THREE.Vector3) => q.z;
-      const flankTri = (p: THREE.Vector3[]) => push(flanks, p, p.map((q) => [along(q) / flankTiles, q.y / flankTiles] as [number, number]), outward, shade);
+      const flankTri = RL
+        ? (p: THREE.Vector3[]) => rockTri(p, outward, Math.max(top0, top1), span)
+        : (p: THREE.Vector3[]) => push(flanks, p, p.map((q) => [along(q) / flankTiles, q.y / flankTiles] as [number, number]), outward, shade);
       zipper(new THREE.Vector3(ax, top0, az), new THREE.Vector3(bx, top1, bz), mid[0]!, flankTri);
       for (let r = 0; r + 1 < mid.length; r++) ladder(mid[r]!, mid[r + 1]!, flankTri);
       zipper(new THREE.Vector3(ax, bot0, az), new THREE.Vector3(bx, bot1, bz), mid[mid.length - 1]!, flankTri);
@@ -501,6 +633,7 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
     if (top) group.add(layerMesh(top, groundMaterial(ctx.materials, `top:${id}`, id)));
   }
   if (flanks.positions.length > 0) group.add(layerMesh(flanks, groundMaterial(ctx.materials, 'flank', flankSurface)));
-  if (castShadow) for (const m of group.children) m.castShadow = true;
-  return { group, lips };
+  if (rocks.positions.length > 0) group.add(layerMesh(rocks, rockMaterial(ctx.materials)));
+  if (castShadow || RL?.castShadow) for (const m of group.children) m.castShadow = true;
+  return { group, lips, shading: RS };
 }

@@ -5,7 +5,7 @@ import { TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type ReliefBrushSize, type Relief
 import type { TerritoryTeam } from '../config/territory';
 import { getBuilding, listBuyableBuildingIds } from '../data/buildings';
 import { UNITS } from '../data/units';
-import { currentGroundLook, groundSwatchUrl } from '../render/groundLook';
+import { groundLookIsLiving, groundSwatchUrl } from '../render/groundLook';
 import { groundTextureUrl } from '../render/textures';
 import { teamColor } from '../render/unitSelectionRing';
 import type { EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate } from './editorState';
@@ -658,7 +658,7 @@ function teamName(team: TerritoryTeam | null): string {
 /** Nom d'une surface : celui de la palette simplifiee en
  *  `?groundLook=living`, sinon son libelle complet. */
 function surfaceLabel(id: GroundTextureId): string {
-  const simple = currentGroundLook() === 'living' ? GROUND_SURFACE_PALETTE.find((e) => e.id === id) : undefined;
+  const simple = groundLookIsLiving() ? GROUND_SURFACE_PALETTE.find((e) => e.id === id) : undefined;
   return simple?.label ?? GROUND_TEXTURES.find((t) => t.id === id)?.label ?? id;
 }
 
@@ -1038,10 +1038,11 @@ export class EditorUI {
     }
     browser.appendChild(surfaceSizeRow);
     this.setSurfaceBrushSize(4);
-    // `?groundLook=living` (render/groundLook.ts) : palette simplifiee (une
-    // herbe, deux de ses etats, une terre), vignettes de la matiere rendue ;
+    // `?groundLook=living` et `rich` (render/groundLook.ts) : palette simplifiee
+    // (une herbe, deux de ses etats, une terre, puis le catalogue elargi),
+    // vignettes de la matiere rendue ;
     // les autres surfaces restent valides dans les cartes, sans etre proposees.
-    const living = currentGroundLook() === 'living';
+    const living = groundLookIsLiving();
     const defaultGrid = document.createElement('div');
     defaultGrid.className = 'editor-surface-grid';
     defaultGrid.appendChild(this.surfaceSwatch(null, 'Par défaut', living ? groundSwatchUrl('grass') : 'ground_grass.png', 'Efface la peinture : la case reprend la surface par défaut du jeu (rien n’est enregistré).'));

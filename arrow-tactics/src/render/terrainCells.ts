@@ -4,7 +4,7 @@ import type { GroundTextureId } from '../config/groundSurfaces';
 import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, EDGE_CORNERS, FLAT_TERRAIN, TERRAIN_ELEVATION_STEP, OPPOSITE_SLOPE_DIRECTION, SLOPE_DIRECTIONS, SLOPE_DIRECTION_VECTORS, type TerrainHeightField } from '../config/terrainElevation';
 import { GROUND_SURFACES, groundFlankSurface, groundSurfaceAt, type GroundSurfaceId } from './groundSurfaces';
-import { applyGroundLayer, groundLookTint, groundMacro, groundRenderSurface, groundStates, groundSurfaceDef } from './groundLook';
+import { applyGroundLayer, attachGroundClock, groundLookTint, groundMacro, groundRenderSurface, groundStates, groundSurfaceDef } from './groundLook';
 import { appendSurfaceBlend } from './surfaceBlend';
 import { buildStylizedTerrain } from './terrainStylized';
 
@@ -182,11 +182,15 @@ export function buildTerrainChunk(cells: readonly TerrainCellDef[], ctx: Terrain
   if (terrainRenderMode === 'grid') {
     const group = buildGridTerrain(cells, ctx);
     appendSurfaceBlend(group, cells, ctx);
+    attachGroundClock(group);
     return group;
   }
-  const { group, lips } = buildStylizedTerrain(cells, ctx, terrainRenderMode === 'faceted' ? 'faceted' : 'faceted-plus', terrainRenderMode === 'faceted-plus-shadow');
-  // Transitions entre surfaces (`?surfaceBlend=`, render/surfaceBlend.ts) : rien en `hard`.
-  appendSurfaceBlend(group, cells, ctx, lips);
+  const { group, lips, shading } = buildStylizedTerrain(cells, ctx, terrainRenderMode === 'faceted' ? 'faceted' : 'faceted-plus', terrainRenderMode === 'faceted-plus-shadow');
+  // Transitions entre surfaces (`?surfaceBlend=`, render/surfaceBlend.ts) : rien en `hard`. Ombrage du relief
+  // (`?relief=`, render/reliefLook.ts) : celui des dessus.
+  appendSurfaceBlend(group, cells, ctx, lips, shading);
+  // Eau et lave animees (render/groundLook.ts).
+  attachGroundClock(group);
   return group;
 }
 

@@ -39,6 +39,8 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-24 | Espace réactive le bouton qui a gardé le focus | Confirmé (éditeur) / À vérifier (jeu) |
 | KI-26 | Arbres et props pivotent autour de l'origine de leur modèle | Dette (lecture du code) |
 | KI-27 | L'agrandissement de run ne déplace ni le relief ni les surfaces | Confirmé (mesuré, arène candidate) |
+| KI-28 | Faces de raccord sombres aux coins d'un bord qui change de niveau | Confirmé (rendu par défaut ; absent de `?relief=`) |
+| KI-29 | Eau et lave peignables mais franchissables | Limite assumée (rendu seulement) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19 et
@@ -273,6 +275,21 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 - **Piste** : rendre le focus après un clic souris sur ces boutons, ou
   empêcher l'action par défaut d'Espace quand elle sert à la caméra.
 
+### KI-29 — Eau et lave peignables mais franchissables
+
+- **Statut** : limite assumée (2026-10-31), confirmée par les contrôles de
+  la passe : la simulation a les mêmes obstacles avec ou sans surfaces
+  peintes.
+- **Constat** : l'outil Surface propose Eau et Lave. Elles sont animées
+  mais, comme toute surface, ne bloquent rien : une unité les traverse, et
+  on peut y poser une unité, un bâtiment, un mur ou la Baliste. L'infobulle
+  de leur vignette le rappelle.
+- **Impact** : un lac ou une coulée se lit comme un obstacle qui n'en est
+  pas un. L'eau suit aussi le dessus de la case : sur une pente, elle est
+  en pente.
+- **Suite** : cadrage dans `ROADMAP.md` §7 (surfaces bloquantes) ; changer
+  la règle « une surface ne bloque rien » revient à Antoine.
+
 ## C. Incohérences entre documentation et code
 
 ### KI-09 — Descriptions de talents aux valeurs codées en dur
@@ -440,3 +457,22 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   plupart des modèles ont un pivot proche de leur centre.
 - **Piste** : le même emballage que les bâtiments pour les arbres et les
   props.
+
+### KI-28 — Faces de raccord sombres aux coins d'un bord qui change de niveau
+
+- **Statut** : Confirmé (2026-10-31, rayon lancé depuis la caméra sur la
+  carte labo du relief).
+- **Symptôme** : de petits carrés presque noirs au bord de l'île, là où des
+  terrasses de niveaux différents arrivent au bord (labo : bord ouest des
+  terrasses 0 → 3).
+- **Mécanisme** : un sommet de bord « verrouillé » (deux hauteurs le long
+  du bord) qui est aussi un coin rentrant est décalé en diagonale
+  (`render/terrainStylized.ts`, `dispAt`) ; la face de raccord verticale
+  qui comble l'écart regarde alors exactement vers la caméra de jeu (lacet
+  45°), sans soleil ni lumière de remplissage.
+- **Impact** : cosmétique, visible à la caméra normale sur les cartes à
+  terrasses en bord d'île.
+- **Correction disponible** : les variantes `?relief=roche`,
+  `?relief=massif` et `?relief=hybrid` (`render/reliefLook.ts`) laissent
+  ces sommets en place, sans face de raccord. Le rendu par défaut n'est pas modifié tant
+  qu'aucune variante n'est retenue.

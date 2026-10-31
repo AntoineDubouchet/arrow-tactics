@@ -116,6 +116,7 @@ import { ChunkedTerrainView } from './render/terrainChunks';
 import { setSurfaceBlendMode, SURFACE_BLEND_MODES } from './render/surfaceBlend';
 import { LOOK_PRESETS, lookSettings, setLookPreset } from './render/look';
 import { GROUND_LOOKS, setGroundLook, setGroundSwatchLight } from './render/groundLook';
+import { RELIEF_LOOKS, setReliefLook, setReliefShadows } from './render/reliefLook';
 import { activeTerrain, intersectSculptSurface, intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
 import { reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, type ReliefBrushSize, type ReliefDelta, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
 import { UnitMovePreview, type UnitMovePreviewItem } from './render/unitMovePreview';
@@ -342,7 +343,7 @@ const terrainMode = TERRAIN_RENDER_MODES.find((m) => m === terrainParam);
 if (terrainMode) setTerrainRenderMode(terrainMode);
 // Transitions entre surfaces du dessus : `irregular` par defaut
 // (render/surfaceBlend.ts) ; temoin `?surfaceBlend=hard` (frontiere case par
-// case). Purement visuel.
+// case) ; `lisiere` et `melange` en comparaison. Purement visuel.
 const blendParam = new URLSearchParams(location.search).get('surfaceBlend');
 const blendMode = SURFACE_BLEND_MODES.find((m) => m === blendParam);
 if (blendMode) setSurfaceBlendMode(blendMode);
@@ -357,13 +358,23 @@ if (lookPreset) {
   renderer.applyLook(lookSettings());
 }
 // Matiere du sol : `baseline` par defaut (rendu actuel) ; `?groundLook=macro`,
-// `layered` et `living` (render/groundLook.ts ; `living` = direction
-// retenue). Purement visuel, avant toute construction de plateau.
+// `layered`, `living` (render/groundLook.ts ; `living` = direction
+// retenue) et `rich` (en comparaison). Purement visuel, avant toute
+// construction de plateau.
 // Eclairement de la scene : vignettes de l'outil Surface en `living`.
 const groundLookParam = new URLSearchParams(location.search).get('groundLook');
 const groundLook = GROUND_LOOKS.find((l) => l === groundLookParam);
 if (groundLook) setGroundLook(groundLook);
 setGroundSwatchLight(renderer.groundIrradiance());
+// Habillage du relief : `baseline` par defaut (rendu actuel) ; `?relief=roche`,
+// `?relief=massif` et `?relief=hybrid` (render/reliefLook.ts), en
+// comparaison ; `&reliefShadows=on|off` force les ombres du relief. Purement
+// visuel, avant toute construction de plateau.
+const reliefParam = new URLSearchParams(location.search).get('relief');
+const reliefLook = RELIEF_LOOKS.find((l) => l === reliefParam);
+if (reliefLook) setReliefLook(reliefLook);
+const reliefShadowsParam = new URLSearchParams(location.search).get('reliefShadows');
+if (reliefShadowsParam === 'on' || reliefShadowsParam === 'off') setReliefShadows(reliefShadowsParam === 'on');
 
 // Chargement asynchrone : les rochers/arbres viennent de vrais modeles .glb
 // (voir render/assetLibrary.ts), pas de geometrie generee — le reste de

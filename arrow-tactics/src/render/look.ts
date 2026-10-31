@@ -56,6 +56,11 @@ export const LOOK_SETTINGS: Readonly<Record<LookPreset, LookSettings>> = {
       'herbe-dense': [2.22, 2.03, 2.12],
       'terre-battue': [3.55, 4.55, 6.5],
       flank: [4.66, 8.42, 24.81],
+      // Catalogue elargi (2026-10-31) : textures dessinees a leur couleur ; seul
+      // l'eclairement d'un sol plat (environ x 1,36) est compense.
+      sable: [0.69, 0.67, 0.64],
+      'roche-sol': [1.1, 1.04, 0.96],
+      'sol-volcanique': [1.38, 1.4, 1.36],
     },
   },
   // Plus loin dans la meme direction : ambiance 0,35, soleil 2,6, remplissage
@@ -72,6 +77,9 @@ export const LOOK_SETTINGS: Readonly<Record<LookPreset, LookSettings>> = {
       'herbe-dense': [2.03, 2.06, 1.97],
       'terre-battue': [3.52, 4.79, 7.27],
       flank: [4.91, 9.35, 29.7],
+      sable: [0.69, 0.67, 0.64],
+      'roche-sol': [1.1, 1.04, 0.96],
+      'sol-volcanique': [1.38, 1.4, 1.36],
     },
   },
 };

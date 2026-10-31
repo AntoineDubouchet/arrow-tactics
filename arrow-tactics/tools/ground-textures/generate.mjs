@@ -1,4 +1,4 @@
-// Textures de sol exploratoires (herbe, terre, mixte) : generation procedurale
+// Textures de sol (herbe, terre, mixte ; paves, sable, roche, volcan, lave, eau) : generation procedurale
 // deterministe (graine fixe par texture, aucun Math.random), toutes
 // raccordables (bruit periodique, traits dessines en boucle sur les bords).
 // Ecrit les PNG dans public/textures/ground/variants/ (lus par
@@ -159,6 +159,70 @@ class Image {
 const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 const scale = (c, k) => c.map((v) => v * k);
 
+/** Voronoi periodique (pierres, dalles, croute) : `n` × `n` cellules, un point
+ *  par cellule decale de `jitter`. Pour (x, y) : distances au point le plus
+ *  proche et au suivant, indice et position du plus proche. */
+function voronoi(rand, size, n, jitter) {
+  const step = size / n;
+  const pts = Array.from({ length: n * n }, (_, k) => [((k % n) + 0.5 + (rand() - 0.5) * jitter) * step, (Math.floor(k / n) + 0.5 + (rand() - 0.5) * jitter) * step]);
+  return (x, y) => {
+    const ci = Math.floor(x / step);
+    const cj = Math.floor(y / step);
+    let d1 = Infinity;
+    let d2 = Infinity;
+    let id = 0;
+    let px = 0;
+    let py = 0;
+    for (let dj = -2; dj <= 2; dj++) {
+      for (let di = -2; di <= 2; di++) {
+        const i = ci + di;
+        const j = cj + dj;
+        const wi = ((i % n) + n) % n;
+        const wj = ((j % n) + n) % n;
+        const p = pts[wj * n + wi];
+        const qx = p[0] + (i - wi) * step;
+        const qy = p[1] + (j - wj) * step;
+        const d = Math.hypot(x - qx, y - qy);
+        if (d < d1) {
+          d2 = d1;
+          d1 = d;
+          id = wj * n + wi;
+          px = qx;
+          py = qy;
+        } else if (d < d2) d2 = d;
+      }
+    }
+    return { d1, d2, id, px, py, step };
+  };
+}
+
+/** Pierres jointives (paves, dalles, croute) : couleur par pierre (`tone`),
+ *  joint de largeur `joint` (pixels) couleur `mortar`, bord de pierre assombri
+ *  (`rim`, sans direction de lumiere : la scene eclaire). `fade` (0..1) :
+ *  part des joints effacee par endroits (roche d'un seul tenant, fissures
+ *  interrompues). */
+function stones(size, seed, { n, jitter, joint, mortar, tone, rim, grain, fade = 0 }) {
+  const rand = rngOf(seed);
+  const v = voronoi(rand, size, n, jitter);
+  const g = fbm(rand, size, 8, 2);
+  const tones = Array.from({ length: n * n }, () => [rand(), rand()]);
+  const gaps = fbm(rand, size, 3, 2);
+  const img = new Image(size, mortar);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const c = v(x + 0.5, y + 0.5);
+      const edge = (c.d2 - c.d1) / 2;
+      const open = fade > 0 ? smooth(Math.max(0, Math.min(1, (gaps(x, y) - fade * 0.6 - 0.2) / 0.12))) : 1;
+      const inside = 1 - (1 - smooth(Math.max(0, Math.min(1, (edge - joint) / 1.5)))) * open;
+      const [a, b] = tones[c.id];
+      const stone = scale(tone(a, b), 1 - rim * (1 - smooth(Math.min(1, (edge - joint) / (c.step * 0.22)))));
+      const k = 1 + (g(x, y) - 0.5) * grain;
+      img.data.set(scale(mix(mortar, stone, inside), k), (y * size + x) * 3);
+    }
+  }
+  return { img, v, rand };
+}
+
 // ---------------------------------------------------------------------------
 // Teintes communes (sRGB), centrees sur l'herbe actuelle (ground_grass.png,
 // moyenne 67, 115, 52) et sa terre (119, 82, 43) : un lot coherent entre lui
@@ -209,7 +273,7 @@ function dirtPatches(img, seed, coverage, edge) {
 }
 
 // ---------------------------------------------------------------------------
-// Le lot : 6 herbes, 2 terres, 2 mixtes.
+// Le lot : 6 herbes, 2 terres, 2 mixtes, puis le catalogue elargi.
 
 const TEXTURES = [
   {
@@ -416,6 +480,141 @@ const TEXTURES = [
         const y = rand() * size;
         if (mask[Math.floor(y) * size + Math.floor(x)] < 0.7) continue;
         img.disc(x, y, 1.2 + rand() * 1.3, DIRT_LIGHT, 0.8);
+      }
+      return img;
+    },
+  },
+  // ---- Catalogue elargi (2026-10-31) : paves, sable, sol rocheux, sol
+  // volcanique, lave, eau. Teintes naturelles (le preset `?look=` les accorde).
+  {
+    file: 'paves-gris.png',
+    size: 256,
+    draw: (size) => {
+      // Paves gris irreguliers (environ 0,2 case), joints terreux.
+      const { img } = stones(size, 0x91a2b3c4, {
+        n: 10,
+        jitter: 0.75,
+        joint: 1.4,
+        mortar: [92, 84, 72],
+        tone: (a, b) => mix(mix([142, 140, 136], [168, 164, 156], a), [150, 140, 124], b * 0.5),
+        rim: 0.16,
+        grain: 0.1,
+      });
+      return img;
+    },
+  },
+  {
+    file: 'sable.png',
+    size: 256,
+    draw: (size) => {
+      // Sable clair : grain fin, rides douces, quelques grains plus sombres.
+      const rand = rngOf(0xa2b3c4d5);
+      const img = new Image(size, [218, 196, 150]);
+      const grain = fbm(rand, size, 16, 2);
+      const warp = valueNoise(rand, size, 3);
+      const patch = fbm(rand, size, 2, 3);
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const ripple = Math.sin(((y + (warp(x, y) - 0.5) * 40) / size) * Math.PI * 2 * 6);
+          const k = 1 + (grain(x, y) - 0.5) * 0.08 + ripple * 0.025 + (patch(x, y) - 0.5) * 0.08;
+          img.data.set(scale([218, 196, 150], k), (y * size + x) * 3);
+        }
+      }
+      for (let k = 0; k < 160; k++) img.disc(rand() * size, rand() * size, 0.6 + rand() * 0.6, rand() < 0.6 ? [176, 150, 112] : [236, 222, 190], 0.6);
+      return img;
+    },
+  },
+  {
+    file: 'roche-sol.png',
+    size: 256,
+    draw: (size) => {
+      // Sol rocheux : grandes dalles grises chaudes (environ 0,5 case),
+      // fissures sombres, graviers.
+      const { img, rand } = stones(size, 0xb3c4d5e6, {
+        n: 4,
+        jitter: 0.9,
+        joint: 0.9,
+        mortar: [78, 72, 64],
+        tone: (a, b) => mix(mix([128, 122, 112], [162, 154, 140], a), [126, 128, 130], b * 0.7),
+        rim: 0.1,
+        grain: 0.2,
+        fade: 0.55,
+      });
+      for (let k = 0; k < 120; k++) {
+        const x = rand() * size;
+        const y = rand() * size;
+        const r = 0.8 + rand() * 1.6;
+        img.disc(x + 0.6, y + 0.8, r, [80, 74, 66], 0.35);
+        img.disc(x, y, r, mix([150, 144, 132], [176, 170, 158], rand()), 0.7);
+      }
+      return img;
+    },
+  },
+  {
+    file: 'sol-volcanique.png',
+    size: 256,
+    draw: (size) => {
+      // Basalte sombre : cendre plus claire par plaques, taches rouille, pores.
+      const rand = rngOf(0xc4d5e6f7);
+      const base = [64, 58, 56];
+      const img = new Image(size, base);
+      const ash = fbm(rand, size, 2, 4);
+      const rust = fbm(rand, size, 3, 3);
+      const grain = fbm(rand, size, 12, 2);
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          let c = scale(base, 0.9 + grain(x, y) * 0.2);
+          c = mix(c, [100, 94, 90], smooth(Math.max(0, Math.min(1, (ash(x, y) - 0.45) / 0.3))) * 0.55);
+          c = mix(c, [112, 66, 48], smooth(Math.max(0, Math.min(1, (rust(x, y) - 0.66) / 0.1))) * 0.45);
+          img.data.set(c, (y * size + x) * 3);
+        }
+      }
+      for (let k = 0; k < 260; k++) img.disc(rand() * size, rand() * size, 0.6 + rand() * 0.9, rand() < 0.7 ? [36, 32, 32] : [120, 112, 106], 0.7);
+      return img;
+    },
+  },
+  {
+    file: 'lave.png',
+    size: 256,
+    draw: (size) => {
+      // Croute sombre en plaques (environ 0,4 case), fissures incandescentes ;
+      // le shader tire la lueur du rouge (render/groundLook.ts).
+      const rand = rngOf(0xd5e6f708);
+      const v = voronoi(rand, size, 5, 0.85);
+      const g = fbm(rand, size, 6, 3);
+      const heat = fbm(rand, size, 2, 2);
+      const tones = Array.from({ length: 25 }, () => rand());
+      const img = new Image(size, [40, 30, 28]);
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const c = v(x + 0.5, y + 0.5);
+          const edge = (c.d2 - c.d1) / 2 + (g(x, y) - 0.5) * 3;
+          const crust = scale(mix([38, 30, 28], [62, 46, 40], tones[c.id]), 0.85 + g(x, y) * 0.3);
+          const hot = mix([255, 214, 96], [228, 84, 24], smooth(Math.max(0, Math.min(1, edge / 2.5))));
+          const glow = (1 - smooth(Math.max(0, Math.min(1, (edge - 1.2) / 5)))) * (0.25 + 0.75 * smooth(Math.max(0, Math.min(1, (heat(x, y) - 0.3) / 0.35))));
+          img.data.set(mix(crust, hot, glow), (y * size + x) * 3);
+        }
+      }
+      return img;
+    },
+  },
+  {
+    file: 'eau.png',
+    size: 256,
+    draw: (size) => {
+      // Eau stylisee : bleu-vert, reflets en mailles douces (cellules), le
+      // shader les fait glisser (render/groundLook.ts).
+      const rand = rngOf(0xe6f70819);
+      const v = voronoi(rand, size, 4, 0.9);
+      const body = fbm(rand, size, 2, 3);
+      const img = new Image(size, [52, 128, 150]);
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const c = v(x + 0.5, y + 0.5);
+          const line = 1 - smooth(Math.max(0, Math.min(1, (c.d2 - c.d1) / 4)));
+          const base = mix([46, 118, 142], [66, 146, 160], body(x, y));
+          img.data.set(mix(base, [140, 206, 210], line * 0.35), (y * size + x) * 3);
+        }
       }
       return img;
     },

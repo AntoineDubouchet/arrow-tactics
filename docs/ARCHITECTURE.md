@@ -819,7 +819,14 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     carte, trou, jupe) sont subdivisées de même, leur alpha étant celui du
     point ramené sur le bord de la case. Débord seulement à travers un
     raccord continu, jamais hors du dessus dessiné. `irregular` (défaut) ;
-    `hard` (témoin) : rien.
+    `hard` (témoin) : rien. `lisiere` et `melange` (`appendLisiere`) : dans
+    chaque case dont le voisinage 3 × 3 continu porte plusieurs surfaces,
+    score par surface au sommet de la sous-grille (part des cases après flou
+    gaussien séparable, débord, bruit propre ; ponts aux coins en
+    diagonale), alpha = 0,5 + marge sur le meilleur des autres : chaque
+    surface est redessinée là où elle l'emporte, celle de la case seulement
+    dans sa bande de lisière ; teinte de lisière par sommet selon la famille
+    de la voisine (`SURFACE_EDGE_STYLES`, `SURFACE_LISIERE_PARAMS`).
   - Lookdev (`render/look.ts`, `setLookPreset`, `?look=` lu par
     `main.ts`) : `LOOK_SETTINGS` ne donne que des écarts au rendu actuel
     (`baseline` : aucun). `Renderer.applyLook` règle les intensités des
@@ -858,6 +865,30 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
       (`GROUND_SURFACE_PALETTE`, `config/groundSurfaces.ts`, lue par
       `editor/editorUI.ts`). Elle utilise l'éclairement d'un sol plat que
       `main.ts` reçoit de `Renderer.groundIrradiance()`.
+    `rich` (`groundLookIsLiving()` vrai, comme `living`) : `applyGroundLayer`
+    définit `GROUND_PATCHES` (plaques de matière, `GROUND_LOOK_PARAMS.rich`).
+    Matières minérales (pavés, sable, roche, sol volcanique) : variation
+    macro et seconde lecture (sauf pavés et roche) en `living` et `rich`.
+    Eau et lave (`applyLiquid`, tous les modes) : shader animé ;
+    `attachGroundClock(group)` (appelé par `buildTerrainChunk`) avance
+    l'horloge partagée avant le rendu de leurs meshes ; au bord, la marge
+    portée par l'alpha des sommets (`lisiere`, `melange`) donne l'écume et
+    la croûte refroidie.
+  - Habillage du relief (`render/reliefLook.ts`, `setReliefLook`,
+    `?relief=` lu par `main.ts`), rendu `faceted-plus` seulement :
+    `reliefParams()` (null en `baseline` : aucun calcul, rendu inchangé ;
+    `setReliefShadows`, `&reliefShadows=on|off`, n'en force que
+    `castShadow`).
+    `buildStylizedTerrain` émet alors les parois en roche (`rockFacetColor`,
+    matériau `rock` sans texture, couleur par facette) au lieu des flancs :
+    bords libres (`emitRockEdge`), jupes et autres ruptures ; une bande
+    d'herbe sous la crête (dessus de la case, assombri) ; un sommet de bord
+    verrouillé n'est plus décalé. `reliefShading` donne, aux coins des cases
+    et par hauteur (surface continue), un facteur de couleur (contact au
+    pied d'une falaise, creux et bosses) et une normale lissée, interpolés
+    dans le triangle de la case ; `buildStylizedTerrain` les applique aux
+    dessus et aux lèvres, `appendSurfaceBlend` aux transitions (même
+    valeur au même point). Les sommets des dessus ne bougent jamais.
   - Surface active (`render/terrainSurface.ts`) : le champ de hauteur de la
     carte affichée (brouillon de l'éditeur, sinon `currentMap`), fixé par
     `syncActiveTerrain` (`main.ts`) à chaque image et à chaque changement
