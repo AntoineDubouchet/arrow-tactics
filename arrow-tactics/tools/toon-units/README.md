@@ -67,6 +67,24 @@ est le même, les octets du GLB peuvent différer.
 - `extra_animations` (facultatif) : quelques clips d'autres dossiers,
   renommés, par exemple `[{ "folder": "animation/Worker", "clips":
   { "attack": "attackDouble" } }]`.
+- `material_parts` (facultatif, au niveau de l'unité) : {matériau du FBX:
+  partie} ; les faces de ce matériau deviennent un maillage séparé
+  `part_<partie>`, que le jeu habille de sa propre texture (`ToonUnitDef.parts`).
+  La source déclare la texture dans `extra_textures` ({partie: image du
+  pack}), exportée en `<textures>_<partie>.png` (taille native si elle est
+  plus petite que `--texture`). Exemple : le cheval de la cavalerie humaine.
+- **Cavalerie** : le FBX modulaire de cavalerie ne s'importe pas (KI-36) ;
+  les sources `western_kingdoms_cavalry` et `barbarian_cavalry` pointent vers
+  les FBX « single mesh » (une pièce : `"pieces": { "body": "<nom>" }`). Noms
+  de clips à préfixe multiple : `WK_cavalry_spear_07_attack` → `attack`.
+- `pieces.tools` (facultatif) : outils interchangeables, chacun exporté
+  comme un **maillage skinné séparé** nommé `tool_<nom>` (non fusionné au
+  corps), porté par l'os prévu dans le FBX. Côté jeu, `setToonTool(racine,
+  nom)` n'en montre qu'un. `pieces.tool_scale` agrandit un outil (facteur
+  par nom). Exemple : le Héros, `"tools": { "hammer": "WK_weapon_hammer_B",
+  "axe": "WK_weapon_axe_A", "pick": "WK_weapon_pick" }`, `"tool_scale":
+  { "hammer": 1.6 }`, et les clips `workingA` / `workingB` / `workingC` du
+  dossier `Worker`.
 
 Côté jeu, une entrée de `TOON_UNITS` (`toonUnitRig.ts`) associe le GLB, le
 préfixe des textures et les rôles du jeu (`idle`, `combatIdle`, `walk`,
@@ -86,6 +104,17 @@ qui place l'impact du clip sur la fin de l'élan de l'unité.
    (`?toonUnits=barbarian`). Les palettes (`TOON_PALETTES`) sont communes à
    toutes les sources.
 
+**Barbarians** (source `barbarian`, 2026-11-01) : ajoutée de cette façon,
+sans changer le script. Le pack suit l'architecture de Western Kingdoms :
+- même squelette (29 os, mêmes noms, positions de repos identiques) et
+  mêmes os porteurs ;
+- mêmes dossiers d'animations, aux clips identiques (mêmes trajectoires,
+  mesuré) ;
+- 8 atlas de couleur dont `BRB_Standard_Units_white.tga`.
+
+Les cinq barbares reprennent donc les rôles et recadençages de l'unité
+humaine qu'ils habillent (`skins` dans `TOON_UNITS`).
+
 Le pipeline suppose, pour chaque source, un modèle et des clips qui partagent
 les noms d'os (cas des packs Toon RTS : squelette Biped `Bip001`). Pour une
 source au squelette différent, seul `arrowHandBone` (main de corde de
@@ -102,8 +131,18 @@ l'archer) est à adapter côté jeu.
 | `human_oracle.glb` | 1 maillage skinné, 409 sommets GPU, 490 triangles, 29 os, 14 clips (`Mage`), 484 Ko |
 | `human_pikeman.glb` | Piquier : 1 maillage skinné, 375 sommets GPU, 412 triangles, 29 os, 10 clips (`Spearman`), 372 Ko |
 | `human_avenger.glb` | Vengeur (deux épées, `offhand_weapon`) : 1 maillage skinné, 407 sommets GPU, 454 triangles, 29 os, 12 clips (`Infantry` + `attackDouble` du `Worker`), 440 Ko |
+| `human_hero.glb` | Héros (tête E, corps D, épaulières B) : corps 219 sommets, 390 triangles ; outils séparés `tool_hammer` (38 triangles, ×1,6), `tool_axe` (34), `tool_pick` (30) ; 29 os, 14 clips (`Infantry` + `workingA/B/C` du `Worker`), 504 Ko ; échelle 1,3 en jeu |
+| `human_light_cavalry.glb` | Cavalier léger (source `western_kingdoms_cavalry`, `WK_SM_Cavalry_Light_B`, single mesh) : cavalier 456 triangles + `part_horse` 330 triangles, 46 os, 10 clips (`Cavalry_Spear`), 702 Ko |
+| `wk_horse.png` | texture du cheval humain (`WK_Horse_A`, 512), sans teinte d'équipe |
+| `barbarian_light_cavalry.glb` | Razzieur (source `barbarian_cavalry`, `BRB_SM_cavalry_light_B`) : 448 sommets GPU, 811 triangles, 46 os, 10 clips, 700 Ko |
 | `wk_albedo.png` | atlas neutre du pack (`WK_StandardUnits_white`), 2048 → 1024, **partagé** |
 | `wk_team_mask.png` | zones de couleur d'équipe (pixels qui varient entre les 8 atlas de couleur), 1024, **partagé** |
+| `barbarian_warrior.glb` | Guerrier (hache, bouclier rond en bois), `Infantry` : 483 sommets GPU, 517 triangles, 29 os, 11 clips, 410 Ko |
+| `barbarian_berserker.glb` | Berserker (deux haches, `offhand_weapon`), `Infantry` + `attackDouble` : 495 sommets GPU, 512 triangles, 12 clips, 445 Ko |
+| `barbarian_hunter.glb` | Chasseur (arc, carquois), `Archer` : 484 sommets GPU, 520 triangles, 9 clips, 348 Ko |
+| `barbarian_shaman.glb` | Chaman (robe, bâton à crâne), `Mage` : 549 sommets GPU, 602 triangles, 14 clips, 492 Ko |
+| `barbarian_brute.glb` | Brute (casque à cornes, épaulières lourdes, marteau), `Infantry` : 760 sommets GPU, 744 triangles, 11 clips, 426 Ko ; échelle 1,15 en jeu |
+| `brb_albedo.png`, `brb_team_mask.png` | atlas neutre et zones d'équipe des Barbares (`BRB_Standard_Units_white`), 1024, **partagés** |
 
 ## Étapes du script
 

@@ -252,12 +252,25 @@ main : la sculpture les produit automatiquement.
   désigne la case du plateau ; en visant la face d'une falaise, la case du
   haut.
 
+**Outils explicites d'une case** (restaurés le 2026-11-01, en complément des
+pinceaux) : **Monter une case** (clic : la case devient un plat un niveau
+plus haut ; une pente devient le plat de son sommet), **Descendre une case**
+(un niveau plus bas ; une pente devient le plat de son pied), **Pente**
+(glisser dans le sens de la montée ; un simple clic oriente la pente vers la
+seule voisine plus haute, sinon refus « orientation ambiguë »). Même modèle
+de cases et même champ logique que la sculpture, même verrou (case
+occupée), niveaux 0 à 3, **sans autotuilage** (une case montée seule fait
+une marche avec falaises). Aperçu vert / rouge de la case visée, refus dans
+la ligne d'état ; une entrée d'historique par geste ; enregistré comme le
+reste du relief.
+
 **Surface**
 
 Le groupe « Surface » habille le **dessus** des cases avec une texture de
 sol. C'est **purement visuel** : une surface ne change ni la hauteur, ni la
 pente, ni les coins, ni les collisions, ni les trajets, ni le territoire, ni
-les règles de pose, et la simulation ne la lit jamais.
+les règles de pose. **Exception : l'eau** (2026-11-01, ci-dessous), seule
+surface lue par la simulation.
 
 - **Outil** : « Peindre la surface », puis une vignette :
   - **Par défaut** : efface la peinture ; la case reprend la surface par
@@ -268,14 +281,17 @@ les règles de pose, et la simulation ne la lit jamais.
   - **Mixte** : Taches, Usée ;
   - **Pierre et sable** : Pavés, Sable, Roche (2026-10-31) ;
   - **Volcanique** : Volcan, Lave (2026-10-31) ;
-  - **Eau** : Eau (2026-10-31) ;
+  - **Eau** : toutes les variantes d'eau (aujourd'hui une seule, « Eau »).
+    Une case d'eau est **infranchissable** pour les unités (trajets,
+    destination d'un ordre, contournement par l'IA), **interdite à la pose**
+    (unité, bâtiment, muraille, Baliste) et **transparente aux tirs** ;
   - **Expérimental** : Terre strates, dessinée pour les flancs. Sur le dessus
     d'une case, elle forme des rayures (infobulle).
   - Rendu `?groundLook=living` (direction retenue), `rich` et `organic` : palette
     simplifiée, Par défaut puis Herbe, Herbe dense, Prairie claire, Terre
-    battue, Pavés, Sable, Sol rocheux, Sol volcanique, Lave, Eau. Eau et
-    lave sont animées mais, comme toute surface, ne bloquent rien (leur
-    infobulle le rappelle). Les
+    battue, Pavés, Sable, Sol rocheux, Sol volcanique, Lave, puis une
+    section **Eau** (toutes les variantes d'eau). La lave est animée mais ne
+    bloque rien ; l'eau bloque comme ci-dessus (infobulles). Les
     vignettes sont calculées à la couleur rendue en jeu, sur la même texture
     pour toutes les herbes. Les autres surfaces ne sont plus proposées, mais
     une carte qui les contient se charge, se rend et s'enregistre telle
@@ -289,7 +305,10 @@ les règles de pose, et la simulation ne la lit jamais.
   Une case trou ne reçoit jamais de surface.
 - **Objets** : la peinture passe sous les décors, bâtiments, murailles, la
   Baliste et les unités, sans être refusée ni rien déplacer. On peut donc
-  peindre une cour en terre sous et autour d'une Caserne.
+  peindre une cour en terre sous et autour d'une Caserne. **Sauf l'eau** :
+  elle n'est jamais peinte sous une unité, un bâtiment, une structure
+  bloquante ou la Baliste (même règle que le verrou du relief) ; ces cases
+  sont ignorées, le trait continue.
 - **Aperçu** : un contour clair et un voile très léger sur les cases qui
   seront peintes, sans masquer la texture actuelle. La texture change dès
   l'appui.
@@ -392,6 +411,20 @@ la carte (`MapDef.territory`, §14) et sert :
   s'affichent que pour les décors.
 - **Rôle** : ces unités forment le scénario de « Tester le scénario » (§15),
   pas l'armée d'une run.
+- **Bestiaire** (2026-11-01) : deux sections.
+  - **Humains** : les unités du jeu, posables comme ci-dessus.
+  - **Neutres** (repliée, `UnitDef.neutral`) : Maraudeur, Ravageur,
+    Traqueur, Féticheur, Colosse — les cinq modèles barbares Toon RTS, noms
+    **provisoires** — et le **Razzieur** (cavalerie légère barbare, unité
+    propre et non un habillage : rôle « unité propre »). Côté **Humains**, le
+    **Cavalier léger** ; le Héros n'est pas posable (il vient de la run). Chaque carte montre une vignette du modèle, le camp et
+    le rôle ; sa « Fiche » donne l'apparence et les stats (celles du rôle
+    habillé : Homme d'armes, Vengeur, Archer, Mage, Sentinelle),
+    **provisoires**. Une carte choisit l'outil de pose : une unité neutre est
+    **toujours du camp Neutre** (côté adverse), quel que soit le territoire,
+    posable en territoire ennemi ou neutre, jamais en territoire joueur.
+    Sans les modèles (assets hors Git), vignette grisée et modèle humain du
+    rôle en jeu.
 
 ## 6. Catalogue des décors
 
@@ -442,6 +475,35 @@ est ouverte au départ) :
 - **Structures décoratives ≠ bâtiments gameplay** : une Forge, une Mine ou
   une Caserne du catalogue n'est qu'un **décor** traversable, sans PV ni
   effet (§16).
+- **Taille des arbres** (2026-11-01) : tous les arbres sont affichés
+  **×1,4** (arbres Kenney, arbres isolés KayKit, bosquets ; pas les
+  souches), en plus de la petite variation de hauteur propre à chaque arbre.
+  Rendu seul : emprise et collisions inchangées.
+
+**Pinceau Forêt** (2026-11-01, groupe « Forêt » des outils)
+
+- **Outils** : « Pinceau Forêt » (planter) et « Gomme à arbres ».
+- **Réglages** (chacun active le pinceau) : **Type** (Mixte, Feuillus,
+  Pins, Coniques, Palmiers : chaque type tire ses modèles dans sa liste),
+  **Taille** (disque de 1, 3, 5 ou 7 cases de diamètre), **Densité**
+  (Clairsemée, Moyenne, Dense). Valeurs proposées, **provisoires**.
+- **Geste** : clic ou glisser ; une souris rapide ne laisse aucun trou.
+  **Un trait = une seule entrée d'annulation** (Ctrl+Z retire tout le
+  trait, Ctrl+Y le remet à l'identique).
+- **Placement organique et déterministe** : la densité varie par zones
+  (bosquets et clairières, jamais une grille) ; une case retenue reçoit un
+  arbre, parfois deux (petits groupes) ; jamais au centre exact de la case,
+  toujours dans la case ; rotation et taille (±10 %) propres à chaque arbre.
+  Tout dérive de la case : même carte + même trait = mêmes arbres.
+- **Cases ignorées** : case d'eau, case qui porte déjà un arbre (repasser
+  n'empile pas), case occupée par une unité, un bâtiment, une structure
+  bloquante ou la Baliste.
+- **Gomme** : retire tous les arbres (décors « arbre ») des cases du disque,
+  quelle que soit leur origine. La sélection + Suppr reste possible (§10).
+- **Arbres posés** : des décors « arbre » ordinaires, traversables,
+  enregistrés comme les autres (position, modèle, rotation, taille).
+- **Coût** : seuls les nouveaux arbres sont construits ; le sol et les
+  autres objets ne sont pas reconstruits.
 
 ## 7. Sélection
 
@@ -809,13 +871,17 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
   - **La Baliste n'y figure pas** : unique et toujours présente, elle garde
     son outil dédié ci-dessous et sa seule source, `ballista`.
 - **Murailles** (groupe **« Murailles »**, juste après « Bâtiments » ; groupe
-  lu dans `BuildingDef.editorGroup`) : Muraille (segment droit 2×1) et
-  Porte de muraille, les constructions jouables du joueur.
+  lu dans `BuildingDef.editorGroup`) : Muraille (une case par segment,
+  2026-11-01) et Porte de muraille (2 cases, posée sur deux cases de mur
+  alignées qu'elle remplace), les constructions jouables du joueur. Deux
+  cases voisines d'une ligne sont dessinées avec le modèle long ; un clic
+  sur l'une ou l'autre moitié sélectionne bien sa case. Une ancienne carte
+  (segments de 2 cases) est migrée au chargement.
   - **Muraille** : **tracé continu**, comme en préparation
     (`CURRENT_STATE.md` §6) — premier clic = point de départ, chaque clic
     pose une portion (axe dominant, tout ou rien), clic sur le point de
     départ (ou une case voisine alignée) = enceinte fermée. Mêmes virages
-    KayKit automatiques, longueur exacte (demi-segments) et orientation
+    KayKit automatiques, longueur exacte (une case par segment) et orientation
     (côté de la Baliste du brouillon tant que le tracé est ouvert) qu'en
     préparation. Échap, clic droit, changement d'outil et « Tester le
     scénario » terminent le tracé (extrémités construites, une entrée

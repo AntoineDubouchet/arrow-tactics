@@ -1,5 +1,6 @@
 import { BALLISTA_TOWER_FOOTPRINT, BOARD_H, BOARD_W, PLACEMENT_ROWS, PLAYER_ARROW_CORNER_INSET, TILE, type ObstacleDef } from './constants';
 import type { SurfaceCellDef } from './groundSurfaces';
+import type { ResourcePileDef } from './resourceNodes';
 import type { TerrainElevationCellDef } from './terrainElevation';
 import type { TerritoryCell } from './territory';
 
@@ -121,6 +122,13 @@ export interface MapDef {
    *  (herbe ou terre d'origine selon `terrain`, ou la palette `?sol=`) ;
    *  absent sur toute map anterieure, rendue a l'identique. */
   surfaceCells?: SurfaceCellDef[];
+  /** Petits tas de bois et de pierre au sol (2026-11-01, Hero RTS) : finis,
+   *  ramasses par le Heros et deposes a la Baliste. Indice = identifiant.
+   *  OPTIONNEL : absent sur les cartes dessinees. */
+  resourcePiles?: ResourcePileDef[];
+  /** Carte produite par un generateur (config/maps/proceduralSurvival.ts) :
+   *  graine, et regles propres (pas d'agrandissement E4, vagues sur l'anneau). */
+  generator?: { kind: 'survival-procedural'; seed: number };
 }
 
 /** Cle stable d'une cellule — sert de cle de Map/Set (lookup O(1) "cette

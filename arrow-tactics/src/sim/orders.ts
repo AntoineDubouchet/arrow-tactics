@@ -29,7 +29,16 @@ export type UnitOrder =
   /** `targetEntityId` designe n'importe quelle entite hostile : une unite
    *  aujourd'hui, un batiment ennemi plus tard, sans changer le modele. */
   | { type: 'attack'; targetEntityId: number }
-  | { type: 'guard' };
+  | { type: 'guard' }
+  /** Heros : recolter la source `nodeId` (World.resourceNodes), au contact,
+   *  jusqu'a un autre ordre. */
+  | { type: 'harvest'; nodeId: number }
+  /** Heros : construire le chantier `targetEntityId`, au contact. */
+  | { type: 'build'; targetEntityId: number }
+  /** Heros : ramasser le petit tas au sol `pileId` (World.resourcePiles). */
+  | { type: 'pickup'; pileId: number }
+  /** Heros : deposer ce qu'il porte au depot `targetEntityId` (Baliste). */
+  | { type: 'deposit'; targetEntityId: number };
 
 /** Commande envoyee par l'orchestration (voir World.issueCommand), appliquee
  *  au debut du prochain pas fixe. `stop` place les unites en Garde. */
@@ -37,9 +46,36 @@ export type PlayerCommand =
   /** `exact` : voir UnitOrder (pas d'ouverture de la bataille, main.ts). */
   | { kind: 'move'; entityIds: readonly number[]; x: number; z: number; exact?: boolean }
   | { kind: 'attack'; entityIds: readonly number[]; targetEntityId: number }
-  | { kind: 'stop'; entityIds: readonly number[] };
+  | { kind: 'stop'; entityIds: readonly number[] }
+  /** Heros seulement (les autres entites sont refusees). */
+  | { kind: 'harvest'; entityIds: readonly number[]; nodeId: number }
+  | { kind: 'build'; entityIds: readonly number[]; targetEntityId: number }
+  | { kind: 'pickup'; entityIds: readonly number[]; pileId: number }
+  | { kind: 'deposit'; entityIds: readonly number[]; targetEntityId: number };
 
-export type CommandRejectionReason = 'no-commandable-entity' | 'invalid-destination' | 'invalid-target';
+/** `locked` : source (arbre, gros gisement) que le joueur n'a pas encore le
+ *  droit d'exploiter (World.harvestPermissions). */
+export type CommandRejectionReason = 'no-commandable-entity' | 'invalid-destination' | 'invalid-target' | 'locked';
+
+/** Ordres de TRAVAIL du Heros (recolte, construction, ramassage, depot) :
+ *  comme un deplacement, ils suspendent le ciblage et l'attaque de base. */
+export type WorkOrder = Extract<UnitOrder, { type: 'harvest' | 'build' | 'pickup' | 'deposit' }>;
+export function isWorkOrder(order: UnitOrder): order is WorkOrder {
+  return order.type === 'harvest' || order.type === 'build' || order.type === 'pickup' || order.type === 'deposit';
+}
+
+/** Ce que la validation des ordres de travail lit du monde (World). */
+export interface WorkLookups {
+  /** Source d'un arbre ou d'un rocher : exploitable, verrouillee (permission
+   *  absente) ou inexistante. */
+  node(id: number): 'ok' | 'locked' | 'missing';
+  /** Petit tas au sol encore present. */
+  hasPile(id: number): boolean;
+  /** Depot de ressources (BuildingDef.resourceDepot) vivant. */
+  isDepot(entity: Entity): boolean;
+}
+
+const NO_WORK: WorkLookups = { node: () => 'missing', hasPile: () => false, isDepot: () => false };
 
 /** Resultat de l'application d'une commande — sert au retour visuel et a la
  *  verification. Une commande peut etre acceptee pour une partie seulement
@@ -100,6 +136,46 @@ export function isValidAttackTarget(target: Entity | undefined): target is Entit
 export interface BoardHalfExtents {
   halfW: number;
   halfH: number;
+}
+
+/** Vrai si le point (x, z) est sur une case d'eau (World.isWaterAt). */
+export type WaterLookup = (x: number, z: number) => boolean;
+
+/** Rayon de recherche (cases) d'un point sec pour une destination de groupe
+ *  tombee dans l'eau. */
+const DRY_POINT_SEARCH_RINGS = 6;
+
+/**
+ * Point SEC le plus proche de (x, z), pour une unite de rayon `radius` :
+ * point le plus proche dans une case voisine hors de l'eau, en retrait du
+ * bord de la case (rayon, au plus 0,45). Anneaux de cases croissants autour
+ * de la case de (x, z), depart a egalite par z puis x : deterministe. Null
+ * si aucune case seche dans DRY_POINT_SEARCH_RINGS anneaux ou sur le
+ * plateau.
+ */
+function nearestDryPoint(x: number, z: number, radius: number, board: BoardHalfExtents, isWater: WaterLookup): { x: number; z: number } | null {
+  const cellX = Math.floor(x);
+  const cellZ = Math.floor(z);
+  const inset = Math.min(radius, 0.45);
+  let best: { x: number; z: number; d: number } | null = null;
+  for (let ring = 1; ring <= DRY_POINT_SEARCH_RINGS; ring++) {
+    // Un point d'un anneau plus eloigne ne peut plus battre le meilleur.
+    if (best && best.d <= (ring - 1) ** 2) break;
+    for (let dz = -ring; dz <= ring; dz++) {
+      for (let dx = -ring; dx <= ring; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+        const cx = cellX + dx;
+        const cz = cellZ + dz;
+        const px = Math.min(cx + 1 - inset, Math.max(cx + inset, x));
+        const pz = Math.min(cz + 1 - inset, Math.max(cz + inset, z));
+        if (Math.abs(px) > board.halfW - radius || Math.abs(pz) > board.halfH - radius) continue;
+        if (isWater(px, pz)) continue;
+        const d = (px - x) ** 2 + (pz - z) ** 2;
+        if (!best || d < best.d || (d === best.d && (pz < best.z || (pz === best.z && px < best.x)))) best = { x: px, z: pz, d };
+      }
+    }
+  }
+  return best ? { x: best.x, z: best.z } : null;
 }
 
 /** Remet a zero la mesure de progression d'un ordre (voir
@@ -242,8 +318,14 @@ export function assignGroupDestinations(
  * passe en Garde, voir movementSystem). Un deplacement de plusieurs unites
  * exprime une intention ("aller autour de ce point") : chaque unite recoit sa
  * propre destination (voir assignGroupDestinations).
+ *
+ * Eau (2026-11-01, `isWater`) : un point vise sur l'eau est refuse a chaque
+ * unite sans `canTraverseWater` (rejectedEntityIds ; `invalid-destination`
+ * si aucune ne reste). Une destination de groupe tombee dans l'eau, le
+ * point vise etant sec, est ramenee au point sec le plus proche
+ * (nearestDryPoint), a defaut au point vise.
  */
-export function applyCommands(commands: readonly PlayerCommand[], lookup: EntityLookup, board: BoardHalfExtents): CommandResult[] {
+export function applyCommands(commands: readonly PlayerCommand[], lookup: EntityLookup, board: BoardHalfExtents, isWater: WaterLookup = () => false, work: WorkLookups = NO_WORK): CommandResult[] {
   const results: CommandResult[] = [];
 
   for (const command of commands) {
@@ -287,6 +369,47 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
       case 'stop':
         order = { type: 'guard' };
         break;
+      case 'harvest':
+      case 'build':
+      case 'pickup':
+      case 'deposit': {
+        // Travail : Heros seulement ; source exploitable, chantier allie
+        // vivant, tas encore present ou depot allie vivant.
+        for (const e of accepted) if (e.hero === null) result.rejectedEntityIds.push(e.id);
+        accepted.splice(0, accepted.length, ...accepted.filter((e) => e.hero !== null));
+        if (accepted.length === 0) {
+          result.rejection = 'no-commandable-entity';
+          continue;
+        }
+        const target = command.kind === 'build' || command.kind === 'deposit' ? lookup(command.targetEntityId) : undefined;
+        const allied = target !== undefined && target.alive && accepted.every((e) => e.team === target.team);
+        const nodeState = command.kind === 'harvest' ? work.node(command.nodeId) : 'ok';
+        const valid =
+          command.kind === 'harvest' ? nodeState === 'ok'
+          : command.kind === 'build' ? allied && target!.construction !== null
+          : command.kind === 'pickup' ? work.hasPile(command.pileId)
+          : allied && work.isDepot(target!);
+        if (!valid) {
+          result.rejection = nodeState === 'locked' ? 'locked' : 'invalid-target';
+          continue;
+        }
+        order =
+          command.kind === 'harvest' ? { type: 'harvest', nodeId: command.nodeId }
+          : command.kind === 'build' ? { type: 'build', targetEntityId: command.targetEntityId }
+          : command.kind === 'pickup' ? { type: 'pickup', pileId: command.pileId }
+          : { type: 'deposit', targetEntityId: command.targetEntityId };
+        break;
+      }
+    }
+
+    const crossesWater = (e: Entity): boolean => e.stats.canTraverseWater === true;
+    if (command.kind === 'move' && isWater(command.x, command.z)) {
+      for (const e of accepted) if (!crossesWater(e)) result.rejectedEntityIds.push(e.id);
+      accepted.splice(0, accepted.length, ...accepted.filter(crossesWater));
+      if (accepted.length === 0) {
+        result.rejection = 'invalid-destination';
+        continue;
+      }
     }
 
     const groupDestinations = command.kind === 'move' && accepted.length > 1 ? assignGroupDestinations(accepted, command.x, command.z, board) : null;
@@ -294,7 +417,10 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
 
     for (const entity of accepted) {
       // Objet neuf par entite : aucun ordre n'est partage entre deux unites.
-      const destination = groupDestinations?.get(entity.id);
+      let destination = groupDestinations?.get(entity.id);
+      if (destination && command.kind === 'move' && !crossesWater(entity) && isWater(destination.x, destination.z)) {
+        destination = nearestDryPoint(destination.x, destination.z, entity.stats.radius, board, isWater) ?? { x: command.x, z: command.z };
+      }
       entity.order = destination ? { type: 'move', x: destination.x, z: destination.z } : { ...order };
       resetNavigation(entity);
       result.acceptedEntityIds.push(entity.id);

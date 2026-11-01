@@ -3,6 +3,7 @@ import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, EDGE_CORNERS, OPPOSITE_SLOPE_DIRECTION, SLOPE_DIRECTIONS, SLOPE_DIRECTION_VECTORS, TERRAIN_ELEVATION_STEP, type SlopeDirection } from '../config/terrainElevation';
 import { GROUND_SURFACES, groundFlankSurface, type GroundSurfaceId } from './groundSurfaces';
 import { groundMacro, groundRenderSurface, groundStates, groundSurfaceDef } from './groundLook';
+import { hillHeightInCell, hillsAreOrganic, hillSubdivisions } from './hillShape';
 import { reliefParams, reliefShadingOf, rockFacetColor, rockMaterial, type ReliefShading } from './reliefLook';
 import { CELL_THICKNESS, FLANK_FOOT_SHADE, groundMaterial, layerMesh, newBuffers, RELIEF_TINT_PER_LEVEL, SLOPE_NORMAL_Y, SLOPE_SHADE, type LayerBuffers, type TerrainContext } from './terrainCells';
 
@@ -260,6 +261,20 @@ export function buildStylizedTerrain(cells: readonly TerrainCellDef[], ctx: Terr
     const h = field.cornerHeights(cell.x, cell.z);
     const surface = groundRenderSurface(ctx.surfaceAt(cell.x, cell.z)!);
     const slope = field.slopeAt(cell.x, cell.z);
+    if (slope && hillsAreOrganic()) {
+      // `?hills=organic` (render/hillShape.ts) : sous-grille arrondie, meme
+      // diagonale que la case dans chaque carreau (celle des transitions).
+      const N = hillSubdivisions();
+      const nwSe = cellTriangles(slope)[0]!.includes(3);
+      const grid: THREE.Vector3[] = [];
+      for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) grid.push(new THREE.Vector3(cell.x + i / N, hillHeightInCell(field, cell.x, cell.z, i / N, j / N), cell.z + j / N));
+      const g = (i: number, j: number) => grid[j * (N + 1) + i]!;
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        if (nwSe) { topTri(surface, [g(i, j), g(i, j + 1), g(i + 1, j + 1)], cell); topTri(surface, [g(i, j), g(i + 1, j + 1), g(i + 1, j)], cell); }
+        else { topTri(surface, [g(i, j), g(i, j + 1), g(i + 1, j)], cell); topTri(surface, [g(i + 1, j), g(i, j + 1), g(i + 1, j + 1)], cell); }
+      }
+      continue;
+    }
     const corner = (i: number): THREE.Vector3 => new THREE.Vector3(cell.x + (i % 2), h[i]!, cell.z + (i < 2 ? 0 : 1));
     for (const tri of cellTriangles(slope)) topTri(surface, tri.map(corner), cell);
   }

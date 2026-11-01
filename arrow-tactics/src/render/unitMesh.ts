@@ -5,7 +5,7 @@ import { buildFantassinModel } from './fantassinRig';
 import { buildFantassinV2Model, isFantassinV2Ready } from './fantassinV2Rig';
 import { buildMageModel } from './mageRig';
 import { buildSentinelModel } from './sentinelRig';
-import { buildToonUnitModel, useToonUnit } from './toonUnitRig';
+import { buildToonUnitModel, readyToonFactionKind, toonUnitFor, type ToonUnitKind } from './toonUnitRig';
 import type { Team } from '../sim/entity';
 
 /**
@@ -27,6 +27,13 @@ import type { Team } from '../sim/entity';
  * d'equipe sur le tissu).
  */
 
+/** Modele Toon RTS demande pour ce kit et ce camp (humain ou barbare qui
+ *  l'habille, voir toonUnitRig.ts), ou null : modele officiel. */
+function toonModel(kind: ToonUnitKind, team: Team): THREE.Group | null {
+  const toon = toonUnitFor(kind, team);
+  return toon ? buildToonUnitModel(toon, team) : null;
+}
+
 /**
  * Fantassin : modele riggé fourni par Antoine (2026-08-11, Meshy AI "Azure
  * Sentinel" — voir render/fantassinRig.ts), remplace la silhouette en
@@ -39,7 +46,8 @@ import type { Team } from '../sim/entity';
 export function buildFantassin(team: Team): THREE.Group {
   // Laboratoire Toon RTS (`?toonUnits=`, voir toonUnitRig.ts) : jamais
   // sans le parametre.
-  if (useToonUnit('fantassin')) return buildToonUnitModel('fantassin', team);
+  const toon = toonModel('fantassin', team);
+  if (toon) return toon;
   // Prototype Footman V2 (`?footman=v2`, voir fantassinV2Rig.ts) : jamais
   // pret sans le parametre ou si son chargement a echoue -> V1.
   return officialFantassin(team);
@@ -54,7 +62,8 @@ export function buildFantassin(team: Team): THREE.Group {
  * camp), voir archerRig.ts pour le detail.
  */
 export function buildArcher(team: Team): THREE.Group {
-  if (useToonUnit('archer')) return buildToonUnitModel('archer', team);
+  const toon = toonModel('archer', team);
+  if (toon) return toon;
   return buildArcherModel(team);
 }
 
@@ -68,7 +77,8 @@ export function buildArcher(team: Team): THREE.Group {
  * simulation vit dans `UnitViews.tickRiggedAnimation`, pas ici.
  */
 export function buildMage(team: Team): THREE.Group {
-  if (useToonUnit('mage')) return buildToonUnitModel('mage', team);
+  const toon = toonModel('mage', team);
+  if (toon) return toon;
   return buildMageModel(team);
 }
 
@@ -79,7 +89,8 @@ export function buildMage(team: Team): THREE.Group {
  * TOUTES procedurales (aucune animation embarquee dans le modele source).
  */
 export function buildSentinel(team: Team): THREE.Group {
-  if (useToonUnit('sentinel')) return buildToonUnitModel('sentinel', team);
+  const toon = toonModel('sentinel', team);
+  if (toon) return toon;
   return buildSentinelModel(team);
 }
 
@@ -89,7 +100,8 @@ export function buildSentinel(team: Team): THREE.Group {
  * reprend le Mage officiel (repli PROVISOIRE : meme baton, meme gestuelle).
  */
 export function buildOracle(team: Team): THREE.Group {
-  if (useToonUnit('oracle')) return buildToonUnitModel('oracle', team);
+  const toon = toonModel('oracle', team);
+  if (toon) return toon;
   return buildMageModel(team);
 }
 
@@ -103,20 +115,51 @@ function officialFantassin(team: Team): THREE.Group {
  *  (`human_pikeman.glb`, `human_avenger.glb`). Sans ces assets locaux, ils
  *  reprennent le Fantassin officiel (repli PROVISOIRE). */
 export function buildPiquier(team: Team): THREE.Group {
-  if (useToonUnit('piquier')) return buildToonUnitModel('piquier', team);
+  const toon = toonModel('piquier', team);
+  if (toon) return toon;
   return officialFantassin(team);
 }
 
 export function buildVengeur(team: Team): THREE.Group {
-  if (useToonUnit('vengeur')) return buildToonUnitModel('vengeur', team);
+  const toon = toonModel('vengeur', team);
+  if (toon) return toon;
   return officialFantassin(team);
+}
+
+/** Heros (2026-11-01) : modele Toon RTS dedie ; repli sur la Sentinelle
+ *  officielle si le GLB manque (assets hors Git). */
+export function buildHero(team: Team): THREE.Group {
+  const toon = toonModel('hero', team);
+  if (toon) return toon;
+  return buildSentinel(team);
+}
+
+/** Cavalier leger (2026-11-01) : modele Toon RTS dedie ; repli sur le
+ *  Fantassin officiel si le GLB manque (assets hors Git). */
+export function buildCavalier(team: Team): THREE.Group {
+  const toon = toonModel('cavalier', team);
+  if (toon) return toon;
+  return officialFantassin(team);
+}
+
+/** Razzieur (cavalerie legere barbare) : son modele barbare ; repli sur le
+ *  Cavalier humain, puis le Fantassin officiel. */
+export function buildCavalierBarbare(team: Team): THREE.Group {
+  const toon = toonModel('barbare_cavalier', team);
+  if (toon) return toon;
+  return buildCavalier(team);
 }
 
 /** Construit la silhouette adaptee au kit d'une unite. Point d'entree unique
  *  utilise par le rendu de combat (UnitViews) et par les previsualisations
  *  de la phase de placement, pour ne jamais dupliquer ce switch. */
 export function buildUnit(unitId: string, team: Team): THREE.Group {
-  const kit = getUnit(unitId).visual.kit;
+  const { kit, faction } = getUnit(unitId).visual;
+  // Faction visuelle autre qu'humaine (unites neutres barbares) : modele
+  // Toon RTS de cette faction pour le meme role, teinte du camp ; modele
+  // humain du role si le GLB manque.
+  const factionKind = faction && faction !== 'human' ? readyToonFactionKind(kit, faction) : null;
+  if (factionKind) return buildToonUnitModel(factionKind, team);
   switch (kit) {
     case 'fantassin':
       return buildFantassin(team);
@@ -132,5 +175,11 @@ export function buildUnit(unitId: string, team: Team): THREE.Group {
       return buildPiquier(team);
     case 'vengeur':
       return buildVengeur(team);
+    case 'hero':
+      return buildHero(team);
+    case 'cavalier':
+      return buildCavalier(team);
+    case 'cavalier_barbare':
+      return buildCavalierBarbare(team);
   }
 }

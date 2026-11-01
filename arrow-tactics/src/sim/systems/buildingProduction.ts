@@ -35,6 +35,26 @@ export interface ProductionSpawnEvent {
  * ensemble le maximum ni ne choisissent la meme case (ordre deterministe,
  * celui des entites).
  */
+/** Production temps reel : avance les commandes (Entity.productionOrder) ;
+ *  une commande terminee rejoint productionQueue, que buildingProductionSystem
+ *  fait apparaitre au meme pas (place de population et case libre requises).
+ *  Un chantier ne produit pas ; un batiment mort perd sa commande. */
+export function tickProductionOrders(entities: Entity[], dt: number): void {
+  for (const e of entities) {
+    const order = e.productionOrder;
+    if (!order) continue;
+    if (!e.alive) {
+      e.productionOrder = null;
+      continue;
+    }
+    if (e.construction) continue;
+    order.remaining -= dt;
+    if (order.remaining > 1e-9) continue;
+    e.productionQueue.push(order.unitId);
+    e.productionOrder = null;
+  }
+}
+
 export function buildingProductionSystem(entities: Entity[], obstacles: ObstacleDef[]): ProductionSpawnEvent[] {
   const events: ProductionSpawnEvent[] = [];
   const population = populationOfEntities(entities);
@@ -42,7 +62,8 @@ export function buildingProductionSystem(entities: Entity[], obstacles: Obstacle
   const reserved: { x: number; z: number }[] = [];
 
   for (const e of entities) {
-    if (!e.alive || e.productionQueue.length === 0) continue;
+    // Chantier : aucune production tant qu'il n'est pas construit.
+    if (!e.alive || e.productionQueue.length === 0 || e.construction) continue;
 
     // File dans l'ordre (Caserne Niv. 2 : Piquier puis Fantassin) : on
     // s'arrete a la premiere unite sans place de population, sans la doubler.

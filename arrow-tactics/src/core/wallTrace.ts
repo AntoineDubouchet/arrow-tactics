@@ -6,17 +6,17 @@
  * (ou a cote, si l'ancre lui est alignee) ferme l'enceinte.
  *
  * Structure : une suite de troncons DROITS et de VIRAGES (une case, piece de
- * coin KayKit) a chaque changement de direction. Un troncon droit est fait
- * de segments 2 x 1 et, s'il a un nombre impair de cases, d'un DEMI-SEGMENT
- * d'une case (de preference a une extremite ouverte, sinon contre un
- * virage).
+ * coin KayKit) a chaque changement de direction. UNITE CANONIQUE (2026-11-01) :
+ * une case = un segment de mur (donnees, PV, pose, sauvegarde, selection,
+ * destruction) ; un troncon de n cases est fait de n segments d'une case.
+ * Le rendu peut afficher deux cases voisines d'une meme ligne avec le modele
+ * long natif (render, appariement visuel), sans changer ces donnees.
  *
  * La disposition complete est une fonction PURE du trace (`traceLayout`) :
  * valider une portion = passer de la disposition d'avant a celle d'apres.
  * Pendant un trace ouvert, les cases dont la nature n'est pas encore connue
  * restent EN ATTENTE (non construites) : l'ancre (virage ou prolongement
- * droit au clic suivant), la case de depart (virage a la fermeture), et au
- * plus une case de leur troncon (appariee plus tard). Quand le trace est
+ * droit au clic suivant) et la case de depart (virage a la fermeture). Quand le trace est
  * termine sans etre ferme (`final`), ces cases deviennent de vraies pieces
  * droites : une ligne ouverte reste une ligne complete.
  *
@@ -48,9 +48,11 @@ export interface TraceDir {
   z: number;
 }
 
-/** Piece du trace. `straight` : segment 2 x 1 parcouru dans le sens `dir`.
- *  `half` : demi-segment d'une case, meme sens. `corner` : virage d'une case,
- *  entree `inDir`, sortie `outDir`. Coin de grille et emprise en cases. */
+/** Piece du trace. `straight` : segment droit d'UNE case (2026-11-01 ; un
+ *  segment 2 x 1 d'une ancienne carte est migre en deux cases) parcouru dans
+ *  le sens `dir`. `half` : ancien demi-segment d'une case (plus produit, lu
+ *  comme un segment droit). `corner` : virage d'une case, entree `inDir`,
+ *  sortie `outDir`. Coin de grille et emprise en cases. */
 export type WallTracePiece =
   | { kind: 'straight'; cornerX: number; cornerZ: number; tilesX: number; tilesZ: number; dir: TraceDir }
   | { kind: 'half'; cornerX: number; cornerZ: number; tilesX: 1; tilesZ: 1; dir: TraceDir }
@@ -102,7 +104,7 @@ export interface WallTraceLeg {
    *  case de depart. */
   usable: boolean;
   /** Vrai pour une muraille d'UNE case (second clic sur la case de depart,
-   *  avant toute portion) : un demi-segment, et le trace est termine. */
+   *  avant toute portion) : un segment d'une case, et le trace est termine. */
   single: boolean;
   /** Vrai si la portion rejoint l'extremite d'une AUTRE muraille : les deux
    *  chaines n'en font plus qu'une, et le trace est termine. */
@@ -121,9 +123,9 @@ const sameCell = (a: TraceCell, b: TraceCell): boolean => a.x === b.x && a.z ===
 const sameDir = (a: TraceDir, b: TraceDir): boolean => a.x === b.x && a.z === b.z;
 const cellDistance = (a: TraceCell, b: TraceCell): number => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 
-function straightFor(a: TraceCell, b: TraceCell, dir: TraceDir): WallTracePiece {
-  const horizontal = a.z === b.z;
-  return { kind: 'straight', cornerX: Math.min(a.x, b.x), cornerZ: Math.min(a.z, b.z), tilesX: horizontal ? 2 : 1, tilesZ: horizontal ? 1 : 2, dir };
+/** Segment droit d'une case. */
+function straightAt(cell: TraceCell, dir: TraceDir): WallTracePiece {
+  return { kind: 'straight', cornerX: cell.x, cornerZ: cell.z, tilesX: 1, tilesZ: 1, dir };
 }
 
 /**
@@ -182,21 +184,12 @@ export function traceLayout(vertices: readonly TraceCell[], dirs: readonly Trace
     }
   }
 
-  const pair = (cells: { cell: TraceCell; dir: TraceDir }[]): void => {
-    for (let k = 0; k + 1 < cells.length; k += 2) pieces.push(straightFor(cells[k]!.cell, cells[k + 1]!.cell, cells[k]!.dir));
-  };
-  const half = (c: { cell: TraceCell; dir: TraceDir }): void => {
-    pieces.push({ kind: 'half', cornerX: c.cell.x, cornerZ: c.cell.z, tilesX: 1, tilesZ: 1, dir: c.dir });
-  };
-
   for (const run of runs) {
     let cells = run.cells;
     if (mode === 'open') {
-      // Extremites du chemin en attente, et au plus une case de leur troncon
-      // (appariee plus tard) : les segments partent du cote deja connu.
+      // Extremites du chemin en attente (leur nature depend du clic suivant).
       // Muraille reprise : la case de depart est deja construite.
-      const startPending = run.startOpen && !startFixed;
-      if (startPending) {
+      if (run.startOpen && !startFixed) {
         waiting.push(cells[0]!.cell);
         cells = cells.slice(1);
       }
@@ -204,29 +197,27 @@ export function traceLayout(vertices: readonly TraceCell[], dirs: readonly Trace
         waiting.push(cells[cells.length - 1]!.cell);
         cells = cells.slice(0, -1);
       }
-      if (cells.length % 2 === 1 && (startPending || run.endOpen)) {
-        if (run.endOpen) {
-          waiting.push(cells[cells.length - 1]!.cell);
-          cells = cells.slice(0, -1);
-        } else {
-          waiting.push(cells[0]!.cell);
-          cells = cells.slice(1);
-        }
-      }
     }
-    if (cells.length % 2 === 0) {
-      pair(cells);
-    } else if (run.endOpen || !run.startOpen) {
-      // Demi-segment a l'extremite ouverte de fin, sinon contre le virage
-      // suivant.
-      pair(cells.slice(0, -1));
-      half(cells[cells.length - 1]!);
-    } else {
-      half(cells[0]!);
-      pair(cells.slice(1));
-    }
+    // Une case = un segment (unite canonique).
+    for (const c of cells) pieces.push(straightAt(c.cell, c.dir));
   }
   return { pieces, waiting, ...(conflict ? { conflict: true } : {}) };
+}
+
+/** Pieces LARGES deja posees (porte de muraille, 2 cases) que la disposition
+ *  re-decoupe en segments d'une case : remises telles quelles (une porte
+ *  n'est jamais recomposee). */
+function keepWidePieces(layout: TraceLayout, existing: readonly WallTracePiece[]): TraceLayout {
+  let pieces = layout.pieces;
+  for (const w of existing) {
+    if (w.kind === 'corner' || w.tilesX * w.tilesZ <= 1) continue;
+    const cells = new Set<string>();
+    for (let dz = 0; dz < w.tilesZ; dz++) for (let dx = 0; dx < w.tilesX; dx++) cells.add(`${w.cornerX + dx},${w.cornerZ + dz}`);
+    const inside = pieces.filter((p) => p.kind !== 'corner' && p.tilesX * p.tilesZ === 1 && cells.has(`${p.cornerX},${p.cornerZ}`));
+    if (inside.length !== cells.size) continue;
+    pieces = [...pieces.filter((p) => !inside.includes(p)), w];
+  }
+  return pieces === layout.pieces ? layout : { ...layout, pieces };
 }
 
 /** Portion de l'ancre vers le curseur (x, z), exactement de la longueur
@@ -250,7 +241,7 @@ export function planWallTraceLeg(trace: WallTrace, cursorX: number, cursorZ: num
     length = aligned ? cellDistance(anchor, target) : 0;
     const end = { ...target };
     const backwards = prev !== null && prev.x === -dir.x && prev.z === -dir.z;
-    const after = traceLayout([...trace.vertices, ...join.vertices], [...trace.dirs, dir, ...join.dirs], 'final', trace.startFixed);
+    const after = keepWidePieces(traceLayout([...trace.vertices, ...join.vertices], [...trace.dirs, dir, ...join.dirs], 'final', trace.startFixed), [...trace.current.pieces, ...join.current.pieces]);
     return {
       end,
       dir,
@@ -281,10 +272,10 @@ export function planWallTraceLeg(trace: WallTrace, cursorX: number, cursorZ: num
   const closeOk = !closes || (firstDir !== null && dir.x * firstDir.x + dir.z * firstDir.z === 0);
   const dirs = [...trace.dirs, dir];
   if (length === 0 && trace.dirs.length === 0) {
-    // Muraille d'une case : demi-segment sur la case de depart.
-    return { end, dir, closes: false, single: true, joins: false, usable: true, before: { pieces: [], waiting: [] }, after: { pieces: [{ kind: 'half', cornerX: first.x, cornerZ: first.z, tilesX: 1, tilesZ: 1, dir }], waiting: [] } };
+    // Muraille d'une case : un segment sur la case de depart.
+    return { end, dir, closes: false, single: true, joins: false, usable: true, before: { pieces: [], waiting: [] }, after: { pieces: [straightAt(first, dir)], waiting: [] } };
   }
-  const after = closes ? traceLayout(trace.vertices, dirs, 'closed') : traceLayout([...trace.vertices, end], dirs, 'open', trace.startFixed);
+  const after = keepWidePieces(closes ? traceLayout(trace.vertices, dirs, 'closed') : traceLayout([...trace.vertices, end], dirs, 'open', trace.startFixed), trace.current.pieces);
   return {
     single: false,
     joins: false,
@@ -308,7 +299,7 @@ export function advanceWallTrace(trace: WallTrace, leg: WallTraceLeg): WallTrace
  *  passage de la disposition en cours a la disposition finale, ou les cases
  *  en attente deviennent des pieces droites. */
 export function finalizeWallTrace(trace: WallTrace): { before: TraceLayout; after: TraceLayout } {
-  return { before: trace.current, after: traceLayout(trace.vertices, trace.dirs, 'final') };
+  return { before: trace.current, after: keepWidePieces(traceLayout(trace.vertices, trace.dirs, 'final'), trace.current.pieces) };
 }
 
 // --- Reseau de murailles existant : connecteurs, extremites, chaines --------
@@ -345,7 +336,8 @@ export function wallNetPiece(kind: WallNetPiece['kind'], cornerX: number, corner
   if (kind === 'corner') {
     const [a, b] = CORNER_ARMS_BY_QUARTER[quarter]!;
     connectors = [{ cell: c0, dir: DIRS[a]! }, { cell: c0, dir: DIRS[b]! }];
-  } else if (kind === 'half') {
+  } else if (kind === 'half' || (tilesX === 1 && tilesZ === 1)) {
+    // Segment d'une case (ou ancien demi-segment) : axe donne par sa rotation.
     connectors = quarter % 2 === 0 ? [{ cell: c0, dir: DIRS.W! }, { cell: c0, dir: DIRS.E! }] : [{ cell: c0, dir: DIRS.N! }, { cell: c0, dir: DIRS.S! }];
   } else if (tilesX >= tilesZ) {
     connectors = [{ cell: c0, dir: DIRS.W! }, { cell: { x: cornerX + tilesX - 1, z: cornerZ }, dir: DIRS.E! }];

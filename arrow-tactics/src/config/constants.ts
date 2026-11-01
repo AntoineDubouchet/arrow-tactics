@@ -117,6 +117,13 @@ export const ENEMY_SENTINEL_INTERVAL = 5;
  *  ENEMY_EMPTY_FIELD_SPAWN_SECONDS sans aucun ennemi vivant. Valeurs a
  *  ajuster apres playtest. */
 export const ENEMY_GROUP_MAX_SIZE = 5;
+
+/** Survie en temps reel continu (2026-11-01, choix d'Antoine) : premiere
+ *  vague apres SURVIVAL_FIRST_WAVE_DELAY_SECONDS de simulation, puis
+ *  SURVIVAL_NEXT_WAVE_DELAY_SECONDS apres la fin de chaque vague (la pause
+ *  fige le compte a rebours). PROVISOIRE. */
+export const SURVIVAL_FIRST_WAVE_DELAY_SECONDS = 120;
+export const SURVIVAL_NEXT_WAVE_DELAY_SECONDS = 90;
 export const ENEMY_GROUP_DELAY_BASE_SECONDS = 5.8;
 export const ENEMY_GROUP_DELAY_LOG_FACTOR = 1.05;
 export const ENEMY_GROUP_DELAY_MIN_SECONDS = 1.3;
@@ -464,6 +471,11 @@ export interface ObstacleDef {
    *  et trajets ; la grille A* la lit comme une ARETE bloquee entre deux
    *  cases, pas comme une case pleine (sim/pathfinding.ts). */
   terrainCliff?: boolean;
+  /** Eau synthetique (cases d'une surface d'eau, voir isWaterSurface),
+   *  injectee par World.setMap, jamais dans MapDef.obstacles ni rendue :
+   *  bloque collision et trajets des unites sans
+   *  `UnitStats.canTraverseWater`, jamais les tirs (`blocksShots: false`). */
+  terrainWater?: boolean;
   /** Porte de muraille (BuildingDef.gate) : camp pour lequel l'obstacle est
    *  un PASSAGE. Ses trajets (A*, ligne droite, contournement) le traversent
    *  toujours, meme ferme ; il ne le franchit physiquement que si

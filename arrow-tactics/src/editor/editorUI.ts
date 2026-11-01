@@ -1,14 +1,19 @@
 import { isBlockingMapObstacle, obstacleCenter, type ObstacleDef } from '../config/constants';
-import { GROUND_SURFACE_PALETTE, GROUND_TEXTURE_CATEGORIES, GROUND_TEXTURES, type GroundTextureId, type SurfaceBrushSize } from '../config/groundSurfaces';
+import { VISUAL_FACTIONS } from '../config/factions';
+import { GROUND_SURFACE_PALETTE, GROUND_TEXTURE_CATEGORIES, GROUND_TEXTURES, isWaterSurface, WATER_SURFACE_IDS, type GroundTextureId, type SurfaceBrushSize } from '../config/groundSurfaces';
 import type { TerrainType } from '../config/mapDef';
 import { TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type ReliefBrushSize, type ReliefDelta } from '../config/terrainElevation';
 import type { TerritoryTeam } from '../config/territory';
 import { getBuilding, listBuyableBuildingIds } from '../data/buildings';
+import { HERO_UNIT_ID } from '../data/hero';
 import { UNITS } from '../data/units';
 import { groundLookIsLiving, groundSwatchUrl } from '../render/groundLook';
 import { groundTextureUrl } from '../render/textures';
+import { toonUnitThumbnail } from '../render/toonThumbnail';
+import { toonFactionKind, type ToonUnitKind } from '../render/toonUnitRig';
 import { teamColor } from '../render/unitSelectionRing';
-import type { EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate } from './editorState';
+import type { CellReliefOp, EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate } from './editorState';
+import { FOREST_BRUSH_SIZES, FOREST_DENSITIES, FOREST_TREE_TYPES, type ForestBrushSize, type ForestDensity, type ForestTreeTypeId } from './forestBrush';
 
 export interface EditorUIHandlers {
   /** Bouton "Sélection" (outil par défaut) — même effet qu'Échap ou le clic
@@ -28,6 +33,8 @@ export interface EditorUIHandlers {
   onSelectRemoveCellTool: () => void;
   /** Sculpture du relief : pinceaux continus Surelever (+1) / Abaisser (-1). */
   onSelectReliefBrushTool: (delta: ReliefDelta) => void;
+  /** Outils explicites d'une case : Monter, Descendre, Pente. */
+  onSelectCellReliefTool: (op: CellReliefOp) => void;
   /** Taille des pinceaux de sculpture (1×1 ou 4×4), commune a +1 et -1. */
   onSelectReliefBrushSize: (size: ReliefBrushSize) => void;
   /** Pinceau de territoire : `team` peint pour ce camp, `null` efface
@@ -38,6 +45,12 @@ export interface EditorUIHandlers {
   onSelectSurfaceTool: (surface: GroundTextureId | null) => void;
   /** Taille du pinceau Surface (1×1 ou 4×4). */
   onSelectSurfaceBrushSize: (size: SurfaceBrushSize) => void;
+  /** Pinceau Foret (editor/forestBrush.ts) : plante, ou gomme (`erase`). */
+  onSelectForestTool: (erase: boolean) => void;
+  /** Reglages du pinceau Foret : chacun active le pinceau. */
+  onSelectForestTreeType: (treeType: ForestTreeTypeId) => void;
+  onSelectForestDensity: (density: ForestDensity) => void;
+  onSelectForestSize: (size: ForestBrushSize) => void;
   onRotate: () => void;
   /** Rotation du decor selectionne de `degrees` (boutons −15° / +15° du
    *  panneau) — meme operation que Ctrl+molette. */
@@ -655,6 +668,9 @@ function teamName(team: TerritoryTeam | null): string {
   return team === 'player' ? 'Joueur' : team === 'enemy' ? 'Ennemi' : 'Neutre';
 }
 
+/** Bulle d'aide d'une surface d'eau. */
+const WATER_HINT = 'Eau : infranchissable pour les unités (déplacement, destination, pose), sans bloquer les tirs ; aucun bâtiment, muraille ni Baliste dessus.';
+
 /** Nom d'une surface : celui de la palette simplifiee en
  *  `?groundLook=living`, sinon son libelle complet. */
 function surfaceLabel(id: GroundTextureId): string {
@@ -797,7 +813,21 @@ interface UnitAssetEntry {
  * 2026-08-08, pour pouvoir composer des vagues d'ennemis directement dans
  * l'editeur et me renvoyer le JSON resultant.
  */
-const UNIT_ASSETS: UnitAssetEntry[] = Object.values(UNITS).map((def) => ({ label: def.name, unitId: def.id }));
+// Le Heros (2026-11-01) vient de la run (spawnHero, XP, recolte) : jamais
+// pose depuis l'editeur.
+const UNIT_ASSETS: UnitAssetEntry[] = Object.values(UNITS)
+  .filter((def) => !def.neutral && def.id !== HERO_UNIT_ID)
+  .map((def) => ({ label: def.name, unitId: def.id }));
+
+/** Apparence des unites neutres du bestiaire (texte de fiche). */
+const NEUTRAL_LOOKS: Readonly<Record<string, string>> = {
+  maraudeur: 'Hache, bouclier rond en bois',
+  ravageur: 'Deux haches',
+  traqueur: 'Arc et carquois',
+  feticheur: 'Robe, bâton à crâne',
+  colosse: 'Casque à cornes, épaulières lourdes, marteau',
+  razzieur: 'À cheval, lance légère, petit bouclier',
+};
 
 /**
  * Interface HTML/CSS de l'editeur, par-dessus le canvas (regle du projet,
@@ -839,12 +869,20 @@ export class EditorUI {
   private readonly removeCellButton: HTMLButtonElement;
   private readonly raiseReliefButton: HTMLButtonElement;
   private readonly lowerReliefButton: HTMLButtonElement;
+  private readonly cellReliefButtons = new Map<CellReliefOp, HTMLButtonElement>();
+  /** Dernier refus d'un outil explicite de relief (ligne d'etat), ou null. */
+  private cellReliefRefusal: string | null = null;
   private readonly reliefSizeButtons = new Map<ReliefBrushSize, HTMLButtonElement>();
   private readonly territoryButton: HTMLButtonElement;
   private readonly territoryValueButtons = new Map<TerritoryTeam | null, HTMLButtonElement>();
   private readonly surfaceButton: HTMLButtonElement;
   private readonly surfaceValueButtons = new Map<GroundTextureId | null, HTMLButtonElement>();
   private readonly surfaceSizeButtons = new Map<SurfaceBrushSize, HTMLButtonElement>();
+  private readonly forestButton: HTMLButtonElement;
+  private readonly forestEraseButton: HTMLButtonElement;
+  private readonly forestTypeButtons = new Map<ForestTreeTypeId, HTMLButtonElement>();
+  private readonly forestDensityButtons = new Map<ForestDensity, HTMLButtonElement>();
+  private readonly forestSizeButtons = new Map<ForestBrushSize, HTMLButtonElement>();
   /** Surface que reprend le bouton "Peindre la surface" : la derniere choisie. */
   private surfaceValue: GroundTextureId | null = 'herbe-classique';
   private readonly unitCards = new Map<string, HTMLButtonElement>();
@@ -996,6 +1034,18 @@ export class EditorUI {
     this.raiseReliefButton.title = levels;
     this.lowerReliefButton.title = levels;
     browser.append(this.raiseReliefButton, this.lowerReliefButton);
+    // Outils explicites d'une case (restaures le 2026-11-01, en complement
+    // des pinceaux) : meme modele de relief, sans autotuilage.
+    for (const [op, label, hint] of [
+      ['raise', 'Monter une case', 'Clic : la case monte d’un niveau (plat), sans pentes automatiques : marche ou falaise'],
+      ['lower', 'Descendre une case', 'Clic : la case descend d’un niveau (plat) ; une pente devient le plat de son pied'],
+      ['slope', 'Pente', 'Glisser dans le sens de la montée (ou clic : vers la seule voisine plus haute) : pente du niveau de la case au suivant'],
+    ] as const) {
+      const button = this.toolCard(label, () => handlers.onSelectCellReliefTool(op));
+      button.title = `${hint} · ${levels}`;
+      this.cellReliefButtons.set(op, button);
+      browser.appendChild(button);
+    }
     // Taille : une seule selection pour +1 et -1.
     const brushSizeRow = document.createElement('div');
     brushSizeRow.className = 'editor-segmented';
@@ -1052,6 +1102,12 @@ export class EditorUI {
       grid.className = 'editor-surface-grid';
       for (const entry of GROUND_SURFACE_PALETTE) grid.appendChild(this.surfaceSwatch(entry.id, entry.label, groundSwatchUrl(entry.id), entry.hint));
       browser.appendChild(grid);
+      // Eau : toutes ses variantes (WATER_SURFACE_IDS), section a part.
+      browser.appendChild(this.subcategoryHeader('Eau'));
+      const water = document.createElement('div');
+      water.className = 'editor-surface-grid';
+      for (const id of WATER_SURFACE_IDS) water.appendChild(this.surfaceSwatch(id, surfaceLabel(id), groundSwatchUrl(id), WATER_HINT));
+      browser.appendChild(water);
     }
     for (const category of living ? [] : GROUND_TEXTURE_CATEGORIES) {
       browser.appendChild(this.subcategoryHeader(category.label));
@@ -1059,11 +1115,23 @@ export class EditorUI {
       grid.className = 'editor-surface-grid';
       for (const t of GROUND_TEXTURES) {
         if (t.category !== category.id) continue;
-        const hint = t.id === 'terre-strates' ? 'Conçue pour les flancs de falaise : sur le dessus d’une case, elle forme des rayures.' : t.label;
+        const hint = t.id === 'terre-strates' ? 'Conçue pour les flancs de falaise : sur le dessus d’une case, elle forme des rayures.' : isWaterSurface(t.id) ? WATER_HINT : t.label;
         grid.appendChild(this.surfaceSwatch(t.id, t.short, `variants/${t.file}`, hint, 'nearest' in t && t.nearest));
       }
       browser.appendChild(grid);
     }
+
+    // Foret : pinceau d'arbres-decors (editor/forestBrush.ts) et sa gomme.
+    browser.appendChild(this.groupHeader('Forêt'));
+    this.forestButton = this.toolCard('Pinceau Forêt', () => handlers.onSelectForestTool(false));
+    this.forestButton.title = 'Clic / glisser : plante des arbres (décors traversables) en groupes naturels, jamais sur l’eau, une unité, un bâtiment ou la Baliste';
+    browser.appendChild(this.forestButton);
+    this.forestEraseButton = this.toolCard('Gomme à arbres', () => handlers.onSelectForestTool(true));
+    this.forestEraseButton.title = 'Clic / glisser : retire les arbres des cases survolées (Suppr reste possible sur une sélection)';
+    browser.appendChild(this.forestEraseButton);
+    browser.appendChild(this.segmentRow('Type', FOREST_TREE_TYPES.map((t) => ({ value: t.id, label: t.label })), this.forestTypeButtons, (v) => handlers.onSelectForestTreeType(v)));
+    browser.appendChild(this.segmentRow('Taille', FOREST_BRUSH_SIZES.map((v) => ({ value: v, label: String(v) })), this.forestSizeButtons, (v) => handlers.onSelectForestSize(v)));
+    browser.appendChild(this.segmentRow('Densité', FOREST_DENSITIES.map((d) => ({ value: d.id, label: d.label })), this.forestDensityButtons, (v) => handlers.onSelectForestDensity(v)));
 
     // Territoire : UN outil (le pinceau) et une valeur (le camp peint).
     browser.appendChild(this.groupHeader('Territoire'));
@@ -1093,7 +1161,9 @@ export class EditorUI {
 
     browser.appendChild(this.groupHeader('Unités'));
     browser.appendChild(this.categoryHeader('Bestiaire'));
+    browser.appendChild(this.subcategoryHeader('Humains'));
     for (const unit of UNIT_ASSETS) browser.appendChild(this.unitAssetCard(unit, handlers.onSelectUnit));
+    browser.appendChild(this.neutralBestiary(handlers.onSelectUnit));
 
     // Batiments GAMEPLAY du scenario (jamais des decors) : ceux qu'un joueur
     // peut construire, lus dans data/buildings.ts. La Baliste garde son outil
@@ -1285,6 +1355,15 @@ export class EditorUI {
         active.push(this.removeCellButton);
         status = 'Outil : − Case · Clic : supprimer une case · Échap : Sélection';
         break;
+      case 'cell-relief': {
+        const button = this.cellReliefButtons.get(tool.op);
+        if (button) active.push(button);
+        const name = tool.op === 'raise' ? 'Monter une case' : tool.op === 'lower' ? 'Descendre une case' : 'Pente';
+        const how = tool.op === 'slope' ? 'Glisser dans le sens de la montée, ou clic : vers la seule voisine plus haute' : 'Clic : une case, un niveau';
+        const refusal = this.cellReliefRefusal ? ` · refusé : ${this.cellReliefRefusal}` : '';
+        status = `Outil : ${name}${refusal} · ${how} · niveaux ${TERRAIN_LEVEL_MIN}–${TERRAIN_LEVEL_MAX} · Ctrl+Z : annuler · Échap : Sélection`;
+        break;
+      }
       case 'relief-brush': {
         active.push(tool.delta > 0 ? this.raiseReliefButton : this.lowerReliefButton);
         const info = this.reliefBrushInfo;
@@ -1309,7 +1388,16 @@ export class EditorUI {
         const value = this.surfaceValueButtons.get(tool.surface);
         if (value) active.push(value);
         const name = tool.surface ? surfaceLabel(tool.surface) : 'Par défaut (effacer)';
-        status = `Outil : Surface — ${name} (${tool.size}×${tool.size}) · Clic / glisser : peindre le dessus des cases, sous les objets compris · visuel uniquement · Échap : Sélection`;
+        status = `Outil : Surface — ${name} (${tool.size}×${tool.size}) · Clic / glisser : peindre le dessus des cases, sous les objets compris · visuel uniquement, sauf l’eau (infranchissable, jamais sous une unité ou un bâtiment) · Échap : Sélection`;
+        break;
+      }
+      case 'forest-brush': {
+        active.push(tool.erase ? this.forestEraseButton : this.forestButton);
+        const type = FOREST_TREE_TYPES.find((t) => t.id === tool.treeType)?.label ?? tool.treeType;
+        const density = FOREST_DENSITIES.find((d) => d.id === tool.density)?.label ?? tool.density;
+        status = tool.erase
+          ? `Outil : Gomme à arbres (${tool.size} cases) · Clic / glisser : retirer les arbres · Ctrl+Z : annule tout le trait · Échap : Sélection`
+          : `Outil : Forêt — ${type}, ${density} (${tool.size} cases) · Clic / glisser : planter · repasser n’empile pas · décors traversables · Ctrl+Z : annule tout le trait · Échap : Sélection`;
         break;
       }
     }
@@ -1324,6 +1412,39 @@ export class EditorUI {
     }
     this.activeButtons = active;
     if (this.statusLine.textContent !== status) this.statusLine.textContent = status;
+  }
+
+  /** Reglages du pinceau Foret (main.ts) : boutons actifs. */
+  setForestOptions(options: { treeType: ForestTreeTypeId; density: ForestDensity; size: ForestBrushSize }): void {
+    const mark = <K>(buttons: Map<K, HTMLButtonElement>, value: K) => {
+      for (const [v, button] of buttons) {
+        button.classList.toggle('is-active', v === value);
+        button.setAttribute('aria-pressed', String(v === value));
+      }
+    };
+    mark(this.forestTypeButtons, options.treeType);
+    mark(this.forestDensityButtons, options.density);
+    mark(this.forestSizeButtons, options.size);
+  }
+
+  /** Rangee de boutons segmentes (libelle, une valeur par bouton). */
+  private segmentRow<K>(label: string, entries: readonly { value: K; label: string }[], buttons: Map<K, HTMLButtonElement>, onSelect: (value: K) => void): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'editor-segmented';
+    const caption = document.createElement('span');
+    caption.className = 'editor-segmented-label';
+    caption.textContent = label;
+    row.appendChild(caption);
+    for (const entry of entries) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'editor-segment';
+      button.textContent = entry.label;
+      button.addEventListener('click', () => onSelect(entry.value));
+      buttons.set(entry.value, button);
+      row.appendChild(button);
+    }
+    return row;
   }
 
   /** Taille du pinceau Surface choisie (main.ts) : bouton actif. */
@@ -1367,6 +1488,14 @@ export class EditorUI {
     if (JSON.stringify(this.reliefBrushInfo) === JSON.stringify(info)) return;
     this.reliefBrushInfo = info;
     if (this.lastTool.type === 'relief-brush') this.syncTool(this.lastTool, this.lastSelection);
+  }
+
+  /** Refus du dernier geste d'un outil explicite de relief (main.ts), ou
+   *  null. */
+  setCellReliefRefusal(reason: string | null): void {
+    if (this.cellReliefRefusal === reason) return;
+    this.cellReliefRefusal = reason;
+    if (this.lastTool.type === 'cell-relief') this.syncTool(this.lastTool, this.lastSelection);
   }
 
   /** Pendant "Tester le scénario" : seule la ligne d'etat reste affichee,
@@ -1615,6 +1744,82 @@ export class EditorUI {
     button.addEventListener('click', () => onSelect(buildingId));
     this.buildingCards.set(buildingId, button);
     return button;
+  }
+
+  /** Section NEUTRES du bestiaire (2026-11-01) : unites du camp Neutre
+   *  (UnitDef.neutral), posables comme les autres (toujours dans le camp
+   *  Neutre, EditorState.unitTeamAt). Repliee : les vignettes des modeles ne
+   *  sont rendues qu'a la premiere ouverture. Chaque carte : vignette, nom,
+   *  faction visuelle et role ; sa fiche (stats PROVISOIRES du role) se
+   *  deplie dessous. */
+  private neutralBestiary(onSelect: (unitId: string) => void): HTMLElement {
+    const neutrals = Object.values(UNITS).filter((def) => def.neutral);
+    const section = document.createElement('details');
+    section.className = 'editor-bestiary-faction';
+    const title = document.createElement('summary');
+    title.className = 'editor-asset-subcategory';
+    title.textContent = `Neutres (${neutrals.length})`;
+    title.title = 'Camp Neutre : occupants de la carte (PvE). Toujours du camp Neutre, posables en territoire ennemi ou neutre. Noms et stats PROVISOIRES.';
+    section.appendChild(title);
+    const thumbnails: { kind: ToonUnitKind; img: HTMLImageElement }[] = [];
+    for (const def of neutrals) {
+      const role = UNITS[def.visual.kit];
+      const factionLabel = VISUAL_FACTIONS[def.visual.faction ?? 'human'].label;
+      const entry = document.createElement('div');
+      entry.className = 'editor-bestiary-entry';
+      entry.dataset['unitId'] = def.id;
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'editor-bestiary-head';
+      const img = document.createElement('img');
+      img.className = 'editor-bestiary-thumb';
+      img.alt = def.name;
+      const text = document.createElement('span');
+      text.className = 'editor-bestiary-text';
+      const name = document.createElement('span');
+      name.className = 'editor-bestiary-name';
+      name.textContent = def.name;
+      const sub = document.createElement('span');
+      sub.className = 'editor-bestiary-role';
+      sub.textContent = `Neutre · ${factionLabel} · rôle : ${role?.name ?? 'unité propre'}`;
+      text.append(name, sub);
+      card.append(img, text);
+      card.addEventListener('click', () => onSelect(def.id));
+      this.unitCards.set(def.id, card);
+      entry.appendChild(card);
+      const sheet = document.createElement('details');
+      sheet.className = 'editor-bestiary-sheet';
+      const sheetTitle = document.createElement('summary');
+      sheetTitle.textContent = 'Fiche';
+      sheet.appendChild(sheetTitle);
+      const st = def.stats;
+      for (const line of [
+        `Camp : Neutre · faction visuelle : ${factionLabel}`,
+        `Apparence : ${NEUTRAL_LOOKS[def.id] ?? '—'}`,
+        role ? `Rôle : celui de l’${role.name} (comportement, capacités)` : 'Rôle : unité propre (stats et modèle dédiés)',
+        `Stats PROVISOIRES : PV ${st.maxHp} · dégâts ${formatCoord(st.damage)} · portée ${formatCoord(st.engageRange ?? st.attackRange)}`,
+        `attaque toutes les ${formatCoord(st.attackCooldown)} s · vitesse ${formatCoord(st.moveSpeed)} case/s`,
+      ]) {
+        const row = document.createElement('div');
+        row.textContent = line;
+        sheet.appendChild(row);
+      }
+      entry.appendChild(sheet);
+      section.appendChild(entry);
+      const kind = def.visual.faction ? toonFactionKind(def.visual.kit, def.visual.faction) : null;
+      if (kind) thumbnails.push({ kind, img });
+      else img.classList.add('is-missing');
+    }
+    section.addEventListener('toggle', () => {
+      if (!section.open) return;
+      for (const { kind, img } of thumbnails) {
+        if (img.src) continue;
+        toonUnitThumbnail(kind, 'faction_neutral')
+          .then((url) => (img.src = url))
+          .catch(() => img.classList.add('is-missing'));
+      }
+    });
+    return section;
   }
 
   private unitAssetCard(unit: UnitAssetEntry, onSelect: (unitId: string) => void): HTMLElement {

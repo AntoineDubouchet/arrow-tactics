@@ -7,6 +7,31 @@
       "neutral_atlas": "WK_StandardUnits_white.tga",
       "textures": "wk",
       "catalogue_animations": "animation/Infantry"
+    },
+    "barbarian": {
+      "pack": "C:/Users/antoi/ToonRTS_Test/Assets/Toon_RTS/Barbarians",
+      "model": "models/BRB_Characters_customizable.FBX",
+      "team_color_atlases": "models/Materials/Color/textures",
+      "neutral_atlas": "BRB_Standard_Units_white.tga",
+      "textures": "brb",
+      "catalogue_animations": "animation/Infantry"
+    },
+    "western_kingdoms_cavalry": {
+      "pack": "C:/Users/antoi/ToonRTS_Test/Assets/Toon_RTS/WesternKingdoms",
+      "model": "models/single_mesh/WK_SM_Cavalry_Light_B.FBX",
+      "team_color_atlases": "models/Materials/Colors/textures",
+      "neutral_atlas": "WK_StandardUnits_white.tga",
+      "textures": "wk",
+      "extra_textures": { "horse": "models/Materials/textures/WK_Horse_A.tga" },
+      "catalogue_animations": "animation/Cavalry_Spear"
+    },
+    "barbarian_cavalry": {
+      "pack": "C:/Users/antoi/ToonRTS_Test/Assets/Toon_RTS/Barbarians",
+      "model": "models/single_mesh/BRB_SM_cavalry_light_B.FBX",
+      "team_color_atlases": "models/Materials/Color/textures",
+      "neutral_atlas": "BRB_Standard_Units_white.tga",
+      "textures": "brb",
+      "catalogue_animations": "animation/Cavalry_Spear"
     }
   },
   "units": {
@@ -113,6 +138,129 @@
       "extra_animations": [
         { "folder": "animation/Worker", "clips": { "attack": "attackDouble" } }
       ]
+    },
+    "barbarian_warrior": {
+      "source": "barbarian",
+      "pieces": {
+        "head": "BRB_head_B",
+        "body": "BRB_body_B",
+        "arms": "BRB_arms_A",
+        "legs": "BRB_legs_A",
+        "shoulderpads": "BRB_shoulderpads_A",
+        "weapon": "BRB_weapon_axe_A",
+        "offhand": "BRB_Shield_B",
+        "extras": []
+      },
+      "animations": "animation/Infantry"
+    },
+    "barbarian_berserker": {
+      "source": "barbarian",
+      "pieces": {
+        "head": "BRB_head_A",
+        "body": "BRB_body_H",
+        "arms": "BRB_arms_B",
+        "legs": "BRB_legs_B",
+        "shoulderpads": null,
+        "weapon": "BRB_weapon_axe_B",
+        "offhand": null,
+        "offhand_weapon": "BRB_weapon_axe_B",
+        "extras": []
+      },
+      "animations": "animation/Infantry",
+      "extra_animations": [
+        {
+          "folder": "animation/Worker",
+          "clips": {
+            "attack": "attackDouble"
+          }
+        }
+      ]
+    },
+    "barbarian_hunter": {
+      "source": "barbarian",
+      "pieces": {
+        "head": "BRB_head_C",
+        "body": "BRB_body_G",
+        "arms": "BRB_arms_A",
+        "legs": "BRB_legs_A",
+        "shoulderpads": null,
+        "weapon": null,
+        "offhand": "BRB_weapon_Bow",
+        "extras": [
+          "BRB_Xtra_quiver"
+        ]
+      },
+      "animations": "animation/Archer"
+    },
+    "barbarian_shaman": {
+      "source": "barbarian",
+      "pieces": {
+        "head": "BRB_head_I",
+        "body": "BRB_body_F",
+        "arms": "BRB_arms_A",
+        "legs": "BRB_legs_A",
+        "shoulderpads": null,
+        "weapon": null,
+        "offhand": "BRB_weapon_staff_C",
+        "extras": []
+      },
+      "animations": "animation/Mage"
+    },
+    "barbarian_brute": {
+      "source": "barbarian",
+      "pieces": {
+        "head": "BRB_head_E",
+        "body": "BRB_body_G",
+        "arms": "BRB_arms_C",
+        "legs": "BRB_legs_C",
+        "shoulderpads": "BRB_shoulderpads_C",
+        "weapon": "BRB_weapon_hammer_B",
+        "offhand": null,
+        "extras": []
+      },
+      "animations": "animation/Infantry"
+    },
+    "human_hero": {
+      "source": "western_kingdoms",
+      "pieces": {
+        "head": "WK_Units_head_E",
+        "body": "WK_Units_Body_D",
+        "arms": "WK_Units_Arms_B",
+        "legs": "WK_Units_Legs_B",
+        "shoulderpads": "WK_Units_shoulderpads_B",
+        "weapon": null,
+        "offhand": null,
+        "tools": {
+          "hammer": "WK_weapon_hammer_B",
+          "axe": "WK_weapon_axe_A",
+          "pick": "WK_weapon_pick"
+        },
+        "tool_scale": {
+          "hammer": 1.6
+        }
+      },
+      "animations": "animation/Infantry",
+      "extra_animations": [
+        {
+          "folder": "animation/Worker",
+          "clips": {
+            "workingA": "workingA",
+            "workingB": "workingB",
+            "workingC": "workingC"
+          }
+        }
+      ]
+    },
+    "human_light_cavalry": {
+      "source": "western_kingdoms_cavalry",
+      "pieces": { "body": "WK_Cavalry_Light_B" },
+      "material_parts": { "WK_Horse_A": "horse" },
+      "animations": "animation/Cavalry_Spear"
+    },
+    "barbarian_light_cavalry": {
+      "source": "barbarian_cavalry",
+      "pieces": { "body": "BRB_Cavalry_Light_B" },
+      "animations": "animation/Cavalry_Spear"
     }
   }
 }

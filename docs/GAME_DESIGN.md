@@ -367,7 +367,8 @@ Aucune de ces questions n'est tranchée.
 **Armée et contenu**
 
 - La liste des futures unités du joueur.
-- Le retour éventuel du Cavalier ou d'une unité montée.
+- La place des cavaleries légères, revenues en bestiaire et éditeur le
+  2026-11-01 (`DESIGN_DECISIONS.md` G8) : recrutement, vagues.
 - La progression de la Sentinelle ennemie.
 - Les rôles ennemis prioritaires.
 - La Caserne et le Camp d'archerie : leurs unités produites doivent-elles

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { obstacleCenter, TILE, type ObstacleDef } from '../config/constants';
 import { cloneScaledToFootprint, createMissingModelPlaceholder, isLazyModel, type EnvironmentAssets } from './assetLibrary';
+import { isTreeBuildingModel, TREE_VISUAL_SCALE } from './trees';
 
 /** Correction d'orientation NATIVE par modele (radians), ajoutee a la
  *  rotation enregistree : elle fixe ce que montre « 0° » dans l'editeur et
@@ -51,7 +52,9 @@ export function createBuildingObstacle(def: ObstacleDef, assets: EnvironmentAsse
   const width = def.tilesX * TILE;
   const depth = def.tilesZ * TILE;
   const { x: centerX, z: centerZ } = obstacleCenter(def);
-  const scale = def.scale ?? 1;
+  // Bosquet : meme agrandissement que les autres arbres (deborde de son
+  // emprise 2x2, purement visuel).
+  const scale = (def.scale ?? 1) * (isTreeBuildingModel(def.buildingModel) ? TREE_VISUAL_SCALE : 1);
 
   const prototype = assets.buildingsByName[def.buildingModel ?? ''];
   if (!prototype && isLazyModel(def.buildingModel ?? '')) {

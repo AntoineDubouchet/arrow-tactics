@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import { HIT_FLASH_DURATION } from '../config/constants';
-import { spawnRadialParticles, tickRadialParticles, type RadialParticle } from './vfx/radialBurst';
+import { BuildingDamageFx } from './buildingDamageFx';
 
 /**
  * Retour visuel d'un bâtiment GAMEPLAY (Mine, Baliste — 2026-08-16, voir
  * data/buildings.ts) : flash blanc au moment d'un coup encaissé (même
  * technique que UnitViews.setEmissive, mais un seul mesh unique par
  * bâtiment — pas besoin de la Map par entité qu'utilise UnitViews pour des
- * dizaines d'unités clonées) + destruction (petit VFX poussière/débris,
- * V1 acceptable selon Antoine, puis suppression du modèle).
+ * dizaines d'unités clonées), fumée selon les PV restants et effondrement à
+ * la destruction (2026-11-01, voir buildingDamageFx.ts).
  *
  * Matériaux CLONÉS par instance avant tout flash (même précaution déjà
  * appliquée aux unités/rochers, voir CLAUDE.md "Bug de matériaux partagés
@@ -23,16 +23,20 @@ import { spawnRadialParticles, tickRadialParticles, type RadialParticle } from '
 export class BuildingView {
   private readonly materials: (THREE.MeshStandardMaterial | THREE.MeshPhongMaterial)[] = [];
   private flashTimer = 0;
+  /** Opacité de chantier appliquée (setConstruction), 1 = construit. */
+  private constructionOpacity = 1;
   private destroyed = false;
-  private readonly debris: RadialParticle[] = [];
+  /** Fumée des dégâts et effondrement (rendu seul). */
+  private readonly damageFx: BuildingDamageFx;
   /** Battants d'une porte de muraille (noeuds KayKit `*_door_left` /
    *  `*_door_right`, pivots deja sur les gonds) et leur lacet d'origine. */
   private readonly gateLeaves: { node: THREE.Object3D; baseY: number; sign: number }[] = [];
 
   constructor(
     private readonly mesh: THREE.Object3D,
-    private readonly vfxGroup: THREE.Group,
+    vfxGroup: THREE.Group,
   ) {
+    this.damageFx = new BuildingDamageFx(mesh, vfxGroup);
     mesh.traverse((obj) => {
       // Le pack KayKit n'a AUCUN clip d'ouverture : animation maison, rotation
       // des deux battants vers l'interieur (-Z natif, face exterieure +Z).
@@ -61,33 +65,49 @@ export class BuildingView {
     this.flashTimer = HIT_FLASH_DURATION;
   }
 
-  /** À appeler une fois, au moment où l'Entity passe alive=false. */
+  /** À appeler une fois, au moment où l'Entity passe alive=false :
+   *  effondrement (secousse, affaissement, poussière, débris), puis le
+   *  modèle disparaît (BuildingDamageFx). La simulation a déjà retiré le
+   *  bâtiment. */
   playDestroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.mesh.visible = false;
-    const box = new THREE.Box3().setFromObject(this.mesh);
-    const center = box.getCenter(new THREE.Vector3());
-    const debrisMaterial = new THREE.MeshBasicMaterial({ color: 0x6b5a4a, transparent: true });
-    this.debris.push(
-      ...spawnRadialParticles(this.vfxGroup, {
-        count: 10,
-        x: center.x,
-        y: 0.1,
-        z: center.z,
-        buildParticle: () => new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.18), debrisMaterial.clone()),
-        speedMin: 1.2,
-        speedMax: 2.6,
-        liftMin: 1.5,
-        liftMax: 3,
-      }),
-    );
+    this.flashTimer = 0;
+    this.damageFx.collapse();
+  }
+
+  /** Chantier (2026-11-01) : modèle translucide, de plus en plus opaque avec
+   *  l'avancement (0..1) ; null = bâtiment construit, opaque. */
+  setConstruction(progress: number | null): void {
+    const opacity = progress === null ? 1 : 0.3 + 0.5 * Math.min(1, Math.max(0, progress));
+    if (this.constructionOpacity === opacity) return;
+    this.constructionOpacity = opacity;
+    for (const mat of this.materials) {
+      mat.transparent = opacity < 1;
+      mat.opacity = opacity;
+      mat.depthWrite = opacity >= 1;
+    }
+  }
+
+  /** PV restants / PV max, à chaque image : niveau de fumée. */
+  setHealthFraction(fraction: number): void {
+    this.damageFx.setHealthFraction(fraction);
+  }
+
+  /** Niveau de fumée (0 aucune, 1 légère, 2 épaisse) et volutes en vol :
+   *  contrôles et tests. */
+  damageState(): { smoke: 0 | 1 | 2; particles: number; collapsed: boolean } {
+    return { smoke: this.damageFx.smokeLevel(), particles: this.damageFx.liveParticles(), collapsed: this.damageFx.collapsed };
   }
 
   /** À appeler chaque frame de rendu (temps réel, comme le reste des
-   *  animations cosmétiques du jeu). */
-  tick(dt: number): void {
-    if (this.flashTimer > 0) {
+   *  animations cosmétiques du jeu). `frozen` : pause, fumée et
+   *  effondrement figés. */
+  tick(realDt: number, frozen = false): void {
+    // Pause : flash, fumee et effondrement figes (temps de l'ecran a zero).
+    const dt = frozen ? 0 : realDt;
+    this.damageFx.tick(dt);
+    if (this.flashTimer > 0 && dt > 0) {
       this.flashTimer = Math.max(0, this.flashTimer - dt);
       const intensity = this.flashTimer / HIT_FLASH_DURATION;
       for (const mat of this.materials) {
@@ -95,7 +115,6 @@ export class BuildingView {
         mat.emissiveIntensity = intensity > 0 ? 1 : 0;
       }
     }
-    if (this.debris.length > 0) tickRadialParticles(this.debris, this.vfxGroup, dt, 0.7, 4, 0.9);
   }
 
   /** Porte de muraille : pose les battants d'apres l'ouverture de la
@@ -114,27 +133,20 @@ export class BuildingView {
   reset(): void {
     this.setGateOpenness(0);
     this.destroyed = false;
+    this.damageFx.reset();
     this.mesh.visible = true;
     this.flashTimer = 0;
     for (const mat of this.materials) {
       mat.emissive.setScalar(0);
       mat.emissiveIntensity = 0;
     }
-    for (const p of this.debris) this.vfxGroup.remove(p.mesh);
-    this.debris.length = 0;
   }
 
   /** Vue abandonnee (batiment de run retire) : retire ses debris et libere
-   *  ce qu'elle possede en propre — materiaux clones et debris. La geometrie
+   *  ce qu'elle possede en propre — materiaux clones, fumee et debris. La geometrie
    *  du mesh, partagee par le cache d'assets, n'est jamais liberee ici. */
   dispose(): void {
-    for (const p of this.debris) {
-      this.vfxGroup.remove(p.mesh);
-      const debris = p.mesh as THREE.Mesh;
-      debris.geometry?.dispose();
-      (debris.material as THREE.Material | undefined)?.dispose();
-    }
-    this.debris.length = 0;
+    this.damageFx.dispose();
     for (const mat of this.materials) mat.dispose();
     this.materials.length = 0;
   }

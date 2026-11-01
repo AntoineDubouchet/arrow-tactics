@@ -1,5 +1,5 @@
 import { recruitmentBuildingFor } from '../data/buildings';
-import type { RunState } from './runState';
+import { isBuildingBuilt, type RunState } from './runState';
 
 /**
  * Batiment requis pour recruter une unite en boutique (Caserne -> Piquier,
@@ -21,7 +21,8 @@ export function missingRecruitmentBuildingHint(run: Pick<RunState, 'buildings'>,
   if (!required) return null;
   // Niveau minimal (RecruitmentUnlockConfig.minLevels : Fantassin a la Caserne Niv. 2).
   const minLevel = required.recruitmentUnlock?.minLevels?.[unitId] ?? 0;
-  if (run.buildings.some((owned) => owned.buildingId === required.id && (owned.level ?? 0) >= minLevel)) return null;
+  // Chantier : ne debloque rien avant d'etre construit.
+  if (run.buildings.some((owned) => owned.buildingId === required.id && (owned.level ?? 0) >= minLevel && isBuildingBuilt(owned))) return null;
   const hint = required.recruitmentUnlock?.missingBuildingHint ?? null;
   return hint !== null && minLevel > 0 ? `${hint} Niv. ${minLevel + 1}` : hint;
 }

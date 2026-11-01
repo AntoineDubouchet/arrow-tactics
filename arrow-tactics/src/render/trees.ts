@@ -2,6 +2,18 @@ import * as THREE from 'three';
 import { obstacleCenter, TILE, type ObstacleDef } from '../config/constants';
 import { cloneScaledTo, pickRandom, type EnvironmentAssets } from './assetLibrary';
 
+/** Agrandissement VISUEL de tous les arbres (2026-11-01, demande d'Antoine :
+ *  ×1,4 au moins, juge a la camera du jeu) : arbres Kenney, arbres isoles
+ *  KayKit (props, voir isTreePropModel) et bosquets (batiments
+ *  `neutral_trees_*`, voir isTreeBuildingModel). Rendu seul : emprise,
+ *  collision et tirs inchanges. Les souches (`*_cut`) ne sont pas des
+ *  arbres debout et gardent leur taille. */
+export const TREE_VISUAL_SCALE = 1.4;
+
+// Arbres debout (props KayKit, bosquets) : regle unique dans
+// config/resourceNodes.ts (aussi sources de bois du Heros).
+export { isTreeBuildingModel, isTreePropModel } from '../config/resourceNodes';
+
 /**
  * Arbre-obstacle : un clone d'un vrai modele d'arbre low-poly (voir
  * assetLibrary.ts, Kenney Nature Kit, CC0), mis a l'echelle sur sa hauteur —
@@ -28,7 +40,10 @@ export function createTreeObstacle(def: ObstacleDef, assets: EnvironmentAssets, 
   // l'arbre lisait un peu chetif a cote du rocher. `def.scale` multiplie ce
   // resultat pour varier deliberement la stature d'un arbre precis, au-dela
   // de la petite variation aleatoire deja presente ici.
-  const targetHeight = (1.6 + footprint * 0.4 + random() * 0.4) * 1.2 * (def.scale ?? 1);
+  // TREE_VISUAL_SCALE : agrandissement general des arbres (2026-11-01). La
+  // part `random() * 0.4` donne deja une variation deterministe d'environ
+  // ±10 % autour de la hauteur moyenne (graine d'aspect).
+  const targetHeight = (1.6 + footprint * 0.4 + random() * 0.4) * 1.2 * TREE_VISUAL_SCALE * (def.scale ?? 1);
 
   const prototype = def.treeModel ? assets.treesByName[def.treeModel] ?? pickRandom(assets.trees, random) : pickRandom(assets.trees, random);
   const tree = cloneScaledTo(prototype, targetHeight, 'height');

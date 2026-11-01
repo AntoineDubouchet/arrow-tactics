@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { FogOfWarPass, type FogOfWar } from './fogOfWar';
 import { BOARD_H, BOARD_W, CAMERA, COLORS } from '../config/constants';
 import { clamp, degToRad } from '../core/math';
 import { createBackgroundVeil, type LookSettings } from './look';
@@ -52,6 +53,8 @@ export class Renderer {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.OrthographicCamera();
   readonly renderer: THREE.WebGLRenderer;
+  private fog: FogOfWar | null = null;
+  private fogPass: FogOfWarPass | null = null;
 
   /** Reglages de camera modifiables au clavier pour trouver le bon angle. */
   yawDeg = CAMERA.yawDeg;
@@ -406,7 +409,14 @@ export class Renderer {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Brouillard de guerre (render/fogOfWar.ts) a appliquer au rendu, ou null. */
+  setFogOfWar(fog: FogOfWar | null): void {
+    this.fog = fog;
+    if (fog && !this.fogPass) this.fogPass = new FogOfWarPass();
+  }
+
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (this.fog && this.fogPass) this.fogPass.render(this.renderer, this.scene, this.camera, this.fog);
+    else this.renderer.render(this.scene, this.camera);
   }
 }

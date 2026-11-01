@@ -1,7 +1,8 @@
 import { HP_PER_PIP } from '../config/constants';
 import { getBuilding } from '../data/buildings';
+import { HERO_UNIT_ID, heroStatsForLevel } from '../data/hero';
 import { ownedBuildingLevel } from './buildingUpgrades';
-import { roundGold, spendGold, type RunState } from './runState';
+import { isBuildingBuilt, roundGold, spendGold, type OwnedUnit, type RunState } from './runState';
 import { playerUnitMaxHp } from './unitUpgradeEffects';
 
 /**
@@ -24,10 +25,15 @@ export function churchHealHpPerGold(buildingId: string, level: number): number {
 }
 
 /** PV manquants de toute l'armee possedee, echelle INTERNE (x10). */
-export function armyMissingHp(run: Pick<RunState, 'army'>): number {
+export function armyMissingHp(run: Pick<RunState, 'army' | 'hero'>): number {
   let missing = 0;
-  for (const unit of run.army) missing += Math.max(0, playerUnitMaxHp(unit.unitId, unit.productionLevel) - unit.hp);
+  for (const unit of run.army) missing += Math.max(0, armyUnitMaxHp(run, unit) - unit.hp);
   return missing;
+}
+
+/** PV max d'une unite de l'armee ; le Heros suit son niveau (data/hero.ts). */
+function armyUnitMaxHp(run: Pick<RunState, 'hero'>, unit: OwnedUnit): number {
+  return unit.unitId === HERO_UNIT_ID ? heroStatsForLevel(run.hero.level).maxHp : playerUnitMaxHp(unit.unitId, unit.productionLevel);
 }
 
 /** Cout en or pour rendre `missingHp` (interne) a l'efficacite `hpPerGold`
@@ -49,11 +55,11 @@ export interface ArmyHealResult {
  *  l'or ne couvre pas le cout total. */
 export function healArmyAtChurch(run: RunState, buildingIndex: number): ArmyHealResult | null {
   const owned = run.buildings[buildingIndex];
-  if (!owned || !getBuilding(owned.buildingId).armyHeal) return null;
+  if (!owned || !getBuilding(owned.buildingId).armyHeal || !isBuildingBuilt(owned)) return null;
   const missing = armyMissingHp(run);
   const cost = churchHealCost(missing, churchHealHpPerGold(owned.buildingId, ownedBuildingLevel(owned)));
   if (cost <= 0 || run.gold < cost) return null;
   if (!spendGold(run, roundGold(cost))) return null;
-  for (const unit of run.army) unit.hp = Math.max(unit.hp, playerUnitMaxHp(unit.unitId, unit.productionLevel));
+  for (const unit of run.army) unit.hp = Math.max(unit.hp, armyUnitMaxHp(run, unit));
   return { cost, healedHp: missing };
 }

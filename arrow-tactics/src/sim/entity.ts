@@ -96,6 +96,30 @@ export interface CastState {
   heal?: { targetId: number; amount: number; endRangeTiles: number };
 }
 
+/** Etat propre au Heros (Entity.hero). */
+export interface HeroState {
+  /** XP totale de la run et niveau (data/hero.ts, HERO_LEVELS). */
+  xp: number;
+  level: number;
+  /** Morts sur la run (delai de resurrection croissant). */
+  deaths: number;
+  /** Secondes avant la resurrection (mort), 0 sinon. */
+  respawnTimer: number;
+  /** Travail en cours AU CONTACT (rendu : outil et geste), null en chemin ou
+   *  sans ordre de travail. `gather` : ramasse un petit tas au sol. */
+  working: 'chop' | 'mine' | 'build' | 'gather' | null;
+  /** Temps accumule vers la prochaine unite recoltee (ou le ramassage). */
+  workTimer: number;
+  /** Ressources portees (sac), pas encore deposees (data/hero.ts). */
+  carry: { wood: number; stone: number };
+}
+
+/** Chantier (Entity.construction) : avancement 0..1 et duree totale (s). */
+export interface ConstructionState {
+  progress: number;
+  buildTime: number;
+}
+
 export interface Entity {
   id: number;
   team: Team;
@@ -289,6 +313,15 @@ export interface Entity {
   neutralProgressZ: number;
   neutralStuckTimer: number;
 
+  /** Heros (data/hero.ts, sim/systems/hero.ts) : progression, mort et
+   *  resurrection, travail (recolte, construction). null pour toute autre
+   *  entite. */
+  hero: HeroState | null;
+  /** Chantier : batiment pose mais pas encore construit (ni production, ni
+   *  tir, ni porte, ne compte pas pour la defaite), construit par le Heros.
+   *  null : batiment construit (et toute unite). */
+  construction: ConstructionState | null;
+
   /** Vrai pour un BATIMENT gameplay (Mine, Baliste — 2026-08-16, voir
    *  data/buildings.ts, World.spawnBuilding), jamais pour une unite. Capacite
    *  GENERIQUE et explicite plutot que des verifications eparpillees
@@ -331,6 +364,11 @@ export interface Entity {
    *  retirees a chaque unite produite, jamais renouvelees en cours de
    *  bataille. Vide = rien a produire. */
   productionQueue: string[];
+  /** Production TEMPS REEL (2026-11-01, Survie continue) : unite commandee a
+   *  ce batiment et secondes restantes, null sinon. Une seule entree ; a la
+   *  fin, l'unite rejoint productionQueue (meme apparition que la production
+   *  de debut de manche, legacy). */
+  productionOrder: { unitId: string; remaining: number; total: number } | null;
   /** Vrai tant que le quota restant attend une place de population (voir
    *  buildingProductionSystem) : affiche par la fiche, jamais lu par la
    *  simulation elle-meme. */

@@ -56,7 +56,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | A2 | Décor : du procédural aux assets importés | Remplacée |
 | A3 | Rendu instancié des unités retiré | Historique |
 | A4 | Retour d'impact : flash conservé, recul retiré | Active (flash) / Remplacée (recul) |
-| B1 | Retrait du Cavalier léger | Remplacée |
+| B1 | Retrait du Cavalier léger | Remplacée (cavalerie revenue, G8) |
 | B2 | PV et dégâts stockés ×10, affichés en pips | Active |
 | B3 | La case comme unité de mesure | Active |
 | B4 | Identité du combat automatique | Historique (intention d'origine) / Ouverte (évolution) |
@@ -200,8 +200,11 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - la capacité générique de Charge est conservée dans le moteur, mais aucune
     unité ne l'utilise ;
   - le retour éventuel d'une unité montée est une question ouverte.
-- **À ne pas faire** : **ne pas réintroduire automatiquement le Cavalier**, ni
-  le compter dans les unités disponibles.
+- **Suite** (2026-11-01) : à la **demande explicite d'Antoine**, une
+  cavalerie légère revient sous une forme nouvelle (G8) : modèle Toon riggé
+  (la raison du retrait ne tient plus), bestiaire et éditeur seulement.
+- **À ne pas faire** : ne pas étendre la cavalerie (recrutement, vagues,
+  Charge) sans décision d'Antoine.
 - **Sources** : archive (« Jambes figées… retrait complet du Cavalier léger ») ;
   `data/units.ts`, `data/abilities.ts`.
 
@@ -709,9 +712,11 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   la Caserne produisait des Fantassins à intervalle régulier pendant la
   bataille.
 - **Décision** (demande d'Antoine) :
-  - **départ** : 20 or, **4 Fantassins** de niveau 1, population maximale
+  - **départ** : 20 or, **3 Hommes d'armes** (unité `fantassin` renommée à
+    l'affichage, 2026-11-01 ; 4 Fantassins avant) de niveau 1, population maximale
     **5** (`PLAYER_BASE_POPULATION`), aucun bâtiment. La run commence donc à
-    **4 / 5** ;
+    **4 / 5** (2026-11-01 : 3 / 5 avec 3 Hommes d'armes et le Héros, puis
+    0 / 5 avec le Héros seul et la Baliste, G6) ;
   - **Maison** : 5 or, +2 de population maximale (5, 7, 9…), aucune Maison
     gratuite.
     Avec une seule place libre au départ, elle est la première réponse à la
@@ -742,7 +747,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     PROVISOIRE).
 - **Raison connue** :
   - le départ à 4 / 5 force un choix immédiat : Maison + Caserne ou Maison
-    + Camp d'archerie (20 or). Caserne + Camp d'archerie (30 or) est
+    + Camp d'archerie (20 or ; 16 et 14 bois depuis G5, à ramasser et
+    déposer d'abord depuis G6 / G7). Caserne + Camp d'archerie (30 or) est
     volontairement impossible au départ ;
   - le Mage devient une unité plus tardive, derrière une Église plus chère.
 - **Aujourd'hui** : valeurs dans `config/constants.ts`
@@ -762,11 +768,19 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### D8 — Murailles du joueur
 
-- **Statut** : Active (mécanique). Ouverte : le coût par segment.
+- **Statut** : Active (mécanique). Ouverte : le coût par case.
+- **2026-11-01 — unité canonique d'une case** (demande d'Antoine, migration
+  choisie par lui) : **1 segment logique = 1 case** (données, PV, pose,
+  sauvegarde, sélection, destruction) ; 25 PV et 0,5 or par case (même
+  densité, même prix) ; la **porte** reste une pièce de 2 cases posée sur
+  deux cases de mur alignées ; le rendu apparie deux cases voisines d'une
+  ligne avec le modèle long natif ; les anciennes cartes sont migrées au
+  chargement. Les points ci-dessous qui parlent de segments 2 × 1 et de
+  demi-segments sont historiques.
 - **Décision** (demande d'Antoine, choix tranchés avec lui) :
   - murailles KayKit du dossier « neutral » = constructions du **joueur**
     (visuel non teinté), 50 PV, rôle unique : bloquer le déplacement ;
-  - segment droit **2 × 1** à l'échelle native, pose par **tracé continu**
+  - segment droit **2 × 1** à l'échelle native (historique, voir ci-dessus), pose par **tracé continu**
     (une portion par clic, axe dominant, tout ou rien par portion, fermeture
     sur le point de départ ; préparation et éditeur) ;
   - un **mur** bloque **les deux camps** (on contourne ou on passe par une
@@ -890,7 +904,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   d'ensemble du cycle reste **peu documentée**.
 - **Aujourd'hui** : appliqué au jeu réel uniquement, sur l'arène du Mode
   survie, dont la forme (trous) et le territoire dessiné suivent chaque
-  étape. Son rôle sur les runs longues reste ouvert.
+  étape. Son rôle sur les runs longues reste ouvert. **Désactivé dans
+  toute la Survie** depuis le passage en temps réel continu (choix
+  d'Antoine, 2026-11-01, G6 puis G10), arène comprise (`?map=arena`) ; le
+  code de `run/mapExpansion.ts` reste.
 - **Sources** : archive (« Agrandissement progressif de la map ») ;
   `run/mapExpansion.ts`, `CURRENT_STATE.md` §11.
 
@@ -1023,7 +1040,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     ci-dessous) ;
   - **Décidé** par Antoine (2026-10-29) : **quatre niveaux, 0 à 3**
     (`TERRAIN_LEVEL_MAX` = 3, pas inchangé : niveau 3 à y = 1,5), sans type
-    spécial pour le niveau 3 ; outils manuels **Pente**, **Coin extérieur**
+    spécial pour le niveau 3 ; **2026-11-01 : Monter une case, Descendre une
+    case et Pente restaurés** (demande d'Antoine, en complément des pinceaux,
+    sur le même modèle de cases et le même verrou, sans autotuilage) ;
+    outils manuels **Pente**, **Coin extérieur**
     et **Coin intérieur** retirés de l'éditeur : l'autotiling de la
     sculpture est la seule façon de produire pentes et coins. Les formes
     (pentes cardinales, coins extérieurs et intérieurs) restent dans le
@@ -1224,6 +1244,30 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `BLOCKING_STRUCTURE_MODELS`), `sim/world.ts`, `editor/editorState.ts`,
   `editor/editorUI.ts` (`OBSTACLE_CATALOG`), `EDITOR.md` §3 et §6.
 
+### E9 — L'eau, surface infranchissable mais transparente aux tirs
+
+- **Statut** : Active.
+- **Contexte** : eau et lave étaient peignables mais franchissables
+  (`KNOWN_ISSUES.md` KI-29) ; un lac se lisait comme un obstacle qui n'en
+  était pas un.
+- **Décision** (Antoine) : l'eau devient un obstacle de **déplacement**,
+  sans être confondue avec un bâtiment ou un mur :
+  - famille de surfaces `eau` extensible (`isWaterSurface`) ;
+  - infranchissable pour toute unité sans `UnitStats.canTraverseWater`
+    (faux par défaut pour toutes les unités actuelles) : trajets,
+    destination d'un ordre, IA, apparitions ;
+  - ne bloque **jamais** les tirs ni la ligne de vue ;
+  - aucune unité, aucun bâtiment, aucune muraille, pas de Baliste sur
+    l'eau (règles centrales de pose étendues).
+- **Conséquence** : la règle « une surface ne bloque rien » (E7) a désormais
+  une exception, l'eau ; la simulation lit les cases d'eau de la carte
+  (`World.setMap`). La lave reste visuelle (ouverte, `ROADMAP.md` §7).
+- **À ne pas faire** : ne pas rendre l'eau bloquante pour les tirs ; ne pas
+  ajouter de variante d'eau hors de la famille `eau` (elle ne bloquerait
+  pas).
+- **Sources** : `config/groundSurfaces.ts`, `sim/world.ts`, `sim/geometry.ts`,
+  `sim/orders.ts`, `main.ts` (`isValidPlacementTile`), `editor/editorState.ts`.
+
 ---
 
 ## F. Audio
@@ -1243,6 +1287,191 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **À ne pas faire** : ne pas présenter l'audio comme définitivement abandonné.
 - **Sources** : archive (« Système audio entièrement désactivé ») ; `audio/`,
   `main.ts`, `GAME_DESIGN.md` §15.
+
+---
+
+## G. Direction « Hero RTS Survival »
+
+### G1 — Direction future : Héros, ressources physiques, économie RTS
+
+- **Statut** : Ouverte (direction d'architecture). Une première fondation
+  est construite (G4, G5) ; le reste demeure une direction.
+- **Direction** (Antoine, 2026-11-01) : le joueur commencera probablement
+  avec un **Héros**, quelques soldats et peu ou pas de base. Le Héros
+  combat, explore, récupère des ressources, porte une grande part de la
+  microgestion et permet l'expansion de la ville. Ressources envisagées :
+  **bois, pierre, or**. À terme, économie plus classique de RTS : bâtiments,
+  production, améliorations, ressources physiques.
+- **Conséquences** : la Boutique actuelle n'est probablement **pas** le
+  modèle final ; ne pas l'étendre d'une façon qui la rendrait difficile à
+  remplacer.
+- **À ne pas faire maintenant** : ne pas retirer la Boutique ; pas
+  d'économie RTS complète, de multi-joueur ni de monde ouvert
+  (`ROADMAP.md` §6 bis). Héros, bois et pierre : fondation provisoire
+  depuis le 2026-11-01 (G4, G5).
+
+### G2 — Camps : quatre couleurs joueur et un camp Neutre ; allégeance séparée de la faction visuelle
+
+- **Statut** : Active (fondations).
+- **Décision** (Antoine, 2026-11-01) : camps joueurs **Rouge, Bleu, Vert,
+  Jaune** ; camp **Neutre** (occupants de la carte, camps PvE, unités à
+  farmer, à terme ressources ou objectifs), couleurs **brun + gris**, jamais
+  une couleur choisie par un joueur. L'**allégeance** (à qui appartient une
+  unité) est séparée de la **faction visuelle** (famille d'assets : humains,
+  barbares, plus tard squelettes, orcs...). Palettes centralisées
+  (`config/factions.ts`).
+- **Choix d'architecture** (option retenue par Antoine) : la simulation
+  garde ses deux côtés (`player` / `enemy`) ; une couche d'allégeance les
+  traduit (joueur = Bleu, côté adverse = Neutre). Aucune migration de carte
+  ni de sauvegarde. Les GLB officiels pré-teintés restent bleu / rouge
+  (`KNOWN_ISSUES.md` KI-31).
+- **À ne pas faire** : ne pas lier « barbare » à un camp ou à une couleur.
+
+### G3 — Unités neutres provisoires
+
+- **Statut** : Active, **provisoire**.
+- **Décision** (Antoine, 2026-11-01) : les cinq modèles barbares deviennent
+  des unités **Neutres** aux noms de jeu propres : Maraudeur (Guerrier /
+  Pillard), Ravageur (Berserker), Traqueur (Chasseur), Féticheur (Chaman),
+  Colosse (Brute). Couche de nom affiché ; fichiers et identifiants des
+  modèles inchangés. Stats, capacités et comportement : ceux du rôle habillé,
+  provisoires. Toujours du camp Neutre dans l'éditeur (option retenue par
+  Antoine), posables en territoire ennemi ou neutre.
+- **Sources** : `data/units.ts` (`NEUTRAL_UNIT_IDS`), `render/unitMesh.ts`,
+  `editor/editorState.ts` (`unitTeamAt`).
+
+### G4 — Héros : fondation provisoire
+
+- **Statut** : Active, **provisoire** (valeurs et visuel).
+- **Décisions d'Antoine** (2026-11-01) :
+  - départ **1 Héros + 3 Hommes d'armes** ; Héros très lisible, grand
+    marteau, stats fortes ;
+  - **XP en zone partagée, gardée sur la run** : toute unité adverse tuée
+    près du Héros lui donne de l'XP, même tuée par un allié ;
+  - **mort** : délai de retour pendant lequel le joueur ne peut plus
+    l'utiliser, 15 s la première fois, 30 s la deuxième, 1 min la troisième,
+    puis 1 min 30 au plus ; XP et niveaux gardés ; il revient à la Baliste ;
+    **Héros et Baliste à terre = partie perdue**.
+- **Choix provisoires** (non validés) : 30 PV, 2,5 dégâts, vitesse 2,6 ;
+  niveaux 2 et 3 à 50 et 150 XP ; XP = max(4, coût × 4) dans un rayon de
+  6 cases, **plafonnée à 30 par mort** (demande d'Antoine, 2026-11-01) ; morts comptées **sur la run** (pas par bataille) ; Héros hors
+  population, gratuit, invendable ; visuel Toon (tête E, corps D,
+  épaulières B, marteau B ×1,6, échelle 1,3).
+- **Sources** : `data/hero.ts`, `data/units.ts`, `sim/systems/hero.ts`,
+  `sim/world.ts` (`spawnHero`, `isHeroDefeat`), `ui/heroHud.ts`.
+- **À ne pas faire** : pas d'arbre de compétences ni de capacités du Héros
+  dans cette fondation.
+
+### G5 — Bois, pierre et chantiers bâtis par le Héros
+
+- **Statut** : Active, **provisoire** (valeurs).
+- **Décisions d'Antoine** (2026-11-01) :
+  - **bois et pierre en plus de l'or** dans le prix des bâtiments ;
+    murailles en pierre, case par case ; stock affiché, gardé sur la run,
+    avec un stock de départ ;
+  - **chantiers bâtis en bataille** : un bâtiment acheté en préparation est
+    posé en chantier non fonctionnel ; en bataille, le Héros le construit
+    (clic droit). Sans Héros vivant, rien ne se construit. Murailles
+    incluses, case par case. La Boutique est conservée.
+- **Choix provisoires** : coûts et durées (`CURRENT_STATE.md` §6 bis),
+  chantier à 25 % de PV, enchaînement à 3 cases. **Remplacé par G6 / G7**
+  (2026-11-01) : départ 0 / 0, petits tas finis, transport et dépôt à la
+  Baliste ; arbres et rochers verrouillés.
+- **Sources** : `config/resourceNodes.ts`, `data/buildings.ts`,
+  `run/runState.ts`, `main.ts` (paiement, clic droit), `sim/orders.ts`
+  (ordres `harvest` et `build`).
+- **Ouvert** : épuisement des sources, transport et porteurs, ouvriers,
+  récolte hors bataille (`ROADMAP.md` §6 bis).
+
+### G6 — Départ Héros + Baliste, carte procédurale, brouillard de guerre
+
+- **Statut** : Active, **provisoire** (valeurs).
+- **Demande d'Antoine** (2026-11-01) : départ avec **1 Héros et 1 Baliste**
+  seulement, stock 0 / 0 pour forcer l'exploration ; grande carte de Survie
+  **procédurale**, ronde, déterministe par graine, camp au centre, monde de
+  plus en plus sauvage ; **brouillard de guerre** à trois états, Héros à
+  +50 % de vision d'une unité.
+- **Choix d'Antoine** (questions de la passe) : vagues sur un **anneau
+  proche dont la direction tourne** à chaque vague ; **E4 désactivé** sur la
+  carte procédurale (il reste sur l'arène) ; exploration et ramassage
+  **pendant la bataille** (la boucle des manches ne change pas).
+- **Choix provisoires** : 96 × 96, centre de 11 cases, territoire de 8, anneau
+  à 22 cases, vision 6 / 8 / 9 (unité / Baliste / Héros), une graine par run.
+  Le brouillard est un système de présentation : la simulation ne le lit
+  pas. Depuis G10, la simulation a sa propre **vision gameplay**
+  (`sim/vision.ts`, mêmes rayons, positions simulées) pour le tir
+  automatique de la Baliste.
+- **Sources** : `config/maps/proceduralSurvival.ts`, `render/fogOfWar.ts`,
+  `main.ts`.
+
+### G7 — Transport et dépôt ; récolte avancée verrouillée
+
+- **Statut** : Active, **provisoire** (valeurs). Remplace la récolte directe
+  de G5 (arbres et rochers inépuisables, crédit immédiat au stock).
+- **Demande d'Antoine** (2026-11-01) : au début, le Héros ne ramasse que de
+  **petits tas** de planches et de cailloux, finis ; il les **porte** et les
+  **dépose à la Baliste** ; seul le dépôt remplit le stock, et seul le stock
+  déposé paie les chantiers. Couper les arbres et exploiter les gros
+  gisements reste **verrouillé** (`canHarvestTrees`, `canMineDeposits`),
+  pour une future **Scierie** et un futur **Camp de mineur**.
+- **Choix provisoires** : sac de 6 unités, ramassage 0,6 s, dépôt de tout le
+  sac d'un coup, sac gardé à la mort ; crochet `BuildingDef.unlocksHarvest`
+  lu par `run/harvestPermissions.ts`, transmis résolu à la simulation
+  (`World.harvestPermissions`) ; dépôt = `BuildingDef.resourceDepot` (la
+  Baliste).
+- **À ne pas faire** : ne pas créer l'économie de la Scierie ni du Camp de
+  mineur sans décision (`ROADMAP.md` §6 bis).
+
+### G8 — Cavaleries légères (humaine et barbare)
+
+- **Statut** : Active, **provisoire** (stats non imposées, place dans le jeu).
+- **Demande d'Antoine** (2026-11-01) : un **Cavalier léger** humain et une
+  **cavalerie légère barbare**, deux unités réellement distinctes (pas un
+  habillage) : 15 or, 18 PV, 3 dégâts imposés ; pas de bonus contre un type
+  d'unité. Choix de la passe : **bestiaire et éditeur seulement** (ni
+  recrutement ni vagues).
+- **Choix provisoires** : nom « Razzieur » pour la cavalerie barbare ; portée
+  1,2, cadence 1,3 s, vitesse 3,6, rayon 0,7, 10 % de raté, population 2 ;
+  modèles « Light B » (lance, petit bouclier) en « single mesh » (le FBX
+  modulaire de cavalerie ne s'importe pas dans Blender, KI-36).
+- **Sources** : `data/units.ts`, `render/toonUnitRig.ts`,
+  `tools/toon-units/units.json`.
+
+### G9 — Orientation des unités et caméra Espace
+
+- **Statut** : Active.
+- **Demande d'Antoine** (2026-11-01) : plus de marche à reculons — une unité
+  regarde dans le sens de son déplacement, garde ce cap à l'arrêt, se tourne
+  vers sa cible en attaque, reste figée à la mort. **Espace** bascule entre
+  le Héros (sélection, centrage, suivi) et la Baliste.
+- **Choix de la passe** : virage progressif (10 rad/s) ; un déplacement
+  manuel de la caméra lâche le suivi, et le prochain Espace ramène au Héros
+  (comportement à valider par Antoine).
+- **Sources** : `render/unitViews.ts` (`renderedFacing`), `main.ts`
+  (`toggleHeroCamera`, `updateHeroCameraLock`).
+
+### G10 — Survie en temps réel continu
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Décision d'Antoine** (2026-11-01) : la direction est définitivement un
+  Hero RTS Survival en **temps réel continu** : plus de boucle préparation →
+  bataille → préparation ; explorer, récolter, construire, produire,
+  combattre et améliorer sans changement de phase. Les vagues restent, comme
+  **événements** dans le temps.
+- **Choix d'Antoine** (questions de la passe) : première vague à **120 s**,
+  puis **90 s** après chaque vague ; **tout en temps réel**, quelle que soit
+  la carte (E4 désactivé partout en Survie) ; améliorations, Forge et Église
+  **sur la fiche, en direct** (écran Forge / Église = jeu en pause) ;
+  **murailles reportées**.
+- **Règles de la passe** : construction = commandes du Héros (fiche),
+  chantier payé et créé en direct ; production = commandes du bâtiment
+  (fiche), une à la fois, durée par unité (`data/production.ts`) ; la
+  Boutique globale est legacy et masquée en Survie ; la Baliste n'acquiert
+  que des cibles vues (vision gameplay déterministe, `sim/vision.ts`).
+- **À ne pas faire** : ne pas réintroduire de phase de préparation en
+  Survie ; ne pas faire dépendre la simulation du brouillard du rendu.
+- **Sources** : `main.ts`, `data/production.ts`, `sim/vision.ts`,
+  `sim/systems/buildingProduction.ts` (`tickProductionOrders`).
 
 ---
 

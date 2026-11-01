@@ -26,7 +26,8 @@ export function gateSystem(entities: Entity[], dt: number, setPassage: (gate: En
     const g = gate.gate;
     if (!g) continue;
     g.prevOpenness = g.openness;
-    if (!gate.alive || !gate.footprintObstacle) continue;
+    // Chantier : porte inactive (fermee pour tous) tant qu'elle n'est pas construite.
+    if (!gate.alive || !gate.footprintObstacle || gate.construction) continue;
 
     const b = obstacleBounds(gate.footprintObstacle);
     let allyNear = false;

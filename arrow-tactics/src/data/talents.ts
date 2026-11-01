@@ -76,7 +76,7 @@ export const TALENTS: Record<string, TalentDef> = {
   reflexes_fantassin: {
     id: 'reflexes_fantassin',
     name: 'Réflexes de vétéran',
-    description: 'Vos fantassins ont 30 % de chances supplémentaires d’esquiver une attaque.',
+    description: 'Vos hommes d’armes ont 30 % de chances supplémentaires d’esquiver une attaque.',
     branch: 'armee',
     cost: 1,
   },

@@ -1615,6 +1615,77 @@ img {
   color: var(--ink-dim);
 }
 
+/* Bestiaire : section Neutres (editor/editorUI.ts, neutralBestiary) —
+   repliable, une carte posable par unite neutre et sa fiche, liseré brun
+   (camp Neutre) pour la distinguer des Humains. */
+.editor-bestiary-faction > summary {
+  cursor: pointer;
+  color: #d9a07a;
+}
+
+.editor-bestiary-entry {
+  margin-bottom: 6px;
+  background: rgba(196, 112, 64, 0.08);
+  border: 1px solid var(--edge);
+  border-left: 3px solid #b0643a;
+  border-radius: 3px;
+}
+
+.editor-bestiary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.editor-bestiary-head.is-active {
+  background: rgba(231, 227, 216, 0.14);
+}
+
+.editor-bestiary-sheet > summary {
+  cursor: pointer;
+  color: var(--ink-dim);
+}
+
+.editor-bestiary-thumb {
+  flex: none;
+  width: 48px;
+  height: 60px;
+  object-fit: contain;
+  background: rgba(231, 227, 216, 0.05);
+  border-radius: 2px;
+}
+
+.editor-bestiary-thumb.is-missing {
+  opacity: 0.3;
+}
+
+.editor-bestiary-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.editor-bestiary-role {
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+
+.editor-bestiary-sheet {
+  padding: 2px 8px 6px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+
 /* Outil actif (bouton d'outil ou carte du catalogue) : fond plus clair,
    bord plein et liseré à gauche — un seul style pour tous les outils. */
 .editor-asset-card.is-active,
@@ -2562,4 +2633,83 @@ img {
 .settings-checkbox-label {
   color: var(--ink);
   font-size: 13px;
+}
+
+/* Encart du Heros (ui/heroHud.ts, 2026-11-01) : niveau, barre d'XP violette,
+   resurrection, bois et pierre. Colonne droite, au-dessus de la population
+   (stock a cote de l'or ; le coin haut gauche est celui de la fiche). */
+.hero-hud {
+  position: fixed;
+  right: 16px;
+  bottom: 224px;
+  width: 180px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-left: 3px solid #9b5de5;
+  border-radius: 6px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.hero-hud[hidden] {
+  display: none;
+}
+
+.hero-hud-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.hero-hud-xp {
+  height: 8px;
+  background: rgba(155, 93, 229, 0.18);
+  border: 1px solid rgba(155, 93, 229, 0.55);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.hero-hud-xp-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #7b3fd1, #b07cf0);
+  transition: width 0.25s ease-out;
+}
+
+.hero-hud-xp-text {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+
+.hero-hud-status {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #e8c15c;
+}
+
+.hero-hud-carry {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.hero-hud-carry--full {
+  color: #e8c15c;
+}
+
+.hero-hud-stock {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.hero-hud-resource--wood b {
+  color: #c99a5b;
+}
+
+.hero-hud-resource--stone b {
+  color: #b8bcc4;
 }

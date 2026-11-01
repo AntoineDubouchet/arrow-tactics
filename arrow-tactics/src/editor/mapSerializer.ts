@@ -1,7 +1,7 @@
 import { isGroundTextureId, type SurfaceCellDef } from '../config/groundSurfaces';
 import type { MapBuildingPlacement, MapDef } from '../config/mapDef';
 import { SLOPE_SHAPES, TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type SlopeShape, type TerrainElevationCellDef } from '../config/terrainElevation';
-import { BUILDINGS } from '../data/buildings';
+import { BUILDINGS, migrateLegacyWalls } from '../data/buildings';
 import type { TerritoryCell } from '../config/territory';
 import type { EditorState } from './editorState';
 
@@ -197,7 +197,8 @@ function readBuildings(entries: unknown[]): MapBuildingPlacement[] {
     buildings.push({ buildingId, team, x: x as number, z: z as number, ...rotation });
   }
   if (buildings.length < entries.length) console.warn(`Bâtiments : ${entries.length - buildings.length} entrée(s) invalide(s) ignorée(s).`);
-  return buildings;
+  // Anciennes murailles (segments de 2 cases) : unite canonique d'une case.
+  return migrateLegacyWalls(buildings);
 }
 
 /** Garde les seules entrees bien formees (x/z entiers, camp connu), copiees

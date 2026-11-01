@@ -7,7 +7,7 @@ import { ICE_NOVA_UPGRADE } from '../data/iceNovaUpgrade';
 import { SHADOW_UPGRADE } from '../data/shadowUpgrade';
 import { getTalent, listDependents, listFounderTalents, TALENTS } from '../data/talents';
 import { computeTalentTreeLayout, type TalentNodeLayout, type TalentTreeLayoutNode } from './talentTreeLayout';
-import { getUnit } from '../data/units';
+import { getUnit, unitPluralName } from '../data/units';
 import { buildingPopulationBonus, unitPopulationCost } from '../data/population';
 import { runPopulation } from '../run/population';
 import { missingRecruitmentBuildingHint } from '../run/recruitment';
@@ -501,6 +501,7 @@ export class Screens {
   private readonly quitRunCancelButton: HTMLButtonElement;
   private readonly gameOver: HTMLElement;
   private readonly gameOverProgress: HTMLElement;
+  private readonly gameOverReason: HTMLElement;
   private readonly resetConfirm: HTMLElement;
   private readonly resetTalentsConfirm: HTMLElement;
   private readonly placementGoldWarning: HTMLElement;
@@ -711,7 +712,11 @@ export class Screens {
     const buildingRows: HTMLElement[] = [];
     for (const buildingId of listBuyableBuildingIds()) {
       const def = getBuilding(buildingId);
-      const button = this.shopItemButton(def.displayName, def.cost ?? 0, () => handlers.onRequestPlaceBuilding(buildingId), buildingId);
+      // Bois / pierre (BuildingDef.resourceCost, PROVISOIRE) a cote du nom.
+      const res = def.resourceCost ?? {};
+      const resText = [res.wood ? `${res.wood} bois` : '', res.stone ? `${res.stone} pierre` : ''].filter(Boolean).join(', ');
+      const label = resText ? `${def.displayName} (${resText}${def.placementMode === 'line' ? ' / case' : ''})` : def.displayName;
+      const button = this.shopItemButton(label, def.cost ?? 0, () => handlers.onRequestPlaceBuilding(buildingId), buildingId);
       this.shopBuildingButtons.set(buildingId, button);
       // Description en TOOLTIP flottant (2026-08-17), pas un paragraphe
       // toujours visible sous le bouton (demande explicite d'Antoine : "cela
@@ -846,9 +851,10 @@ export class Screens {
     ]);
 
     this.gameOverProgress = this.paragraph('');
+    this.gameOverReason = this.paragraph('');
     this.gameOver = this.overlay('game-over', [
       this.title('Partie terminée'),
-      this.paragraph('Toute votre armée est tombée. La run se termine ici.'),
+      this.gameOverReason,
       this.gameOverProgress,
       this.button('Retour au menu principal', handlers.onQuit),
     ]);
@@ -968,7 +974,9 @@ export class Screens {
    *  progression permanente n'est plus "+1 point de talent" a chaque run,
    *  mais un record de vague — cet écran confirme juste qu'il a bien été
    *  sauvegardé (voir main.ts, registerWaveReached). */
-  showGameOver(highestWaveReached: number): void {
+  /** `heroFell` : defaite par le Heros (Heros a terre et Baliste detruite). */
+  showGameOver(highestWaveReached: number, heroFell = false): void {
+    this.gameOverReason.textContent = heroFell ? 'Le Héros et la Baliste sont tombés. La run se termine ici.' : 'Toute votre armée est tombée. La run se termine ici.';
     this.gameOverProgress.textContent = `Meilleure vague atteinte : ${highestWaveReached}.`;
     this.show('gameOver');
   }
@@ -1218,7 +1226,10 @@ export class Screens {
     for (const buildingId of listBuyableBuildingIds()) {
       const cost = getEffectiveBuildingCost(buildingId);
       const button = this.shopBuildingButtons.get(buildingId);
-      if (button) button.disabled = run.gold < cost;
+      // Bois et pierre aussi (une case pour une muraille).
+      const res = getBuilding(buildingId).resourceCost ?? {};
+      const resourcesOk = run.resources.wood >= (res.wood ?? 0) && run.resources.stone >= (res.stone ?? 0);
+      if (button) button.disabled = run.gold < cost || !resourcesOk;
       const priceEl = this.shopUnitPriceEls.get(buildingId);
       if (priceEl) priceEl.textContent = formatGold(cost);
       const description = this.shopBuildingDescriptions.get(buildingId);
@@ -1276,7 +1287,7 @@ export class Screens {
     if (def.production) {
       const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
       const first = def.production.unitsByLevel[0] ?? [];
-      const units = `${getUnit(first[0]!).name}s`;
+      const units = unitPluralName(getUnit(first[0]!));
       return `${costLine} Débloque les ${units} et en produit ${formatGold(first.length)} par manche. ${size}.`;
     }
     // Batiment defensif (Tour) : valeurs de niveau 1, lues dans ses donnees.

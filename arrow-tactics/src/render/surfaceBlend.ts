@@ -1,7 +1,9 @@
 import * as THREE from 'three';
+import { isWaterSurface, WATER_SURFACE_IDS } from '../config/groundSurfaces';
 import { cellKey, type TerrainCellDef } from '../config/mapDef';
-import { cellTriangles, surfaceHeightInCell, TERRAIN_ELEVATION_STEP, type SlopeDirection } from '../config/terrainElevation';
+import { cellTriangles, TERRAIN_ELEVATION_STEP, type SlopeDirection } from '../config/terrainElevation';
 import type { GroundSurfaceId } from './groundSurfaces';
+import { hillHeightInCell } from './hillShape';
 import { applyGroundLayer, groundLookTint, groundMacro, groundRenderSurface, groundStates, groundSurfaceDef } from './groundLook';
 import type { ReliefShading } from './reliefLook';
 import { newBuffers, RELIEF_TINT_PER_LEVEL, SLOPE_NORMAL_Y, SLOPE_SHADE, type LayerBuffers, type TerrainContext } from './terrainCells';
@@ -86,6 +88,15 @@ export function surfaceBlendMode(): SurfaceBlendMode {
   return blendMode;
 }
 
+/** Cote de la sous-grille des transitions d'une case dans le mode courant :
+ *  aussi celle des pentes arrondies (`?hills=organic`, render/hillShape.ts),
+ *  pour que leurs triangles coincident exactement. */
+export function surfaceBlendSubdivisions(): number {
+  if (blendMode === 'melange') return SURFACE_LISIERE_PARAMS.melangeSubdivisions;
+  if (blendMode === 'lisiere' || blendMode === 'organic') return SURFACE_LISIERE_PARAMS.subdivisions;
+  return SURFACE_BLEND_PARAMS.subdivisions;
+}
+
 /** Rayon (cases) des surfaces lues par les transitions d'une case (render/terrainChunks.ts) : 1, mais 2 en `lisiere`,
  *  `melange` et `organic` (ponts et biseaux lus aux sommets d'une fenetre de 4 x 4 sommets). */
 export function surfaceBlendReach(): number {
@@ -100,7 +111,7 @@ export function surfaceBlendReach(): number {
  *  cette liste departage. `lisiere` et `melange` : ordre de dessin seulement
  *  (et graine du bruit de chaque surface). */
 const BLEND_PRIORITY: readonly GroundSurfaceId[] = [
-  'eau',
+  ...WATER_SURFACE_IDS,
   'lave',
   'grass',
   'herbe-classique',
@@ -350,7 +361,8 @@ function edgeFamily(id: GroundSurfaceId): EdgeFamily {
   if (id === 'sable') return 'sable';
   if (id === 'roche-sol') return 'roche';
   if (id === 'sol-volcanique') return 'volcan';
-  if (id === 'eau' || id === 'lave') return id;
+  if (isWaterSurface(id)) return 'eau';
+  if (id === 'lave') return 'lave';
   if (id === 'dirt' || id.startsWith('terre-')) return 'terre';
   return 'herbe';
 }
@@ -496,7 +508,7 @@ export function appendSurfaceBlend(group: THREE.Group, cells: readonly TerrainCe
     const nwSe = cellTriangles(slope)[0]!.includes(3);
     // Sommets de la sous-grille : position exacte sur le sol de la case.
     const grid: number[] = [];
-    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) grid.push(c.x + i / N, surfaceHeightInCell(h, slope, i / N, j / N), c.z + j / N);
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) grid.push(c.x + i / N, hillHeightInCell(field, c.x, c.z, i / N, j / N), c.z + j / N);
     const cellLips = lips?.get(cellKey(c.x, c.z)) ?? [];
     // Surfaces prioritaires dans l'ordre croissant (la plus prioritaire dessinee en dernier).
     for (const [surface, { squares, sides }] of [...sources].sort((a, b) => rankOf(a[0]) - rankOf(b[0]))) {
@@ -725,7 +737,7 @@ function appendLisiere(cells: readonly TerrainCellDef[], ctx: TerrainContext, li
     const nwSe = cellTriangles(slope)[0]!.includes(3);
     const areas: { pts: number[]; tris: [number, number, number][] }[] = [];
     const grid: number[] = [];
-    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) grid.push(c.x + i / N, surfaceHeightInCell(h, slope, i / N, j / N), c.z + j / N);
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) grid.push(c.x + i / N, hillHeightInCell(field, c.x, c.z, i / N, j / N), c.z + j / N);
     const gridTris: [number, number, number][] = [];
     const v = (i: number, j: number) => j * (N + 1) + i;
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {

@@ -16,8 +16,16 @@ import { clamp, dist, lerp } from '../core/math';
 import { forwardDir, type Entity } from '../sim/entity';
 import type { RiggedActions } from './riggedGltf';
 import type { ProceduralAttackAnimator } from './proceduralAttackAnimator';
+import { updateCarryBundle } from './resourcePiles';
+import { setToonTool } from './toonUnitRig';
 import { buildUnit } from './unitMesh';
 import { surfaceY } from './terrainSurface';
+
+/** Deplacement minimal d'un pas (cases) pour compter comme un mouvement :
+ *  ecarte les petites poussees de separation entre unites. */
+const MOVING_STEP_THRESHOLD = 0.012;
+/** Vitesse de virage du cap rendu (rad/s). */
+const FACING_TURN_SPEED = 10;
 
 /** Fondu de sortie d'une attaque interrompue par un ordre de deplacement :
  *  assez court pour paraitre immediat, sans saut de pose. */
@@ -95,6 +103,18 @@ export class UnitViews {
   /** Attaques jouees par entite : choisit `attack` ou `attackAlt` en
    *  alternance (Vengeur, voir playAttack). Purement visuel, sans hasard. */
   private readonly attackCount = new Map<number, number>();
+  /** Lacet et position RENDUS figes a la premiere frame de mort (2026-11-01) :
+   *  la chute (clip deathA/deathB ou bascule procedurale) se joue sur place,
+   *  sans plus regarder vers une cible encore vivante ni glisser vers la
+   *  position simulee (ancre d'attaque abandonnee a la mort). */
+  private readonly deathPose = new Map<number, { facing: number; x: number; z: number }>();
+  /** Cap RENDU de chaque unite vivante (2026-11-01) : suit le deplacement
+   *  reel, se garde a l'arret, se tourne vers la cible en combat ; virage
+   *  progressif (FACING_TURN_SPEED). */
+  private readonly facing = new Map<number, number>();
+  /** Brouillard de guerre (render/fogOfWar.ts) : vrai = unite a masquer
+   *  (adverse hors vision). Rendu seulement. */
+  hiddenFilter: ((entity: Entity) => boolean) | null = null;
 
   /** `simulationFrozen` (2026-08-13, correctif "les jambes continuent de
    *  marcher dans le vide lors de la victoire/défaite d'une manche") : vrai
@@ -114,6 +134,7 @@ export class UnitViews {
 
     for (const entity of entities) {
       let view = this.views.get(entity.id);
+      const hadView = view !== undefined;
 
       if (!view) {
         view = this.createView(entity);
@@ -121,12 +142,33 @@ export class UnitViews {
         this.group.add(view);
       }
 
-      const facing = this.computeFacing(entity, byId);
+      let deathPose = entity.alive ? undefined : this.deathPose.get(entity.id);
+      if (!entity.alive && !deathPose) {
+        // Derniere pose affichee vivante ; vue creee deja morte : pose
+        // calculee une fois.
+        deathPose = hadView
+          ? { facing: view.rotation.y, x: view.position.x, z: view.position.z }
+          : { facing: this.computeFacing(entity, byId), x: entity.x, z: entity.z };
+        this.deathPose.set(entity.id, deathPose);
+      }
+      const facing = deathPose ? deathPose.facing : this.renderedFacing(entity, byId, simulationFrozen ? 0 : realDt);
       view.rotation.y = facing;
 
       if (entity.alive) {
+        // Retour a la vie (resurrection du Heros) : le clip de chute, fige sur
+        // sa derniere image, est arrete ; l'animation repart du repos.
+        if (this.deathElapsed.has(entity.id)) {
+          (view.userData['riggedMixer'] as THREE.AnimationMixer | undefined)?.stopAllAction();
+          this.riggedActionState.delete(entity.id);
+        }
         this.deathElapsed.delete(entity.id);
         this.deathActionChoice.delete(entity.id);
+        this.deathPose.delete(entity.id);
+        // Heros : outil en main selon le travail (hache, pioche, sinon marteau).
+        const working = entity.hero?.working;
+        setToonTool(view, working === 'chop' ? 'axe' : working === 'mine' ? 'pick' : 'hammer');
+        // Sac du Heros non vide : petit ballot sur le dos (rendu seulement).
+        if (entity.hero) updateCarryBundle(view, entity.hero.carry);
         view.visible = true;
         view.rotation.x = 0;
         this.setOpacity(view, 1);
@@ -228,7 +270,10 @@ export class UnitViews {
       const isAttackingRigged = riggedState === 'attack' || riggedState === 'attackAlt';
       const isAttackingProcedural = (proceduralAttack?.isPlaying() ?? false) || (proceduralTaunt?.isPlaying() ?? false);
       const anchor = isAttackingRigged || isAttackingProcedural ? this.attackAnchor.get(entity.id) : undefined;
-      if (anchor) {
+      if (deathPose) {
+        view.position.x = deathPose.x;
+        view.position.z = deathPose.z;
+      } else if (anchor) {
         view.position.x = anchor.x;
         view.position.z = anchor.z;
       } else {
@@ -238,6 +283,7 @@ export class UnitViews {
       // Relief : l'unite (modele, anneau enfant) suit la surface, pente
       // comprise, a sa position RENDUE.
       view.position.y = surfaceY(view.position.x, view.position.z);
+      if (this.hiddenFilter?.(entity)) view.visible = false;
     }
   }
 
@@ -387,6 +433,8 @@ export class UnitViews {
     this.views.clear();
     this.deathElapsed.clear();
     this.deathActionChoice.clear();
+    this.deathPose.clear();
+    this.facing.clear();
     this.attackAnim.clear();
     this.walkPhase.clear();
     this.hitFlash.clear();
@@ -640,6 +688,9 @@ export class UnitViews {
     if (cast && entity.cast) desired = 'cast';
     else if (cast && previous === 'cast' && cast.isRunning()) desired = 'cast'; // retombee en cours
     else if (runningAttack) desired = runningAttack;
+    // Heros au travail (recolte, construction, sim/systems/hero.ts) : geste
+    // du travail en boucle.
+    else if (entity.hero?.working && actions[entity.hero.working]) desired = entity.hero.working;
     else if (isMoving) desired = 'walk';
     // Repos anime, seulement pour une unite qui le fournit (Fantassin Toon
     // RTS, voir toonUnitRig.ts) : en combat (cible verrouillee) puis hors
@@ -653,8 +704,8 @@ export class UnitViews {
       if (previous) actions[previous]?.fadeOut(cut ? ATTACK_INTERRUPT_FADE_SECONDS : RIGGED_ANIM_FADE_SECONDS);
       if (desired === 'cast' && cast) {
         cast.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
-      } else if (desired === 'walk') {
-        actions['walk']?.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
+      } else if (desired === 'walk' || desired === 'chop' || desired === 'mine' || desired === 'build' || desired === 'gather') {
+        actions[desired]?.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
       } else if (desired === 'idle' || desired === 'combatIdle') {
         // Sans fondu au premier etat de l'unite : un fondu depuis rien
         // passerait par la pose de liaison.
@@ -693,6 +744,35 @@ export class UnitViews {
     const pos = new THREE.Vector3();
     bone.getWorldPosition(pos);
     return { x: pos.x, z: pos.z };
+  }
+
+  /** Cap rendu (2026-11-01, plus de marche a reculons) : vers la cible
+   *  pendant une attaque, un sort ou a l'arret ; sinon dans le sens du
+   *  deplacement reel du dernier pas ; a l'arret sans cible, le dernier cap.
+   *  Virage progressif ; `dt` nul (pause) : cap fige. */
+  private renderedFacing(entity: Entity, byId: Map<number, Entity>, dt: number): number {
+    const current = this.facing.get(entity.id);
+    const dx = entity.x - entity.prevX;
+    const dz = entity.z - entity.prevZ;
+    const moving = Math.hypot(dx, dz) > MOVING_STEP_THRESHOLD;
+    const targetId = entity.cast?.heal?.targetId ?? entity.targetId;
+    const target = targetId !== null ? byId.get(targetId) : undefined;
+    const rigged = this.riggedActionState.get(entity.id);
+    const attacking = entity.pendingAttack !== null || entity.cast !== null || (this.attackAnim.get(entity.id) ?? 0) > 0 || rigged === 'attack' || rigged === 'attackAlt';
+    let desired: number | undefined;
+    if (target && (attacking || !moving)) desired = this.computeFacing(entity, byId);
+    else if (moving) desired = Math.atan2(-dx, -dz);
+    if (current === undefined) {
+      const first = desired ?? this.computeFacing(entity, byId);
+      this.facing.set(entity.id, first);
+      return first;
+    }
+    if (desired === undefined || dt <= 0) return current;
+    const delta = Math.atan2(Math.sin(desired - current), Math.cos(desired - current));
+    const step = FACING_TURN_SPEED * dt;
+    const next = Math.abs(delta) <= step ? desired : current + Math.sign(delta) * step;
+    this.facing.set(entity.id, next);
+    return next;
   }
 
   /** Angle (rotation.y) pour regarder vers la cible verrouillee, ou vers l'avant a defaut.

@@ -36,12 +36,18 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-21 | Justificatifs de provenance et de droits des assets non archivés | Dette |
 | KI-22 | Assets suivis directement par Git, sans Git LFS | Dette |
 | KI-23 | Raycast sur un modèle animé avant son premier rendu | Dette |
-| KI-24 | Espace réactive le bouton qui a gardé le focus | Confirmé (éditeur) / À vérifier (jeu) |
+| KI-24 | Espace réactive le bouton qui a gardé le focus | Confirmé (éditeur) / Corrigé en jeu pour Espace |
 | KI-26 | Arbres et props pivotent autour de l'origine de leur modèle | Dette (lecture du code) |
 | KI-27 | L'agrandissement de run ne déplace ni le relief ni les surfaces | Confirmé (mesuré, arène candidate) |
 | KI-28 | Faces de raccord sombres aux coins d'un bord qui change de niveau | Confirmé (rendu par défaut ; absent de `?relief=`) |
-| KI-29 | Eau et lave peignables mais franchissables | Limite assumée (rendu seulement) |
+| KI-29 | Lave peignable mais franchissable (eau corrigée le 2026-11-01) | Limite assumée (lave : rendu seulement) |
 | KI-30 | Cadence d'attaque allongée d'un pas par l'arrondi flottant | Confirmé (mesuré) |
+| KI-31 | Ennemis officiels toujours rouges alors que le camp adverse est Neutre (brun) | Limite assumée (GLB pré-teintés) |
+| KI-32 | Héros sans son GLB local : modèle de Sentinelle, sans outils ni gestes de travail | Limite assumée (assets hors Git) |
+| KI-33 | Chantier semi-transparent sans écriture de profondeur | À vérifier (rendu) |
+| KI-34 | Grande carte : un maillage par décor, des milliers d'appels de dessin | Atténué (décors instanciés, mesuré) |
+| KI-35 | Brouillard v1 : silhouettes d'arbres au bord, tir automatique hors vision | Corrigé (2026-11-01) |
+| KI-36 | FBX modulaire de cavalerie illisible par l'import Blender | Confirmé (contourné) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19 et
@@ -272,6 +278,11 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 ### KI-24 — Espace réactive le bouton qui a gardé le focus
 
+- **Mise à jour** (2026-11-01) : en jeu, Espace est devenu une touche de jeu
+  (Héros ↔ Baliste). Constaté en test : après « Lancer quand même »,
+  Espace réactivait ce bouton. Corrigé pour Espace en jeu (le bouton perd
+  le focus avant la bascule) ; l'éditeur n'a pas changé.
+
 - **Statut** : Confirmé dans l'éditeur (reproduit dans le navigateur) ; à
   vérifier sur les boutons du jeu.
 - **Mécanisme** : un bouton HTML cliqué à la souris garde le focus. Espace
@@ -293,20 +304,95 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 - **Piste** : rendre le focus après un clic souris sur ces boutons, ou
   empêcher l'action par défaut d'Espace quand elle sert à la caméra.
 
-### KI-29 — Eau et lave peignables mais franchissables
+### KI-29 — Lave peignable mais franchissable (eau corrigée)
 
-- **Statut** : limite assumée (2026-10-31), confirmée par les contrôles de
-  la passe : la simulation a les mêmes obstacles avec ou sans surfaces
-  peintes.
-- **Constat** : l'outil Surface propose Eau et Lave. Elles sont animées
-  mais, comme toute surface, ne bloquent rien : une unité les traverse, et
-  on peut y poser une unité, un bâtiment, un mur ou la Baliste. L'infobulle
-  de leur vignette le rappelle.
-- **Impact** : un lac ou une coulée se lit comme un obstacle qui n'en est
-  pas un. L'eau suit aussi le dessus de la case : sur une pente, elle est
-  en pente.
-- **Suite** : cadrage dans `ROADMAP.md` §7 (surfaces bloquantes) ; changer
-  la règle « une surface ne bloque rien » revient à Antoine.
+- **Statut** : limite assumée pour la lave ; **l'eau est infranchissable
+  depuis le 2026-11-01** (`DESIGN_DECISIONS.md` E9, tests ciblés de la
+  passe : contournement, destination refusée, pose refusée, tirs libres).
+- **Constat** : la lave est animée mais ne bloque rien : une unité la
+  traverse, et on peut y poser une unité, un bâtiment, un mur ou la
+  Baliste.
+- **Impact** : une coulée se lit comme un obstacle qui n'en est pas un.
+  L'eau comme la lave suivent le dessus de la case : sur une pente, elles
+  sont en pente.
+- **Suite** : `ROADMAP.md` §7 (lave) ; décision d'Antoine (bloque ou
+  blesse).
+
+### KI-31 — Ennemis officiels rouges, camp adverse Neutre brun
+
+- **Statut** : limite assumée (2026-11-01, `DESIGN_DECISIONS.md` G2).
+- **Constat** : le côté adverse a la palette Neutre (anneaux, barres de vie,
+  territoire, unités Toon et neutres en brun / gris), mais les modèles
+  officiels humains (Fantassin, Archer, Mage, Sentinelle) sont des GLB
+  pré-teintés bleu / rouge : un ennemi officiel reste rouge.
+- **Suite** : teinte par palette pour ces modèles, ou vagues composées
+  d'unités neutres (décision d'Antoine).
+
+### KI-32 — Héros sans son GLB local
+
+- **Statut** : limite assumée (2026-11-01, `DESIGN_DECISIONS.md` G4).
+- **Constat** : `human_hero.glb` dérive d'un pack commercial et reste hors
+  Git. Sur un clone neuf, le Héros prend le modèle de la Sentinelle, sans
+  hache, pioche, marteau visible ni gestes de travail. La simulation est
+  identique.
+- **Suite** : reconstruire le GLB (`tools/toon-units/`), ou un modèle
+  définitif du Héros.
+
+### KI-34 — Grande carte : un maillage par décor, des milliers d'appels de dessin
+
+- **Statut** : confirmé (mesuré le 2026-11-01, Edge, carte procédurale
+  96 × 96, graine 12345).
+- **Constat** : chaque arbre, rocher ou petit décor est un clone de modèle
+  (2 907 maillages, 239 k triangles ; plateau construit en ~650 ms contre
+  62 ms pour l'arène). Vue de jeu (camp) : 969 appels de dessin, 6,4 ms par
+  frame ; carte entière : 3 578 appels, 13,2 ms. La passe de brouillard et
+  sa mise à jour (0,05 ms) sont négligeables.
+- **Suite** : décors instanciés ou fusionnés par modèle et par morceau de
+  16 cases ; plateau de jeu en morceaux (`ChunkedTerrainView` de l'éditeur) ;
+  puis chargement par zones si la carte grandit au-delà de 96 cases.
+- **Mise à jour** (2026-11-01) : décors **instanciés** par (géométrie,
+  matériau, morceau de 32 cases) sur la carte générée
+  (`render/decorInstancing.ts`). Mesuré (même graine, même méthode) :
+  maillages 2 907 → 432 ; vue de jeu 969 → ~500 appels, 6,4 → 4,1 ms ; carte
+  entière 3 578 → 715 appels, 13,2 → 4,1 ms ; construction du plateau
+  ~650 → ~790 ms. Reste : plateau d'un seul tenant, unités et ombres ; le
+  morceau de 16 cases donnait 1 195 appels (moins bon que 32 ici).
+
+### KI-35 — Brouillard v1 : silhouettes d'arbres au bord, tir automatique hors vision
+
+- **Statut** : limite assumée (2026-11-01, `DESIGN_DECISIONS.md` G6).
+- **Constat** : la passe noircit le décor jamais exploré mais garde sa
+  forme : en vue très large, les arbres du bord du disque dessinent des
+  silhouettes noires sur le ciel. La simulation ignore le brouillard : la
+  Baliste en tir automatique peut viser un ennemi hors vision.
+- **Suite** : masquer les décors jamais explorés (ou un voile au-dessus) ;
+  décider si le tir automatique doit respecter la vision (règle de
+  simulation, à trancher).
+- **Corrigé** (2026-11-01) : les décors d'une case jamais explorée ne sont
+  plus dessinés (instances masquées jusqu'à l'exploration) ; la Baliste en
+  AUTO n'acquiert que des cibles vues (vision gameplay `sim/vision.ts`,
+  G10). Restent : les unités acquièrent encore leurs cibles à leur portée
+  d'aggro sans regarder la vision ; vision gameplay au point près, brouillard
+  à la case près (écart d'une demi-case possible au bord).
+
+### KI-36 — FBX modulaire de cavalerie illisible par l'import Blender
+
+- **Statut** : confirmé, contourné (2026-11-01).
+- **Constat** : `WK_Cavalry_customizable.FBX` (et l'équivalent barbare) fait
+  échouer l'import FBX de Blender 5.2 (`KeyError: Bip001Model`). Les
+  cavaleries utilisent les FBX « single mesh » `*_Light_B` : pièces fixes
+  (lance, petit bouclier), pas d'assemblage pièce par pièce.
+- **Suite** : réparer l'import (conversion intermédiaire, ou correctif du
+  lien armature-maillage) avant l'Atelier de personnage (`ROADMAP.md` §6 ter).
+
+### KI-33 — Chantier semi-transparent sans écriture de profondeur
+
+- **Statut** : à vérifier (lecture du code, non observé en jeu).
+- **Constat** : un chantier est dessiné transparent (opacité 0,3 à 0,8
+  selon l'avancement), sans écriture de profondeur
+  (`BuildingView.setConstruction`). Des parties du modèle, ou des
+  volutes de fumée, peuvent se dessiner dans un ordre approximatif.
+- **Suite** : contrôler en jeu ; sinon, un effet d'échafaudage opaque.
 
 ## C. Incohérences entre documentation et code
 

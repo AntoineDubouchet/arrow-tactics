@@ -1,7 +1,8 @@
 import { HP_PER_PIP, PLAYER_ARROW_RANGE } from '../config/constants';
 import { findAbility } from '../data/abilities';
 import { getBuilding, unitsProducedPerWave } from '../data/buildings';
-import { getUnit, UNITS, type UnitStats } from '../data/units';
+import { HERO_UNIT_ID, heroStatsForLevel } from '../data/hero';
+import { getUnit, unitPluralName, UNITS, type UnitStats } from '../data/units';
 import type { Entity, Team } from '../sim/entity';
 import {
   BALLISTA_STATUS_LABELS,
@@ -63,7 +64,10 @@ export interface EntityInfoAction {
    *  Tour, Eglise). `toggleBallistaMode` : bascule la Baliste AUTO / MANUEL
    *  (bataille). `healArmy` : soin de l'armee a l'Eglise selectionnee ;
    *  `openChurchUpgrades` : ameliorations de run accessibles a l'Eglise. */
-  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'openChurchUpgrades';
+  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'openChurchUpgrades' | 'buildStructure' | 'produceUnit';
+  /** `buildStructure` : batiment a poser (fiche du Heros) ; `produceUnit` :
+   *  unite a produire (fiche d'un batiment), Survie en temps reel. */
+  payload?: string;
   label: string;
   enabled: boolean;
   hint?: string;
@@ -307,17 +311,20 @@ interface PlacementUnitSource {
 }
 
 /** Unite seule en preparation : PV actuels de l'emplacement (persistants
- *  d'une vague a l'autre), stats effectives de SON niveau de production. */
-export function placementUnitInfo(slot: PlacementUnitSource, progress: PlayerProgression): UnitInfo {
+ *  d'une vague a l'autre), stats effectives de SON niveau de production.
+ *  Heros : stats et niveau de sa progression (`heroLevel`, RunState.hero). */
+export function placementUnitInfo(slot: PlacementUnitSource, progress: PlayerProgression, heroLevel = 1): UnitInfo {
+  const hero = slot.unitId === HERO_UNIT_ID;
+  const stats = effectivePlayerUnitStats(slot.unitId, slot.productionLevel, progress);
   return buildUnitInfo({
     unitId: slot.unitId,
     team: 'player',
     hp: slot.hp,
-    stats: effectivePlayerUnitStats(slot.unitId, slot.productionLevel, progress),
+    stats: hero ? { ...stats, ...heroStatsForLevel(heroLevel) } : stats,
     abilityDamageBonus: playerUnitAbilityDamageBonus(slot.unitId, slot.productionLevel),
     tauntShieldBonus: playerUnitTauntShieldBonus(slot.unitId, slot.productionLevel),
     battle: null,
-    upgradeLevel: unitProductionLevelOrNull(slot.unitId, slot.productionLevel),
+    upgradeLevel: hero ? heroLevel - 1 : unitProductionLevelOrNull(slot.unitId, slot.productionLevel),
   });
 }
 
@@ -339,7 +346,8 @@ export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, lev
       shield: entity.shield,
       battleElapsedSeconds,
     },
-    upgradeLevel: level,
+    // Heros : son niveau propre (titleWithLevel affiche niveau + 1).
+    upgradeLevel: entity.hero ? entity.hero.level - 1 : level,
   });
 }
 
@@ -371,7 +379,7 @@ function buildGroupInfo(members: GroupMember[], team: Team): GroupInfo {
   const order = Object.keys(UNITS);
   const composition = [...counts.entries()]
     .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
-    .map(([unitId, count]) => `${count} ${plural(count, getUnit(unitId).name)}`);
+    .map(([unitId, count]) => `${count} ${count > 1 ? unitPluralName(getUnit(unitId)) : getUnit(unitId).name}`);
   // Un seul type et un seul niveau : rappele sur la ligne de composition.
   const memberLevels = new Set(members.map((m) => m.level));
   const level = counts.size === 1 && memberLevels.size === 1 ? (members[0]?.level ?? null) : null;
@@ -430,8 +438,8 @@ function unitsPerWaveText(unitIds: readonly string[]): string {
   const counts = new Map<string, number>();
   for (const unitId of unitIds) counts.set(unitId, (counts.get(unitId) ?? 0) + 1);
   const parts = [...counts].map(([unitId, count]) => {
-    const name = getUnit(unitId).name;
-    return `${count} ${count > 1 ? `${name}s` : name}`;
+    const def = getUnit(unitId);
+    return `${count} ${count > 1 ? unitPluralName(def) : def.name}`;
   });
   return `${parts.join(' et ')} par manche`;
 }
@@ -441,9 +449,9 @@ function recruitmentUnlockRows(buildingId: string): EntityInfoRow[] {
   const unlock = getBuilding(buildingId).recruitmentUnlock;
   if (!unlock) return [];
   const names = unlock.unitIds.map((unitId) => {
-    const plural = `${getUnit(unitId).name}s`;
+    const plural = unitPluralName(getUnit(unitId));
     const minLevel = unlock.minLevels?.[unitId] ?? 0;
-    return `${/^[AEIOUYÉÈ]/i.test(plural) ? 'd’' : 'de '}${plural}${minLevel > 0 ? ` (Niv. ${minLevel + 1})` : ''}`;
+    return `${/^[AEIOUYÉÈH]/i.test(plural) ? 'd’' : 'de '}${plural}${minLevel > 0 ? ` (Niv. ${minLevel + 1})` : ''}`;
   });
   const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} et ${names.at(-1)}` : names[0];
   return [{ label: 'Débloque', value: `Recrutement ${list}` }];
@@ -525,12 +533,13 @@ const UPGRADE_LABELS: Readonly<Record<string, string>> = { mine: 'Améliorer la 
  *  l'armee (`armyMissingHp` : PV manquants de l'armee, interne). Aucune
  *  action en bataille (battleBuildingInfo). */
 export function placementBuildingInfo(
-  owned: { buildingId: string; hp: number; level?: number },
+  owned: { buildingId: string; hp: number; level?: number; constructionProgress?: number },
   progress: PlayerProgression,
   gold: number,
   armyMissingHp = 0,
 ): BuildingInfo {
   const def = getBuilding(owned.buildingId);
+  if (owned.constructionProgress !== undefined) return chantierInfo(def.id, owned.hp, effectiveBuildingMaxHp(def.id, owned.level ?? 0), owned.constructionProgress);
   const upgradable = isUpgradableBuilding(def.id);
   const level = owned.level ?? 0;
   const rows = [...ownedBuildingRows(def.id, level), ...footprintRows(def.id)];
@@ -568,12 +577,25 @@ export function placementBuildingInfo(
   };
 }
 
+/** Chantier (2026-11-01, direction Hero RTS) : batiment achete mais pas
+ *  encore bati par le Heros. Ni production, ni attaque, ni action. */
+function chantierInfo(buildingId: string, hp: number, maxHp: number, progress: number, team: Team = 'player'): BuildingInfo {
+  const def = getBuilding(buildingId);
+  const rows: EntityInfoRow[] = [
+    { label: 'Chantier', value: `${Math.floor(progress * 100)} %` },
+    { label: 'Construction', value: 'Clic droit du Héros en bataille' },
+    ...footprintRows(def.id),
+  ];
+  return { kind: 'building', buildingId: def.id, title: `${def.displayName} (chantier)`, team, hp: hpOf(hp, maxHp), rows, sections: [], status: null };
+}
+
 /** Bâtiment en bataille : PV et production lus sur l'entite. `ownedLevel` :
  *  niveau propre d'une Mine ou d'une Caserne possedee (null sinon) ; le
  *  revenu de la Mine n'est pas une donnee de simulation (verse par main.ts
  *  tant que la Mine est vivante), il se deduit de ce niveau. */
 export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, ownedLevel: number | null = null, mineProductions: number | null = null): BuildingInfo {
   const def = getBuilding(entity.unitId);
+  if (entity.construction) return chantierInfo(def.id, entity.hp, entity.stats.maxHp, entity.construction.progress, entity.team);
   let rows: EntityInfoRow[] = [];
   if (def.id === 'mine') rows = mineRows(ownedLevel ?? 0, mineProductions);
   else if (def.production) {

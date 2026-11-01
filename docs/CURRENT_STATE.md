@@ -19,6 +19,7 @@ contient ni intentions de design ni décisions futures.
 4. Déblocage des unités
 5. La Baliste (tour du joueur)
 6. Bâtiments gameplay : Mine, Caserne, Camp d'archerie, Forge, Tour et Église
+6 bis. Héros, ressources, carte procédurale
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -38,14 +39,22 @@ contient ni intentions de design ni décisions futures.
 ## 1. Résumé
 
 Roguelite tactique web en vue 3/4. Le mode jouable, le **Mode survie**, se
-joue sur une arène fixe : le joueur place son armée et ses bâtiments, puis
-la bataille se déroule automatiquement. Il intervient avec la Baliste et
+joue en **temps réel continu** (2026-11-01, §6 bis) sur une grande carte
+procédurale (une par run ; l'ancienne arène reste accessible par
+`?map=arena`) : le joueur explore, récolte, construit, produit et combat
+sans changement de phase ; les vagues sont des événements dans le temps. Il intervient avec la Baliste et
 des parchemins de bataille.
 
-- L'**Or** est la seule monnaie de la run. Il sert à recruter des unités,
+- L'**Or** est la monnaie principale de la run. Il sert à recruter des unités,
   acheter des parchemins, construire des bâtiments et acheter des
   améliorations : à la **Forge**, ou sur la fiche d'une Mine ou d'une
   Caserne.
+- **Direction Hero RTS** (provisoire, §6 bis) : la run commence avec le
+  **Héros** seul et la **Baliste**. Le Héros explore sous un **brouillard de
+  guerre**, gagne de l'XP, ramasse de petits tas de **bois** et de **pierre**
+  qu'il **dépose à la Baliste** (seul le dépôt remplit le stock, qui s'ajoute
+  à l'or dans le prix des bâtiments) et bâtit en bataille les **chantiers**
+  achetés en préparation.
 - La run continue tant que le joueur gagne ; elle s'arrête à la première
   défaite.
 - Seuls les talents et la progression générale (record, ennemis vaincus…)
@@ -57,23 +66,35 @@ des parchemins de bataille.
 Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
 `onValidatePlacement`, fin de bataille dans la boucle de jeu.
 
+> **Depuis le 2026-11-01, la Survie n'a plus de préparation** (§6 bis,
+> « Survie en temps réel continu ») : `startNewRun` lance directement le jeu
+> (`startSurvivalRealtime`), les vagues arrivent par compte à rebours et une
+> vague repoussée ne change plus de phase. Ce qui suit sur la préparation,
+> la Boutique et la fin de manche décrit le code **legacy**, conservé mais
+> plus emprunté par la Survie.
+
 1. **Nouvelle run** (menu → **Mode survie**, `createNewRun`) :
-   - armée de départ : **4 Fantassins** de niveau 1
-     (`STARTING_FANTASSIN_COUNT`), présents même sans Caserne ;
+   - armée de départ : le **Héros** seul (§6 bis), avec la Baliste
+     (`STARTING_FANTASSIN_COUNT` = 0 Homme d'armes ; 3 puis 4 avant). Le
+     Héros ne compte pas dans la population. « Homme d'armes » est le nom affiché de l'unité `fantassin`
+     (identifiant, stats et cartes inchangés) ;
    - or de départ : **20** (`STARTING_GOLD`), 25 avec le talent Or de départ
      (+5, `TALENT_STARTING_GOLD_BONUS`) ;
-   - population : **4 / 5** (base `PLAYER_BASE_POPULATION` = 5, voir
+   - population : **0 / 5** (base `PLAYER_BASE_POPULATION` = 5, voir
      ci-dessous) ;
+   - stock de départ : **0 bois, 0 pierre** (`STARTING_RESOURCES`,
+     provisoire) : il faut explorer et déposer avant tout chantier ;
    - inventaire et bâtiments vides, aucune amélioration (`upgrades = {}`),
      vague 1.
 
-   **Début de run** : 20 or, 4 Fantassins, Pop. 4 / 5, aucun bâtiment.
-   Une seule place est libre : une Maison (5 or, +2 population) est le
-   premier levier. Recruter exige un bâtiment (§4) : Fantassin → Caserne,
+   **Début de run** : 20 or, 0 bois, 0 pierre, le Héros et la Baliste,
+   Pop. 0 / 5, aucun bâtiment. Aucun chantier n'est possible avant le
+   premier dépôt de ressources. Recruter exige un bâtiment (§4) : Fantassin → Caserne,
    Piquier → Caserne (Fantassin → Caserne Niv. 2), Archer → Camp d'archerie,
    Mage, Oracle et Vengeur → Église. Maison + Caserne ou Maison +
-   Camp d'archerie tiennent dans les 20 or ; Caserne + Camp d'archerie
-   (30 or) non.
+   Camp d'archerie tiennent dans les 20 or (16 et 14 bois, à ramasser
+   d'abord) ; Caserne + Camp d'archerie (30 or) non. Tout bâtiment acheté est
+   d'abord un chantier, bâti par le Héros en bataille (§6 bis).
 
    **Population** (`data/population.ts`, `run/population.ts`) : maximum
    5 + 2 par Maison possédée (5, 7, 9, 11…) ; en bataille, par Maison
@@ -342,7 +363,10 @@ en bataille. Elle n'existe pas dans l'éditeur.
 Sources : `data/units.ts`, `run/runState.ts` (`KILL_REWARD`).
 
 Sept unités existent. Les quatre premières sont communes au joueur et à
-l'ennemi ; l'Oracle, le Piquier et le Vengeur sont réservés au joueur.
+l'ennemi ; l'Oracle, le Piquier et le Vengeur sont réservés au joueur. Le
+**Héros**, unique et gratuit, est décrit au §6 bis, comme les deux
+cavaleries (Cavalier léger, Razzieur), présentes seulement dans le
+bestiaire et l'éditeur.
 
 | Unité | Coût de base | PV | Dégâts | Portée / aggro | Cadence | Raté |
 |---|---|---|---|---|---|---|
@@ -556,8 +580,17 @@ Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
 du dossier « neutral », visuel neutre non teinté, mais constructions du
 **joueur**) :
 
-- **Muraille** (segment droit) et **Porte de muraille** : 50 PV, emprise
-  2 × 1 à l'échelle native du modèle, coût **provisoire** 1 or par segment.
+- **Unité canonique : une case = un segment de mur** (2026-11-01) : données,
+  PV, pose, sauvegarde, sélection et destruction se font par case.
+  **Muraille** : 25 PV, emprise 1 × 1, coût **provisoire** 0,5 or par case
+  (même densité et même prix qu'avant). **Porte de muraille** : seule pièce
+  de 2 cases (modèle à battants), 50 PV, 1 or, posée sur **deux cases de mur
+  alignées**, qu'elle remplace. Rendu : deux cases voisines d'une même ligne
+  (même orientation, même camp) affichent ensemble le modèle KayKit à sa
+  longueur native ; une case seule, le modèle comprimé à une case
+  (`render/wallVisuals.ts`). Une case d'une paire qui tombe : les deux sont
+  redessinées seules. Anciennes cartes : un segment de 2 cases est migré en
+  deux cases au chargement (`migrateLegacyWalls`, PV partagés).
   Aucune attaque, aucun effet, aucune population, aucune amélioration ; ne
   comptent pas pour la défaite.
 - **Muraille** : bloque le déplacement de **toutes** les unités, son camp
@@ -591,15 +624,11 @@ du dossier « neutral », visuel neutre non teinté, mais constructions du
     de coin KayKit) à chaque changement de direction : `ligne — virage —
     ligne`. Un carré fermé = 4 côtés + 4 virages.
   - **Longueur exacte** : une portion couvre exactement les cases demandées
-    (clic de A à B = toutes les cases de A à B). Un tronçon droit est fait de
-    segments 2 × 1 et, s'il a un nombre impair de cases, d'un **demi-segment**
-    d'une case (`wall_half`), placé de préférence à une extrémité ouverte,
-    sinon contre un virage. Un second clic sur la case de départ pose une
-    muraille d'une case.
+    (clic de A à B = toutes les cases de A à B), une case par segment. Un
+    second clic sur la case de départ pose une muraille d'une case.
   - **Cases en attente** (contour sans modèle) pendant le tracé : l'ancre
     (virage ou prolongement droit, décidé au clic suivant), le point de
-    départ (virage à la fermeture) et au plus une case de leur tronçon. Elles
-    sont payées avec leur portion.
+    départ (virage à la fermeture). Elles sont payées avec leur portion.
   - **Fin du tracé sans fermeture** (Échap, clic droit, autre bâtiment choisi
     en boutique, sortie du mode, début de bataille) : les cases en attente
     deviennent des pièces droites — une ligne, un L ou un U ouverts restent
@@ -634,13 +663,21 @@ du dossier « neutral », visuel neutre non teinté, mais constructions du
     l'ancre lui est alignée) se cale sur lui, pose le dernier côté et les
     virages D et A, et termine le tracé (« ferme l'enceinte ») ; le mode
     reste actif. Elle exige un virage en A (sinon aperçu rouge).
-  - **Coût** (provisoire, inchangé : 1 or le segment 2 × 1) : ½ or par case
-    droite (segment, demi-segment ou case en attente), 1 or par virage
-    (compté comme un segment). La finalisation d'un tracé ouvert ne coûte
-    rien de plus ; un re-découpage d'un tronçon n'est jamais facturé deux
-    fois. Un virage a 50 PV (pièce complète), un demi-segment 25 PV (même
-    densité qu'un segment : 25 PV par case) ; tous deux bloquent les deux
-    camps, laissent passer les tirs ; emprise 1 × 1.
+  - **Coût** (provisoire) : ½ or par case droite (case en attente comprise),
+    1 or par virage. La finalisation d'un tracé ouvert ne coûte rien de
+    plus. Un virage a 50 PV, une case droite 25 PV ; tous deux bloquent les
+    deux camps, laissent passer les tirs ; emprise 1 × 1.
+- **Dégâts et destruction des bâtiments** (2026-11-01,
+  `render/buildingDamageFx.ts`, rendu seul) : fumée légère à 75 % de PV ou
+  moins, épaisse et sombre à 40 % ou moins ; foyers, débit et taille des
+  volutes proportionnés à l'emprise du modèle. Renforcée le 2026-11-01 :
+  légère, gris clair, 1 à 3 foyers, 2 volutes / s / foyer, opacité 0,8
+  (gris moyen, 1 à 2 foyers, 0,9 volute / s et 0,35 avant) ; épaisse,
+  3,4 volutes / s / foyer, opacité 0,85, plus sombre, plus haute et plus
+  large (2,4 et 0,6 avant) ; 48 volutes au plus par bâtiment. À la destruction : secousse,
+  affaissement, nuage de poussière, débris low-poly, puis disparition (la
+  simulation a déjà retiré le bâtiment). Hasard visuel à graine ; flash,
+  fumée et effondrement figés pendant la pause.
   - **Créneaux vers l'extérieur** : un seul côté intérieur pour tout le
     tracé (continuité). Enceinte fermée : l'intérieur du polygone (dans les
     deux sens de dessin). Tracé ouvert : le côté de la **Baliste** par
@@ -789,14 +826,198 @@ exemplaire. Elle n'améliore plus la Mine ni la Caserne. Si toutes les Forges so
 achetées restent actives, mais aucun nouvel achat n'est possible tant
 qu'une Forge n'est pas reconstruite.
 
+## 6 bis. Héros, ressources, carte procédurale (direction Hero RTS, provisoire)
+
+Sources : `data/hero.ts`, `sim/systems/hero.ts`, `config/resourceNodes.ts`,
+`config/maps/proceduralSurvival.ts`, `run/runState.ts`,
+`run/harvestPermissions.ts`, `render/fogOfWar.ts`, `render/resourcePiles.ts`,
+`ui/heroHud.ts`, `main.ts` (`toggleHeroCamera`, `updateFogOfWar`,
+`ringEnemyWavePlan`). Choix d'Antoine et valeurs provisoires :
+`DESIGN_DECISIONS.md` G4 à G9.
+
+**Départ** : le **Héros** seul, avec la **Baliste** au centre de la carte.
+Aucun Homme d'armes, stock **0 bois, 0 pierre**, 20 or, Pop. 0 / 5. La
+Baliste est le cœur du camp : point de dépôt des ressources, point de vision,
+et l'un des deux éléments de la défaite par le Héros.
+
+**Héros** (`hero`) :
+
+- unique, gratuit, hors population, jamais vendu. Il reste dans l'armée de
+  la run même s'il est à terre en fin de manche, et revient alors à pleins
+  PV ; vivant, il garde ses PV comme les autres unités (l'Église le soigne
+  jusqu'aux PV de son niveau) ;
+- stats affichées : 30 PV, 2,5 dégâts, portée 1, aggro 9, cadence 1,1 s,
+  5 % de raté, vitesse 2,6, rayon 0,6 ;
+- **niveaux** : niveau 2 à 50 XP (+7,5 PV, +0,6 dégât, +0,15 vitesse),
+  niveau 3 à 150 XP (+15 PV, +1,2 dégât, +0,3 vitesse, cumulés). Niveau 3
+  maximum ;
+- **XP en zone partagée** : chaque unité adverse (pas un bâtiment) morte à
+  6 cases ou moins du Héros vivant lui donne max(4, coût × 4) XP, **30 au
+  plus par mort**, quel que soit le tueur (Maraudeur 8, Traqueur 12,
+  Féticheur, Colosse, Ravageur et Razzieur 30). XP, niveau et morts sont
+  gardés sur toute la run ;
+- **mort** : retour près de la Baliste après 15 s (première mort de la run),
+  30 s, 60 s, puis 90 s au plus, à pleins PV et en Garde. **Défaite** si le
+  Héros est à terre et que la Baliste est détruite ;
+- **encart** (colonne de droite, au-dessus de la population) : niveau, barre
+  d'XP violette, compte à rebours du retour, **sac** (bois et pierre portés,
+  capacité), stocks déposés ;
+- **visuel** : Toon RTS (`human_hero.glb`, local, hors Git), échelle 1,3,
+  grand marteau ; hache pour couper, pioche pour miner, marteau sinon ;
+  geste accroupi pour construire et ramasser ; ballot sur le dos quand le
+  sac n'est pas vide. Sans le GLB : modèle de la Sentinelle ;
+- absent de la palette d'unités de l'éditeur.
+
+**Ressources, transport et dépôt** :
+
+- **petits tas au sol** (`MapDef.resourcePiles`) : planches (bois) et petits
+  cailloux (pierre), **finis** (1 à 4 unités), générés avec la carte. Les
+  seules ressources accessibles au début ;
+- **boucle** : clic droit du Héros sur un tas → il y va → ramassage
+  (0,6 s) → **sac** (6 unités au plus, bois et pierre confondus) → clic droit
+  sur la **Baliste** → dépôt de tout le sac → stock de la run. Le stock
+  n'augmente **qu'au dépôt** ; un tas vidé disparaît et ne revient pas
+  (quantités gardées dans la run). Sac plein : le Héros s'arrête et un
+  message invite à déposer. Le sac est gardé à la mort et entre les manches ;
+- **constructions** : elles se paient avec le stock **déposé**, jamais avec
+  le sac ;
+- **récolte avancée verrouillée** : couper les vrais arbres
+  (`canHarvestTrees`) et exploiter les gros rochers (`canMineDeposits`) est
+  refusé (« il faut une Scierie / un Camp de mineur »). Un bâtiment **bâti**
+  dont la fiche porte `unlocksHarvest` (`trees` ou `deposits`) les ouvrira ;
+  aucun n'existe encore. Une fois débloquée, la coupe remplit le sac
+  (1 unité / 1,5 s), comme le reste ;
+- seul le Héros ramasse et dépose, et seulement en bataille.
+
+**Coûts des bâtiments** (en plus de l'or) et **durées de construction** :
+
+| Bâtiment | Bois | Pierre | Construction |
+|---|---|---|---|
+| Mine | 5 | — | 6 s |
+| Caserne | 10 | — | 8 s |
+| Camp d'archerie | 8 | — | 8 s |
+| Forge | 5 | 5 | 8 s |
+| Maison | 6 | — | 5 s |
+| Tour | 5 | 10 | 10 s |
+| Église | 10 | 10 | 12 s |
+| Muraille (par case) | — | 1 | 1,2 s |
+| Porte de muraille | 3 | — | 3 s |
+
+**Chantiers** : posés en temps réel depuis la fiche du Héros (ci-dessous),
+25 % de leurs PV, semi-transparents, sans aucune fonction tant que le Héros
+ne les a pas bâtis ; attaquables pendant la construction. Le Héros enchaîne
+sur le chantier voisin (3 cases).
+
+**Carte procédurale** (`config/maps/proceduralSurvival.ts`) :
+
+- disque de 96 × 96 cases (6 785 cases), **une nouvelle graine par run**
+  (`?seed=N` la fixe ; `?map=arena` rend l'ancienne arène, `?map=island`
+  l'arène candidate) ; même graine = même carte ;
+- **centre** : plaine plate et sèche de 11 cases de rayon, sans arbre ni
+  rocher ; territoire du joueur = disque de 8 cases ; Baliste en (0,5 ; 0,5) ;
+- **monde extérieur**, de plus en plus sauvage : forêts par plaques (plus
+  denses au loin), jusqu'à 10 collines (niveau 1) avec une rampe tournée vers
+  le centre, jusqu'à 6 mares, 26 gros rochers, petits décors, plaques de
+  terre ; 111 petits tas (dont 7 à 5–12 cases du centre, aucun collé à la
+  Baliste) ;
+- pas de débris de planches décoratifs (on les confondrait avec les tas) ;
+- **vagues** : sur un anneau à 22 cases du centre, gardé sans colline ni eau ;
+  la direction tourne à chaque vague (angle d'or), zone de 9 × 9 cases ;
+- **pas d'agrandissement E4** en Survie (temps réel continu) ;
+- cadrage au lancement : le camp, pas tout le disque.
+
+**Brouillard de guerre** (`render/fogOfWar.ts`, présentation seulement, jamais
+lu par la simulation) :
+
+- trois états par case : **jamais explorée** (noire), **explorée hors
+  vision** (terrain mémorisé, assombri et désaturé), **visible** ;
+- vision (cases) : unité 6, **Baliste 8**, **Héros 9** (+50 %), bâtiment 4,
+  chantier 3. En préparation : Baliste, emplacements de l'armée, bâtiments ;
+- une unité adverse hors vision n'est ni affichée, ni sélectionnable, ni
+  dotée de barre de vie ; un tas jamais exploré n'est pas affiché ;
+- rendu par une passe plein écran qui relit la profondeur (tout le décor,
+  sans toucher aux matériaux) ; actif sur la carte procédurale, hors
+  éditeur et « Tester le scénario » ; remis à zéro à chaque run ;
+- les **décors** (arbres, rochers, petits décors) d'une case jamais explorée
+  ne sont pas dessinés du tout (plus de silhouettes noires) ; ils
+  apparaissent à l'exploration (`render/decorInstancing.ts`).
+
+**Espace** (en jeu) : bascule **Héros ↔ Baliste**. Côté Héros : sélection du
+Héros, caméra centrée et **suivi**. Côté Baliste : suivi lâché, caméra sur la
+Baliste. Déplacer la caméra à la main (glisser, clavier) lâche le suivi ; le
+prochain appui ramène alors au Héros. Le bouton qui gardait le focus le perd
+d'abord (KI-24). Dans l'éditeur, Espace recadre comme avant ; R garde la
+caméra par défaut.
+
+**Orientation des unités** (rendu) : une unité regarde dans le sens réel de
+son déplacement (virage progressif), garde ce cap à l'arrêt, se tourne vers
+sa cible quand elle attaque, lance un sort ou attend à l'arrêt, et reste
+figée à sa mort. Vaut pour tous les modèles (Toon et officiels).
+
+**Cavaleries** (bestiaire et éditeur seulement : ni recrutement ni vagues) :
+
+| Unité | Camp | Coût | PV | Dégâts | Portée | Cadence | Vitesse | Rayon | Raté | Pop. |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Cavalier léger (`cavalier`) | joueur (éditeur) | 15 | 18 | 3 | 1,2 | 1,3 s | 3,6 | 0,7 | 10 % | 2 |
+| Razzieur (`razzieur`) | Neutre | 15 (valeur) | 18 | 3 | 1,2 | 1,3 s | 3,6 | 0,7 | 10 % | 2 |
+
+Deux unités distinctes (identifiants, kits `cavalier` / `cavalier_barbare`,
+modèles). Aucun bonus contre un type d'unité. Modèles Toon RTS « Light B »
+(cheval, lance, petit bouclier), clips `Cavalry_Spear` : repos, garde, galop,
+coup de lance, deux chutes. Le cheval humain a sa propre texture.
+
+**Survie en temps réel continu** (2026-11-01, `main.ts` :
+`startSurvivalRealtime`, `stepSurvivalWaves`, `completeSurvivalWave`,
+`withRealtimeActions`) :
+
+- **lancement** : Héros et Baliste apparaissent et la simulation tourne
+  aussitôt ; aucun écran de préparation, de Boutique ni de bouton de
+  lancement. On peut tout de suite déplacer le Héros, explorer, ramasser,
+  déposer, construire, combattre ;
+- **vagues** : la première arrive **120 s** de simulation après le
+  lancement, puis **90 s** après la fin de chaque vague (indicateur
+  « Vague N · dans X s » ; la pause fige le compte). Une vague repoussée
+  donne son bonus d'or (5), passe à la suivante et enregistre le record,
+  sans rien arrêter. Seule la défaite termine la run ;
+- **construction** : la fiche du Héros (Espace, ou clic sur le Héros)
+  propose « Construire : <bâtiment> — or, bois, pierre » (stock **déposé**
+  uniquement). Le clic arme la pose ; un clic gauche pose le chantier (payé,
+  créé tout de suite dans la simulation), le Héros vivant part le
+  construire ; clic droit : annule la pose. Interdit sur une unité, hors du
+  territoire du joueur ou d'un sol plat. **Murailles et portes reportées**
+  (absentes du menu, choix d'Antoine) ;
+- **production** (`data/production.ts`) : la fiche d'un bâtiment bâti
+  propose « Produire : <unité> — or · durée » pour les unités qu'il
+  débloque (Caserne : Piquier, + Homme d'armes au Niv. 2 ; Camp d'archerie :
+  Archer ; Église : Mage, Oracle, Vengeur). Une commande à la fois ; payée en
+  or (prix de l'unité) ; l'unité sort à la fin de sa durée (Piquier 6 s,
+  Homme d'armes 8 s, Archer 9 s, Mage et Oracle 14 s, Vengeur 16 s,
+  provisoires), près du bâtiment, en Garde, si la population le permet. La
+  production automatique de début de manche n'est plus utilisée ;
+- **améliorations, Forge, Église** : depuis la fiche du bâtiment bâti, en
+  temps réel. Une amélioration s'applique tout de suite (PV max, dégâts de
+  la Tour) ; l'écran de la Forge / de l'Église met le jeu en pause tant qu'il
+  est ouvert ; le soin de l'Église rend leurs PV aux unités vivantes ;
+- **Boutique globale** : absente de la Survie (bouton masqué) ; parchemins
+  et achat d'unités ne passent plus par elle (voir `ROADMAP.md` §6 quater) ;
+- **Baliste en mode AUTO** : n'acquiert et ne garde que des cibles **vues**
+  par le camp du joueur (vision gameplay `sim/vision.ts`, mêmes rayons que
+  le brouillard, positions simulées). Sa portée (18) dépasse sa propre
+  vision (8) : elle tire au-delà seulement si le Héros ou une autre unité
+  voit la cible. Un carreau déjà tiré poursuit sa course ;
+- **Espace** : même bascule Héros ↔ Baliste en permanence ;
+- **décors instanciés** (KI-34) : sur la carte générée, arbres, rochers et
+  petits décors sont regroupés par modèle et par morceau de 32 cases.
+
 ## 7. Économie d'or
 
 Sources : `run/runState.ts`, `run/talentEffects.ts`, `run/runUpgrades.ts`,
 `main.ts`.
 
-L'Or est la **seule monnaie** de la run. Il sert à recruter des unités,
+L'Or est la **monnaie principale** de la run. Il sert à recruter des unités,
 acheter des parchemins, construire des bâtiments et acheter des
-améliorations (Forge §14, Mine et Caserne §6).
+améliorations (Forge §14, Mine et Caserne §6). Bois et pierre s'y ajoutent
+pour les bâtiments (§6 bis).
 
 Gains :
 
@@ -821,6 +1042,9 @@ Revente d'unités (phase de placement uniquement) :
 Tous les montants d'or sont arrondis au dixième (`roundGold`).
 
 ## 8. Boutique de run
+
+> **Legacy depuis le 2026-11-01** : la Survie en temps réel continu n'ouvre
+> plus la Boutique (§6 bis). Le code reste, pour la conversion à venir.
 
 Sources : `ui/screens.ts`, `main.ts` (`buyUnit`, `buyUnitFive`,
 `buyConsumable`, `undoLastUnitPurchase`).
@@ -941,6 +1165,11 @@ ennemis arrivent par groupes :
 Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
 `run/mapExpansion.ts`, `main.ts` (`startNewRun`, `isValidPlacementTile`,
 `rebuildCurrentTerritoryIndex`).
+
+Depuis le 2026-11-01, le Mode survie se joue par défaut sur la **carte
+procédurale** (§6 bis : disque de 96 cases, territoire central fixe, sans
+agrandissement). Cette section décrit l'**arène** dessinée, toujours
+accessible par `?map=arena`, sur laquelle E4 reste actif.
 
 **Arène du Mode survie**
 
@@ -1089,6 +1318,34 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   assombrie vers le pied ; unités, barres de PV, anneaux,
   bâtiments, décors, zones, grille, aperçus et effets suivent la hauteur ;
   le pointage à la souris vise la surface visible.
+- **Camps et factions** (2026-11-01, `config/factions.ts`) : quatre couleurs
+  de joueur (Rouge, Bleu, Vert, Jaune) et le camp **Neutre** (brun + gris),
+  palettes centralisées. La simulation garde deux côtés ; le joueur est Bleu,
+  le côté adverse est le Neutre (anneaux, barres de vie, territoire, teinte
+  des unités Toon). La faction visuelle d'une unité (`UnitVisual.faction` :
+  humains, barbares) est indépendante de son camp. Unités **neutres**
+  (`data/units.ts`, provisoires) : Maraudeur, Ravageur, Traqueur,
+  Féticheur, Colosse, modèles barbares Toon RTS, stats et comportement du
+  rôle habillé (Homme d'armes, Vengeur, Archer, Mage, Sentinelle) ; jamais
+  recrutées par le joueur.
+- **Collines arrondies, EXPÉRIMENTAL** (`?hills=organic`,
+  `render/hillShape.ts`, 2026-11-01 ; rendu facetté seulement) : pentes
+  en S (épaule et pied adoucis), coins de colline arrondis (profil radial
+  autour du coin) ; une arête de pente qui touche une falaise, un flanc de
+  rampe, un bord ou un trou garde son profil linéaire, d'où des raccords
+  inchangés. Rendu seulement : niveaux, falaises, trajets et simulation
+  identiques (vérifié), unités et décors posés sur le sol affiché. Coût :
+  dessus d'une pente en sous-grille 6 × 6 (celle des transitions), environ
+  +45 à +170 % de triangles de sol selon la part de pentes, construction
+  du sol environ ×1,7 à ×3. Défaut inchangé (`grid`).
+- **Arbres ×1,4** (2026-11-01, `render/trees.ts`, `TREE_VISUAL_SCALE`) :
+  arbres Kenney, arbres isolés KayKit et bosquets ; souches inchangées.
+  Rendu seul.
+- **Mort d'une unité** (2026-11-01, `render/unitViews.ts`) : lacet et
+  position figés à la première image de la mort ; la chute (clip
+  deathA/deathB, knockdown ou bascule procédurale) se joue sur place, sans
+  se tourner vers une cible encore vivante ni glisser vers la position
+  simulée.
 - **Surfaces visuelles du sol** (`render/groundSurfaces.ts`) : apparence du
   dessus des cases, indépendante du relief et sans effet de jeu (passage,
   trajets, hauteur, territoire). Par défaut, palette **classique** : l'herbe
@@ -1110,9 +1367,28 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   identifiants de `config/groundSurfaces.ts`). Une surface peinte l'emporte
   toujours ; `?sol=` ne décide que des cases non peintes. Les flancs gardent
   la surface de flanc de la palette. Purement visuel : ni hauteur, ni
-  trajets, ni territoire, ni règles de pose, et la simulation ne la lit
-  pas. L'arène du Mode survie n'a pas de `surfaceCells` : son sol est
+  trajets, ni territoire, ni règles de pose, **sauf l'eau** (ci-dessous).
+  L'arène du Mode survie n'a pas de `surfaceCells` : son sol est
   inchangé.
+- **Eau infranchissable** (2026-11-01) : toute surface de la famille `eau`
+  (`isWaterSurface`, `config/groundSurfaces.ts` ; une seule variante
+  aujourd'hui, une nouvelle = une entrée de plus dans cette famille) est un
+  obstacle de déplacement, jamais un obstacle de tir :
+  - `World.setMap` injecte des obstacles synthétiques `terrainWater`
+    (`blocksShots: false`, rangées de cases contiguës fusionnées) : trajets
+    A*, contournement, collision, ruée de Charge, apparitions (renforts,
+    production, pas d'ouverture) les évitent ;
+  - destination d'un ordre de déplacement sur l'eau refusée
+    (`invalid-destination`) ; une destination de groupe tombée dans l'eau
+    est ramenée au point sec le plus proche (`sim/orders.ts`) ;
+  - pose refusée sur l'eau : unités, bâtiments et murailles en préparation
+    (`isValidPlacementTile`), et dans l'éditeur unités, bâtiments,
+    murailles, Baliste ; l'éditeur ne peint jamais d'eau sous une unité, un
+    bâtiment, une structure bloquante ou la Baliste ;
+  - `UnitStats.canTraverseWater` (absent = faux pour toutes les unités
+    actuelles) retire l'eau des trajets, de la collision et du refus de
+    destination, pour de futures unités ;
+  - la lave reste visuelle.
 - **Rendu du terrain** (`render/terrainStylized.ts`, 2026-10-29) : par
   défaut `faceted-plus`, en jeu comme dans l'éditeur (arène du Mode survie
   comprise). Les bords libres (bord de carte, trous) reçoivent une bande
@@ -1202,9 +1478,8 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
     **Lave**, **Eau** (`config/groundSurfaces.ts`, textures générées par
     `tools/ground-textures/generate.mjs`). Accordées au preset `stylized`.
     L'eau (reflets qui glissent) et la lave (croûte qui dérive, fissures
-    incandescentes qui pulsent) sont animées, rendu seulement. **Comme toute
-    surface, elles ne bloquent rien** : une unité marche sur l'eau ou la
-    lave (`ROADMAP.md`, surfaces bloquantes) ;
+    incandescentes qui pulsent) sont animées. La lave ne bloque rien ;
+    l'eau est infranchissable depuis le 2026-11-01 (ci-dessus) ;
   - `?groundLook=rich` : `living`, plus des plaques de matière à
     l'intérieur de chaque surface, au pixel, en coordonnées monde, jamais
     par case. Calibrage du 2026-10-31 (consolidation) : l'herbe et la terre
@@ -1430,8 +1705,10 @@ Sources : `run/metaProgress.ts`, `run/userSettings.ts`.
 - paliers de points de talent déjà accordés ;
 - réglages (clé séparée).
 
-**Non persistant** : toute la run en cours (or, armée, inventaire, bâtiments
-et leurs niveaux, améliorations de Forge, vague, état de la carte).
+**Non persistant** : toute la run en cours (or, bois et pierre, armée,
+XP, niveau, morts et sac du Héros, inventaire, bâtiments, leurs niveaux et
+l'avancement des chantiers, améliorations de Forge, vague, graine et état
+de la carte, tas entamés, exploration du brouillard).
 Quitter ou recharger la page la fait perdre.
 
 Une ancienne sauvegarde contenant des Runes (`upgradeRunes`) ou des niveaux
@@ -1444,7 +1721,12 @@ méta-progression à zéro, après confirmation. Les réglages sont conservés.
 ## 16. Éditeur de maps
 
 Accessible depuis le menu principal ; le détail d'usage est dans
-`EDITOR.md`. Une run ne charge aucune carte enregistrée depuis l'éditeur :
+`EDITOR.md`. 2026-11-01 (suite) : section **Neutres** du bestiaire (cinq
+unités posables, toujours du camp Neutre), outils **Monter une case**,
+**Descendre une case** et **Pente** restaurés, murailles d'une case.
+2026-11-01 : pinceau **Forêt** (et gomme à arbres),
+section **Eau** de l'outil Surface, bestiaire en deux sections (Humains ;
+Barbares — aperçu, cinq fiches non posables). Une run ne charge aucune carte enregistrée depuis l'éditeur :
 ces cartes servent à « Tester le scénario ». L'arène du Mode survie est une
 carte exportée de l'éditeur puis intégrée au code (§11).
 
@@ -1591,7 +1873,9 @@ de la documentation. L'historique des retraits relèvera de
 `DESIGN_DECISIONS.md`.
 
 - **Unités** :
-  - pas de Cavalier ni de Chevalier ;
+  - pas de Chevalier. Le Cavalier léger est revenu le 2026-11-01, à la
+    demande d'Antoine, sous une forme nouvelle (modèle Toon, bestiaire et
+    éditeur seulement, §6 bis ; `DESIGN_DECISIONS.md` B1, G8) ;
   - la capacité Charge existe dans le code, mais aucune unité ne la possède.
 - **Ennemis** : pas de bâtiments ennemis.
 - **Talents** : « Le temps, c'est de l'argent » n'existe plus (la Mine est un

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS } from '../config/constants';
+import { sidePalette } from '../config/factions';
 import type { Team } from '../sim/entity';
 import { surfaceY } from './terrainSurface';
 
@@ -7,7 +7,7 @@ import { surfaceY } from './terrainSurface';
  * Anneau de selection d'UNE UNITE, identique dans l'editeur, la preparation
  * et la bataille. Sa couleur est celle du camp proprietaire de l'unite, pas
  * celle d'un "etat selectionne" : une unite du joueur a un anneau bleu, une
- * unite ennemie un anneau rouge.
+ * unite du camp Neutre un anneau brun.
  *
  * Reserve aux unites selectionnees ou inspectees ; le retour d'ordre
  * d'attaque (render/attackOrderFeedback.ts) en reprend exactement la
@@ -16,11 +16,12 @@ import { surfaceY } from './terrainSurface';
  * propres indicateurs.
  */
 
-/** Couleur de chaque camp : seul point a etendre si d'autres joueurs
- *  arrivent. Memes teintes que les zones de deploiement (render/board.ts). */
+/** Couleur de chaque camp : palette de son allegeance (config/factions.ts :
+ *  joueur Bleu, cote adverse Neutre brun). Memes teintes que les zones de
+ *  deploiement (render/board.ts). */
 const TEAM_COLORS: Record<Team, number> = {
-  player: COLORS.playerZone,
-  enemy: COLORS.enemyZone,
+  player: sidePalette('player').primary,
+  enemy: sidePalette('enemy').primary,
 };
 
 /** Taille de l'anneau par rapport au rayon de l'unite : un peu en dessous de

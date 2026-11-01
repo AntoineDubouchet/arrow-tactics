@@ -7,8 +7,9 @@ import { cellKey } from './mapDef';
  * textures, lue par l'editeur (liste, vignettes), la sauvegarde (validation
  * des identifiants) et le rendu (render/groundSurfaces.ts). Purement visuel :
  * une surface n'habille que le DESSUS d'une case existante — jamais sa
- * hauteur, sa pente, ses trajets, son territoire ni ses regles de pose — et
- * la simulation ne la lit jamais.
+ * hauteur, sa pente, son territoire ni ses regles de pose. EXCEPTION, l'eau
+ * (2026-11-01, voir isWaterSurface) : une case d'eau est infranchissable a
+ * pied et interdite a la pose, sans bloquer les tirs.
  *
  * Textures : PNG generes par tools/ground-textures/generate.mjs dans
  * public/textures/ground/variants/.
@@ -27,8 +28,9 @@ export const GROUND_TEXTURES = [
   // sur un dessus de case, elle donne des rayures. Peignable seulement dans
   // la section Experimental de l'editeur.
   { id: 'terre-strates', label: 'Terre strates', short: 'Terre strates', category: 'experimental', file: 'terre-strates.png', tiles: 2 },
-  // Catalogue elargi (2026-10-31). Eau et lave : rendu seulement, elles ne
-  // bloquent rien (comme toute surface) ; voir ROADMAP.md, surfaces bloquantes.
+  // Catalogue elargi (2026-10-31). Lave : rendu seulement. Eau : toute
+  // surface de la famille `eau` bloque le deplacement (isWaterSurface) ;
+  // une nouvelle variante d'eau = une entree de plus dans cette famille.
   { id: 'paves-gris', label: 'Pavés gris', short: 'Pavés', category: 'mineral', file: 'paves-gris.png', tiles: 2 },
   { id: 'sable', label: 'Sable', short: 'Sable', category: 'mineral', file: 'sable.png', tiles: 2 },
   { id: 'roche-sol', label: 'Sol rocheux', short: 'Roche', category: 'mineral', file: 'roche-sol.png', tiles: 2 },
@@ -57,7 +59,8 @@ export const GROUND_TEXTURE_CATEGORIES: readonly { id: GroundTextureCategory; la
 /** Palette SIMPLIFIEE de l'outil Surface (rendu `?groundLook=living`,
  *  render/groundLook.ts, 2026-10-30) : une herbe et deux de ses etats, une
  *  terre, dans l'ordre d'affichage ; puis le catalogue elargi (2026-10-31 :
- *  paves, sable, roche, sol volcanique, lave, eau). Les autres identifiants
+ *  paves, sable, roche, sol volcanique, lave). L'eau a sa propre section
+ *  (WATER_SURFACE_IDS, toutes ses variantes). Les autres identifiants
  *  (herbes stylisee et pixel, mixtes, terre en strates, reservee aux flancs)
  *  restent valides : une carte qui les contient se charge, se rend et
  *  s'enregistre telle quelle ; ils ne sont seulement plus proposes. */
@@ -71,13 +74,36 @@ export const GROUND_SURFACE_PALETTE: readonly { id: GroundTextureId; label: stri
   { id: 'roche-sol', label: 'Sol rocheux', hint: 'Abords des falaises, hauteurs, éboulis' },
   { id: 'sol-volcanique', label: 'Sol volcanique', hint: 'Basalte et cendre' },
   { id: 'lave', label: 'Lave', hint: 'Lave (visuel seulement : elle ne bloque pas encore les unités)' },
-  { id: 'eau', label: 'Eau', hint: 'Eau (visuel seulement : elle ne bloque pas encore les unités)' },
 ];
 
 const TEXTURE_IDS: ReadonlySet<string> = new Set(GROUND_TEXTURES.map((t) => t.id));
 
 export function isGroundTextureId(value: unknown): value is GroundTextureId {
   return typeof value === 'string' && TEXTURE_IDS.has(value);
+}
+
+/** Variantes d'EAU : toutes les surfaces de la famille `eau`, dans l'ordre
+ *  du catalogue. Ajouter une variante (eau profonde, marais...) = une entree
+ *  de GROUND_TEXTURES dans cette famille (et son rendu, voir
+ *  render/groundSurfaces.ts) : regle de jeu, editeur et transitions la
+ *  prennent automatiquement. */
+export const WATER_SURFACE_IDS: readonly GroundTextureId[] = GROUND_TEXTURES.filter((t) => t.category === 'eau').map((t) => t.id);
+
+const WATER_IDS: ReadonlySet<string> = new Set(WATER_SURFACE_IDS);
+
+/** Vrai pour une surface d'eau : case infranchissable pour toute unite sans
+ *  `UnitStats.canTraverseWater`, interdite a la pose (unites, batiments,
+ *  murailles, Baliste), transparente aux tirs. SOURCE UNIQUE de la regle,
+ *  lue par la simulation (World.setMap), l'editeur et la preparation. */
+export function isWaterSurface(id: string | undefined): boolean {
+  return id !== undefined && WATER_IDS.has(id);
+}
+
+/** Cles (cellKey) des cases peintes d'une surface d'eau. */
+export function waterCellKeys(cells: readonly SurfaceCellDef[] | undefined): Set<string> {
+  const keys = new Set<string>();
+  for (const c of cells ?? []) if (isWaterSurface(c.surface)) keys.add(cellKey(c.x, c.z));
+  return keys;
 }
 
 /** Case peinte d'une surface explicite (MapDef.surfaceCells), memes

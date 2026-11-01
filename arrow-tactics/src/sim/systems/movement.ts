@@ -17,7 +17,8 @@ import {
 import { clamp } from '../../core/math';
 import { bodyPathNearTerrainCliff, crossesTerrainCliff, findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, isMeleeAttack, obstaclesBlockingTeam, obstaclesCollidingTeam, segmentIntersectsBox } from '../geometry';
 import { forwardDir, type Entity } from '../entity';
-import { finishOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
+import { finishOrder, isWorkOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
+import { workGoal, type HeroWorkContext } from './hero';
 import { buildPathGrid, findPath, type PathGrid } from '../pathfinding';
 import { SpatialGrid } from '../spatialGrid';
 
@@ -93,6 +94,8 @@ export function movementSystem(
   boardHeight: number,
   /** Recoit les fins d'ordres manuels du pas (voir sim/orders.ts). */
   orderEvents: OrderEndEvent[] = [],
+  /** Sources de ressources (ordres de recolte du Heros). */
+  heroWork: HeroWorkContext = { nodes: new Map(), piles: [] },
 ): void {
   const alive = entities.filter((e) => e.alive);
   const byId = new Map(alive.map((e) => [e.id, e]));
@@ -127,7 +130,9 @@ export function movementSystem(
   // les TRAJETS de son camp, meme fermee (ObstacleDef.passableForTeam) ; la
   // COLLISION (etape 3) ne la laisse franchir qu'ouverte. Sans porte, les
   // deux camps partagent la meme liste et la meme grille.
-  const teamObstacles = (e: Entity): ObstacleDef[] => obstaclesBlockingTeam(obstacles, e.team);
+  // Eau : retiree des trajets et de la collision des seules unites qui la
+  // franchissent (UnitStats.canTraverseWater, aucune unite actuelle).
+  const teamObstacles = (e: Entity): ObstacleDef[] => obstaclesBlockingTeam(obstacles, e.team, e.stats.canTraverseWater === true);
   const sharedGrid = buildPathGrid(obstacles, boardWidth, boardHeight);
   const teamGrids = new Map<ObstacleDef[], PathGrid>([[obstacles, sharedGrid]]);
   const teamGrid = (e: Entity): PathGrid => {
@@ -226,6 +231,21 @@ export function movementSystem(
         followMoveOrder(e, e.order, teamObstacles(e), teamGrid(e), subDt, orderEvents, bodyClearanceFor(e));
         continue;
       }
+      // Travail du Heros (recolte, construction, sim/systems/hero.ts) : il
+      // rejoint la source ou le chantier par le meme chemin que la poursuite
+      // d'une cible, puis s'arrete au contact (heroWorkSystem travaille).
+      if (isWorkOrder(e.order) && e.tauntSourceId === null) {
+        const goal = workGoal(e, heroWork, byId);
+        if (!goal || goal.reached) {
+          e.path = null;
+          e.steerX = null;
+          e.steerZ = null;
+          continue;
+        }
+        const target = goal.target ?? ({ x: goal.x, z: goal.z, footprintObstacle: null } as unknown as Entity);
+        pursueTargetWithPathfinding(e, target, teamObstacles(e), teamGrid(e), subDt, bodyClearanceFor(e));
+        continue;
+      }
 
       const target = e.targetId !== null ? byId.get(e.targetId) ?? null : null;
 
@@ -269,7 +289,7 @@ export function movementSystem(
     // 3. Collision avec les obstacles
     // Une unite est un cercle (rayon = stats.radius), un obstacle un
     // rectangle exact (voir OBSTACLES).
-    for (const e of movable) resolveObstacleCollisions(e, obstaclesCollidingTeam(obstacles, e.team));
+    for (const e of movable) resolveObstacleCollisions(e, obstaclesCollidingTeam(obstacles, e.team, e.stats.canTraverseWater === true));
   }
 
   // 4. Confinement au plateau
@@ -453,6 +473,15 @@ function updateStuckState(
     // ORBIT_PROGRESS_THRESHOLD en ORBIT_CHECK_DURATION, hors suivi d'un chemin
     // A* (un detour peut eloigner temporairement), l'unite abandonne et passe
     // en Garde — destination occupee par un obstacle, ou unite bloquee.
+    // Travail du Heros : ni degagement ni abandon (il rejoint sa source).
+    if (isWorkOrder(e.order) && e.tauntSourceId === null) {
+      e.stuckTimer = 0;
+      e.stuckCheckX = e.x;
+      e.stuckCheckZ = e.z;
+      e.orbitTimer = 0;
+      e.neutralStuckTimer = 0;
+      continue;
+    }
     if (e.order.type === 'move' && e.tauntSourceId === null) {
       e.stuckTimer = 0;
       e.stuckCheckX = e.x;

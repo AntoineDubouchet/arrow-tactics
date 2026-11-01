@@ -23,7 +23,12 @@ import {
   SHADOW_PROJECTILE_SPEED,
   TILE,
   obstacleBounds,
+  SIM_HZ,
+  SURVIVAL_FIRST_WAVE_DELAY_SECONDS,
+  SURVIVAL_NEXT_WAVE_DELAY_SECONDS,
 } from './config/constants';
+import { producibleUnits, unitProductionSeconds } from './data/production';
+import { teamVision, visionRadiusOf } from './sim/vision';
 import {
   BALLISTA_PLACEMENT_TILES,
   computeBallistaObstacle,
@@ -37,6 +42,7 @@ import {
 } from './config/mapDef';
 import { SURVIVAL_ARENA_MAP, SURVIVAL_BASE_MAP } from './config/maps/survivalArena';
 import { ISLAND_ARENA_MAP } from './config/maps/islandArena';
+import { ENEMY_SPAWN_RING_RADIUS, generateSurvivalMap } from './config/maps/proceduralSurvival';
 import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type TerritoryCell, type TerritoryIndex } from './config/territory';
 import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapExpansion';
 import { Loop } from './core/loop';
@@ -70,7 +76,7 @@ import {
   type WallTraceLeg,
   type WallTracePiece,
 } from './core/wallTrace';
-import { BUILDINGS, buildingFootprintTiles, buildingRotationStep, getBuilding, sameBuildingFootprint, unitsProducedPerWave } from './data/buildings';
+import { BUILDINGS, buildingFootprintTiles, buildingRotationStep, buildTimeOf, getBuilding, listBuyableBuildingIds, migrateLegacyWalls, replacedWallCells, sameBuildingFootprint, unitsProducedPerWave } from './data/buildings';
 import { hasRecruitmentBuilding } from './run/recruitment';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
 import { getUnit, type UnitStats } from './data/units';
@@ -83,10 +89,12 @@ import {
   type EditorBuilding,
   type EditorMapShapeSnapshot,
   type EditorObjectsSnapshot,
+  type CellReliefOp,
   type EditorTool,
 } from './editor/editorState';
 import { EditorHistory } from './editor/history';
-import { surfaceBrushOrigin, type GroundTextureId, type SurfaceBrushSize, type SurfaceCellDef } from './config/groundSurfaces';
+import { forestBrushCells, type ForestBrushSize, type ForestDensity, type ForestTreeTypeId } from './editor/forestBrush';
+import { surfaceBrushOrigin, waterCellKeys, type GroundTextureId, type SurfaceBrushSize, type SurfaceCellDef } from './config/groundSurfaces';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
   buildCellPreview,
@@ -109,16 +117,18 @@ import { attachUnitSelectionRing, teamColor } from './render/unitSelectionRing';
 import { ensureModels, loadEnvironmentAssets, obstacleModelKeys, type EnvironmentAssets } from './render/assetLibrary';
 import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
+import { emptyWallView, wallVisualObstacle, wallVisualRoles, type WallPlaced, type WallVisualRole } from './render/wallVisuals';
 import { buildObstacleMesh, obstaclePlacementOffset, placeObstacleMesh } from './render/obstacleFactory';
 import { GROUND_PALETTES, setGroundPalette } from './render/groundSurfaces';
 import { buildCellGridLines, setTerrainRenderMode, TERRAIN_RENDER_MODES } from './render/terrainCells';
 import { ChunkedTerrainView } from './render/terrainChunks';
-import { setSurfaceBlendMode, setSurfaceBorder, SURFACE_BLEND_MODES, SURFACE_BORDERS } from './render/surfaceBlend';
+import { HILL_SHAPES, setHillShape } from './render/hillShape';
+import { setSurfaceBlendMode, setSurfaceBorder, SURFACE_BLEND_MODES, SURFACE_BORDERS, surfaceBlendSubdivisions } from './render/surfaceBlend';
 import { LOOK_PRESETS, lookSettings, setLookPreset } from './render/look';
 import { GROUND_LOOKS, setGroundLook, setGroundSwatchLight } from './render/groundLook';
 import { RELIEF_LOOKS, setReliefLook, setReliefShadows } from './render/reliefLook';
 import { activeTerrain, intersectSculptSurface, intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
-import { reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, type ReliefBrushSize, type ReliefDelta, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
+import { reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, type ReliefBrushSize, type ReliefDelta, type SlopeDirection, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
 import { UnitMovePreview, type UnitMovePreviewItem } from './render/unitMovePreview';
 import { DEFAULT_LAUNCH_HEIGHT, PlayerArrowView, preloadPlayerArrowModel } from './render/playerArrowView';
 import { Projectiles } from './render/projectiles';
@@ -128,7 +138,7 @@ import { UnitViews } from './render/unitViews';
 import { preloadMageModel } from './render/mageRig';
 import { preloadFantassinModel } from './render/fantassinRig';
 import { preloadFantassinV2Model } from './render/fantassinV2Rig';
-import { configureToonUnits, preloadToonUnits } from './render/toonUnitRig';
+import { configureToonUnits, preloadToonFaction, preloadToonUnits } from './render/toonUnitRig';
 import { preloadArcherModel } from './render/archerRig';
 import { preloadSentinelModel } from './render/sentinelRig';
 import { TelegraphView } from './render/telegraph';
@@ -167,8 +177,11 @@ import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
 import { computePlayerIceNovaUpgradeEffects, effectiveIceNovaCost } from './run/iceNovaUpgradeEffects';
 import { mineMaxProductionsPerWave, mineProductionIntervalSeconds, rollMineGold } from './run/mineUpgradeEffects';
 import { ownedBuildingLevel, upgradeOwnedBuilding } from './run/buildingUpgrades';
+import { harvestPermissionsOf } from './run/harvestPermissions';
+import { FogOfWar, type VisionSource } from './render/fogOfWar';
+import { ResourcePileViews } from './render/resourcePiles';
 import { createBattleSummary, defeatedLines, recordEnemyDefeated, recordGoldEarned } from './run/battleSummary';
-import { Rng } from './core/rng';
+import { randomSeed, Rng } from './core/rng';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp, getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './run/playerUnitStats';
 import {
@@ -201,19 +214,22 @@ import {
 } from './run/healScrollUpgradeEffects';
 import {
   applyBattleOutcome,
+  applyWaveVictory,
   awardKillGold,
   canAddItemsToInventory,
   computeEnemyWaveComposition,
   createNewRun,
   KILL_REWARD,
   formatGold,
+  isBuildingBuilt,
   roundGold,
   type OwnedBuilding,
   type RunState,
 } from './run/runState';
 import { purchaseRunUpgrade, runUpgradeSite, type PlayerProgression, type RunUpgradeLevels, type RunUpgradeSite } from './run/runUpgrades';
-import { armyMissingHp, healArmyAtChurch } from './run/churchHeal';
+import { armyMissingHp, churchHealCost, churchHealHpPerGold, healArmyAtChurch } from './run/churchHeal';
 import { forwardDir, type Entity, type Team } from './sim/entity';
+import type { PlayerCommand } from './sim/orders';
 import type { ArrowShotSpec } from './sim/playerArrow';
 import { World } from './sim/world';
 import type { EnemyReinforcementPlan, EnemyReinforcementSpawn } from './sim/systems/enemyReinforcements';
@@ -224,6 +240,10 @@ import { WaveIndicator } from './ui/waveIndicator';
 import { BallistaIndicator, type BallistaStatus } from './ui/ballistaIndicator';
 import { EntityInfoPanel } from './ui/entityInfoPanel';
 import { GoldHud } from './ui/goldHud';
+import { HeroHud, type HeroHudState } from './ui/heroHud';
+import { CONSTRUCTION_START_HP_FRACTION, HERO_CARRY_CAPACITY, HERO_UNIT_ID } from './data/hero';
+import type { ResourceKind } from './config/resourceNodes';
+import type { HeroEvent } from './sim/systems/hero';
 import { CombatOverlay, type PlacementBuildingHpSubject } from './ui/combatOverlay';
 import { spawnCoinPopup } from './ui/coinPopup';
 import { DebugPanel } from './ui/debug';
@@ -251,7 +271,7 @@ const buildingRotationHint = new BuildingRotationHint();
 // fireBallistaFromKey) ; un seul HUD affiche son etat, sa recharge et la
 // selection.
 const ballistaIndicator = new BallistaIndicator();
-const entityInfoPanel = new EntityInfoPanel((id) => onEntityInfoAction(id));
+const entityInfoPanel = new EntityInfoPanel((id, payload) => onEntityInfoAction(id, payload));
 // Les unites selectionnees ont l'anneau commun (render/unitSelectionRing.ts).
 const battleSelection = new BattleSelection();
 renderer.scene.add(battleSelection.group);
@@ -262,6 +282,8 @@ renderer.scene.add(battleSelection.group);
 const battleEnemyInspection = new BattleSelection();
 renderer.scene.add(battleEnemyInspection.group);
 const goldHud = new GoldHud();
+/** Encart du Heros : niveau, XP (barre violette), resurrection, bois et pierre. */
+const heroHud = new HeroHud();
 const populationHud = new PopulationHud();
 const telegraphView = new TelegraphView();
 const fireballView = new FireballView();
@@ -288,15 +310,25 @@ const vfxManager = new VfxManager(fireballView, shadowProjectileView);
 // ne doit jamais voir la map de test. Carte de depart du Mode survie :
 // survivalBaseMap ci-dessous, jamais mutee (l'expansion produit de nouvelles
 // MapDef).
-// Arene du Mode survie : l'officielle (SURVIVAL_BASE_MAP,
-// config/maps/survivalArena.ts) par defaut ; `?map=island` charge a la place
-// l'arene candidate (config/maps/islandArena.ts, sans ses unites de scenario)
-// pour la regarder en jeu. Debogage, jamais enregistre ; l'editeur s'ouvre
-// toujours sur l'arene officielle.
-const survivalBaseMap: MapDef =
-  new URLSearchParams(location.search).get('map') === 'island'
-    ? { ...ISLAND_ARENA_MAP, playerUnits: [], enemyUnits: [] }
-    : SURVIVAL_BASE_MAP;
+// Carte du Mode survie (2026-11-01, Hero RTS) : PROCEDURALE par defaut
+// (config/maps/proceduralSurvival.ts), une nouvelle graine par run ; `?seed=N`
+// fixe la graine. `?map=arena` garde l'ancienne arene officielle
+// (SURVIVAL_BASE_MAP, avec son agrandissement E4), `?map=island` l'arene
+// candidate (config/maps/islandArena.ts, sans ses unites de scenario).
+// Debogage, jamais enregistre ; l'editeur s'ouvre toujours sur l'arene
+// officielle.
+const survivalUrl = new URLSearchParams(location.search);
+const survivalMapParam = survivalUrl.get('map');
+const survivalUrlSeed = survivalUrl.get('seed') !== null ? Number(survivalUrl.get('seed')) >>> 0 : null;
+function survivalMapFor(seed: number): MapDef {
+  if (survivalMapParam === 'island') return { ...ISLAND_ARENA_MAP, playerUnits: [], enemyUnits: [] };
+  if (survivalMapParam === 'arena') return SURVIVAL_BASE_MAP;
+  return generateSurvivalMap(seed);
+}
+let survivalBaseMap: MapDef = survivalMapFor(survivalUrlSeed ?? randomSeed());
+/** Vrai une fois la carte de depart utilisee par une run : la suivante en
+ *  genere une nouvelle (carte procedurale). */
+let survivalMapUsed = false;
 let currentMap: MapDef = survivalBaseMap;
 world.setMap(currentMap);
 
@@ -348,6 +380,14 @@ if (terrainMode) setTerrainRenderMode(terrainMode);
 const blendParam = new URLSearchParams(location.search).get('surfaceBlend');
 const blendMode = SURFACE_BLEND_MODES.find((m) => m === blendParam);
 if (blendMode) setSurfaceBlendMode(blendMode);
+// Collines : `grid` par defaut (pentes planes) ; `?hills=organic`
+// EXPERIMENTAL (render/hillShape.ts) : pentes en S et coins arrondis, meme
+// grille, memes niveaux et falaises. Rendu facette seulement (pas le temoin
+// `?terrain=grid`). Purement visuel. Apres le mode des transitions : meme
+// sous-grille.
+const hillsParam = new URLSearchParams(location.search).get('hills');
+const hillShape = HILL_SHAPES.find((s) => s === hillsParam);
+if (hillShape && terrainMode !== 'grid') setHillShape(hillShape, surfaceBlendSubdivisions());
 // Bordure de contact en `organic` : `off` par defaut ; `?surfaceBorder=subtile`
 // et `marquee` en comparaison. Purement visuel.
 const borderParam = new URLSearchParams(location.search).get('surfaceBorder');
@@ -398,7 +438,8 @@ if (reliefShadowsParam === 'on' || reliefShadowsParam === 'off') setReliefShadow
 // stade du chargement du module).
 const footmanParam = new URLSearchParams(location.search).get('footman');
 // Laboratoire unites Toon RTS : `?toonUnits=human` (Fantassin, Archer, Mage)
-// ou une liste (`fantassin,mage`) ; `&toonMix=1` (une sur deux, avec les
+// ou une liste (`fantassin,mage`), `barbarian`, `human,barbarian` (humains
+// contre barbares) ; `&toonMix=1` (une sur deux, avec les
 // unites officielles) ; `&toonColors=green,orange` (palettes du joueur et de
 // l'ennemi). Purement visuel, voir toonUnitRig.ts.
 const labParams = new URLSearchParams(location.search);
@@ -412,12 +453,18 @@ let [board] = await Promise.all([
   // fantassinV2Rig.ts).
   footmanParam === 'v1' ? Promise.resolve() : preloadFantassinV2Model(),
   preloadToonUnits(),
+  // Unites neutres barbares (data/units.ts) : leurs modeles Toon RTS, quel
+  // que soit `?toonUnits=` ; ne rejette jamais (repli : modele humain).
+  preloadToonFaction('barbarian'),
   preloadArcherModel(),
   preloadSentinelModel(),
   preloadPlayerArrowModel(),
 ]);
 renderer.scene.add(board.group);
 renderer.scene.add(unitViews.group);
+/** Petits tas de bois et de pierre au sol (World.resourcePiles). */
+const resourcePileViews = new ResourcePileViews();
+renderer.scene.add(resourcePileViews.group);
 renderer.scene.add(projectiles.group);
 renderer.scene.add(playerArrowView.group);
 renderer.scene.add(telegraphView.group);
@@ -520,11 +567,12 @@ interface OwnedBuildingView {
 const ownedBuildingViews: OwnedBuildingView[] = [];
 
 function clearOwnedBuildingViews(): void {
-  for (const b of ownedBuildingViews) {
+  for (const b of [...ownedBuildingViews, ...destroyedOwnedBuildingViews]) {
     renderer.scene.remove(b.mesh);
     b.view.dispose();
   }
   ownedBuildingViews.length = 0;
+  destroyedOwnedBuildingViews.length = 0;
 }
 
 /** ObstacleDef d'UN bâtiment possédé — position CONTINUE (x/z, voir
@@ -592,15 +640,20 @@ interface WallTraceStep {
   /** Part du cout qui paie la recomposition de pieces existantes (reprise,
    *  jonction) au-dela du prix des cases nouvellement couvertes. */
   joinCost: number;
+  /** Muraille tracee et cout NET de l'etape en cases (bois / pierre par case,
+   *  BuildingDef.resourceCost). */
+  wallId: string;
+  units: number;
 }
 
-/** Cout d'une disposition, en segments de mur : une case droite vaut un
- *  demi-segment (segment 2 x 1 = 1, demi-segment = 1/2, case EN ATTENTE =
- *  1/2, payee des que sa portion est validee), un virage compte comme un
- *  segment. La finalisation d'un trace ouvert ne coute donc rien de plus. */
+/** Cout d'une disposition, en CASES de mur (prix du mur = prix d'une case,
+ *  2026-11-01) : une case droite vaut 1 (case EN ATTENTE comprise, payee des
+ *  que sa portion est validee), un virage 2 (comme avant : un virage valait
+ *  un ancien segment de deux cases). La finalisation d'un trace ouvert ne
+ *  coute donc rien de plus. */
 function wallLayoutCost(layout: TraceLayout): number {
-  let units = layout.waiting.length / 2;
-  for (const p of layout.pieces) units += p.kind === 'half' ? 0.5 : 1;
+  let units = layout.waiting.length;
+  for (const p of layout.pieces) units += p.kind === 'corner' ? 2 : p.tilesX * p.tilesZ;
   return units;
 }
 
@@ -618,13 +671,13 @@ function wallTraceStep(wallId: string, before: TraceLayout, after: TraceLayout, 
   const afterKeys = new Set(after.pieces.map(key));
   const unitCost = getEffectiveBuildingCost(wallId);
   const cost = roundGold(unitCost * (wallLayoutCost(after) - wallLayoutCost(before)));
-  // Prix "neuf" des seules cases nouvellement couvertes (½ par case droite,
-  // 1 par virage) : le reste du cout paie la recomposition de l'existant.
+  // Prix "neuf" des seules cases nouvellement couvertes (1 par case droite,
+  // 2 par virage) : le reste du cout paie la recomposition de l'existant.
   const beforeCells = new Set([...before.pieces.flatMap(tracePieceCells), ...before.waiting.map((c) => `${c.x},${c.z}`)]);
-  let freshUnits = after.waiting.filter((c) => !beforeCells.has(`${c.x},${c.z}`)).length / 2;
+  let freshUnits = after.waiting.filter((c) => !beforeCells.has(`${c.x},${c.z}`)).length;
   for (const p of after.pieces) {
     const fresh = tracePieceCells(p).filter((c) => !beforeCells.has(c)).length;
-    freshUnits += p.kind === 'corner' ? fresh : fresh / 2;
+    freshUnits += p.kind === 'corner' ? fresh * 2 : fresh;
   }
   return {
     removed: before.pieces.filter((p) => !afterKeys.has(key(p))).map(orient),
@@ -633,6 +686,8 @@ function wallTraceStep(wallId: string, before: TraceLayout, after: TraceLayout, 
     waiting: after.waiting,
     cost,
     joinCost: Math.max(0, roundGold(cost - unitCost * freshUnits)),
+    wallId,
+    units: wallLayoutCost(after) - wallLayoutCost(before),
   };
 }
 
@@ -655,11 +710,12 @@ function finalizeTracedWall(wallId: string, trace: WallTrace, reference: { x: nu
 }
 
 /** Batiment pose qui porte une piece de trace : meme emprise, meme famille
- *  (virage, demi-segment, ou segment droit — mur ou porte posee a sa place). */
+ *  (virage, ou segment droit d'une case — un ancien demi-segment aussi —, ou
+ *  porte posee a la place de segments). */
 function isTracedBuildingFor(b: PlacedBuildingRef, p: TracedWallPiece): boolean {
   const def = getBuilding(b.buildingId);
-  const family = def.nativeModelPose ? 'corner' : def.modelLengthScale ? 'half' : 'straight';
-  return family === p.kind && sameBuildingFootprint(p.buildingId, p.cornerX + p.tilesX / 2, p.cornerZ + p.tilesZ / 2, p.rotationY, b.buildingId, b.x, b.z, b.rotationY ?? 0);
+  const family = def.nativeModelPose ? 'corner' : 'straight';
+  return family === (p.kind === 'half' ? 'straight' : p.kind) && sameBuildingFootprint(p.buildingId, p.cornerX + p.tilesX / 2, p.cornerZ + p.tilesZ / 2, p.rotationY, b.buildingId, b.x, b.z, b.rotationY ?? 0);
 }
 
 /** Reoriente les batiments deja poses d'un trace (nouvelle liste, jamais une
@@ -691,9 +747,9 @@ function wallStepTouchesGate(placed: readonly PlacedBuildingRef[], step: WallTra
 function wallNetKind(buildingId: string): WallNetPiece['kind'] | null {
   const def = getBuilding(buildingId);
   if (def.nativeModelPose) return 'corner';
-  if (def.modelLengthScale) return 'half';
   if (def.gate) return 'gate';
-  return def.placementMode === 'line' ? 'straight' : null;
+  // Segment d'une case (unite canonique) ; ancien demi-segment lu de meme.
+  return def.placementMode === 'line' || def.modelLengthScale ? 'straight' : null;
 }
 
 /** Reseau de murailles (core/wallTrace.ts) d'une liste de batiments poses :
@@ -855,17 +911,77 @@ function activeBuildingObstacles(excludeBuildingIndex?: number): ObstacleDef[] {
  *  placement). */
 function refreshOwnedBuildingViews(): void {
   clearOwnedBuildingViews();
+  // Murailles : deux cases voisines d'une ligne dessinees ensemble.
+  const placed = currentRun.buildings.map((b) => ({ ...b, team: 'player' }));
+  ownedWallRoles = wallVisualRoles(placed);
   currentRun.buildings.forEach((owned, i) => {
     const obstacle = ownedBuildingObstacle(owned);
-    const mesh = buildObstacleMesh(obstacle, environmentAssets);
+    const role = ownedWallRoles[i]!;
+    const mesh = buildPlacedBuildingMesh(obstacle, role, placed, environmentAssets, role.role === 'lead' ? role.partner : null);
     // Index dans currentRun.buildings (2026-08-17, "rebouger ses bâtiments"),
     // meme convention que placementSlots/userData['slotIndex'] pour les
     // unites (voir findSlotIndex) — permet de retrouver quel bâtiment un
     // clic vise, voir findOwnedBuildingIndex.
     mesh.userData['ownedBuildingIndex'] = i;
     renderer.scene.add(mesh);
-    ownedBuildingViews.push({ mesh, view: new BuildingView(mesh, buildingVfxGroup) });
+    const view = new BuildingView(mesh, buildingVfxGroup);
+    view.setConstruction(owned.constructionProgress ?? null);
+    ownedBuildingViews.push({ mesh, view });
   });
+}
+
+/** Roles visuels des murailles possedees (render/wallVisuals.ts), meme
+ *  ordre que currentRun.buildings (refreshOwnedBuildingViews). */
+let ownedWallRoles: WallVisualRole[] = [];
+
+/** Modele d'un batiment pose selon son role visuel de muraille
+ *  (render/wallVisuals.ts) : tete d'une paire -> modele long sur les deux
+ *  cases, marque de la case partenaire (`pairTarget`, voir wallPairTarget) ;
+ *  case suiveuse -> vue vide ; sinon le modele de `obstacle`. */
+function buildPlacedBuildingMesh(obstacle: ObstacleDef, role: WallVisualRole, placed: readonly WallPlaced[], assets: EnvironmentAssets, pairTarget: unknown): THREE.Object3D {
+  const partner = role.role === 'single' ? null : placed[role.partner] ?? null;
+  const visual = wallVisualObstacle(obstacle, role, partner);
+  if (!visual) return emptyWallView(obstacle);
+  const mesh = buildObstacleMesh(visual, assets);
+  if (role.role === 'lead' && partner) mesh.userData['wallPair'] = { x: Math.floor(partner.x), z: Math.floor(partner.z), target: pairTarget };
+  return mesh;
+}
+
+/** Case de mur visee : une paire est dessinee par sa tete ; un point dans
+ *  la case partenaire designe celle-ci (`own` sinon). */
+function wallPairTarget<T>(object: THREE.Object3D, point: THREE.Vector3, own: T): T {
+  for (let o: THREE.Object3D | null = object; o; o = o.parent) {
+    const pair = o.userData['wallPair'] as { x: number; z: number; target: T } | undefined;
+    if (pair) return Math.floor(point.x) === pair.x && Math.floor(point.z) === pair.z ? pair.target : own;
+  }
+  return own;
+}
+
+/** Bataille : case de mur d'une paire visuelle -> sa partenaire et la
+ *  reconstruction de sa vue en modele d'une case (splitBattleWallPair). */
+const battleWallPairs = new Map<number, { partner: number; single: () => void }>();
+
+/** Remplace la vue de bataille d'un batiment (mesh et BuildingView), sans
+ *  toucher a son entite. */
+function replaceBattleBuildingView(entityId: number, oldMesh: THREE.Object3D, mesh: THREE.Object3D): BuildingView {
+  renderer.scene.remove(oldMesh);
+  buildingViewsByEntityId.get(entityId)?.dispose();
+  renderer.scene.add(mesh);
+  const view = new BuildingView(mesh, buildingVfxGroup);
+  buildingViewsByEntityId.set(entityId, view);
+  return view;
+}
+
+/** Une case d'une paire visuelle tombe : les deux cases repassent en modele
+ *  d'une case (la tombee s'effondre seule, l'autre reste debout). */
+function splitBattleWallPair(entityId: number): void {
+  const pair = battleWallPairs.get(entityId);
+  if (!pair) return;
+  battleWallPairs.delete(entityId);
+  const other = battleWallPairs.get(pair.partner);
+  battleWallPairs.delete(pair.partner);
+  pair.single();
+  other?.single();
 }
 
 /** Meme patron que findSlotIndex (unites) — remonte les parents jusqu'a
@@ -903,7 +1019,7 @@ function findHoveredOwnedBuilding(event: MouseEvent): number | null {
     ownedBuildingViews.map((v) => v.mesh),
     true,
   )[0];
-  return hit ? findOwnedBuildingIndex(hit.object) : null;
+  return hit ? wallPairTarget(hit.object, hit.point, findOwnedBuildingIndex(hit.object)) : null;
 }
 // PAS d'appel eager ici : `currentRun` n'est declare que plus bas dans ce
 // fichier (TDZ — provoquait "Cannot access 'currentRun' before
@@ -963,6 +1079,9 @@ async function rebuildGameBoardVisuals(spawnDepth: number): Promise<void> {
  */
 async function applyMapExpansionForCompletedWave(completedWave: number): Promise<void> {
   if (completedWave <= currentRun.mapExpansion.lastExpandedWave) return;
+  // Carte procedurale : deja a sa taille, pas d'agrandissement E4 (choix
+  // d'Antoine, 2026-11-01).
+  if (currentMap.generator) return;
 
   const step = expansionStepForCompletedWave(completedWave);
   const result = applyMapExpansionStep(currentMap, currentRun.mapExpansion, step);
@@ -1294,7 +1413,7 @@ function setupTestBattle(): void {
 
   for (const pos of currentMap.playerUnits) {
     const level = currentProductionLevel(playerProgression().upgrades, pos.unitId);
-    const spawned = world.spawn(
+    const spawned = pos.unitId === HERO_UNIT_ID ? world.spawnHero('player', pos.x, pos.z, { xp: 0, level: 1, deaths: 0 }) : world.spawn(
       pos.unitId,
       'player',
       pos.x,
@@ -1311,15 +1430,35 @@ function setupTestBattle(): void {
   // entites au niveau 1 (PV, collision, fonction), apres les unites comme
   // les batiments possedes en vraie bataille.
   clearScenarioBuildingMeshes();
-  for (const placed of currentMap.buildings ?? []) {
-    const obstacle = gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0, placed.team, currentMap.buildings);
+  // Anciennes murailles (segments de 2 cases) : une case par segment.
+  const scenarioBuildings = migrateLegacyWalls(currentMap.buildings ?? []);
+  const scenarioRoles = wallVisualRoles(scenarioBuildings);
+  const scenarioEntityIds: number[] = [];
+  battleWallPairs.clear();
+  scenarioBuildings.forEach((placed, i) => {
+    const obstacle = gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0, placed.team, scenarioBuildings);
     const entity = world.spawnBuilding(getBuilding(placed.buildingId), placed.team, placed.x, placed.z, obstacle);
-    const mesh = buildObstacleMesh(obstacle, environmentAssets);
+    const mesh = buildPlacedBuildingMesh(obstacle, scenarioRoles[i]!, scenarioBuildings, environmentAssets, null);
     renderer.scene.add(mesh);
     scenarioBuildingMeshes.push(mesh);
     buildingViewsByEntityId.set(entity.id, new BuildingView(mesh, buildingVfxGroup));
     scenarioBuildingEntityIds.add(entity.id);
-  }
+    scenarioEntityIds.push(entity.id);
+  });
+  // Paires visuelles de murailles : redessinees case par case a la chute
+  // d'une des deux (splitBattleWallPair).
+  scenarioRoles.forEach((role, i) => {
+    if (role.role === 'single') return;
+    const placed = scenarioBuildings[i]!;
+    battleWallPairs.set(scenarioEntityIds[i]!, {
+      partner: scenarioEntityIds[role.partner]!,
+      single: () => {
+        const mesh = buildObstacleMesh(gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0, placed.team), environmentAssets);
+        replaceBattleBuildingView(scenarioEntityIds[i]!, scenarioBuildingMeshes[i]!, mesh);
+        scenarioBuildingMeshes[i] = mesh;
+      },
+    });
+  });
   // Apres les unites, comme en vraie bataille (voir onValidatePlacement).
   spawnBallistaBuilding();
   // Apres la Baliste : son empreinte compte dans le pas d'ouverture.
@@ -1450,6 +1589,8 @@ function layoutFormation(unitIds: string[], frontZ: number, rowStep: number, per
  * a 6 emplacements) — voir layoutFormation pour la logique melee/distance.
  */
 function computeArmyFormation(unitIds: string[], map: MapDef): { x: number; z: number }[] {
+  // Carte procedurale : en rangs au sud de la Baliste, centre du camp.
+  if (map.generator && map.ballista) return layoutFormation(unitIds, map.ballista.z + 2.5, TILE, 6).map((p) => ({ x: p.x + map.ballista!.x - 0.5, z: p.z }));
   const halfH = (map.height * TILE) / 2;
   // spawnDepth DYNAMIQUE (2026-08-18, agrandissement progressif de la map) —
   // remplace la constante globale PLACEMENT_ROWS pour le jeu REEL : voir
@@ -1482,6 +1623,7 @@ function computeEnemyWavePlan(waveNumber: number, map: MapDef): EnemyReinforceme
   // voir layoutFormation) ; la simulation decale une unite sur la case libre
   // la plus proche si sa place est prise (sim/systems/enemyReinforcements.ts).
   const groups = splitEnemyWaveComposition(computeEnemyWaveComposition(waveNumber));
+  if (map.generator && map.ballista) return ringEnemyWavePlan(waveNumber, groups, map.ballista);
   const halfW = (map.width * TILE) / 2;
   const halfH = (map.height * TILE) / 2;
   // spawnDepth DYNAMIQUE — voir computeArmyFormation ci-dessus, meme raisonnement.
@@ -1496,6 +1638,23 @@ function computeEnemyWavePlan(waveNumber: number, map: MapDef): EnemyReinforceme
     delayTicks: enemyGroupDelayTicks(groups.length),
     emptyFieldTicks: enemyEmptyFieldSpawnTicks(),
     zone: { minX: -halfW, maxX: halfW, minZ: -halfH, maxZ: -halfH + spawnDepth * TILE },
+  };
+}
+
+/** Vagues de la carte procedurale (choix d'Antoine, 2026-11-01) : un secteur
+ *  de l'anneau a ENEMY_SPAWN_RING_RADIUS cases de la Baliste, dont la
+ *  direction tourne a chaque vague (angle d'or, deterministe) ; groupes en
+ *  carre autour du centre du secteur, la simulation les decale sur les cases
+ *  libres de la zone (8 x 8 cases). */
+function ringEnemyWavePlan(waveNumber: number, groups: string[][], center: { x: number; z: number }): EnemyReinforcementPlan {
+  const angle = (waveNumber - 1) * 2.399963 - Math.PI / 2;
+  const cx = Math.floor(center.x + Math.cos(angle) * ENEMY_SPAWN_RING_RADIUS) + 0.5;
+  const cz = Math.floor(center.z + Math.sin(angle) * ENEMY_SPAWN_RING_RADIUS) + 0.5;
+  return {
+    groups: groups.map((unitIds) => unitIds.map((unitId, i) => ({ unitId, x: cx + (i % 3) - 1, z: cz + Math.floor(i / 3) - 1 }))),
+    delayTicks: enemyGroupDelayTicks(groups.length),
+    emptyFieldTicks: enemyEmptyFieldSpawnTicks(),
+    zone: { minX: cx - 4.5, maxX: cx + 4.5, minZ: cz - 4.5, maxZ: cz + 4.5 },
   };
 }
 
@@ -1519,6 +1678,11 @@ function spawnEnemyReinforcements(spawns: EnemyReinforcementSpawn[]): void {
 /** Indicateur de vague : total et nombre de groupes en preparation, groupes
  *  restants en bataille. */
 function refreshWaveIndicator(): void {
+  if (!inPlacementPhase && !inTestMode && survivalNextWaveTick !== null) {
+    const seconds = Math.max(0, Math.ceil((survivalNextWaveTick - world.tick) / SIM_HZ));
+    waveIndicator.update(currentRun.waveNumber, `dans ${seconds} s`);
+    return;
+  }
   if (inPlacementPhase) {
     const plan = computeEnemyWavePlan(currentRun.waveNumber, currentMap);
     const total = plan.groups.reduce((sum, group) => sum + group.length, 0);
@@ -2013,9 +2177,14 @@ function onValidatePlacement(): void {
   // Entity associee, resterait bloque pour toujours meme apres destruction.
   world.setMap(currentMap);
 
+  // Recolte avancee (Scierie, Camp de mineur) resolue cote run ; tas au sol
+  // deja entames pendant les manches precedentes.
+  world.harvestPermissions = harvestPermissionsOf(currentRun);
+  world.applyResourcePileAmounts(currentRun.resourcePileAmounts);
   for (const slot of placementSlots) {
     if (slot.x === null || slot.z === null) continue;
-    const spawned = world.spawn(
+    // Heros : progression de la run (XP, niveau, morts, sac), fiche de son niveau.
+    const spawned = slot.unitId === HERO_UNIT_ID ? world.spawnHero('player', slot.x, slot.z, currentRun.hero, slot.hp) : world.spawn(
       slot.unitId,
       'player',
       slot.x,
@@ -2029,7 +2198,11 @@ function onValidatePlacement(): void {
   }
   // Mini-vagues : seul le premier groupe apparait maintenant ; les suivants
   // sont crees a leur arrivee (enemyReinforcementSpawns, boucle de jeu).
-  spawnEnemyReinforcements(world.startEnemyReinforcements(computeEnemyWavePlan(currentRun.waveNumber, currentMap)));
+  // Survie en temps reel continu (2026-11-01) : aucune vague au lancement ;
+  // la premiere arrive apres un compte a rebours en temps de simulation
+  // (stepSurvivalWaves).
+  survivalWaveActive = false;
+  survivalNextWaveTick = Math.round(SURVIVAL_FIRST_WAVE_DELAY_SECONDS * SIM_HZ);
   refreshWaveIndicator();
 
   // Batiments POSSEDES par le joueur (2026-08-17, Mine/Caserne achetables —
@@ -2059,11 +2232,32 @@ function onValidatePlacement(): void {
       effectiveBuildingMaxHp(owned.buildingId, level),
       unitsProducedPerWave(owned.buildingId, level),
       effectiveBuildingAttackDamage(owned.buildingId, level),
+      // Chantier : a construire par le Heros pendant la bataille.
+      owned.constructionProgress !== undefined ? { progress: owned.constructionProgress, buildTime: buildTimeOf(owned.buildingId) } : undefined,
     );
     const view = ownedBuildingViews[i]!.view;
     view.reset();
     buildingViewsByEntityId.set(entity.id, view);
     ownedBuildingIndexByEntityId.set(entity.id, i);
+  });
+  // Paires visuelles de murailles possedees : redessinees case par case a la
+  // chute d'une des deux (splitBattleWallPair).
+  battleWallPairs.clear();
+  const ownedEntityIds: number[] = [];
+  for (const [entityId, index] of ownedBuildingIndexByEntityId) ownedEntityIds[index] = entityId;
+  ownedWallRoles.forEach((role, i) => {
+    if (role.role === 'single') return;
+    const owned = currentRun.buildings[i]!;
+    const entityId = ownedEntityIds[i]!;
+    battleWallPairs.set(entityId, {
+      partner: ownedEntityIds[role.partner]!,
+      single: () => {
+        const mesh = buildObstacleMesh(ownedBuildingObstacle(owned), environmentAssets);
+        mesh.userData['ownedBuildingIndex'] = i;
+        const view = replaceBattleBuildingView(entityId, ownedBuildingViews[i]!.mesh, mesh);
+        ownedBuildingViews[i] = { mesh, view };
+      },
+    });
   });
 
   // La Baliste est TOUJOURS presente (jamais achetee, contrairement a la
@@ -2139,6 +2333,7 @@ function clearScenarioBuildingMeshes(): void {
 
 function forgetBattleBuildings(): void {
   ballistaEntityId = null;
+  battleWallPairs.clear();
   buildingViewsByEntityId.clear();
   ownedBuildingIndexByEntityId.clear();
   scenarioBuildingEntityIds.clear();
@@ -2148,6 +2343,7 @@ function forgetBattleBuildings(): void {
 
 function startPlacement(): void {
   goldAtPlacementStart = currentRun.gold;
+  world.applyResourcePileAmounts(currentRun.resourcePileAmounts);
   // Le bouton "Annuler le dernier achat" ne doit valoir que pour CETTE
   // session de boutique (voir lastUnitPurchase) — un achat de la vague
   // precedente n'a plus de sens a annuler une fois une nouvelle phase de
@@ -2164,6 +2360,7 @@ function startPlacement(): void {
   board.zones.visible = true;
   waveIndicator.setVisible(true);
   goldHud.setVisible(true);
+  heroHud.setVisible(true);
   populationHud.setVisible(true);
 
   const formation = computeArmyFormation(currentRun.army.map((u) => u.unitId), currentMap);
@@ -2236,7 +2433,15 @@ function resetRunPlacementState(): void {
  *  contrairement a "Continuer" depuis la boutique, qui reutilise la run en
  *  cours pour passer a la vague suivante (voir startPlacement seul). */
 function startNewRun(): void {
+  if (survivalMapUsed && survivalBaseMap.generator) survivalBaseMap = survivalMapFor(survivalUrlSeed ?? randomSeed());
+  survivalMapUsed = true;
   currentRun = createFreshRun();
+  currentRun.mapSeed = survivalBaseMap.generator?.seed ?? 0;
+  // Brouillard de guerre (carte procedurale) : rien d'explore au lancement.
+  fogOfWar?.dispose();
+  fogOfWar = survivalBaseMap.generator ? new FogOfWar(survivalBaseMap.width, survivalBaseMap.height) : null;
+  heroCameraLock = false;
+  resourcePileViews.clear();
   // Baliste native (Mode survie) : creee directement a la position definie
   // par la carte officielle (MapDef.ballista), sans placement par le joueur.
   currentRun.ballistaPosition = resolveBallistaOrigin(survivalBaseMap);
@@ -2255,11 +2460,11 @@ function startNewRun(): void {
   if (currentMap === survivalBaseMap) {
     applyRunBallistaPosition();
     frameRunCamera();
-    startPlacement();
+    startSurvivalRealtime();
   } else {
     void resetGameBoardToSurvivalMap().then(() => {
       frameRunCamera();
-      startPlacement();
+      startSurvivalRealtime();
     });
   }
 }
@@ -2269,7 +2474,314 @@ function startNewRun(): void {
  *  (l'arene du Mode survie, 21 × 36, depasse le zoom par defaut). */
 function frameRunCamera(): void {
   renderer.resetCamera();
-  renderer.frameBox({ ...computeMapCellBounds(resolveMapCells(currentMap)), height: 2 }, CAMERA.gameFrameMarginsPx);
+  // Carte procedurale : le camp (plaine centrale), pas tout le disque.
+  const ballista = currentMap.generator ? currentMap.ballista : undefined;
+  const box = ballista ? { minX: ballista.x - 11, maxX: ballista.x + 11, minZ: ballista.z - 9, maxZ: ballista.z + 9 } : computeMapCellBounds(resolveMapCells(currentMap));
+  renderer.frameBox({ ...box, height: 2 }, CAMERA.gameFrameMarginsPx);
+}
+
+// --- Brouillard de guerre (2026-11-01, Hero RTS) ----------------------------
+
+/** Grille d'exploration de la run (carte procedurale), null sinon. Rendu et
+ *  information seulement : la simulation ne la lit jamais. */
+let fogOfWar: FogOfWar | null = null;
+
+function fogActive(): boolean {
+  return fogOfWar !== null && !inEditorMode && !inTestMode && currentMap.generator !== undefined;
+}
+
+/** Unite adverse hors de la vision actuelle du joueur. */
+function hiddenByFog(e: Entity): boolean {
+  return fogActive() && e.team !== 'player' && !fogOfWar!.isVisible(e.x, e.z);
+}
+
+/** Entites que le joueur peut viser ou inspecter a l'ecran. */
+function pickableEntities(): Entity[] {
+  return fogActive() ? world.entities.filter((e) => !hiddenByFog(e)) : world.entities;
+}
+
+/** Sources de vision du joueur : entites vivantes en bataille ; Baliste,
+ *  emplacements de l'armee et batiments possedes en preparation. Rayons :
+ *  render/fogOfWar.ts (VISION_RADIUS). */
+function visionSources(): VisionSource[] {
+  const out: VisionSource[] = [];
+  for (const e of world.entities) {
+    if (!e.alive || e.team !== 'player') continue;
+    const p = e.isBuilding ? e : (unitViews.getPosition(e.id) ?? e);
+    out.push({ x: p.x, z: p.z, radius: visionRadiusOf(e) });
+  }
+  return out;
+}
+
+/** Compteur de frames du reveil des decors (toutes les 6 frames). */
+let decorRevealFrame = 0;
+
+/** Une frame : vision du moment, unites adverses masquees, tas explores. */
+function updateFogOfWar(): void {
+  const on = fogActive();
+  renderer.setFogOfWar(on ? fogOfWar : null);
+  if (on) fogOfWar!.update(visionSources());
+  // Decors instancies (carte generee) : reveles a l'exploration (KI-35).
+  if (on && board.decor && ++decorRevealFrame % 6 === 0) board.decor.reveal((x, z) => fogOfWar!.isExplored(x, z));
+  unitViews.hiddenFilter = on ? hiddenByFog : null;
+  resourcePileViews.group.visible = !inEditorMode;
+  resourcePileViews.sync(world.resourcePiles, on ? (x, z) => fogOfWar!.isExplored(x, z) : undefined);
+}
+
+// --- Espace : Heros <-> Baliste (2026-11-01) --------------------------------
+
+/** Camera suivant le Heros (Espace), et dernier point vise par ce suivi :
+ *  un deplacement MANUEL de la camera (cible differente de celle posee par
+ *  le suivi) lache le suivi ; l'appui suivant ramene alors au Heros. */
+let heroCameraLock = false;
+let heroCameraLastTarget: { x: number; z: number } | null = null;
+
+/** Position rendue du Heros du joueur (Survie en temps reel : toujours une
+ *  entite du monde). */
+function heroCameraPoint(): { x: number; z: number } | null {
+  const hero = world.entities.find((e) => e.hero && e.team === 'player');
+  return hero ? (unitViews.getPosition(hero.id) ?? { x: hero.x, z: hero.z }) : null;
+}
+
+/** Espace en jeu : Heros (selection, centrage, suivi) <-> Baliste (suivi
+ *  lache, centrage sur la Baliste). */
+function toggleHeroCamera(): void {
+  if (heroCameraLock) {
+    heroCameraLock = false;
+    heroCameraLastTarget = null;
+    renderer.setViewState({ ...renderer.getViewState(), targetX: playerArrowOrigin.x, targetZ: playerArrowOrigin.z });
+    return;
+  }
+  const point = heroCameraPoint();
+  if (!point) return;
+  const hero = world.entities.find((e) => e.hero && e.team === 'player');
+  if (hero) setBattleSelection([hero.id]);
+  heroCameraLock = true;
+  heroCameraLastTarget = null;
+  updateHeroCameraLock();
+}
+
+/** Une frame de suivi du Heros ; lache le suivi si la camera a ete deplacee
+ *  a la main depuis la frame precedente. */
+function updateHeroCameraLock(): void {
+  if (!heroCameraLock) return;
+  const view = renderer.getViewState();
+  if (heroCameraLastTarget && Math.hypot(view.targetX - heroCameraLastTarget.x, view.targetZ - heroCameraLastTarget.z) > 0.05) {
+    heroCameraLock = false;
+    heroCameraLastTarget = null;
+    return;
+  }
+  const point = heroCameraPoint();
+  if (!point) return;
+  renderer.setViewState({ ...view, targetX: point.x, targetZ: point.z });
+  heroCameraLastTarget = point;
+}
+
+// --- Survie en temps reel continu (2026-11-01) -------------------------------
+
+/** Tick de simulation de la prochaine vague (compte a rebours), null pendant
+ *  une vague ; vrai tant qu'une vague est en cours. */
+let survivalNextWaveTick: number | null = null;
+let survivalWaveActive = false;
+
+/** Lancement d'une run : directement en jeu, sans preparation ni bouton de
+ *  lancement. Heros et Baliste apparaissent, la simulation tourne ; la
+ *  premiere vague suit un compte a rebours (choix d'Antoine, 120 s). */
+function startSurvivalRealtime(): void {
+  screens.hideAll();
+  refreshOwnedBuildingViews();
+  waveIndicator.setVisible(true);
+  goldHud.setVisible(true);
+  heroHud.setVisible(true);
+  populationHud.setVisible(true);
+  inventoryBar.setVisible(true);
+  inventoryBar.refresh(currentRun.inventory);
+  const formation = computeArmyFormation(currentRun.army.map((u) => u.unitId), currentMap);
+  placementSlots = currentRun.army.map((unit, i) => ({ unitId: unit.unitId, x: formation[i]!.x, z: formation[i]!.z, hp: unit.hp, productionLevel: unit.productionLevel }));
+  onValidatePlacement();
+  placementSlots = [];
+  // Boutique globale (legacy) : absente de la Survie en temps reel.
+  sellZone.setVisible(false);
+}
+
+/** Apres chaque pas : declenche la vague attendue a son tick exact. */
+function stepSurvivalWaves(): void {
+  if (inTestMode || inPlacementPhase || battleOver || survivalWaveActive || survivalNextWaveTick === null || world.tick < survivalNextWaveTick) return;
+  survivalNextWaveTick = null;
+  survivalWaveActive = true;
+  // Quota de productions de la Mine par vague (legacy) : un nouveau quota.
+  mineProductionCounts.clear();
+  spawnEnemyReinforcements(world.startEnemyReinforcements(computeEnemyWavePlan(currentRun.waveNumber, currentMap)));
+  refreshWaveIndicator();
+  waveIndicator.flash(`Vague ${currentRun.waveNumber} !`);
+}
+
+/** Vague repoussee : bonus, record, vague suivante apres le compte a
+ *  rebours ; le jeu ne s'arrete pas. */
+function completeSurvivalWave(): void {
+  survivalWaveActive = false;
+  const cleared = currentRun.waveNumber;
+  const talentPointsBefore = metaProgress.talentPoints;
+  const bonus = applyWaveVictory(currentRun);
+  if (registerWaveReached(metaProgress, currentRun.waveNumber)) saveMetaProgress(metaProgress);
+  if (metaProgress.talentPoints > talentPointsBefore) talentPointToast.show(metaProgress.talentPoints - talentPointsBefore);
+  survivalNextWaveTick = world.tick + Math.round(SURVIVAL_NEXT_WAVE_DELAY_SECONDS * SIM_HZ);
+  refreshWaveIndicator();
+  waveIndicator.flash(`Vague ${cleared} repoussée ! +${formatGold(bonus)} or`);
+}
+
+/** Batiment possede `index` de la run, cree en jeu (chantier pose en temps
+ *  reel) : vue, entite, correspondances. Pas de production de debut de
+ *  manche (legacy) : la production passe par les commandes (fiche). */
+function spawnOwnedBuildingRealtime(index: number): Entity {
+  const owned = currentRun.buildings[index]!;
+  const role = wallVisualRoles([{ ...owned, team: 'player' }])[0]!;
+  ownedWallRoles[index] = role;
+  const obstacle = ownedBuildingObstacle(owned);
+  const mesh = buildPlacedBuildingMesh(obstacle, role, [], environmentAssets, null);
+  mesh.userData['ownedBuildingIndex'] = index;
+  renderer.scene.add(mesh);
+  const view = new BuildingView(mesh, buildingVfxGroup);
+  ownedBuildingViews[index] = { mesh, view };
+  const level = ownedBuildingLevel(owned);
+  const entity = world.spawnBuilding(
+    getBuilding(owned.buildingId),
+    'player',
+    owned.x,
+    owned.z,
+    obstacle,
+    owned.hp,
+    effectiveBuildingMaxHp(owned.buildingId, level),
+    [],
+    effectiveBuildingAttackDamage(owned.buildingId, level),
+    owned.constructionProgress !== undefined ? { progress: owned.constructionProgress, buildTime: buildTimeOf(owned.buildingId) } : undefined,
+  );
+  view.reset();
+  view.setConstruction(owned.constructionProgress ?? null);
+  buildingViewsByEntityId.set(entity.id, view);
+  ownedBuildingIndexByEntityId.set(entity.id, index);
+  return entity;
+}
+
+/** Vues des batiments detruits en temps reel : gardees dans la scene le temps
+ *  de l'effondrement, retirees avec les autres (clearOwnedBuildingViews). */
+const destroyedOwnedBuildingViews: OwnedBuildingView[] = [];
+
+/** Temps reel : un batiment possede detruit quitte la run (population,
+ *  deblocages, emprise) ; les correspondances suivantes sont decalees. */
+function pruneDestroyedOwnedBuildings(): void {
+  if (inPlacementPhase || inTestMode) return;
+  const dead: number[] = [];
+  for (const [entityId, index] of ownedBuildingIndexByEntityId) {
+    if (world.getById(entityId)?.alive === false) dead.push(index);
+  }
+  if (dead.length === 0) return;
+  for (const index of dead.sort((a, b) => b - a)) {
+    currentRun.buildings.splice(index, 1);
+    const [views] = ownedBuildingViews.splice(index, 1);
+    if (views) destroyedOwnedBuildingViews.push(views);
+    ownedWallRoles.splice(index, 1);
+  }
+  for (const [entityId, index] of [...ownedBuildingIndexByEntityId]) {
+    if (dead.includes(index)) ownedBuildingIndexByEntityId.delete(entityId);
+    else ownedBuildingIndexByEntityId.set(entityId, index - dead.filter((d) => d < index).length);
+  }
+  world.harvestPermissions = harvestPermissionsOf(currentRun);
+}
+
+/** Batiment possede inspecte en jeu (fiche), index dans la run, ou null. */
+function inspectedOwnedBuilding(): { entity: Entity; index: number; owned: OwnedBuilding } | null {
+  if (battleInspectedEntityId === null) return null;
+  const entity = world.getById(battleInspectedEntityId);
+  const index = entity ? ownedBuildingIndexByEntityId.get(entity.id) : undefined;
+  if (!entity || !entity.alive || index === undefined) return null;
+  const owned = currentRun.buildings[index];
+  return owned ? { entity, index, owned } : null;
+}
+
+/** PV manquants des unites vivantes du joueur (soin de l'Eglise en jeu). */
+function realtimeArmyMissingHp(): number {
+  return world.entities.filter((e) => e.alive && e.team === 'player' && !e.isBuilding).reduce((sum, e) => sum + Math.max(0, e.stats.maxHp - e.hp), 0);
+}
+
+/** Actions de la fiche en temps reel : construire (Heros seul selectionne),
+ *  produire, ameliorer, Forge et Eglise (batiment possede bati). */
+function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
+  if (info.kind === 'unit' && info.unitId === HERO_UNIT_ID) {
+    const actions: EntityInfoAction[] = listBuyableBuildingIds()
+      .filter((id) => getBuilding(id).placementMode !== 'line' && !id.startsWith('wall'))
+      .map((id) => {
+        const def = getBuilding(id);
+        const gold = getEffectiveBuildingCost(id);
+        const res = buildingResourceCost(id);
+        const parts = [`${formatGold(gold)} or`, res.wood ? `${res.wood} bois` : '', res.stone ? `${res.stone} pierre` : ''].filter(Boolean).join(', ');
+        const enabled = currentRun.gold >= gold && canAffordBuildingResources(id);
+        return { id: 'buildStructure', payload: id, label: `Construire : ${def.displayName} — ${parts}`, enabled, hint: enabled ? undefined : 'Or ou ressources déposées insuffisants' };
+      });
+    return { ...info, actions };
+  }
+  const inspected = info.kind === 'building' ? inspectedOwnedBuilding() : null;
+  if (!inspected || inspected.entity.construction) return info;
+  const { entity, owned } = inspected;
+  const level = ownedBuildingLevel(owned);
+  const actions: EntityInfoAction[] = [];
+  if (entity.productionOrder) {
+    const name = getUnit(entity.productionOrder.unitId).name;
+    actions.push({ id: 'produceUnit', label: `En production : ${name} — ${Math.ceil(entity.productionOrder.remaining)} s`, enabled: false });
+  } else {
+    for (const unitId of producibleUnits(owned.buildingId, level)) {
+      const cost = effectivePlayerUnitCost(unitId, playerProgression().upgrades);
+      const enabled = currentRun.gold >= cost;
+      actions.push({ id: 'produceUnit', payload: unitId, label: `Produire : ${getUnit(unitId).name} — ${formatGold(cost)} or · ${unitProductionSeconds(unitId)} s`, enabled, hint: enabled ? undefined : 'Or insuffisant' });
+    }
+  }
+  // Ameliorations, Forge, Eglise : memes actions que la fiche de preparation.
+  const legacy = placementBuildingInfo(owned, playerProgression(), currentRun.gold, realtimeArmyMissingHp());
+  return { ...info, actions: [...actions, ...(legacy.actions ?? [])] };
+}
+
+/** Commande de production au batiment inspecte : paye, puis l'unite sort a
+ *  la fin de sa duree (sim/systems/buildingProduction.ts). */
+function produceAtInspectedBuilding(unitId: string): void {
+  const inspected = inspectedOwnedBuilding();
+  if (!inspected || inspected.entity.construction || inspected.entity.productionOrder) return;
+  if (!producibleUnits(inspected.owned.buildingId, ownedBuildingLevel(inspected.owned)).includes(unitId)) return;
+  const cost = effectivePlayerUnitCost(unitId, playerProgression().upgrades);
+  if (currentRun.gold < cost) return;
+  if (!world.startProduction(inspected.entity.id, unitId, unitProductionSeconds(unitId))) return;
+  currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
+  entityInfoSelectionKey = '';
+}
+
+/** Amelioration, Forge, Eglise depuis la fiche, en temps reel. */
+function realtimeBuildingAction(id: 'upgradeBuilding' | 'healArmy' | 'openForge' | 'openChurchUpgrades'): void {
+  const inspected = inspectedOwnedBuilding();
+  if (!inspected || inspected.entity.construction || pauseMenuOpen || buildingPlacementMode) return;
+  const { entity, index, owned } = inspected;
+  if (id === 'upgradeBuilding') {
+    if (!upgradeOwnedBuilding(currentRun, index)) return;
+    // Niveau applique tout de suite au batiment en jeu (PV max, degats).
+    const level = ownedBuildingLevel(owned);
+    const maxHp = effectiveBuildingMaxHp(owned.buildingId, level);
+    entity.hp += maxHp - entity.stats.maxHp;
+    entity.stats = { ...entity.stats, maxHp };
+    if (entity.buildingAttack) entity.buildingAttack = { ...entity.buildingAttack, damage: effectiveBuildingAttackDamage(owned.buildingId, level) };
+  } else if (id === 'healArmy') {
+    const missing = realtimeArmyMissingHp();
+    const cost = churchHealCost(missing, churchHealHpPerGold(owned.buildingId, ownedBuildingLevel(owned)));
+    if (cost <= 0 || currentRun.gold < cost) return;
+    currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
+    for (const e of world.entities) if (e.alive && e.team === 'player' && !e.isBuilding) e.hp = e.stats.maxHp;
+  } else {
+    const site: RunUpgradeSite = id === 'openForge' ? 'forge' : 'church';
+    if (owned.buildingId !== site || screens.isForgeOpen()) return;
+    disarmItem();
+    forgePausedTimeScale = loop.timeScale;
+    loop.timeScale = 0;
+    openRunUpgradeSite = site;
+    screens.showForge(currentRun, metaProgress, site);
+  }
+  entityInfoSelectionKey = '';
 }
 
 /** Place la Baliste (modele, origine des tirs, collision) a la position de
@@ -2313,14 +2825,26 @@ function openShopFromPlacement(): void {
  *  a deja ete retire de currentRun.buildings (applyBattleOutcome). Plusieurs
  *  exemplaires ouvrent les MEMES ameliorations, sur les memes niveaux de run. */
 function hasRunUpgradeSite(site: RunUpgradeSite): boolean {
-  return currentRun.buildings.some((b) => b.buildingId === site);
+  return currentRun.buildings.some((b) => b.buildingId === site && isBuildingBuilt(b));
 }
 
 /** Site de l'ecran d'ameliorations actuellement ouvert (Forge ou Eglise). */
 let openRunUpgradeSite: RunUpgradeSite = 'forge';
 
 /** Action de la fiche d'entite (ui/entityInfoPanel.ts). */
-function onEntityInfoAction(id: EntityInfoAction['id']): void {
+function onEntityInfoAction(id: EntityInfoAction['id'], payload?: string): void {
+  if (id === 'buildStructure' && payload) {
+    requestPlaceBuilding(payload);
+    return;
+  }
+  if (id === 'produceUnit' && payload) {
+    produceAtInspectedBuilding(payload);
+    return;
+  }
+  if (!inPlacementPhase && inBattlePhase() && (id === 'upgradeBuilding' || id === 'healArmy' || id === 'openForge' || id === 'openChurchUpgrades')) {
+    realtimeBuildingAction(id);
+    return;
+  }
   if (id === 'toggleBallistaMode') {
     setBallistaFireMode(ballistaFireMode === 'auto' ? 'manual' : 'auto');
     return;
@@ -2379,13 +2903,23 @@ function openForge(site: RunUpgradeSite): void {
   screens.showForge(currentRun, metaProgress, site);
 }
 
-/** "Retour" ou Echap : retour a la preparation. */
+/** "Retour" ou Echap : retour a la preparation, ou au jeu en temps reel
+ *  (reprise du temps fige a l'ouverture). */
 function closeForge(): void {
   if (!screens.isForgeOpen()) return;
   screens.hideAll();
+  if (forgePausedTimeScale !== null) {
+    loop.timeScale = forgePausedTimeScale;
+    forgePausedTimeScale = null;
+    return;
+  }
   sellZone.setVisible(true);
   placementPanel.show();
 }
+
+/** Vitesse du jeu avant l'ouverture de la Forge / de l'Eglise en temps reel
+ *  (le jeu est fige tant que l'ecran est ouvert), null sinon. */
+let forgePausedTimeScale: number | null = null;
 
 /** Achat d'un niveau a la Forge (Or de la run, voir run/runUpgrades.ts). Une
  *  amelioration d'unite n'eleve que le niveau de production des PROCHAINES
@@ -3005,6 +3539,13 @@ const editorUI = new EditorUI({
     clearEditorGhost();
     refreshEditorObjects();
   },
+  onSelectCellReliefTool: (op) => {
+    if (!editorState) return;
+    editorState.setTool({ type: 'cell-relief', op });
+    editorUI.setCellReliefRefusal(null);
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
   onSelectReliefBrushTool: (delta: ReliefDelta) => {
     if (!editorState) return;
     editorState.setTool({ type: 'relief-brush', delta, size: editorReliefSize });
@@ -3039,6 +3580,15 @@ const editorUI = new EditorUI({
     refreshEditorObjects();
     updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
   },
+  onSelectForestTool: (erase) => {
+    if (!editorState) return;
+    editorState.setTool({ type: 'forest-brush', ...editorForest, erase });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
+  onSelectForestTreeType: (treeType) => setEditorForestOptions({ treeType }),
+  onSelectForestDensity: (density) => setEditorForestOptions({ density }),
+  onSelectForestSize: (size) => setEditorForestOptions({ size }),
   onRotate: () => rotateSelectedObstacleBy(Math.PI / 2),
   onRotateBy: (degrees) => rotateSelectedObstacleBy(THREE.MathUtils.degToRad(degrees)),
   onDelete: () => deleteEditorSelection(),
@@ -3225,15 +3775,20 @@ function refreshEditorObjects(): void {
     editorBuildingsGroup.remove(mesh);
     editorBuildingMeshes.delete(id);
   }
-  for (const b of editorState.buildings) {
-    // Un segment de muraille dont les virages changent (voisin pose ou
-    // retire) est reconstruit : son raccord visuel en depend.
+  // Murailles : deux cases voisines d'une ligne dessinees ensemble
+  // (render/wallVisuals.ts).
+  const editorWallRoles = wallVisualRoles(editorState.buildings);
+  for (const [i, b] of editorState.buildings.entries()) {
+    // Un segment de muraille dont les virages ou la paire visuelle changent
+    // (voisin pose ou retire) est reconstruit.
     const obstacle = gameplayBuildingObstacle(b.buildingId, b.x, b.z, b.rotationY ?? 0, b.team, editorState.buildings);
-    const joinKey = JSON.stringify([obstacle.wallJoin ?? null, b.buildingId, b.rotationY ?? 0]);
+    const role = editorWallRoles[i]!;
+    const partner = role.role === 'single' ? null : editorState.buildings[role.partner]!;
+    const joinKey = JSON.stringify([obstacle.wallJoin ?? null, b.buildingId, b.x, b.z, b.rotationY ?? 0, role.role, partner ? [partner.x, partner.z] : null]);
     const existing = editorBuildingMeshes.get(b.id);
     if (existing && existing.userData['wallJoinKey'] === joinKey) continue;
     if (existing) editorBuildingsGroup.remove(existing);
-    const mesh = buildObstacleMesh(obstacle, editorAssets);
+    const mesh = buildPlacedBuildingMesh(obstacle, role, editorState.buildings, editorAssets, role.role === 'lead' ? partner!.id : null);
     mesh.userData['wallJoinKey'] = joinKey;
     mesh.userData['editorBuildingId'] = b.id;
     editorBuildingMeshes.set(b.id, mesh);
@@ -3564,7 +4119,7 @@ function updateEditorGhost(x: number, z: number): void {
     // impossible, seul l'apercu de case rouge (invalide) est montre.
     const unitX = snapToTileCenter(x);
     const unitZ = snapToTileCenter(z);
-    const team = editorState.territoryOwnerAt(unitX, unitZ);
+    const team = editorState.unitTeamAt(editorState.tool.unitId, unitX, unitZ);
     // Preview de case (2026-08-16, demande explicite d'Antoine : "je veux
     // désormais matérialiser clairement LA CASE sur laquelle elle sera
     // posée... case verte/rouge translucide") — meme buildCellPreview que
@@ -3575,7 +4130,7 @@ function updateEditorGhost(x: number, z: number): void {
     // les deux disparaissent donc toujours ensemble.
     const cellX = Math.floor(unitX);
     const cellZ = Math.floor(unitZ);
-    const valid = editorState.canPlaceUnitAt(unitX, unitZ);
+    const valid = editorState.canPlaceUnitAt(unitX, unitZ, undefined, editorState.tool.unitId);
     const combined = new THREE.Group();
     combined.add(buildCellPreview(cellX, cellZ, valid));
     if (team) combined.add(buildUnitGhost(editorState.tool.unitId, team, unitX, unitZ));
@@ -3616,8 +4171,8 @@ function updateEditorGhost(x: number, z: number): void {
       return;
     }
     const center = snapBuildingCenter(buildingId, x, z, rotationY);
-    const replaced = editorState.replaceableBuildingAt(buildingId, center.x, center.z, rotationY);
-    const valid = editorState.canPlaceBuildingAt(buildingId, center.x, center.z, replaced?.id, rotationY);
+    const replaced = editorState.replaceableBuildingsAt(buildingId, center.x, center.z, rotationY);
+    const valid = replaced.length > 0 ? editorState.canReplaceBuildingPieces(replaced.map((b) => b.id), [{ buildingId, x: center.x, z: center.z, rotationY }], []) : editorState.canPlaceBuildingAt(buildingId, center.x, center.z, undefined, rotationY);
     const bounds = buildingBoundsAt(buildingId, center.x, center.z, rotationY);
     const combined = new THREE.Group();
     for (let cz = Math.floor(bounds.minZ); cz < bounds.maxZ; cz++) {
@@ -3655,6 +4210,22 @@ function updateEditorGhost(x: number, z: number): void {
     const cells = editorState.surfaceBrushCells(editorState.tool.size, x, z);
     if (cells.length === 0) return;
     editorGhost = buildSurfaceBrushPreview(cells, editorState.tool.surface === null);
+    editorGhostGroup.add(editorGhost);
+  } else if (editorState.tool.type === 'cell-relief') {
+    // Case visee, verte si l'outil s'y applique (Pente : orientation par les
+    // voisines tant qu'on ne glisse pas).
+    const cellX = Math.floor(x);
+    const cellZ = Math.floor(z);
+    if (!editorState.hasCellAt(cellX, cellZ)) return;
+    const plan = editorState.planCellRelief(cellX, cellZ, editorState.tool.op, cellReliefPress ? cellReliefDragDir(cellReliefPress, x, z) : null);
+    editorGhost = buildCellPreview(cellX, cellZ, plan.ok);
+    editorGhostGroup.add(editorGhost);
+  } else if (editorState.tool.type === 'forest-brush') {
+    // Disque du pinceau Foret (cases de la carte seulement) ; gomme : contour
+    // d'effacement.
+    const cells = forestBrushCells(editorState.tool.size, x, z).filter((c) => editorState!.hasCellAt(c.x, c.z));
+    if (cells.length === 0) return;
+    editorGhost = buildSurfaceBrushPreview(cells, editorState.tool.erase);
     editorGhostGroup.add(editorGhost);
   } else if (editorState.tool.type === 'paint-territory') {
     // Case qui sera peinte, teintee de la couleur du pinceau (gris pour
@@ -3749,6 +4320,43 @@ function reliefStrokeAt(x: number, z: number): void {
   stroke.applied = next.cells;
 }
 
+/** Appui de l'outil Pente : case et point vises (orientation au relachement). */
+let cellReliefPress: { cell: { x: number; z: number }; x: number; z: number } | null = null;
+
+/** Direction de montee d'un glisser de l'outil Pente (axe dominant), ou null
+ *  sous un tiers de case (clic simple : orientation par les voisines). */
+function cellReliefDragDir(press: { x: number; z: number }, x: number, z: number): SlopeDirection | null {
+  const dx = x - press.x;
+  const dz = z - press.z;
+  if (Math.max(Math.abs(dx), Math.abs(dz)) < 0.35) return null;
+  return Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? 'E' : 'W') : dz > 0 ? 'S' : 'N';
+}
+
+function releaseCellReliefSlope(event: MouseEvent): void {
+  const press = cellReliefPress;
+  cellReliefPress = null;
+  if (!editorState || !press || editorState.tool.type !== 'cell-relief') return;
+  setRaycasterFromEvent(event);
+  const dir = pickReliefPoint() ? cellReliefDragDir(press, groundHit.x, groundHit.z) : null;
+  applyEditorCellRelief(press.cell.x, press.cell.z, 'slope', dir);
+}
+
+/** Outil explicite de relief sur une case (EditorState.planCellRelief) : une
+ *  entree d'historique (forme de la carte, relief et champ logique compris),
+ *  refus affiche dans la ligne d'etat. */
+function applyEditorCellRelief(x: number, z: number, op: CellReliefOp, dir: SlopeDirection | null): void {
+  if (!editorState) return;
+  const plan = editorState.planCellRelief(x, z, op, dir);
+  editorUI.setCellReliefRefusal(plan.ok ? null : plan.reason);
+  if (!plan.ok) return;
+  const before = editorState.mapShapeSnapshot();
+  if (!editorState.applyCellRelief(plan)) return;
+  const after = editorState.mapShapeSnapshot();
+  rebuildEditorBoard();
+  refreshEditorObjects();
+  editorHistory.push({ undo: () => applyEditorMapShape(before), redo: () => applyEditorMapShape(after) });
+}
+
 /** Fin du trait : une seule entree d'historique s'il a change le relief. */
 function endReliefStroke(): void {
   const stroke = reliefStroke;
@@ -3826,6 +4434,72 @@ function endSurfaceStroke(): void {
     refreshEditorTerrainSurfaces();
   };
   editorHistory.push({ undo: () => apply(before), redo: () => apply(after) });
+}
+
+/** Reglages du pinceau Foret (editor/forestBrush.ts), gardes d'un trait a
+ *  l'autre. PROVISOIRE : valeurs par defaut. */
+const editorForest: { treeType: ForestTreeTypeId; density: ForestDensity; size: ForestBrushSize } = { treeType: 'mixte', density: 'moyenne', size: 5 };
+editorUI.setForestOptions(editorForest);
+
+/** Change un reglage du pinceau Foret et active le pinceau : un type ou une
+ *  densite repasse en plantation, une taille garde la gomme si elle est
+ *  active. */
+function setEditorForestOptions(patch: Partial<typeof editorForest>): void {
+  Object.assign(editorForest, patch);
+  editorUI.setForestOptions(editorForest);
+  if (!editorState) return;
+  const erase = patch.size !== undefined && editorState.tool.type === 'forest-brush' && editorState.tool.erase;
+  editorState.setTool({ type: 'forest-brush', ...editorForest, erase });
+  refreshEditorObjects();
+  updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
+}
+
+/** Trait du pinceau Foret (bouton gauche maintenu) : plante (ou gomme) les
+ *  arbres des cases survolees, une seule entree d'historique au relachement.
+ *  Seuls les arbres nouveaux sont construits (refreshEditorObjects est
+ *  incremental) : ni le sol ni les autres objets ne sont reconstruits.
+ *  `visited` : cases deja traitees par ce trait ; `last` : case du dernier
+ *  tampon, pour interpoler une souris rapide. */
+interface ForestStroke {
+  before: EditorObjectsSnapshot;
+  visited: Set<string>;
+  last: { x: number; z: number } | null;
+  changed: boolean;
+}
+let forestStroke: ForestStroke | null = null;
+
+function startForestStroke(): void {
+  if (!editorState) return;
+  if (forestStroke) endForestStroke();
+  forestStroke = { before: editorState.objectsSnapshot(), visited: new Set(), last: null, changed: false };
+}
+
+function forestStrokeAt(x: number, z: number): void {
+  const stroke = forestStroke;
+  if (!editorState || !stroke || editorState.tool.type !== 'forest-brush') return;
+  const tool = editorState.tool;
+  const target = { x: Math.floor(x), z: Math.floor(z) };
+  let changed = false;
+  for (const o of strokeOriginsBetween(stroke.last, target)) {
+    for (const c of forestBrushCells(tool.size, o.x, o.z)) {
+      const key = cellKey(c.x, c.z);
+      if (stroke.visited.has(key)) continue;
+      stroke.visited.add(key);
+      if (tool.erase ? editorState.eraseForestCell(c.x, c.z) : editorState.plantForestCell(c.x, c.z, tool.treeType, tool.density)) changed = true;
+    }
+  }
+  stroke.last = target;
+  if (!changed) return;
+  stroke.changed = true;
+  refreshEditorObjects();
+}
+
+/** Fin du trait : une seule entree d'historique (tout le trait). */
+function endForestStroke(): void {
+  const stroke = forestStroke;
+  forestStroke = null;
+  if (!editorState || !stroke?.changed) return;
+  pushEditorObjectsCommand(stroke.before, editorState.objectsSnapshot());
 }
 
 type BrushTool = 'paint-territory' | 'add-cell' | 'remove-cell';
@@ -3973,19 +4647,22 @@ function endBrushStroke(): void {
 }
 
 window.addEventListener('mousemove', (event) => {
-  if ((!brushStroke && !reliefStroke && !surfaceStroke) || !inEditorMode) return;
+  if ((!brushStroke && !reliefStroke && !surfaceStroke && !forestStroke) || !inEditorMode) return;
   setRaycasterFromEvent(event);
   // Trait de sculpture : on vise le terrain du DEBUT du trait, sinon le
   // relief qui monte sous le curseur intercepte le rayon et le pinceau
   // derive vers la camera a chaque mouvement ; le vide prolonge ce terrain
   // (pickReliefPoint), le trait n'est jamais interrompu.
   // Pinceau Surface : meme pointage (le trait traverse trous et bord).
-  if (!(reliefStroke || surfaceStroke ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
+  if (!(reliefStroke || surfaceStroke || forestStroke ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
   if (reliefStroke) {
     reliefStrokeAt(groundHit.x, groundHit.z);
     updateEditorGhost(groundHit.x, groundHit.z);
   } else if (surfaceStroke) {
     surfaceStrokeAt(groundHit.x, groundHit.z);
+    updateEditorGhost(groundHit.x, groundHit.z);
+  } else if (forestStroke) {
+    forestStrokeAt(groundHit.x, groundHit.z);
     updateEditorGhost(groundHit.x, groundHit.z);
   } else {
     brushAt(groundHit.x, groundHit.z);
@@ -3995,18 +4672,21 @@ window.addEventListener('mouseup', (event) => {
   if (event.button === 0 && brushStroke) endBrushStroke();
   if (event.button === 0 && reliefStroke) endReliefStroke();
   if (event.button === 0 && surfaceStroke) endSurfaceStroke();
+  if (event.button === 0 && forestStroke) endForestStroke();
+  if (event.button === 0 && cellReliefPress) releaseCellReliefSlope(event);
 });
 window.addEventListener('blur', () => {
   if (brushStroke) endBrushStroke();
   if (reliefStroke) endReliefStroke();
   if (surfaceStroke) endSurfaceStroke();
+  if (forestStroke) endForestStroke();
 });
 
 function handleEditorClick(event: MouseEvent): void {
   if (!editorState || !editorAssets) return;
   setRaycasterFromEvent(event);
   // Pinceaux de relief : un trait peut commencer dans le vide.
-  if (!(editorState.tool.type === 'relief-brush' || editorState.tool.type === 'paint-surface' ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
+  if (!(editorState.tool.type === 'relief-brush' || editorState.tool.type === 'paint-surface' || editorState.tool.type === 'forest-brush' || editorState.tool.type === 'cell-relief' ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
 
   if (editorState.tool.type === 'place-obstacle') {
     // Placement LIBRE : position exacte du clic, jamais arrondie a une case
@@ -4089,6 +4769,24 @@ function handleEditorClick(event: MouseEvent): void {
     return;
   }
 
+  // Outils explicites de relief : Monter / Descendre au clic ; Pente au
+  // relachement (orientation par le glisser, sinon par les voisines).
+  if (editorState.tool.type === 'cell-relief') {
+    const cell = { x: Math.floor(groundHit.x), z: Math.floor(groundHit.z) };
+    if (editorState.tool.op === 'slope') cellReliefPress = { cell, x: groundHit.x, z: groundHit.z };
+    else applyEditorCellRelief(cell.x, cell.z, editorState.tool.op, null);
+    updateEditorGhost(groundHit.x, groundHit.z);
+    return;
+  }
+
+  // Pinceau Foret : meme geste (une entree d'historique par trait).
+  if (editorState.tool.type === 'forest-brush') {
+    startForestStroke();
+    forestStrokeAt(groundHit.x, groundHit.z);
+    updateEditorGhost(groundHit.x, groundHit.z);
+    return;
+  }
+
   // Outils REPETABLES (+ Case, - Case, Territoire) : ne reviennent jamais
   // seuls a l'outil Selection. L'appui commence un trait, le glisser traite
   // les cases survolees, le relachement le termine (un seul Ctrl+Z).
@@ -4155,7 +4853,7 @@ function pickEditorObjectAt(
   if (!hit) return null;
   if (hit === ballistaHit) return { kind: 'ballista' };
   if (hit === buildingHit) {
-    const buildingId = findEditorBuildingId(hit.object);
+    const buildingId = wallPairTarget(hit.object, hit.point, findEditorBuildingId(hit.object));
     if (buildingId !== null) return { kind: 'building', id: buildingId };
   }
   const obstacleId = findEditorObstacleId(hit.object);
@@ -4178,11 +4876,11 @@ function editorUnitMoveProposal(target: { x: number; z: number }): UnitMovePropo
   if (units.length === 0) return null;
   const members = units.map((u) => ({ key: u.id, x: u.x, z: u.z }));
   const plan = planGridGroupMove(members, target, {
-    isFree: (_id, x, z) => state.canPlaceUnitAt(x, z, ids),
+    isFree: (id, x, z) => state.canPlaceUnitAt(x, z, ids, units.find((u) => u.id === id)?.unitId),
     searchRadius: GRID_MOVE_SEARCH_RADIUS,
     tile: TILE,
   });
-  const items = plan.destinations.map((d, i) => ({ unitId: units[i]!.unitId, team: state.territoryOwnerAt(d.x, d.z) ?? units[i]!.team, x: d.x, z: d.z, valid: d.placed }));
+  const items = plan.destinations.map((d, i) => ({ unitId: units[i]!.unitId, team: state.unitTeamAt(units[i]!.unitId, d.x, d.z) ?? units[i]!.team, x: d.x, z: d.z, valid: d.placed }));
   return { members, plan, items };
 }
 
@@ -4614,7 +5312,10 @@ function setBallistaFireMode(mode: BallistaFireMode): void {
 function attemptBallistaAutoFire(dt: number): void {
   if (ballistaFireMode !== 'auto' || !canFireBallista() || isBallistaDestroyed()) return;
   const current = ballistaAutoTargetId !== null ? world.getById(ballistaAutoTargetId) : undefined;
-  const target = selectBallistaAutoTarget(world.entities, playerArrowOrigin.x, playerArrowOrigin.z, current, PLAYER_ARROW_RANGE);
+  // Vision gameplay (sim/vision.ts, positions simulees) : une cible hors de
+  // la vision du joueur n'est ni acquise ni gardee ; un carreau deja tire
+  // poursuit sa course.
+  const target = selectBallistaAutoTarget(world.entities, playerArrowOrigin.x, playerArrowOrigin.z, current, PLAYER_ARROW_RANGE, teamVision(world.entities, 'player'));
   ballistaAutoTargetId = target?.id ?? null;
   if (!target) return;
   const arrow = world.playerArrow;
@@ -4655,6 +5356,11 @@ function battleUnitLevelOf(entity: Entity): number | null {
 }
 
 function currentEntityInfo(): EntityInfoViewModel | null {
+  const info = currentEntityInfoBase();
+  return info && !inPlacementPhase && !inTestMode && inBattlePhase() ? withRealtimeActions(info) : info;
+}
+
+function currentEntityInfoBase(): EntityInfoViewModel | null {
   if (inBattlePhase()) {
     if (battleInspectedEntityId !== null) {
       const inspected = world.getById(battleInspectedEntityId);
@@ -4683,7 +5389,7 @@ function currentEntityInfo(): EntityInfoViewModel | null {
   }
   const slots = selectedIndices.map((i) => placementSlots[i]).filter((slot): slot is PlacementSlot => slot !== undefined);
   if (slots.length === 0) return null;
-  return slots.length === 1 ? placementUnitInfo(slots[0]!, playerProgression()) : placementGroupInfo(slots, playerProgression());
+  return slots.length === 1 ? placementUnitInfo(slots[0]!, playerProgression(), currentRun.hero.level) : placementGroupInfo(slots, playerProgression());
 }
 
 /** Cadence de la fiche : PV, recharges et minuteries n'ont pas besoin d'etre
@@ -4738,10 +5444,10 @@ let lastBattleUnitClickTime = 0;
  *  Avec Shift : ajoute ou retire l'unite, ne change rien ailleurs. Aucun
  *  ordre n'est transmis. */
 function resolveBattleSelectionClick(event: MouseEvent): void {
-  const picked = pickEntityAtScreen(world.entities, event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
+  const picked = pickEntityAtScreen(pickableEntities(), event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
   // Une unite cliquee garde la priorite sur un bâtiment proche (la Baliste
   // notamment, dont le rayon de selection a l'ecran est large).
-  const pickedUnit = picked !== null && picked.isBuilding ? pickEntityAtScreen(world.entities.filter((e) => !e.isBuilding), event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id)) : picked;
+  const pickedUnit = picked !== null && picked.isBuilding ? pickEntityAtScreen(pickableEntities().filter((e) => !e.isBuilding), event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id)) : picked;
   const unit = pickedUnit !== null && pickedUnit.team === 'player' ? pickedUnit : null;
 
   if (event.shiftKey) {
@@ -4917,7 +5623,7 @@ function issueRightClickOrder(event: MouseEvent): void {
   const entityIds = battleSelection.ids;
   if (entityIds.length === 0 || !canIssueRtsOrder()) return;
 
-  const picked = pickEntityAtScreen(world.entities, event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
+  const picked = pickEntityAtScreen(pickableEntities(), event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
   if (picked !== null && picked.team !== 'player') {
     world.issueCommand({ kind: 'attack', entityIds, targetEntityId: picked.id });
     return;
@@ -4925,7 +5631,152 @@ function issueRightClickOrder(event: MouseEvent): void {
 
   const point = computeGroundPoint(event);
   if (!point) return;
+  // Heros : chantier allie vise -> construire ; arbre ou rocher vise ->
+  // recolter. Les autres unites selectionnees s'y deplacent.
+  const heroIds = entityIds.filter((id) => world.getById(id)?.hero);
+  if (heroIds.length > 0) {
+    const others = entityIds.filter((id) => !heroIds.includes(id));
+    const depot = picked !== null && picked.team === 'player' && !picked.construction && picked.isBuilding && getBuilding(picked.unitId).resourceDepot ? picked : battleDepotAt(point.x, point.z);
+    const site = depot ? null : picked !== null && picked.team === 'player' && picked.construction ? picked : battleChantierAt(point.x, point.z);
+    const pile = depot || site ? null : resourcePileNear(point.x, point.z);
+    const node = depot || site || pile ? null : resourceNodeNear(point.x, point.z);
+    const command: PlayerCommand | null = depot
+      ? { kind: 'deposit', entityIds: heroIds, targetEntityId: depot.id }
+      : site
+        ? { kind: 'build', entityIds: heroIds, targetEntityId: site.id }
+        : pile
+          ? { kind: 'pickup', entityIds: heroIds, pileId: pile.id }
+          : node
+            ? { kind: 'harvest', entityIds: heroIds, nodeId: node.id }
+            : null;
+    if (command) {
+      // Arbre ou gros rocher sans Scierie / Camp de mineur : refuse avec la
+      // raison, le Heros ne bouge pas.
+      if (node && !(node.resource === 'wood' ? world.harvestPermissions.canHarvestTrees : world.harvestPermissions.canMineDeposits)) {
+        waveIndicator.flash(node.resource === 'wood' ? 'Couper les arbres : il faut une Scierie' : 'Exploiter ce gisement : il faut un Camp de mineur');
+        return;
+      }
+      world.issueCommand(command);
+      if (others.length > 0) world.issueCommand({ kind: 'move', entityIds: others, x: point.x, z: point.z });
+      return;
+    }
+  }
   world.issueCommand({ kind: 'move', entityIds, x: point.x, z: point.z });
+}
+
+/** Chantier du joueur dont l'emprise contient (x, z), ou null. */
+function battleChantierAt(x: number, z: number): Entity | null {
+  return world.entities.find((e) => {
+    if (!e.alive || e.team !== 'player' || !e.construction || !e.footprintObstacle) return false;
+    const b = obstacleBounds(e.footprintObstacle);
+    return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ;
+  }) ?? null;
+}
+
+/** Depot de ressources du joueur (Baliste) dont l'emprise contient (x, z). */
+function battleDepotAt(x: number, z: number): Entity | null {
+  return world.entities.find((e) => {
+    if (!e.alive || e.team !== 'player' || !e.isBuilding || e.construction || !e.footprintObstacle || !getBuilding(e.unitId).resourceDepot) return false;
+    const b = obstacleBounds(e.footprintObstacle);
+    return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ;
+  }) ?? null;
+}
+
+/** Petit tas au sol encore present le plus proche de (x, z), a moins de
+ *  0,8 case (clic facile sur un petit objet), ou null. */
+function resourcePileNear(x: number, z: number): { id: number } | null {
+  let best: { id: number } | null = null;
+  let bestD = 0.8;
+  for (const p of world.resourcePiles) {
+    if (p.amount <= 0) continue;
+    const d = Math.hypot(p.x - x, p.z - z);
+    if (d < bestD) {
+      bestD = d;
+      best = p;
+    }
+  }
+  return best;
+}
+
+/** Source de ressource (arbre, rocher) la plus proche de (x, z) a moins d'une
+ *  case, ou null. */
+function resourceNodeNear(x: number, z: number): { id: number; resource: ResourceKind } | null {
+  let best: { id: number; resource: ResourceKind } | null = null;
+  let bestD = 1.1;
+  for (const n of world.resourceNodes.values()) {
+    const d = Math.hypot(n.x - x, n.z - z);
+    if (d < bestD) {
+      bestD = d;
+      best = n;
+    }
+  }
+  return best;
+}
+
+/** Evenements du Heros d'un pas : bois et pierre au stock de la run, annonces
+ *  (niveau, mort, retour). */
+function handleHeroEvents(events: readonly HeroEvent[]): void {
+  for (const ev of events) {
+    // Transport (2026-11-01) : la recolte et le ramassage remplissent le sac ;
+    // seul le depot a la Baliste remplit le stock de la run.
+    if (ev.type === 'pickup') {
+      if (!inTestMode) currentRun.resourcePileAmounts[ev.pileId] = ev.remaining;
+    } else if (ev.type === 'deposit') {
+      if (!inTestMode) {
+        currentRun.resources.wood += ev.wood;
+        currentRun.resources.stone += ev.stone;
+      }
+      waveIndicator.flash(`Dépôt : +${ev.wood} bois, +${ev.stone} pierre`);
+    } else if (ev.type === 'carryFull') {
+      waveIndicator.flash('Sac plein — clic droit sur la Baliste pour déposer');
+    } else if (ev.type === 'built') {
+      const index = ownedBuildingIndexByEntityId.get(ev.buildingId);
+      const owned = index !== undefined ? currentRun.buildings[index] : undefined;
+      if (owned) {
+        delete owned.constructionProgress;
+        world.harvestPermissions = harvestPermissionsOf(currentRun);
+      }
+    } else if (ev.type === 'levelUp') {
+      waveIndicator.flash(`Héros : niveau ${ev.level} !`);
+    } else if (ev.type === 'death') {
+      waveIndicator.flash(`Héros à terre — retour dans ${Math.round(ev.respawnIn)} s`);
+    } else if (ev.type === 'respawn') {
+      waveIndicator.flash('Le Héros revient à la Baliste');
+    }
+  }
+}
+
+/** Etat de l'encart du Heros : son entite en bataille, sinon la progression
+ *  de la run. */
+function heroHudState(): HeroHudState {
+  const hero = world.entities.find((e) => e.hero && e.team === 'player');
+  const h = inBattlePhase() || inTestMode ? hero?.hero : undefined;
+  return {
+    level: h?.level ?? currentRun.hero.level,
+    xp: h?.xp ?? currentRun.hero.xp,
+    respawnIn: h && hero && !hero.alive && h.respawnTimer > 0 ? h.respawnTimer : null,
+    resources: currentRun.resources,
+    carry: h?.carry ?? currentRun.hero.carry,
+    capacity: HERO_CARRY_CAPACITY,
+  };
+}
+
+/** Bois et pierre que coute `buildingId` (BuildingDef.resourceCost),
+ *  `times` fois (murailles : par case). */
+function buildingResourceCost(buildingId: string, times = 1): Record<ResourceKind, number> {
+  const cost = getBuilding(buildingId).resourceCost ?? {};
+  return { wood: (cost.wood ?? 0) * times, stone: (cost.stone ?? 0) * times };
+}
+
+function canAffordBuildingResources(buildingId: string, times = 1): boolean {
+  const cost = buildingResourceCost(buildingId, times);
+  return currentRun.resources.wood >= cost.wood && currentRun.resources.stone >= cost.stone;
+}
+
+function payBuildingResources(buildingId: string, times = 1): void {
+  const cost = buildingResourceCost(buildingId, times);
+  currentRun.resources.wood = Math.max(0, currentRun.resources.wood - cost.wood);
+  currentRun.resources.stone = Math.max(0, currentRun.resources.stone - cost.stone);
 }
 
 /** S en bataille : interrompt l'ordre de toutes les unites
@@ -5375,10 +6226,23 @@ function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: numb
     return tileX > b.minX && tileX < b.maxX && tileZ > b.minZ && tileZ < b.maxZ;
   });
   if (onObstacle) return false;
+  // Eau (isWaterSurface) : ni unite, ni batiment, ni muraille.
+  if (isWaterTile(tileX, tileZ)) return false;
 
   // Zone de placement : la case doit appartenir au joueur dans le territoire
   // courant (voir currentTerritoryIndex) — plus aucun calcul de bande ici.
   return territoryOwnerAtPoint(currentTerritoryIndex(), tileX, tileZ) === 'player';
+}
+
+/** Cases d'eau de `currentMap` (waterCellKeys), recalculees quand sa liste
+ *  de surfaces change. */
+let waterTilesCache: { cells: readonly SurfaceCellDef[] | undefined; keys: Set<string> } | null = null;
+
+/** Vrai si le point (x, z) est sur une case d'eau de la carte courante. */
+function isWaterTile(x: number, z: number): boolean {
+  const cells = currentMap.surfaceCells;
+  if (!waterTilesCache || waterTilesCache.cells !== cells) waterTilesCache = { cells, keys: waterCellKeys(cells) };
+  return waterTilesCache.keys.has(cellKey(Math.floor(x), Math.floor(z)));
 }
 
 // --- Achat/placement de batiments (2026-08-17, chantier "batiments
@@ -5536,8 +6400,9 @@ function buildingFootprintCells(cornerX: number, cornerZ: number, tilesX: number
  *  exclure, le bâtiment n'existe pas encore). */
 function canPlaceBuildingAt(buildingId: string, cornerX: number, cornerZ: number, excludeBuildingIndex?: number, rotationY = 0): boolean {
   const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
-  // Relief : emprise entierement plate, a un seul niveau.
   if (gameTerrain().flatLevelOver(cornerX, cornerX + tilesX, cornerZ, cornerZ + tilesZ) === null) return false;
+  // Temps reel : jamais sur une unite vivante (elle serait enfermee).
+  if (inBattlePhase() && world.entities.some((e) => e.alive && !e.isBuilding && e.x > cornerX - e.stats.radius && e.x < cornerX + tilesX + e.stats.radius && e.z > cornerZ - e.stats.radius && e.z < cornerZ + tilesZ + e.stats.radius)) return false;
   return buildingFootprintCells(cornerX, cornerZ, tilesX, tilesZ).every((c) => isValidPlacementTile(c.x, c.z, [], excludeBuildingIndex));
 }
 
@@ -5587,7 +6452,7 @@ function wallLineStatus(buildingId: string, step: WallTraceStep): { cost: number
     withoutOwnedBuildings(tracedBuildingsToRemove(currentRun.buildings, step), () =>
       step.added.every((s) => canPlaceBuildingAt(s.buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY)) && step.waiting.every((c) => canPlaceBuildingAt(halfId, c.x, c.z, undefined, 0)),
     );
-  return { cost: step.cost, affordable: currentRun.gold >= step.cost, placeable };
+  return { cost: step.cost, affordable: currentRun.gold >= step.cost && canAffordBuildingResources(step.wallId, Math.max(0, step.units)), placeable };
 }
 
 /** Applique une etape de trace aux batiments du joueur : retire les pieces
@@ -5600,20 +6465,30 @@ function applyOwnedWallStep(step: WallTraceStep): void {
   // pourcentage de PV des cases qu'elle reprend (moyenne par case) ; une case
   // nouvellement construite part a 100 %.
   const cellHealth = new Map<string, number>();
+  // Chantiers recomposes : leur avancement est garde (jamais construit gratuitement).
+  const cellProgress = new Map<string, number>();
   for (const b of removed) {
     const { tilesX, tilesZ } = buildingFootprintTiles(b.buildingId, b.rotationY ?? 0);
     const ratio = b.hp / getBuilding(b.buildingId).maxHp;
-    for (const c of tracePieceCells({ cornerX: b.x - tilesX / 2, cornerZ: b.z - tilesZ / 2, tilesX, tilesZ })) cellHealth.set(c, ratio);
+    for (const c of tracePieceCells({ cornerX: b.x - tilesX / 2, cornerZ: b.z - tilesZ / 2, tilesX, tilesZ })) {
+      cellHealth.set(c, ratio);
+      if (b.constructionProgress !== undefined) cellProgress.set(c, b.constructionProgress);
+    }
   }
   for (const s of step.added) {
     const cells = tracePieceCells(s);
-    const ratio = cells.reduce((sum, c) => sum + (cellHealth.get(c) ?? 1), 0) / cells.length;
     const maxHp = getBuilding(s.buildingId).maxHp;
-    kept.push({ buildingId: s.buildingId, x: s.cornerX + s.tilesX / 2, z: s.cornerZ + s.tilesZ / 2, hp: Math.max(1, Math.round(maxHp * ratio)), rotationY: s.rotationY });
+    // Case neuve ou chantier recompose : CHANTIER (le Heros le construit).
+    const fresh = cells.every((c) => !cellHealth.has(c));
+    const progress = fresh ? 0 : cells.some((c) => cellProgress.has(c)) ? Math.min(...cells.map((c) => cellProgress.get(c) ?? 1)) : null;
+    const ratio = fresh ? CONSTRUCTION_START_HP_FRACTION : cells.reduce((sum, c) => sum + (cellHealth.get(c) ?? 1), 0) / cells.length;
+    kept.push({ buildingId: s.buildingId, x: s.cornerX + s.tilesX / 2, z: s.cornerZ + s.tilesZ / 2, hp: Math.max(1, Math.round(maxHp * ratio)), rotationY: s.rotationY, ...(progress !== null && progress < 1 ? { constructionProgress: progress } : {}) });
   }
   currentRun.buildings.splice(0, currentRun.buildings.length, ...reorientTracedBuildings(kept, step.all));
   currentRun.gold = Math.max(0, roundGold(currentRun.gold - step.cost));
   if (step.cost > 0) spawnCoinPopup(screens.shopGoldElement, -step.cost);
+  // Comme l'or : un cout net negatif (cases rendues) rembourse la pierre.
+  if (step.units !== 0) payBuildingResources(step.wallId, step.units);
 }
 
 /** Termine le trace en cours de la preparation (Echap, clic droit, sortie du
@@ -5631,7 +6506,7 @@ function finishOwnedWallTrace(): void {
     step.added.filter((s) => canPlaceBuildingAt(s.buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY)),
   );
   const refundUnits = step.added.filter((s) => !placeable.includes(s)).reduce((sum, s) => sum + (s.kind === 'half' ? 0.5 : 1), 0);
-  applyOwnedWallStep({ ...step, added: placeable, cost: roundGold(step.cost - getEffectiveBuildingCost(mode.buildingId) * refundUnits) });
+  applyOwnedWallStep({ ...step, added: placeable, cost: roundGold(step.cost - getEffectiveBuildingCost(mode.buildingId) * refundUnits), units: step.units - refundUnits });
   refreshOwnedBuildingViews();
 }
 
@@ -5644,6 +6519,8 @@ function requestPlaceBuilding(buildingId: string): void {
   // amelioration permanente — voir getEffectiveBuildingCost, SOURCE UNIQUE
   // partagee avec l'affichage boutique ET confirmBuildingPlacement plus bas).
   if (currentRun.gold < getEffectiveBuildingCost(buildingId)) return;
+  // Murailles : bois / pierre verifies case par case au trace.
+  if (getBuilding(buildingId).placementMode !== 'line' && !canAffordBuildingResources(buildingId)) return;
   disarmItem();
   // Changement d'outil pendant un trace de murailles : ses extremites deja
   // payees sont construites.
@@ -5783,22 +6660,18 @@ function updateBuildingPlacementGhost(x: number, z: number): void {
   }
   const { tilesX, tilesZ } = buildingFootprintTiles(mode.buildingId, mode.rotationY);
   const { cornerX, cornerZ } = computeBuildingFootprintCorner(x, z, tilesX, tilesZ);
-  const replaced = replaceableBuildingIndex(mode, cornerX, cornerZ);
-  const valid = canPlaceBuildingAt(mode.buildingId, cornerX, cornerZ, replaced ?? mode.movingIndex ?? undefined, mode.rotationY);
+  const replaced = replaceableBuildingIndices(mode, cornerX, cornerZ);
+  const valid = withoutOwnedBuildings(replaced.map((i) => currentRun.buildings[i]!), () => canPlaceBuildingAt(mode.buildingId, cornerX, cornerZ, mode.movingIndex ?? undefined, mode.rotationY));
   if (def.buildingModel) addBuildingPreview(mode.buildingId, cornerX, cornerZ, mode.rotationY, valid);
 }
 
-/** Index du batiment possede que l'achat en cours REMPLACERAIT
- *  (BuildingDef.placeOverBuildingId : porte posee exactement sur un segment
- *  de mur), ou null. Jamais pendant un deplacement. */
-function replaceableBuildingIndex(mode: BuildingPlacementMode, cornerX: number, cornerZ: number): number | null {
-  const over = getBuilding(mode.buildingId).placeOverBuildingId;
-  if (!over || mode.movingIndex !== null) return null;
-  const { tilesX, tilesZ } = buildingFootprintTiles(mode.buildingId, mode.rotationY);
-  const x = cornerX + tilesX / 2;
-  const z = cornerZ + tilesZ / 2;
-  const index = currentRun.buildings.findIndex((b) => b.buildingId === over && sameBuildingFootprint(mode.buildingId, x, z, mode.rotationY, b.buildingId, b.x, b.z, b.rotationY ?? 0));
-  return index >= 0 ? index : null;
+/** Index des batiments possedes que l'achat en cours REMPLACERAIT
+ *  (BuildingDef.placeOverBuildingId : porte de 2 cases posee sur deux cases
+ *  de mur alignees, voir replacedWallCells), sinon liste vide. Jamais
+ *  pendant un deplacement. */
+function replaceableBuildingIndices(mode: BuildingPlacementMode, cornerX: number, cornerZ: number): number[] {
+  if (mode.movingIndex !== null) return [];
+  return replacedWallCells(mode.buildingId, cornerX, cornerZ, mode.rotationY, currentRun.buildings).map((b) => currentRun.buildings.indexOf(b));
 }
 
 /** Vrai pour un achat en mode Muraille (pose par lignes). */
@@ -5867,8 +6740,9 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   const def = getBuilding(buildingPlacementMode.buildingId);
   const { tilesX, tilesZ } = buildingFootprintTiles(buildingPlacementMode.buildingId, buildingPlacementMode.rotationY);
   const { cornerX, cornerZ } = computeBuildingFootprintCorner(groundHit.x, groundHit.z, tilesX, tilesZ);
-  const replaced = replaceableBuildingIndex(buildingPlacementMode, cornerX, cornerZ);
-  if (!canPlaceBuildingAt(buildingPlacementMode.buildingId, cornerX, cornerZ, replaced ?? buildingPlacementMode.movingIndex ?? undefined, buildingPlacementMode.rotationY)) return false;
+  const replaced = replaceableBuildingIndices(buildingPlacementMode, cornerX, cornerZ);
+  const placing = buildingPlacementMode;
+  if (!withoutOwnedBuildings(replaced.map((i) => currentRun.buildings[i]!), () => canPlaceBuildingAt(placing.buildingId, cornerX, cornerZ, placing.movingIndex ?? undefined, placing.rotationY))) return false;
 
   if (buildingPlacementMode.movingIndex !== null) {
     const owned = currentRun.buildings[buildingPlacementMode.movingIndex];
@@ -5888,26 +6762,37 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   // unique (getEffectiveBuildingCost) : le prix retire ICI doit toujours
   // correspondre exactement a celui affiche/verifie en boutique.
   const cost = getEffectiveBuildingCost(buildingPlacementMode.buildingId);
-  if (currentRun.gold < cost) {
+  if (currentRun.gold < cost || !canAffordBuildingResources(buildingPlacementMode.buildingId)) {
     cancelBuildingPlacement();
     return false;
   }
   currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
-  // Porte posee sur un segment de mur : elle le remplace (prix de la porte,
-  // mur retire sans remboursement).
-  // La porte reprend l'orientation du mur remplace (meme exterieur).
-  const rotationY = replaced !== null ? currentRun.buildings[replaced]!.rotationY ?? buildingPlacementMode.rotationY : buildingPlacementMode.rotationY;
-  if (replaced !== null) currentRun.buildings.splice(replaced, 1);
+  payBuildingResources(buildingPlacementMode.buildingId);
+  // Porte posee sur deux cases de mur : elle les remplace (prix de la porte,
+  // murs retires sans remboursement) et reprend leur orientation (meme
+  // exterieur).
+  const rotationY = replaced.length > 0 ? currentRun.buildings[replaced[0]!]!.rotationY ?? buildingPlacementMode.rotationY : buildingPlacementMode.rotationY;
+  for (const i of [...replaced].sort((a, b) => b - a)) currentRun.buildings.splice(i, 1);
+  // CHANTIER (direction Hero RTS) : le Heros le construit en bataille.
   currentRun.buildings.push({
     buildingId: def.id,
     x: cornerX + tilesX / 2,
     z: cornerZ + tilesZ / 2,
-    hp: def.maxHp,
+    hp: Math.max(1, Math.round(def.maxHp * CONSTRUCTION_START_HP_FRACTION)),
     rotationY,
+    constructionProgress: 0,
   });
   spawnCoinPopup(screens.shopGoldElement, -cost);
   cancelBuildingPlacement();
-  refreshOwnedBuildingViews();
+  if (inPlacementPhase) {
+    refreshOwnedBuildingViews();
+    return true;
+  }
+  // Temps reel : chantier cree tout de suite (attaquable), le Heros vivant
+  // part le construire.
+  const site = spawnOwnedBuildingRealtime(currentRun.buildings.length - 1);
+  const hero = world.entities.find((e) => e.hero && e.alive && e.team === 'player');
+  if (hero) world.issueCommand({ kind: 'build', entityIds: [hero.id], targetEntityId: site.id });
   return true;
 }
 
@@ -6122,7 +7007,8 @@ function sellUnits(indices: number[]): void {
   // DESCENDANT : supprimer du plus grand index au plus petit via
   // Array.splice ne decale jamais un index pas encore traite, contrairement
   // a l'ordre croissant (ou chaque suppression decalerait tous les suivants).
-  const unique = Array.from(new Set(indices)).filter((i) => placementSlots[i] !== undefined);
+  // Le Heros ne se vend jamais.
+  const unique = Array.from(new Set(indices)).filter((i) => placementSlots[i] !== undefined && placementSlots[i]!.unitId !== HERO_UNIT_ID);
   if (unique.length === 0) return;
   const sortedDesc = [...unique].sort((a, b) => b - a);
 
@@ -6158,6 +7044,7 @@ let lastRealTime = performance.now();
 const loop = new Loop(
   (dt) => {
     world.step(dt);
+    stepSurvivalWaves();
     // Ordres acceptes pendant CE pas : commandResults est remplace a chaque
     // pas (plusieurs pas peuvent s'enchainer par image), il est donc lu ici
     // et jamais depuis le rendu. Un ordre refuse n'affiche rien.
@@ -6366,7 +7253,8 @@ const loop = new Loop(
       world.countCombatants('enemy') === 0 && world.enemyReinforcementSpawns.length === 0 && !world.allEnemyGroupsSpawned();
     if (inBattlePhase() && !inTestMode && !waitingForReinforcements) {
       for (const e of world.entities) {
-        if (e.team !== 'player' || !e.alive || !e.isBuilding || e.unitId !== 'mine') continue;
+        // Chantier : aucune production d'or avant d'etre construit.
+        if (e.team !== 'player' || !e.alive || !e.isBuilding || e.unitId !== 'mine' || e.construction) continue;
         // Plafond par Mine et par manche : une Mine qui a tout produit reste
         // inactive jusqu'a la bataille suivante.
         const produced = mineProductionCounts.get(e.id) ?? 0;
@@ -6396,6 +7284,7 @@ const loop = new Loop(
     // evenement par unite reellement produite (voir
     // sim/systems/buildingProduction.ts) — consomme ici pour spawner une
     // VRAIE Entity (memes stats et ameliorations qu'une unite recrutee).
+    handleHeroEvents(world.heroEvents);
     for (const event of world.productionSpawnEvents) {
       // Niveau de production lu ICI, au spawn : les unites deja produites
       // gardent le leur (voir rememberPlayerUnitLevel).
@@ -6470,7 +7359,15 @@ const loop = new Loop(
       const enemyAlive = world.countCombatants('enemy');
       // Mini-vagues : aucun ennemi vivant ne suffit pas, tous les groupes
       // doivent etre apparus. La defaite reste immediate.
-      if (playerAlive === 0 || (enemyAlive === 0 && world.allEnemyGroupsSpawned())) {
+      // Heros (choix d'Antoine) : Heros a terre ET Baliste detruite = defaite.
+      const defeated = playerAlive === 0 || world.isHeroDefeat('player');
+      const waveCleared = enemyAlive === 0 && world.allEnemyGroupsSpawned();
+      // Survie en temps reel continu (2026-11-01) : une vague repoussee ne
+      // change plus de phase (completeSurvivalWave) ; seule la defaite
+      // termine la run. « Tester le scenario » garde sa fin immediate.
+      if (!inTestMode && !defeated && waveCleared) {
+        if (survivalWaveActive) completeSurvivalWave();
+      } else if (defeated || waveCleared) {
         battleOver = true;
         loop.timeScale = 0;
         // Fin de combat (2026-08-13) : n'importe quel tir automatique en
@@ -6492,7 +7389,9 @@ const loop = new Loop(
           // currentRun.waveNumber n'a pas encore ete incremente ici (ca
           // n'arrive que dans applyBattleOutcome, plus bas) : c'est bien le
           // numero de la vague qu'on vient de jouer.
-          const label = `Vague ${currentRun.waveNumber} — ${playerAlive > 0 ? 'Victoire !' : 'Défaite'}`;
+          // Heros a terre et Baliste detruite : defaite meme avec des survivants.
+          const heroFell = world.isHeroDefeat('player');
+          const label = `Vague ${currentRun.waveNumber} — ${playerAlive > 0 && !heroFell ? 'Victoire !' : 'Défaite'}`;
           waveTransition.play(label, async () => {
             // Bonus de fin de vague (si victoire) et armee mise a jour (PV
             // des survivants, morts retires) — LIT world.entities, donc doit
@@ -6602,8 +7501,9 @@ const loop = new Loop(
               talentPointToast.show(metaProgress.talentPoints - talentPointsBefore);
               waveIndicator.setVisible(false);
               goldHud.setVisible(false);
+              heroHud.setVisible(false);
               populationHud.setVisible(false);
-              screens.showGameOver(metaProgress.highestWaveReached);
+              screens.showGameOver(metaProgress.highestWaveReached, heroFell);
             } else {
               // Agrandissement progressif du champ de bataille (2026-08-18,
               // demande d'Antoine) — voir run/mapExpansion.ts et
@@ -6664,6 +7564,9 @@ const loop = new Loop(
     // evenement") — plus aucun site d'appel a se souvenir d'ajouter apres un
     // achat/une vente.
     goldHud.update(currentRun.gold);
+    heroHud.update(heroHudState());
+    // Compte a rebours de la prochaine vague (Survie en temps reel).
+    if (survivalNextWaveTick !== null && !inTestMode) refreshWaveIndicator();
     // Relief : surface active du rendu (brouillon de l'editeur ou carte en
     // jeu) avant tout placement vertical de la frame.
     syncActiveTerrain();
@@ -6689,7 +7592,10 @@ const loop = new Loop(
     // de fin de vague (voir waveTransition.play, qui pose timeScale=0 avant
     // meme de jouer sa sequence) — les deux figent world.step() sans figer
     // ce rendu (realDt continu), voir UnitViews.sync pour le detail du bug.
+    updateFogOfWar();
     unitViews.sync(nonBuildingEntities, alpha, realDt, loop.timeScale === 0);
+    updateHeroCameraLock();
+    pruneDestroyedOwnedBuildings();
 
     // Selection RTS (prototype) : APRES unitViews.sync pour suivre la position
     // rendue de ce frame. Hors bataille en cours, aucune selection ne survit
@@ -6810,7 +7716,7 @@ const loop = new Loop(
     // ou selectionnee / inspectee. Les morts sont deja masquees par
     // l'overlay ; selection et inspection sont nettoyees plus haut.
     const isHealthBarShown = (e: Entity): boolean =>
-      e.hp < e.stats.maxHp || battleSelection.has(e.id) || battleEnemyInspection.has(e.id) || e.id === battleInspectedEntityId;
+      !hiddenByFog(e) && (e.hp < e.stats.maxHp || battleSelection.has(e.id) || battleEnemyInspection.has(e.id) || e.id === battleInspectedEntityId);
     combatOverlay.sync(nonBuildingEntities, (e) => unitViews.getPosition(e.id) ?? { x: e.x, z: e.z }, isHealthBarShown);
     // Batiments gameplay (2026-08-17, generalise depuis l'ancien couple
     // Mine/Baliste code en dur) : un seul point de dispatch sur
@@ -6834,8 +7740,16 @@ const loop = new Loop(
         buildings.push({ entity, radius: def.radius, hpBarHeight: def.hpBarHeight });
         // Porte de muraille : battants d'apres l'etat de la simulation.
         if (entity.gate) view.setGateOpenness(entity.gate.prevOpenness + (entity.gate.openness - entity.gate.prevOpenness) * alpha);
-        view.tick(realDt);
-        if (!entity.alive) view.playDestroy();
+        // Fumee selon les PV restants, effondrement a la destruction ; figes
+        // pendant la pause (render/buildingDamageFx.ts).
+        // Case de muraille d'une paire visuelle qui tombe : les deux cases
+        // repassent d'abord en modele d'une case (render/wallVisuals.ts).
+        if (!entity.alive) splitBattleWallPair(entityId);
+        const current = buildingViewsByEntityId.get(entityId) ?? view;
+        current.setConstruction(entity.construction ? entity.construction.progress : null);
+        current.setHealthFraction(entity.alive ? entity.hp / entity.stats.maxHp : 0);
+        current.tick(realDt, loop.timeScale === 0);
+        if (!entity.alive) current.playDestroy();
       }
       combatOverlay.syncBuildings(buildings, (e) => ({ x: e.x, z: e.z }), isHealthBarShown);
     }
@@ -7073,6 +7987,7 @@ function quitToMenu(): void {
   board.zones.visible = false;
   waveIndicator.setVisible(false);
   goldHud.setVisible(false);
+  heroHud.setVisible(false);
   populationHud.setVisible(false);
   screens.show('menu');
 }
@@ -7401,6 +8316,7 @@ window.addEventListener('keydown', (event) => {
     // retablir agit toujours sur un historique complet.
     if (brushStroke) endBrushStroke();
     if (surfaceStroke) endSurfaceStroke();
+    if (forestStroke) endForestStroke();
     if ((event.key === 'z' || event.key === 'Z' || event.key === 'y' || event.key === 'Y') && editorWallTrace) {
       editorWallTrace = null;
       clearEditorGhost();
@@ -7482,8 +8398,12 @@ window.addEventListener('keydown', (event) => {
       // preventDefault : Espace ne doit pas EN PLUS activer le bouton qui a
       // le focus (ex. « Boutique » apres un clic, qui se rouvrait).
       event.preventDefault();
+      // KI-24 : le bouton qui garde le focus (« Lancer quand même »,
+      // « Boutique »...) serait active au relachement d'Espace, touche de jeu
+      // depuis le 2026-11-01 (Heros <-> Baliste) : il perd le focus d'abord.
+      if (document.activeElement instanceof HTMLButtonElement) document.activeElement.blur();
       if (inEditorMode || inTestMode) resetEditorCamera();
-      else frameRunCamera();
+      else toggleHeroCamera();
       break;
     case 'Delete':
     case 'Backspace':
@@ -7679,7 +8599,7 @@ canvas.addEventListener('mousedown', (event) => {
   // (voir le mouseup plus bas), meme si la souris a un peu bouge. Jamais si
   // ce clic vient de desarmer un objet, ni si un clic gauche s'y ajoute
   // ensuite (pan).
-  pendingRightClickOrder = !disarmedItem && battleSelection.size > 0 && canIssueRtsOrder();
+  pendingRightClickOrder = !disarmedItem && !buildingPlacementMode && battleSelection.size > 0 && canIssueRtsOrder();
 
   // Mode placement d'un BATIMENT achete (2026-08-17, demande explicite
   // d'Antoine, point 10 : "Escape ou clic droit -> annule le placement,
@@ -7818,6 +8738,11 @@ canvas.addEventListener('mousedown', (event) => {
 
 canvas.addEventListener('mousedown', (event) => {
   if (event.button !== 0 || inEditorMode || leftClickReservedForCamera(event) || !inBattlePhase()) return;
+  // Temps reel : un batiment en cours de pose prend le clic (chantier).
+  if (buildingPlacementMode) {
+    confirmBuildingPlacement(event);
+    return;
+  }
   // Clic gauche en bataille : un objet arme (parchemin, Nova...) CONSOMME
   // ENTIEREMENT ce clic (2026-08-15, PRIORITE explicite d'Antoine : UI > mode
   // de ciblage d'un objet > reste) ; sinon selection RTS, resolue au
@@ -8020,7 +8945,7 @@ window.addEventListener('mousemove', (event) => {
   setRaycasterFromEvent(event);
   // Pinceaux de relief : meme pointage que le trait (terrain de son debut,
   // prolonge dans le vide) ; l'apercu suit le curseur hors de la carte.
-  if (!(editorState.tool.type === 'relief-brush' || editorState.tool.type === 'paint-surface' ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
+  if (!(editorState.tool.type === 'relief-brush' || editorState.tool.type === 'paint-surface' || editorState.tool.type === 'forest-brush' || editorState.tool.type === 'cell-relief' ? pickReliefPoint() : intersectTerrain(raycaster.ray, groundHit))) return;
   updateEditorGhost(groundHit.x, groundHit.z);
 });
 

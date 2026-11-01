@@ -58,9 +58,10 @@ def source_of(name):
 
 
 def pieces_of(unit):
-    """Noms d'objets du FBX : emplacements standard (une piece ou rien) puis `extras` (liste)."""
+    """Noms d'objets du FBX : emplacements standard (une piece ou rien), `extras` (liste), puis les outils
+    (`tools`, maillages separes)."""
     names = [unit["pieces"].get(slot) for slot in PIECE_SLOTS]
-    return [n for n in names if n] + list(unit["pieces"].get("extras", []))
+    return [n for n in names if n] + list(unit["pieces"].get("extras", [])) + list(unit["pieces"].get("tools", {}).values())
 
 
 def mirror_to_left_hand(arm, piece):
@@ -90,9 +91,10 @@ def mirror_to_left_hand(arm, piece):
 
 
 def clip_name(fbx_file):
-    """`WK_infantry_07_attack_A.FBX` -> `attackA` ; `WK_mage_11_cast_B` -> `castB`."""
+    """`WK_infantry_07_attack_A.FBX` -> `attackA` ; `WK_mage_11_cast_B` -> `castB` ;
+    `WK_cavalry_spear_07_attack` -> `attack` (dossier au nom en plusieurs mots)."""
     stem = os.path.splitext(os.path.basename(fbx_file))[0]
-    match = re.match(r"^[^_]+_[^_]+_\d+_(.+)$", stem)
+    match = re.match(r"^[^_]+_(?:[^_]+_)+?\d+_(.+)$", stem)
     words = (match.group(1) if match else stem).split("_")
     return words[0].lower() + "".join(w[:1].upper() + w[1:] for w in words[1:])
 
@@ -253,18 +255,52 @@ def build_unit(name):
     offhand = unit["pieces"].get("offhand_weapon")
     if offhand:
         names.append(mirror_to_left_hand(arm, offhand))
+    # Outils (`tools` : {nom: piece}) : maillages SEPARES nommes `tool_<nom>`, affiches ou masques par le jeu
+    # (changement d'outil) ; `tool_scale` ({nom: facteur}) agrandit un outil autour de sa prise (origine).
+    tools = unit["pieces"].get("tools", {})
+    for tool, factor in unit["pieces"].get("tool_scale", {}).items():
+        bpy.data.objects[tools[tool]].scale *= factor
+    bpy.context.view_layer.update()
     pieces, carriers = keep_pieces(arm, names)
     stats = {p.name: {"sommets": len(p.data.vertices), "os_porteur": carriers.get(p.name)} for p in pieces}
     # Fusion : un maillage (le corps actif garde ses modificateurs : armature).
     body = bpy.data.objects.get(unit["pieces"].get("body")) or pieces[0]
+    tool_objects = {tool: bpy.data.objects[piece] for tool, piece in tools.items()}
     bpy.ops.object.select_all(action="DESELECT")
     for obj in pieces:
-        obj.select_set(True)
+        if obj not in tool_objects.values():
+            obj.select_set(True)
     bpy.context.view_layer.objects.active = body
     bpy.ops.object.join()
     mesh = bpy.context.view_layer.objects.active
     mesh.name = mesh.data.name = name
+    # Parties a texture propre (`material_parts` : {materiau du FBX: partie}, ex. le cheval de la cavalerie
+    # humaine, hors de l'atlas des unites) : maillages SEPARES nommes `part_<partie>`, texture choisie par le jeu.
+    parts = {}
+    for mat_name, part in unit.get("material_parts", {}).items():
+        index = next((i for i, m in enumerate(mesh.data.materials) if m and m.name.split(".")[0] == mat_name), None)
+        if index is None:
+            raise SystemExit(f"Materiau absent de {name} : {mat_name}")
+        bpy.ops.object.select_all(action="DESELECT")
+        mesh.select_set(True)
+        bpy.context.view_layer.objects.active = mesh
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="DESELECT")
+        mesh.active_material_index = index
+        bpy.ops.object.material_slot_select()
+        bpy.ops.mesh.separate(type="SELECTED")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        separated = next(o for o in bpy.context.selected_objects if o != mesh)
+        separated.name = separated.data.name = "part_" + part
+        parts[part] = separated
     material = bpy.data.materials.new(name)
+    for tool, obj in tool_objects.items():
+        obj.name = obj.data.name = "tool_" + tool
+        prepare_mesh(obj, material)
+        obj.data.calc_loop_triangles()
+    for obj in parts.values():
+        prepare_mesh(obj, material)
+        obj.data.calc_loop_triangles()
     influences = prepare_mesh(mesh, material)
     clean_materials(material)
     mesh.data.calc_loop_triangles()
@@ -273,9 +309,10 @@ def build_unit(name):
     for extra in unit.get("extra_animations", []):
         clips.update(bake_clips(arm, os.path.join(source["pack"], extra["folder"]), rename=extra["clips"]))
     path = os.path.join(args.out, name + ".glb")
-    export_glb(path, [arm, mesh])
+    export_glb(path, [arm, mesh, *tool_objects.values(), *parts.values()])
     rapport["unites"][name] = {
-        "pieces": stats, "sommets": len(mesh.data.vertices), "triangles": len(mesh.data.loop_triangles), "os": len(arm.data.bones),
+        "pieces": stats, "outils": {t: {"triangles": len(o.data.loop_triangles)} for t, o in tool_objects.items()},
+        "parties": {p: {"triangles": len(o.data.loop_triangles)} for p, o in parts.items()}, "sommets": len(mesh.data.vertices), "triangles": len(mesh.data.loop_triangles), "os": len(arm.data.bones),
         "influences_max_source": influences, "clips": clips, "glb": path, "octets": os.path.getsize(path), "textures": source["textures"],
     }
 
@@ -308,9 +345,9 @@ def load_pixels(path):
 
 def save_png(pixels, path):
     """`pixels` (h, w, 4, valeurs brutes 0..1, sans gestion des couleurs) en PNG RVB au cote args.texture
-    (moyenne par blocs)."""
+    (moyenne par blocs) ; une image plus petite garde sa taille (texture de cheval, 512)."""
     h, w = pixels.shape[:2]
-    s = args.texture
+    s = min(args.texture, h)
     small = pixels.reshape(s, h // s, s, w // s, 4).mean(axis=(1, 3))
     img = bpy.data.images.new(os.path.basename(path), s, s, alpha=False)
     img.colorspace_settings.name = "Non-Color"
@@ -334,6 +371,10 @@ def build_textures(source_name):
     save_png(atlases[source["neutral_atlas"]], prefix + "_albedo.png")
     save_png(mask, prefix + "_team_mask.png")
     rapport["textures"][source["textures"]] = {n: os.path.getsize(prefix + n) for n in ("_albedo.png", "_team_mask.png")}
+    # Textures de parties (`extra_textures` : {partie: image du pack}), sans teinte d'equipe : `<textures>_<partie>.png`.
+    for part, rel in source.get("extra_textures", {}).items():
+        save_png(load_pixels(os.path.join(source["pack"], rel)), prefix + "_" + part + ".png")
+        rapport["textures"][source["textures"]]["_" + part + ".png"] = os.path.getsize(prefix + "_" + part + ".png")
     if args.atlas:
         os.makedirs(args.atlas, exist_ok=True)
         for f, px in atlases.items():

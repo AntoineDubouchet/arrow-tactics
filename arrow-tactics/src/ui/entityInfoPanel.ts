@@ -35,7 +35,7 @@ export class EntityInfoPanel {
   private shownVisible = false;
   private readonly shownText = new WeakMap<HTMLElement, string>();
 
-  constructor(private readonly onAction: (id: EntityInfoAction['id']) => void) {
+  constructor(private readonly onAction: (id: EntityInfoAction['id'], payload?: string) => void) {
     this.root = document.createElement('div');
     this.root.className = 'entity-info';
     this.root.style.display = 'none';
@@ -143,7 +143,7 @@ export class EntityInfoPanel {
         // Le focus ne doit pas rester sur le bouton : Espace/Entree le
         // redeclencheraient.
         button.blur();
-        this.onAction(action.id);
+        this.onAction(action.id, action.payload);
       });
       return button;
     });

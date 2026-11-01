@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { InstancedDecor } from './decorInstancing';
 import { COLORS, obstacleCenter, PLACEMENT_ROWS, TILE } from '../config/constants';
 import { cellKey, computeMapCellBounds, resolveMapCells, type MapDef, type TerrainCellDef } from '../config/mapDef';
 import { buildSurfaceIndex } from '../config/groundSurfaces';
@@ -6,6 +7,7 @@ import { FLAT_TERRAIN, resolveMapHeightField, type TerrainHeightField } from '..
 import { resolveMapTerritory, type TerritoryCell, type TerritoryTeam } from '../config/territory';
 import { ensureModels, loadEnvironmentAssets, obstacleModelKeys } from './assetLibrary';
 import { box } from './meshHelpers';
+import { hillHeightAt } from './hillShape';
 import { buildObstacleMesh, placeObstacleMesh } from './obstacleFactory';
 import { buildCellGridLines, buildTerrainCellsView } from './terrainCells';
 import { appendCellSurfaceTriangles } from './terrainSurface';
@@ -13,6 +15,9 @@ import { teamColor } from './unitSelectionRing';
 
 export interface Board {
   group: THREE.Group;
+  /** Decors instancies de la carte generee (render/decorInstancing.ts),
+   *  reveles par le brouillard ; null sur une carte dessinee. */
+  decor: InstancedDecor | null;
   /** Quadrillage : utile pour viser une case pendant le placement, inutile et
    *  bruyant une fois la bataille lancee — l'appelant bascule sa visibilite. */
   gridLines: THREE.LineSegments;
@@ -101,14 +106,21 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   for (const obstacle of map.obstacles) {
     const mesh = buildObstacleMesh(obstacle, environmentAssets);
     const center = obstacleCenter(obstacle);
-    placeObstacleMesh(mesh, obstacle, field.heightAt(center.x, center.z));
+    // Sol affiche (collines arrondies comprises, render/hillShape.ts).
+    placeObstacleMesh(mesh, obstacle, hillHeightAt(field, center.x, center.z));
     obstacles.add(mesh);
   }
   group.add(obstacles);
+  // Carte generee (grande) : decors instancies par modele et par morceau,
+  // caches tant que leur case n'est pas exploree (KI-34, KI-35).
+  const decor = map.generator ? new InstancedDecor(obstacles, true) : null;
+  if (decor) group.add(decor.group);
 
-  scatterDecoration(group, cells, field);
+  // Carte generee : pas de debris de planches decoratifs, qu'on confondrait
+  // avec les petits tas de bois a ramasser (MapDef.resourcePiles).
+  if (!map.generator) scatterDecoration(group, cells, field);
 
-  return { group, gridLines, zones, obstacles };
+  return { group, gridLines, zones, obstacles, decor };
 }
 
 /** Hauteur des zones au-dessus du sol (sous la grille, a 0.012). */

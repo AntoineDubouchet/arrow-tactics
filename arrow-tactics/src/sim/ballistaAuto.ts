@@ -34,12 +34,16 @@ export function selectBallistaAutoTarget(
   originZ: number,
   current: Entity | undefined,
   rangeTiles: number,
+  /** Vision GAMEPLAY du joueur (sim/vision.ts, 2026-11-01) : une cible hors
+   *  vision n'est ni acquise ni gardee. Tout est visible par defaut. */
+  isVisible: (x: number, z: number) => boolean = () => true,
 ): Entity | null {
-  if (isValidBallistaAutoTarget(current) && isWithinBallistaRange(current, originX, originZ, rangeTiles)) return current;
+  const usable = (e: Entity | undefined): e is Entity => isValidBallistaAutoTarget(e) && isWithinBallistaRange(e, originX, originZ, rangeTiles) && isVisible(e.x, e.z);
+  if (usable(current)) return current;
   let best: Entity | null = null;
   let bestDist = Infinity;
   for (const e of entities) {
-    if (!isValidBallistaAutoTarget(e) || !isWithinBallistaRange(e, originX, originZ, rangeTiles)) continue;
+    if (!usable(e)) continue;
     const d = dist(originX, originZ, e.x, e.z);
     if (d < bestDist || (d === bestDist && best !== null && e.id < best.id)) {
       best = e;

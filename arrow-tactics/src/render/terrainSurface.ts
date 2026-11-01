@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { cellTriangles, FLAT_TERRAIN, TERRAIN_ELEVATION_STEP, TERRAIN_LEVEL_MAX, type TerrainHeightField } from '../config/terrainElevation';
+import { hillHeightAt, hillHeightInCell, hillsAreOrganic, hillSubdivisions } from './hillShape';
 import { CELL_THICKNESS } from './terrainCells';
 
 /**
@@ -21,9 +22,10 @@ export function activeTerrain(): TerrainHeightField {
   return active;
 }
 
-/** Hauteur monde de la surface visible au point (x, z). */
+/** Hauteur monde de la surface visible au point (x, z) (collines arrondies
+ *  comprises, `?hills=organic`, voir render/hillShape.ts). */
 export function surfaceY(x: number, z: number): number {
-  return active.heightAt(x, z);
+  return hillHeightAt(active, x, z);
 }
 
 /**
@@ -53,8 +55,20 @@ export function cellSurfaceMatrix(field: TerrainHeightField, cx: number, cz: num
  * territoire, apercus de l'editeur).
  */
 export function appendCellSurfaceTriangles(field: TerrainHeightField, cx: number, cz: number, lift: number, out: number[], originX = 0, originZ = 0): void {
+  const slope = field.slopeAt(cx, cz);
+  if (slope && hillsAreOrganic()) {
+    // Pente arrondie (render/hillShape.ts) : meme sous-grille que le sol.
+    const N = hillSubdivisions();
+    const nwSe = cellTriangles(slope)[0]!.includes(3);
+    const at = (i: number, j: number) => out.push(cx + i / N - originX, hillHeightInCell(field, cx, cz, i / N, j / N) + lift, cz + j / N - originZ);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      if (nwSe) { at(i, j); at(i, j + 1); at(i + 1, j + 1); at(i, j); at(i + 1, j + 1); at(i + 1, j); }
+      else { at(i, j); at(i, j + 1); at(i + 1, j); at(i + 1, j); at(i, j + 1); at(i + 1, j + 1); }
+    }
+    return;
+  }
   const h = field.cornerHeights(cx, cz);
-  for (const tri of cellTriangles(field.slopeAt(cx, cz))) {
+  for (const tri of cellTriangles(slope)) {
     for (const i of tri) out.push(cx + (i % 2) - originX, h[i]! + lift, cz + (i < 2 ? 0 : 1) - originZ);
   }
 }
@@ -80,7 +94,7 @@ const MARCH_STEP = 0.05;
 export function intersectTerrain(ray: THREE.Ray, target: THREE.Vector3, field: TerrainHeightField = active): boolean {
   if (field.isFlat) return ray.intersectPlane(flatGround, target) !== null;
   if (ray.direction.y >= 0) return false;
-  if (marchToSurface(ray, target, (x, z) => field.heightAt(x, z), -topPlane.constant)) return true;
+  if (marchToSurface(ray, target, (x, z) => hillHeightAt(field, x, z), -topPlane.constant)) return true;
   return ray.intersectPlane(flatGround, target) !== null;
 }
 
@@ -115,7 +129,7 @@ export function intersectSculptSurface(ray: THREE.Ray, target: THREE.Vector3, fi
   }
   // Terrain reel : le vide est transparent (le rayon y passe), une case
   // existante l'arrete par son dessus ou la face visible d'un flanc.
-  const heightAt = (x: number, z: number) => (hasCell(Math.floor(x), Math.floor(z)) ? field.heightAt(x, z) : -Infinity);
+  const heightAt = (x: number, z: number) => (hasCell(Math.floor(x), Math.floor(z)) ? hillHeightAt(field, x, z) : -Infinity);
   const hit = marchToSurface(ray, target, heightAt, -topPlane.constant, -CELL_THICKNESS);
   // Plan de travail : a la hauteur du dernier point vise, puis a celle de la
   // case existante la plus proche de ce point.

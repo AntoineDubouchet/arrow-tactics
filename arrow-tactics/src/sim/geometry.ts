@@ -46,16 +46,20 @@ function cachedTeamList(obstacles: ObstacleDef[], key: string, isPassage: (o: Ob
  *  compte (A*, ligne droite, contournement) : tous, sauf les portes de ce
  *  camp (`passableForTeam === team`), comptees comme un passage meme
  *  fermees — l'unite y va, la porte s'ouvre a son approche. Renvoie le
- *  tableau d'origine s'il n'y a rien a retirer. */
-export function obstaclesBlockingTeam(obstacles: ObstacleDef[], team: string): ObstacleDef[] {
+ *  tableau d'origine s'il n'y a rien a retirer. `crossesWater`
+ *  (UnitStats.canTraverseWater) : l'eau (`terrainWater`) est retiree aussi. */
+export function obstaclesBlockingTeam(obstacles: ObstacleDef[], team: string, crossesWater = false): ObstacleDef[] {
+  if (crossesWater) return cachedTeamList(obstacles, 'path-water:' + team, (o) => o.passableForTeam === team || o.terrainWater === true);
   return cachedTeamList(obstacles, 'path:' + team, (o) => o.passableForTeam === team);
 }
 
 /** Obstacles qui arretent PHYSIQUEMENT une unite du camp `team` (collision,
  *  ruee de Charge) : tous, sauf les portes de ce camp assez ouvertes
  *  (`passageOpen`). Une porte qui s'ouvre ou se ferme remplace
- *  World.obstacles (World.setGatePassage) : le cache reste exact. */
-export function obstaclesCollidingTeam(obstacles: ObstacleDef[], team: string): ObstacleDef[] {
+ *  World.obstacles (World.setGatePassage) : le cache reste exact.
+ *  `crossesWater` : comme obstaclesBlockingTeam. */
+export function obstaclesCollidingTeam(obstacles: ObstacleDef[], team: string, crossesWater = false): ObstacleDef[] {
+  if (crossesWater) return cachedTeamList(obstacles, 'body-water:' + team, (o) => (o.passableForTeam === team && o.passageOpen === true) || o.terrainWater === true);
   return cachedTeamList(obstacles, 'body:' + team, (o) => o.passableForTeam === team && o.passageOpen === true);
 }
 

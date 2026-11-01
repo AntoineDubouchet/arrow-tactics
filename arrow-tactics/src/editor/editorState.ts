@@ -1,5 +1,5 @@
 import { isBlockingMapObstacle, obstacleBounds, obstacleCenter, PLACEMENT_ROWS, type ObstacleBounds, type ObstacleDef } from '../config/constants';
-import { surfaceBrushOrigin, type GroundTextureId, type SurfaceBrushSize, type SurfaceCellDef } from '../config/groundSurfaces';
+import { isWaterSurface, surfaceBrushOrigin, type GroundTextureId, type SurfaceBrushSize, type SurfaceCellDef } from '../config/groundSurfaces';
 import {
   BALLISTA_PLACEMENT_TILES,
   buildCellIndex,
@@ -21,6 +21,8 @@ import {
   reliefBrushOrigin,
   renderReliefLogic,
   sculptRelief,
+  SLOPE_DIRECTION_VECTORS,
+  SLOPE_DIRECTIONS,
   TerrainHeightField,
   TERRAIN_LEVEL_MAX,
   TERRAIN_LEVEL_MIN,
@@ -28,6 +30,7 @@ import {
   type ReliefDelta,
   type ReliefSculptContext,
   type RenderedRelief,
+  type SlopeDirection,
   type SlopeShape,
   type TerrainElevationCellDef,
 } from '../config/terrainElevation';
@@ -40,8 +43,10 @@ import {
   type TerritoryIndex,
   type TerritoryTeam,
 } from '../config/territory';
-import { buildingFootprintTiles, buildingRotationStep, getBuilding, sameBuildingFootprint } from '../data/buildings';
+import { buildingFootprintTiles, buildingRotationStep, getBuilding, migrateLegacyWalls, replacedWallCells } from '../data/buildings';
+import { getUnit } from '../data/units';
 import type { Team } from '../sim/entity';
+import { forestTreesForCell, type ForestBrushSize, type ForestDensity, type ForestTreeTypeId } from './forestBrush';
 
 /**
  * Etat de l'editeur de maps (chantier en cours, voir CLAUDE.md) : les
@@ -163,13 +168,27 @@ export type EditorTool =
    *  pinceau continu Surelever (+1) / Abaisser (-1), une couche par trait,
    *  taille 1×1 ou 4×4. */
   | { type: 'relief-brush'; delta: ReliefDelta; size: ReliefBrushSize }
+  /** Outils EXPLICITES d'une case (2026-11-01, restaures en complement des
+   *  pinceaux) : Monter une case, Descendre une case, Pente (orientation par
+   *  glisser, sinon deduite des voisines). Voir EditorState.planCellRelief. */
+  | { type: 'cell-relief'; op: CellReliefOp }
   /** Pinceau de territoire : `team` peint la case pour ce camp, `null`
    *  l'efface (case neutre). */
   | { type: 'paint-territory'; team: TerritoryTeam | null }
   /** Pinceau Surface (purement visuel, config/groundSurfaces.ts) : peint le
    *  dessus des cases du carre `size × size` avec `surface` ; `null` (Par
    *  defaut) efface la peinture. */
-  | { type: 'paint-surface'; surface: GroundTextureId | null; size: SurfaceBrushSize };
+  | { type: 'paint-surface'; surface: GroundTextureId | null; size: SurfaceBrushSize }
+  /** Pinceau Foret (editor/forestBrush.ts) : plante des arbres-decors dans
+   *  le disque de diametre `size`, ou les retire (`erase`). */
+  | { type: 'forest-brush'; treeType: ForestTreeTypeId; density: ForestDensity; size: ForestBrushSize; erase: boolean };
+
+/** Operation d'un outil explicite de relief (EditorTool `cell-relief`). */
+export type CellReliefOp = 'raise' | 'lower' | 'slope';
+
+/** Resultat d'un outil explicite de relief sur une case : sa nouvelle
+ *  definition et sa hauteur logique, ou la raison du refus. */
+export type CellReliefPlan = { ok: true; cell: TerrainElevationCellDef; logic: number } | { ok: false; reason: string };
 
 /** Proprietaire de la Baliste de la carte : toujours le joueur (meme camp
  *  que spawnBallistaBuilding en jeu) ; son placement interactif exige une
@@ -307,7 +326,8 @@ export class EditorState {
       ...source.playerUnits.map((u) => this.toEditorUnit(u, 'player')),
       ...source.enemyUnits.map((u) => this.toEditorUnit(u, 'enemy')),
     ];
-    this.buildings = (source.buildings ?? []).map((b) => this.toEditorBuilding(b));
+    // Anciennes murailles (segments de 2 cases) : une case par segment.
+    this.buildings = migrateLegacyWalls(source.buildings ?? []).map((b) => this.toEditorBuilding(b));
     this.width = source.width;
     this.height = source.height;
     this.cellMap = buildCellIndex(resolveMapCells(source));
@@ -378,6 +398,7 @@ export class EditorState {
     }
     // Relief : tour posee sur une emprise entierement plate, a un seul niveau.
     if (this.heightField().flatLevelOver(b.minX, b.maxX, b.minZ, b.maxZ) === null) return false;
+    if (this.boundsTouchWater(b)) return false;
     if (this.obstacles.some((o) => isBlockingMapObstacle(o) && boundsOverlap(b, obstacleBounds(o)))) return false;
     if (this.buildings.some((bd) => boundsOverlap(b, buildingBoundsAt(bd.buildingId, bd.x, bd.z, bd.rotationY)))) return false;
     return !this.units.some((u) => u.x > b.minX && u.x < b.maxX && u.z > b.minZ && u.z < b.maxZ);
@@ -528,6 +549,64 @@ export class EditorState {
     return out.sort((a, b) => a.z - b.z || a.x - b.x);
   }
 
+  /**
+   * Outils explicites de relief (Monter une case, Descendre une case, Pente),
+   * sur le MEME modele que la sculpture : une case = un niveau (bas d'une
+   * pente) et une forme, meme verrou (case occupee : isCellOccupied), meme
+   * champ logique (la hauteur logique de la case suit, pour que les
+   * pinceaux la relisent), niveaux TERRAIN_LEVEL_MIN..MAX. Aucun
+   * autotuilage : une case montee seule est une marche (falaises), comme
+   * avec les anciens outils.
+   *  - raise : case plate un niveau plus haut (une pente devient le plat de
+   *    son sommet) ;
+   *  - lower : case plate un niveau plus bas (une pente devient le plat de
+   *    son pied) ;
+   *  - slope : pente du niveau de la case vers le niveau suivant, montant
+   *    vers `dir` (glisser), ou vers la seule voisine plus haute.
+   */
+  planCellRelief(x: number, z: number, op: CellReliefOp, dir: SlopeDirection | null = null): CellReliefPlan {
+    if (!this.hasCellAt(x, z)) return { ok: false, reason: 'aucune case' };
+    if (this.isCellOccupied(x, z)) return { ok: false, reason: 'case occupée (relief verrouillé)' };
+    const { level, slope } = this.elevationAt(x, z);
+    if (op === 'raise' || op === 'lower') {
+      const next = op === 'raise' ? level + 1 : slope ? level : level - 1;
+      if (next > TERRAIN_LEVEL_MAX) return { ok: false, reason: `niveau maximal (${TERRAIN_LEVEL_MAX})` };
+      if (next < TERRAIN_LEVEL_MIN) return { ok: false, reason: `niveau minimal (${TERRAIN_LEVEL_MIN})` };
+      return { ok: true, cell: { x, z, level: next }, logic: next };
+    }
+    if (level + 1 > TERRAIN_LEVEL_MAX) return { ok: false, reason: `niveau maximal (${TERRAIN_LEVEL_MAX}) : pas de pente au-dessus` };
+    const rising = dir ?? this.slopeDirectionFromNeighbors(x, z, level);
+    if (!rising) return { ok: false, reason: 'orientation ambiguë : glisser dans le sens de la montée' };
+    if (slope === rising) return { ok: false, reason: 'pente déjà orientée ainsi' };
+    return { ok: true, cell: { x, z, level, slope: rising }, logic: level };
+  }
+
+  /** Seule direction ou la case voisine est plus haute que `level` (son
+   *  bas au moins level + 1) ; null si aucune ou plusieurs. */
+  private slopeDirectionFromNeighbors(x: number, z: number, level: number): SlopeDirection | null {
+    const higher = SLOPE_DIRECTIONS.filter((d) => {
+      const v = SLOPE_DIRECTION_VECTORS[d];
+      return this.hasCellAt(x + v.dx, z + v.dz) && this.elevationAt(x + v.dx, z + v.dz).level >= level + 1;
+    });
+    return higher.length === 1 ? higher[0]! : null;
+  }
+
+  /** Applique un plan valide de planCellRelief. Renvoie true si la case a
+   *  change (relief ou hauteur logique). */
+  applyCellRelief(plan: Extract<CellReliefPlan, { ok: true }>): boolean {
+    const { x, z, level, slope } = plan.cell;
+    const key = cellKey(x, z);
+    const current = this.elevationAt(x, z);
+    const logicChanged = (this.reliefLogicMap.get(key) ?? 0) !== plan.logic;
+    if (current.level === level && current.slope === (slope ?? null) && !logicChanged) return false;
+    this.setElevation(x, z, level, slope ?? null);
+    const logic = new Map(this.reliefLogicMap);
+    if (plan.logic === 0) logic.delete(key);
+    else logic.set(key, plan.logic);
+    this.setReliefLogic(logic);
+    return true;
+  }
+
   /** Etat du relief au debut d'un trait de sculpture. */
   reliefStrokeStart(): ReliefStrokeStart {
     return { logic: new Map(this.reliefLogicMap), rendered: this.renderedRelief(), field: this.heightField() };
@@ -613,6 +692,22 @@ export class EditorState {
 
   hasCellAt(x: number, z: number): boolean {
     return this.cellMap.has(cellKey(x, z));
+  }
+
+  /** Vrai si la case (x, z) est peinte d'une surface d'eau (isWaterSurface) :
+   *  aucune unite, aucun batiment ni muraille, pas de Baliste. */
+  isWaterCell(x: number, z: number): boolean {
+    return isWaterSurface(this.surfaceMap.get(cellKey(x, z)));
+  }
+
+  /** Vrai si l'une des cases sous le rectangle `r` est une case d'eau. */
+  private boundsTouchWater(r: ObstacleBounds): boolean {
+    for (let cz = Math.floor(r.minZ); cz < r.maxZ; cz++) {
+      for (let cx = Math.floor(r.minX); cx < r.maxX; cx++) {
+        if (this.isWaterCell(cx, cz)) return true;
+      }
+    }
+    return false;
   }
 
   /** Vrai si AUCUNE cellule n'existe encore à (x, z) — condition de
@@ -788,14 +883,52 @@ export class EditorState {
   }
 
   /** Peint le dessus de la case (x, z) avec `surface`, ou efface sa peinture
-   *  (`null`, surface par defaut : aucune entree). Visuel seulement :
-   *  jamais bloque par un objet, une unite ou un batiment. Renvoie false si
-   *  rien ne change (case absente, ou deja dans cet etat). */
+   *  (`null`, surface par defaut : aucune entree). Visuel seulement, sauf
+   *  l'eau (isWaterSurface, infranchissable) : jamais peinte sous une unite,
+   *  un batiment, une structure bloquante ou la Baliste (isCellOccupied,
+   *  meme regle que le verrou du relief). Renvoie false si
+   *  rien ne change (case absente, deja dans cet etat ou occupee). */
   paintSurfaceCell(x: number, z: number, surface: GroundTextureId | null): boolean {
     const key = cellKey(x, z);
     if (!this.cellMap.has(key) || (this.surfaceMap.get(key) ?? null) === surface) return false;
+    if (isWaterSurface(surface ?? undefined) && this.isCellOccupied(x, z)) return false;
     if (surface) this.surfaceMap.set(key, surface);
     else this.surfaceMap.delete(key);
+    return true;
+  }
+
+  /** Arbres (kind 'tree') dont le centre est dans la case (x, z). */
+  private treesInCell(x: number, z: number): EditorObstacle[] {
+    return this.obstacles.filter((o) => {
+      if (o.kind !== 'tree') return false;
+      const c = obstacleCenter(o);
+      return Math.floor(c.x) === x && Math.floor(c.z) === z;
+    });
+  }
+
+  /** Pinceau Foret : plante les arbres de la case (x, z) (forestTreesForCell,
+   *  deterministe). Rien sur une case absente, d'eau, occupee (unite,
+   *  batiment, structure bloquante, Baliste : isCellOccupied) ou qui porte
+   *  deja un arbre — repasser le pinceau n'empile jamais. Renvoie vrai si un
+   *  arbre a ete pose. */
+  plantForestCell(x: number, z: number, treeType: ForestTreeTypeId, density: ForestDensity): boolean {
+    if (!this.hasCellAt(x, z) || this.isWaterCell(x, z) || this.isCellOccupied(x, z)) return false;
+    if (this.treesInCell(x, z).length > 0) return false;
+    const trees = forestTreesForCell(x, z, treeType, density);
+    for (const t of trees) {
+      this.obstacles.push({ kind: 'tree', tilesX: 1, tilesZ: 1, treeModel: t.treeModel, x: t.x, z: t.z, rotationY: t.rotationY, scale: t.scale, id: this.nextId++ });
+    }
+    return trees.length > 0;
+  }
+
+  /** Gomme du pinceau Foret : retire les arbres (kind 'tree') de la case
+   *  (x, z), quelle que soit leur origine, et les retire de la selection.
+   *  Renvoie vrai si un arbre a ete retire. */
+  eraseForestCell(x: number, z: number): boolean {
+    const removed = new Set(this.treesInCell(x, z).map((o) => o.id));
+    if (removed.size === 0) return false;
+    this.obstacles = this.obstacles.filter((o) => !removed.has(o.id));
+    if (this.selection?.kind === 'obstacle' && removed.has(this.selection.id)) this.selection = null;
     return true;
   }
 
@@ -925,12 +1058,15 @@ export class EditorState {
    *  ci-dessous — la preview ne doit JAMAIS promettre un résultat que le
    *  clic ne tiendrait pas. `ignoreUnitIds` : unités en cours de
    *  déplacement, dont la case actuelle ne bloque pas. */
-  canPlaceUnitAt(x: number, z: number, ignoreUnitIds?: ReadonlySet<number>): boolean {
+  canPlaceUnitAt(x: number, z: number, ignoreUnitIds?: ReadonlySet<number>, unitId?: string): boolean {
     const cellX = Math.floor(x);
     const cellZ = Math.floor(z);
     if (!this.hasCellAt(cellX, cellZ)) return false;
-    // Case neutre : interdite aux unites (le camp vient du territoire).
-    if (this.territoryOwnerAt(x, z) === null) return false;
+    if (this.isWaterCell(cellX, cellZ)) return false;
+    // Camp de l'unite a cet endroit (unitTeamAt) : case neutre interdite aux
+    // unites du joueur ou de l'ennemi, territoire joueur interdit aux unites
+    // neutres.
+    if ((unitId === undefined ? this.territoryOwnerAt(x, z) : this.unitTeamAt(unitId, x, z)) === null) return false;
     if (this.isInsideBallista(x, z)) return false;
     if (this.buildingAt(x, z) !== null) return false;
 
@@ -949,10 +1085,20 @@ export class EditorState {
    *  browser. Refuse (voir canPlaceUnitAt) si aucune cellule de terrain
    *  n'existe à cet endroit, si la case est neutre, si un obstacle/bâtiment
    *  occupe déjà la case, ou si une autre unité y est déjà posée. */
+  /** Camp d'une unite `unitId` posee en (x, z) : unite NEUTRE (UnitDef.neutral)
+   *  toujours du cote adverse (le camp Neutre, config/factions.ts), posable
+   *  en territoire ennemi ou neutre, jamais en territoire joueur ; toute
+   *  autre unite prend le camp du territoire (null sur une case neutre). */
+  unitTeamAt(unitId: string, x: number, z: number): TerritoryTeam | null {
+    const owner = this.territoryOwnerAt(x, z);
+    if (getUnit(unitId).neutral) return owner === 'player' ? null : 'enemy';
+    return owner;
+  }
+
   placeUnitAt(x: number, z: number): EditorUnit | null {
     if (this.tool.type !== 'place-unit') return null;
-    if (!this.canPlaceUnitAt(x, z)) return null;
-    const team = this.territoryOwnerAt(x, z);
+    if (!this.canPlaceUnitAt(x, z, undefined, this.tool.unitId)) return null;
+    const team = this.unitTeamAt(this.tool.unitId, x, z);
     if (!team) return null;
     const unit: EditorUnit = { id: this.nextId++, unitId: this.tool.unitId, team, x, z };
     this.units.push(unit);
@@ -989,6 +1135,7 @@ export class EditorState {
     // Relief : emprise entierement plate, a un seul niveau (jamais sur une
     // pente ni a cheval sur une falaise).
     if (this.heightField().flatLevelOver(r.minX, r.maxX, r.minZ, r.maxZ) === null) return false;
+    if (this.boundsTouchWater(r)) return false;
     if (this.buildings.some((b) => b.id !== ignoreBuildingId && boundsOverlap(r, buildingBoundsAt(b.buildingId, b.x, b.z, b.rotationY)))) return false;
     if (boundsOverlap(r, this.ballistaBoundsAt(this.ballista.x, this.ballista.z))) return false;
     if (this.obstacles.some((o) => isBlockingMapObstacle(o) && boundsOverlap(r, obstacleBounds(o)))) return false;
@@ -1003,24 +1150,24 @@ export class EditorState {
     const buildingId = this.tool.buildingId;
     const rotationY = this.tool.rotationY ?? 0;
     const center = snapBuildingCenter(buildingId, x, z, rotationY);
-    const replaced = this.replaceableBuildingAt(buildingId, center.x, center.z, rotationY);
-    if (!this.canPlaceBuildingAt(buildingId, center.x, center.z, replaced?.id, rotationY)) return null;
-    // Porte posee exactement sur un segment de mur : elle le remplace et
-    // reprend son orientation (meme exterieur).
-    if (replaced) this.buildings = this.buildings.filter((b) => b !== replaced);
-    const finalRotationY = replaced ? replaced.rotationY ?? 0 : rotationY;
+    const replaced = this.replaceableBuildingsAt(buildingId, center.x, center.z, rotationY);
+    const valid = replaced.length > 0 ? this.canReplaceBuildingPieces(replaced.map((b) => b.id), [{ buildingId, x: center.x, z: center.z, rotationY }], []) : this.canPlaceBuildingAt(buildingId, center.x, center.z, undefined, rotationY);
+    if (!valid) return null;
+    // Porte posee sur deux cases de mur alignees : elle les remplace et
+    // reprend leur orientation (meme exterieur).
+    if (replaced.length > 0) this.buildings = this.buildings.filter((b) => !replaced.includes(b));
+    const finalRotationY = replaced.length > 0 ? replaced[0]!.rotationY ?? 0 : rotationY;
     const building: EditorBuilding = { id: this.nextId++, buildingId, team: 'player', x: center.x, z: center.z, ...(finalRotationY ? { rotationY: finalRotationY } : {}) };
     this.buildings.push(building);
     return building;
   }
 
-  /** Batiment que `buildingId` centre en (x, z) REMPLACERAIT
-   *  (BuildingDef.placeOverBuildingId : porte posee exactement sur un
-   *  segment de mur, meme emprise), ou null. */
-  replaceableBuildingAt(buildingId: string, x: number, z: number, rotationY = 0): EditorBuilding | null {
-    const over = getBuilding(buildingId).placeOverBuildingId;
-    if (!over) return null;
-    return this.buildings.find((b) => b.buildingId === over && sameBuildingFootprint(buildingId, x, z, rotationY, b.buildingId, b.x, b.z, b.rotationY ?? 0)) ?? null;
+  /** Batiments que `buildingId` centre en (x, z) REMPLACERAIT
+   *  (BuildingDef.placeOverBuildingId : porte de 2 cases posee sur deux
+   *  cases de mur alignees, replacedWallCells), sinon liste vide. */
+  replaceableBuildingsAt(buildingId: string, x: number, z: number, rotationY = 0): EditorBuilding[] {
+    const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
+    return replacedWallCells(buildingId, x - tilesX / 2, z - tilesZ / 2, rotationY, this.buildings);
   }
 
   /** Vrai si, une fois les batiments `removeIds` retires (pieces d'un trace
@@ -1129,7 +1276,7 @@ export class EditorState {
       before.push({ id: u.id, x: u.x, z: u.z, team: u.team });
       u.x = move.x;
       u.z = move.z;
-      u.team = this.territoryOwnerAt(move.x, move.z) ?? u.team;
+      u.team = this.unitTeamAt(u.unitId, move.x, move.z) ?? u.team;
       after.push({ id: u.id, x: u.x, z: u.z, team: u.team });
     }
     return { before, after };

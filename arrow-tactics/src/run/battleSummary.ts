@@ -1,4 +1,4 @@
-import { getUnit, UNITS } from '../data/units';
+import { getUnit, unitPluralName, UNITS } from '../data/units';
 import { roundGold } from './runState';
 
 /**
@@ -40,12 +40,8 @@ export function defeatedLines(summary: BattleSummary): BattleSummaryLine[] {
   return [...summary.defeatedByUnitId.entries()]
     .filter(([, count]) => count > 0)
     .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
-    .map(([unitId, count]) => ({ label: `${pluralName(getUnit(unitId).name)} ${FEMININE_UNIT_IDS.has(unitId) ? 'vaincues' : 'vaincus'}`, value: count }));
+    .map(([unitId, count]) => ({ label: `${unitPluralName(getUnit(unitId))} ${FEMININE_UNIT_IDS.has(unitId) ? 'vaincues' : 'vaincus'}`, value: count }));
 }
 
 /** Noms d'unite feminins, pour l'accord de « vaincu(e)s ». */
 const FEMININE_UNIT_IDS: ReadonlySet<string> = new Set(['sentinel']);
-
-function pluralName(name: string): string {
-  return /[sx]$/.test(name) ? name : `${name}s`;
-}

@@ -10,6 +10,7 @@ import {
   TAUNT_COOLDOWN,
   TAUNT_DURATION,
 } from '../config/constants';
+import type { VisualFaction } from '../config/factions';
 import type { AbilityDef } from './abilities';
 
 /**
@@ -67,11 +68,19 @@ export interface UnitStats {
    *  explicite d'Antoine : "ne crée pas inutilement une immunité sur les
    *  unités actuelles"), reserve pour un futur boss. */
   tauntImmune?: boolean;
+  /** Franchit l'eau (cases d'une surface d'eau, voir
+   *  config/groundSurfaces.ts, isWaterSurface) : trajets, collision et
+   *  destinations l'ignorent. Absent/false pour TOUTES les unites actuelles
+   *  (2026-11-01) ; reserve a de futures unites (volantes, amphibies). */
+  canTraverseWater?: boolean;
 }
 
 export interface UnitVisual {
   /** Quel constructeur de silhouette utiliser dans render/unitMesh.ts */
-  kit: 'fantassin' | 'archer' | 'mage' | 'sentinel' | 'oracle' | 'piquier' | 'vengeur';
+  kit: 'fantassin' | 'archer' | 'mage' | 'sentinel' | 'oracle' | 'piquier' | 'vengeur' | 'hero' | 'cavalier' | 'cavalier_barbare';
+  /** Famille d'assets (config/factions.ts), independante du camp : absent =
+   *  humains. `barbarian` : modele Toon RTS barbare du meme role (kit). */
+  faction?: VisualFaction;
   /** Hauteur monde (voir config/constants.ts, HP_BAR_WORLD_HEIGHT) a
    *  laquelle ancrer la barre de PV de CETTE unite specifiquement — absent
    *  = retombe sur HP_BAR_WORLD_HEIGHT (comportement inchange pour toute
@@ -86,7 +95,14 @@ export interface UnitVisual {
 
 export interface UnitDef {
   id: string;
+  /** Nom affiche (couche de nom propre : l'identifiant technique ne change
+   *  pas, ex. `fantassin` affiche « Homme d'armes »). */
   name: string;
+  /** Pluriel affiche, si le `s` final ne suffit pas (voir unitPluralName). */
+  pluralName?: string;
+  /** Unite du camp NEUTRE (occupants de la carte, PvE) : toujours du cote
+   *  adverse, quel que soit le territoire ; jamais recrutee par le joueur. */
+  neutral?: boolean;
   /** Cout en credits lors de la composition d'armee. */
   cost: number;
   /** Places de population occupees par une unite du joueur (voir
@@ -146,7 +162,10 @@ const SENTINEL_TAUNT_RADIUS_TILES = MAGE_FIREBALL_RADIUS_TILES * ICE_NOVA_RADIUS
 export const UNITS: Record<string, UnitDef> = {
   fantassin: {
     id: 'fantassin',
-    name: 'Fantassin',
+    // Nom affiche « Homme d'armes » (2026-11-01, direction Hero RTS) ;
+    // identifiant technique `fantassin` conserve (cartes, sauvegardes).
+    name: 'Homme d’armes',
+    pluralName: 'Hommes d’armes',
     cost: 2,
     populationCost: 1,
     stats: {
@@ -495,6 +514,84 @@ export const UNITS: Record<string, UnitDef> = {
     visual: { kit: 'vengeur' },
   },
 };
+
+/** HEROS (2026-11-01, direction Hero RTS Survival) : personnage principal du
+ *  joueur, axe de la micro-gestion (combat, recolte, construction ; voir
+ *  data/hero.ts). Fiche PROVISOIRE, nettement au-dessus d'une unite
+ *  standard : 6 fois les PV d'un Homme d'armes, 2,5 fois ses degats, plus
+ *  rapide, plus gros. Jamais achete (cout 0) ni compte dans la population. */
+UNITS['hero'] = {
+  id: 'hero',
+  name: 'Héros',
+  pluralName: 'Héros',
+  cost: 0,
+  populationCost: 0,
+  stats: { maxHp: 300, damage: 25, attackRange: 1.0, aggroRange: 9, moveSpeed: 2.6, attackCooldown: 1.1, missChance: 0.05, dodgeChance: 0, radius: 0.6, canAttackWhileMoving: false },
+  visual: { kit: 'hero', hpBarHeight: 2.0 },
+};
+
+/** Cavalerie legere (2026-11-01, Hero RTS) : cheval, lance legere, petit
+ *  bouclier ; tres mobile, fragile pour son prix. Couts, PV et degats
+ *  imposes par Antoine (15 or, 18 PV, 3 degats) ; cadence, portee, vitesse,
+ *  rayon et rate PROVISOIRES. Aucun bonus contre un type d'unite. Bestiaire
+ *  et editeur seulement : ni recrutement ni vagues (choix d'Antoine). */
+const LIGHT_CAVALRY_STATS: UnitStats = {
+  maxHp: 180,
+  damage: 30,
+  attackRange: 1.2,
+  aggroRange: 10,
+  moveSpeed: 3.6,
+  attackCooldown: 1.3,
+  missChance: 0.1,
+  dodgeChance: 0,
+  radius: 0.7,
+  canAttackWhileMoving: false,
+};
+
+UNITS['cavalier'] = {
+  id: 'cavalier',
+  name: 'Cavalier léger',
+  pluralName: 'Cavaliers légers',
+  cost: 15,
+  populationCost: 2,
+  stats: LIGHT_CAVALRY_STATS,
+  visual: { kit: 'cavalier', hpBarHeight: 2.1 },
+};
+
+/** Unite NEUTRE habillee d'un modele d'une autre faction visuelle : memes
+ *  stats, capacites et comportement (kit) que le role `role`, PROVISOIRES
+ *  (aucune fiche de jeu definitive) ; jamais recrutable par le joueur. */
+function neutralUnit(id: string, name: string, role: string, faction: VisualFaction): UnitDef {
+  const base = UNITS[role]!;
+  return { id, name, cost: base.cost, populationCost: base.populationCost, stats: base.stats, ...(base.abilities ? { abilities: base.abilities } : {}), visual: { ...base.visual, faction }, neutral: true };
+}
+
+/** Unites neutres (2026-11-01) : les cinq barbares Toon RTS, noms de jeu
+ *  PROVISOIRES. Identifiants techniques propres ; fichiers et identifiants
+ *  des modeles (`barbare_*`, render/toonUnitRig.ts) inchanges. */
+export const NEUTRAL_UNIT_IDS = ['maraudeur', 'ravageur', 'traqueur', 'feticheur', 'colosse', 'razzieur'] as const;
+UNITS['maraudeur'] = neutralUnit('maraudeur', 'Maraudeur', 'fantassin', 'barbarian');
+UNITS['ravageur'] = neutralUnit('ravageur', 'Ravageur', 'vengeur', 'barbarian');
+UNITS['traqueur'] = neutralUnit('traqueur', 'Traqueur', 'archer', 'barbarian');
+UNITS['feticheur'] = neutralUnit('feticheur', 'Féticheur', 'mage', 'barbarian');
+UNITS['colosse'] = neutralUnit('colosse', 'Colosse', 'sentinel', 'barbarian');
+/** Cavalerie legere barbare (2026-11-01) : unite propre (kit
+ *  `cavalier_barbare`, modele barbare dedie), pas un habillage du Cavalier
+ *  humain ; memes valeurs provisoires (18 PV, 3 degats, valeur 15 or). */
+UNITS['razzieur'] = {
+  id: 'razzieur',
+  name: 'Razzieur',
+  cost: 15,
+  populationCost: 2,
+  stats: { ...LIGHT_CAVALRY_STATS },
+  visual: { kit: 'cavalier_barbare', faction: 'barbarian', hpBarHeight: 2.1 },
+  neutral: true,
+};
+
+/** Pluriel affiche d'une unite (« Hommes d'armes », « Archers »). */
+export function unitPluralName(def: UnitDef): string {
+  return def.pluralName ?? (/[sx]$/.test(def.name) ? def.name : `${def.name}s`);
+}
 
 export function getUnit(id: string): UnitDef {
   const def = UNITS[id];

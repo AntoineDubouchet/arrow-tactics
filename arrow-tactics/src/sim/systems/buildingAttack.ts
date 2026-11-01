@@ -69,7 +69,8 @@ export function buildingAttackSystem(
 
   for (const e of entities) {
     const attack = e.buildingAttack;
-    if (!attack) continue;
+    // Chantier : la Tour ne tire pas tant qu'elle n'est pas construite.
+    if (!attack || e.construction) continue;
     // Detruite (ou a 0 PV ce tick, avant deathSystem) : plus aucun tir, cible oubliee.
     if (!e.alive || e.hp <= 0) {
       attack.targetId = null;

@@ -1,6 +1,6 @@
 import { dist } from '../../core/math';
 import type { Entity } from '../entity';
-import { resetOrderProgress } from '../orders';
+import { isWorkOrder, resetOrderProgress } from '../orders';
 import { SpatialGrid } from '../spatialGrid';
 
 /** Meme famille de probleme que la separation (movement.ts,
@@ -119,7 +119,8 @@ export function targetingSystem(entities: Entity[], dt: number): void {
     // Ordres manuels (sim/orders.ts), APRES la Provocation, qui reste
     // prioritaire et suspend l'ordre sans l'effacer.
     // Deplacement : aucune cible, donc ni combat ni capacite en chemin.
-    if (e.order.type === 'move') {
+    // Travail du Heros (recolte, construction) : de meme, ni cible ni combat.
+    if (e.order.type === 'move' || isWorkOrder(e.order)) {
       e.targetId = null;
       continue;
     }

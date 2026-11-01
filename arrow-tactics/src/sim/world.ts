@@ -1,11 +1,15 @@
-import { BOARD_H, BOARD_W, isBlockingMapObstacle, OBSTACLES, TILE, type ObstacleDef } from '../config/constants';
+import { BOARD_H, BOARD_W, isBlockingMapObstacle, obstacleBounds, OBSTACLES, TILE, type ObstacleDef } from '../config/constants';
 import { buildCellIndex, cellKey, computeMapCellBounds, resolveMapCells, type MapBounds, type MapDef } from '../config/mapDef';
+import { waterCellKeys } from '../config/groundSurfaces';
+import { resourceNodesOf, type ResourceNode } from '../config/resourceNodes';
 import { computeCliffObstacles, resolveMapHeightField } from '../config/terrainElevation';
 import { dist } from '../core/math';
 import { Rng, randomSeed } from '../core/rng';
-import type { BuildingDef } from '../data/buildings';
+import { getBuilding, type BuildingDef } from '../data/buildings';
 import { getUnit, type UnitStats } from '../data/units';
-import type { Entity, Team } from './entity';
+import type { ConstructionState, Entity, Team } from './entity';
+import { heroStatsForLevel } from '../data/hero';
+import { heroDeathSystem, heroRespawnSystem, heroWorkSystem, type HeroEvent, type HeroWorkContext, type ResourcePile } from './systems/hero';
 import { applyCommands, resolveOrders, type CommandResult, type OrderEndEvent, type PlayerCommand } from './orders';
 import {
   createPlayerArrowState,
@@ -16,7 +20,7 @@ import {
   type PlayerArrowState,
 } from './playerArrow';
 import { abilitySystem, type AbilityEvent, type BlastProjectile } from './systems/abilities';
-import { buildingProductionSystem, type ProductionSpawnEvent } from './systems/buildingProduction';
+import { buildingProductionSystem, tickProductionOrders, type ProductionSpawnEvent } from './systems/buildingProduction';
 import { buildingAttackSystem, type BuildingAttackEvent, type BuildingProjectile } from './systems/buildingAttack';
 import { combatSystem, type CombatEvent } from './systems/combat';
 import { deathSystem } from './systems/death';
@@ -54,6 +58,29 @@ function computeVoidObstacles(cellIndex: Map<string, unknown>, bounds: { minX: n
     }
   }
   return voids;
+}
+
+/**
+ * Cases d'eau (MapDef.surfaceCells, voir isWaterSurface) en obstacles
+ * synthetiques `terrainWater`, transparents aux tirs : meme principe que
+ * computeVoidObstacles. Les cases contigues d'une meme rangee (z) sont
+ * fusionnees en un seul rectangle (meme union, moins d'obstacles a tester).
+ * Ordre deterministe : rangees par z croissant, puis x croissant.
+ */
+function computeWaterObstacles(water: ReadonlySet<string>, cellIndex: Map<string, unknown>, bounds: MapBounds): ObstacleDef[] {
+  const out: ObstacleDef[] = [];
+  if (water.size === 0) return out;
+  const isWater = (x: number, z: number) => water.has(cellKey(x, z)) && cellIndex.has(cellKey(x, z));
+  for (let z = bounds.minZ; z < bounds.maxZ; z++) {
+    for (let x = bounds.minX; x < bounds.maxX; x++) {
+      if (!isWater(x, z)) continue;
+      let end = x + 1;
+      while (end < bounds.maxX && isWater(end, z)) end++;
+      out.push({ kind: 'rock', cornerX: x, cornerZ: z, tilesX: end - x, tilesZ: 1, terrainWater: true, blocksShots: false });
+      x = end - 1;
+    }
+  }
+  return out;
 }
 
 /**
@@ -117,6 +144,20 @@ export class World {
    *  appeler le vrai World.spawn avec les stats effectives (sim/ ne les
    *  connait pas). */
   productionSpawnEvents: ProductionSpawnEvent[] = [];
+  /** Evenements du Heros du dernier step (XP, niveau, mort, resurrection,
+   *  recolte, chantier termine), voir sim/systems/hero.ts. */
+  heroEvents: HeroEvent[] = [];
+  /** Sources de ressources de la carte (decors exploitables par le Heros,
+   *  config/resourceNodes.ts), par id. */
+  resourceNodes: ReadonlyMap<number, ResourceNode> = new Map();
+  /** Petits tas au sol de la carte (MapDef.resourcePiles), indice = id ;
+   *  `amount` baisse au ramassage. Remis a plein par setMap ; la run
+   *  reapplique ses quantites (applyResourcePileAmounts). */
+  resourcePiles: ResourcePile[] = [];
+  /** Droits de recolte deja RESOLUS par l'orchestration (run/
+   *  harvestPermissions.ts) : la simulation ne sait pas d'ou ils viennent
+   *  (Scierie, Camp de mineur...). Faux par defaut. */
+  harvestPermissions: { canHarvestTrees: boolean; canMineDeposits: boolean } = { canHarvestTrees: false, canMineDeposits: false };
   /** Renforts ennemis de la vague en cours (mini-vagues du Mode survie),
    *  null hors Mode survie (« Tester le scénario ») — voir
    *  sim/systems/enemyReinforcements.ts. */
@@ -165,6 +206,10 @@ export class World {
    *  IMMÉDIATEMENT à destruction", demande explicite d'Antoine). Vide pour
    *  toute bataille sans bâtiment gameplay détruit — coût nul dans ce cas. */
   private readonly buildingFootprints = new Map<number, ObstacleDef>();
+
+  /** Cases d'eau (cellKey) de la carte chargee (World.setMap) : refus des
+   *  destinations sur l'eau (sim/orders.ts, applyCommands). */
+  private waterCells: ReadonlySet<string> = new Set();
 
   /** Commandes du joueur en attente, appliquees au debut du prochain step. */
   private commandQueue: PlayerCommand[] = [];
@@ -220,7 +265,17 @@ export class World {
     const cliffs = computeCliffObstacles(resolveMapHeightField(map), (x, z) => cellIndex.has(cellKey(x, z)), cells);
     // Decors exclus (isBlockingMapObstacle) : purement visuels, ignores par
     // toute la simulation ; seuls les « Obstacles / structures » restent.
-    this.obstacles = [...map.obstacles.filter(isBlockingMapObstacle), ...computeVoidObstacles(cellIndex, paddedBounds), ...cliffs];
+    // Eau (2026-11-01) : infranchissable a pied, transparente aux tirs.
+    this.resourceNodes = new Map(resourceNodesOf(map.obstacles).map((n) => [n.id, n]));
+    this.resourcePiles = (map.resourcePiles ?? []).map((p, id) => ({ id, x: p.x, z: p.z, resource: p.resource, amount: p.amount }));
+    this.waterCells = waterCellKeys(map.surfaceCells);
+    const water = computeWaterObstacles(this.waterCells, cellIndex, paddedBounds);
+    this.obstacles = [...map.obstacles.filter(isBlockingMapObstacle), ...computeVoidObstacles(cellIndex, paddedBounds), ...cliffs, ...water];
+  }
+
+  /** Vrai si le point (x, z) est sur une case d'eau de la carte chargee. */
+  isWaterAt(x: number, z: number): boolean {
+    return this.waterCells.size > 0 && this.waterCells.has(cellKey(Math.floor(x), Math.floor(z)));
   }
 
   /** `hp` optionnel : par defaut pleins PV (`def.stats.maxHp`), mais la
@@ -307,6 +362,8 @@ export class World {
       tauntShieldBonus,
       neutralProgressZ: z,
       neutralStuckTimer: 0,
+      hero: null,
+      construction: null,
       isBuilding: false,
       // Une unite normale compte TOUJOURS pour la survie de sa faction —
       // jamais configurable (voir Entity.countsForDefeat).
@@ -317,6 +374,7 @@ export class World {
       // Une unite normale ne produit jamais rien (voir
       // Entity.productionQueue).
       productionQueue: [],
+      productionOrder: null,
       productionWaitingForPopulation: false,
       buildingAttack: null,
       gate: null,
@@ -376,6 +434,9 @@ export class World {
     maxHpOverride?: number,
     productionOverride?: readonly string[],
     attackDamageOverride?: number,
+    /** Chantier (Entity.construction) : avancement et duree, ou absent
+     *  (batiment construit). */
+    construction?: ConstructionState,
   ): Entity {
     const effectiveMaxHp = maxHpOverride ?? def.maxHp;
     const productionQueue = def.production ? (productionOverride ?? def.production.unitsByLevel[0] ?? []) : [];
@@ -444,8 +505,11 @@ export class World {
       tauntShieldBonus: 0,
       neutralProgressZ: z,
       neutralStuckTimer: 0,
+      hero: null,
+      construction: construction ? { ...construction } : null,
       isBuilding: true,
-      countsForDefeat: def.countsForDefeat,
+      // Un chantier ne compte jamais pour la defaite (sim/systems/hero.ts).
+      countsForDefeat: construction ? false : def.countsForDefeat,
       // Meme reference que celle poussee dans this.obstacles juste en
       // dessous (jamais une copie) — voir Entity.footprintObstacle pour le
       // correctif que ca permet (un batiment ne bloque plus sa propre ligne
@@ -454,6 +518,7 @@ export class World {
       // Production de la manche (Caserne, Camp d'archerie) — voir
       // Entity.productionQueue : consommee des le premier tick.
       productionQueue: [...productionQueue],
+      productionOrder: null,
       productionWaitingForPopulation: false,
       // Batiment defensif (Tour) : degats EFFECTIFS du niveau propre du
       // batiment (attackDamageOverride), base sinon. Premier tir des qu'une
@@ -547,6 +612,71 @@ export class World {
    *  Distinct de countAlive() ci-dessous (compte BRUT, utilise par le
    *  panneau de debug — y voir un batiment gameplay est deja l'info utile
    *  la, pas besoin d'y filtrer). */
+  /** Heros (data/hero.ts) du camp `team` : fiche du niveau, progression de
+   *  la run (XP, niveau, morts). `hp` : PV actuels, pleins par defaut. */
+  spawnHero(team: Team, x: number, z: number, progress: { xp: number; level: number; deaths: number; carry?: { wood: number; stone: number } }, hp?: number): Entity {
+    const e = this.spawn('hero', team, x, z, hp, heroStatsForLevel(progress.level));
+    e.hero = { xp: progress.xp, level: progress.level, deaths: progress.deaths, respawnTimer: 0, working: null, workTimer: 0, carry: { wood: progress.carry?.wood ?? 0, stone: progress.carry?.stone ?? 0 } };
+    return e;
+  }
+
+  /** Commande de production temps reel : `unitId` sortira du batiment
+   *  `entityId` dans `seconds` s de simulation. Refusee (faux) si le batiment
+   *  n'est pas un batiment vivant et bati du joueur, ou s'il produit deja.
+   *  Le cout et le choix des unites autorisees restent a l'orchestration. */
+  startProduction(entityId: number, unitId: string, seconds: number): boolean {
+    const e = this.entityById.get(entityId);
+    if (!e || !e.alive || !e.isBuilding || e.construction || e.team !== 'player' || e.productionOrder) return false;
+    e.productionOrder = { unitId, remaining: seconds, total: seconds };
+    return true;
+  }
+
+  /** Quantites restantes des tas deja entames (run : id -> quantite). */
+  applyResourcePileAmounts(amounts: Readonly<Record<number, number>>): void {
+    for (const [id, amount] of Object.entries(amounts)) {
+      const pile = this.resourcePiles[Number(id)];
+      if (pile) pile.amount = amount;
+    }
+  }
+
+  /** Contexte du travail du Heros (sources et tas). */
+  private heroWork(): HeroWorkContext {
+    return { nodes: this.resourceNodes, piles: this.resourcePiles };
+  }
+
+  /** Point de resurrection d'un Heros : pres de la Baliste vivante de son
+   *  camp (premier emplacement libre d'obstacle et d'eau, ordre fixe), ou
+   *  null si elle est detruite. */
+  private heroSpawnPoint(hero: Entity): { x: number; z: number } | null {
+    const ballista = this.entities.find((e) => e.alive && e.team === hero.team && e.unitId === 'ballista');
+    if (!ballista) return null;
+    const d = ballista.stats.radius + hero.stats.radius + 0.4;
+    const halfW = (this.boardWidth * TILE) / 2 - hero.stats.radius;
+    const halfH = (this.boardHeight * TILE) / 2 - hero.stats.radius;
+    const free = (x: number, z: number): boolean =>
+      Math.abs(x) <= halfW && Math.abs(z) <= halfH && !this.isWaterAt(x, z) && !this.obstacles.some((o) => {
+        const b = obstacleBounds(o);
+        return x > b.minX - hero.stats.radius && x < b.maxX + hero.stats.radius && z > b.minZ - hero.stats.radius && z < b.maxZ + hero.stats.radius;
+      });
+    for (const ring of [1, 1.6, 2.4]) {
+      for (const [dx, dz] of [[0, 1], [1, 0], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]] as const) {
+        const len = Math.hypot(dx, dz);
+        const x = ballista.x + (dx / len) * d * ring;
+        const z = ballista.z + (dz / len) * d * ring;
+        if (free(x, z)) return { x, z };
+      }
+    }
+    return { x: ballista.x, z: ballista.z + d };
+  }
+
+  /** Defaite par le Heros (choix d'Antoine) : le camp a un Heros, il est
+   *  mort (en attente de resurrection ou non) ET sa Baliste est detruite. */
+  isHeroDefeat(team: Team): boolean {
+    const hero = this.entities.find((e) => e.hero && e.team === team);
+    if (!hero || hero.alive) return false;
+    return !this.entities.some((e) => e.alive && e.team === team && e.unitId === 'ballista');
+  }
+
   countCombatants(team: Team): number {
     let n = 0;
     for (const e of this.entities) if (e.alive && e.team === team && e.countsForDefeat) n++;
@@ -679,15 +809,34 @@ export class World {
       e.prevX = e.x;
       e.prevZ = e.z;
     }
+    // Heros : vivants au debut du pas (morts du pas, XP en zone).
+    const hasHero = this.entities.some((e) => e.hero);
+    const aliveBefore = hasHero ? new Set(this.entities.filter((e) => e.alive).map((e) => e.id)) : null;
+    this.heroEvents = [];
 
     // Ordres manuels (sim/orders.ts) : appliques a une frontiere de pas fixe,
     // jamais au moment de l'evenement d'entree. Une unite sans ordre manuel
     // (`assault`) garde exactement son comportement d'avant.
     const lookup = (id: number): Entity | undefined => this.entityById.get(id);
-    this.commandResults = applyCommands(this.commandQueue, lookup, {
-      halfW: (this.boardWidth * TILE) / 2,
-      halfH: (this.boardHeight * TILE) / 2,
-    });
+    this.commandResults = applyCommands(
+      this.commandQueue,
+      lookup,
+      {
+        halfW: (this.boardWidth * TILE) / 2,
+        halfH: (this.boardHeight * TILE) / 2,
+      },
+      (x, z) => this.isWaterAt(x, z),
+      {
+        node: (id) => {
+          const node = this.resourceNodes.get(id);
+          if (!node) return 'missing';
+          const allowed = node.resource === 'wood' ? this.harvestPermissions.canHarvestTrees : this.harvestPermissions.canMineDeposits;
+          return allowed ? 'ok' : 'locked';
+        },
+        hasPile: (id) => (this.resourcePiles[id]?.amount ?? 0) > 0,
+        isDepot: (entity) => entity.isBuilding && getBuilding(entity.unitId).resourceDepot === true,
+      },
+    );
     this.commandQueue = [];
     this.orderEvents = [];
     resolveOrders(this.entities, lookup, this.orderEvents);
@@ -702,14 +851,20 @@ export class World {
     // de step(), voir plus bas) — sert de "battleElapsedTime" au verrou
     // initial de Provocation (2026-08-14, voir sim/systems/abilities.ts).
     this.abilityEvents = abilitySystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.blasts, this.time);
-    movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents);
+    movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents, this.heroWork());
+    if (hasHero) heroWorkSystem(this.entities, this.heroWork(), dt, this.heroEvents);
     this.combatEvents = combatSystem(this.entities, dt, this.rng, this.obstacles);
     this.buildingAttackEvents = buildingAttackSystem(this.entities, lookup, this.buildingProjectiles, dt, () => this.nextBuildingProjectileId++);
     this.areaEffectEvents = tickPersistentAreaEffects(this.iceNovaZones, dt, this.entities);
     this.playerArrowEvents = stepPlayerArrow(this.playerArrow, dt, this.entities);
     this.shadowProjectileEvents = advanceShadowProjectiles(this.shadowProjectiles, dt, this.entities, this.rng);
+    tickProductionOrders(this.entities, dt);
     this.productionSpawnEvents = buildingProductionSystem(this.entities, this.obstacles);
     deathSystem(this.entities);
+    if (aliveBefore) {
+      heroDeathSystem(this.entities, aliveBefore, this.heroEvents);
+      heroRespawnSystem(this.entities, dt, (hero) => this.heroSpawnPoint(hero), this.heroEvents);
+    }
     this.releaseDeadBuildingFootprints();
     // Apres les morts du tick : un terrain vide se constate ici.
     this.enemyReinforcementSpawns = this.enemyReinforcements

@@ -48,12 +48,13 @@ export function canAddUnitToPopulation(state: PopulationState, unitId: string): 
 }
 
 /** Entites d'une bataille : unites vivantes et batiments vivants du joueur. */
-export function populationOfEntities(entities: Iterable<{ team: string; alive: boolean; isBuilding: boolean; unitId: string }>): PopulationState {
+export function populationOfEntities(entities: Iterable<{ team: string; alive: boolean; isBuilding: boolean; unitId: string; construction?: unknown }>): PopulationState {
   let used = 0;
   let max = PLAYER_BASE_POPULATION;
   for (const e of entities) {
     if (e.team !== 'player' || !e.alive) continue;
-    if (e.isBuilding) max += buildingPopulationBonus(e.unitId);
+    // Chantier : aucune place tant qu'il n'est pas construit.
+    if (e.isBuilding) max += e.construction ? 0 : buildingPopulationBonus(e.unitId);
     else used += unitPopulationCost(e.unitId);
   }
   return { used, max };

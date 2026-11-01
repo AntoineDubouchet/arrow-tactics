@@ -1,5 +1,5 @@
 import { canAddUnitToPopulation, populationMax, populationUsed, type PopulationState } from '../data/population';
-import type { RunState } from './runState';
+import { isBuildingBuilt, type RunState } from './runState';
 
 /**
  * Population de la run hors bataille (preparation) : l'armee possedee et les
@@ -9,7 +9,8 @@ import type { RunState } from './runState';
 export function runPopulation(run: Pick<RunState, 'army' | 'buildings'>): PopulationState {
   return {
     used: populationUsed(run.army.map((unit) => unit.unitId)),
-    max: populationMax(run.buildings.map((building) => building.buildingId)),
+    // Chantiers exclus : une Maison ne loge personne avant d'etre construite.
+    max: populationMax(run.buildings.filter(isBuildingBuilt).map((building) => building.buildingId)),
   };
 }
 

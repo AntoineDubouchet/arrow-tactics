@@ -1,5 +1,5 @@
 import { getBuilding } from '../data/buildings';
-import { roundGold, spendGold, type OwnedBuilding, type RunState } from './runState';
+import { isBuildingBuilt, roundGold, spendGold, type OwnedBuilding, type RunState } from './runState';
 
 /**
  * Ameliorations PAR BATIMENT : chaque Mine, Caserne, Camp d'archerie,
@@ -42,7 +42,8 @@ export function buildingUpgradeGoldCost(buildingId: string, level: number): numb
 
 export function canUpgradeOwnedBuilding(run: RunState, index: number): boolean {
   const owned = run.buildings[index];
-  if (!owned || !isUpgradableBuilding(owned.buildingId)) return false;
+  // Un chantier (pas encore bati par le Heros) ne s'ameliore pas.
+  if (!owned || !isUpgradableBuilding(owned.buildingId) || !isBuildingBuilt(owned)) return false;
   if (isBuildingAtMaxLevel(owned.buildingId, ownedBuildingLevel(owned))) return false;
   return run.gold >= buildingUpgradeGoldCost(owned.buildingId, ownedBuildingLevel(owned));
 }

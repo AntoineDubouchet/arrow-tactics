@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GROUND_TEXTURES } from '../config/groundSurfaces';
+import { GROUND_TEXTURES, WATER_SURFACE_IDS } from '../config/groundSurfaces';
 import { GROUND_SURFACES, type GroundSurfaceId } from './groundSurfaces';
 import { lookSurfaceTint } from './look';
 import { groundTextureUrl } from './textures';
@@ -90,8 +90,8 @@ const GRASS_FAMILY: readonly GroundSurfaceId[] = ['grass', 'herbe-classique', 'h
 const DIRT_FAMILY: readonly GroundSurfaceId[] = ['dirt', 'terre-battue'];
 /** Matieres minerales du catalogue elargi (chacune la sienne). */
 const MINERALS: readonly GroundSurfaceId[] = ['paves-gris', 'sable', 'roche-sol', 'sol-volcanique'];
-/** Surfaces liquides : shader anime propre (eau, lave). */
-const LIQUIDS: readonly GroundSurfaceId[] = ['eau', 'lave'];
+/** Surfaces liquides : shader anime propre (toutes les variantes d'eau, lave). */
+const LIQUIDS: readonly GroundSurfaceId[] = [...WATER_SURFACE_IDS, 'lave'];
 
 /** Couleur moyenne LINEAIRE de chaque PNG (mesuree sur tous ses texels) : la
  *  matiere principale prend celle de la surface qu'elle remplace. A remesurer

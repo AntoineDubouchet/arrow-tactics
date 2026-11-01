@@ -1,4 +1,5 @@
 import { HP_PER_PIP } from '../config/constants';
+import type { ResourceKind } from '../config/resourceNodes';
 
 /**
  * Architecture générique BUILDING (2026-08-16, demande d'Antoine) — un
@@ -127,6 +128,12 @@ export interface BuildingDef {
    *  présente, jamais recrutée). SOURCE UNIQUE du prix, lue à la fois par
    *  l'affichage (ui/screens.ts) et la transaction réelle (main.ts). */
   cost?: number;
+  /** Cout en BOIS / PIERRE (2026-11-01, direction Hero RTS), en plus de
+   *  l'or ; muraille : par case. PROVISOIRE. Absent = aucun. */
+  resourceCost?: Partial<Record<ResourceKind, number>>;
+  /** Duree de construction (s) d'un chantier par le Heros (sim/systems/hero.ts) ;
+   *  muraille : par case. PROVISOIRE. Absent = DEFAULT_BUILD_TIME. */
+  buildTime?: number;
   /** Clé du modèle KayKit (voir render/assetLibrary.ts, EnvironmentAssets.buildingsByName)
    *  — TOUJOURS teinté bleu (`blue_...`) : seul le camp JOUEUR peut acheter
    *  un bâtiment via ce système pour l'instant, même convention déjà établie
@@ -158,6 +165,14 @@ export interface BuildingDef {
   attack?: BuildingAttackConfig;
   /** Soin de toute l'armee contre de l'or, en preparation (Eglise). */
   armyHeal?: ArmyHealConfig;
+  /** Depot de ressources (2026-11-01, Hero RTS) : le Heros y vide son sac,
+   *  et seul ce depot remplit le stock de bois et de pierre de la run. */
+  resourceDepot?: boolean;
+  /** Recolte avancee debloquee par ce batiment, une fois bati : coupe des
+   *  arbres (`trees`, future Scierie) ou exploitation des gros gisements de
+   *  pierre (`deposits`, futur Camp de mineur). Lu par
+   *  run/harvestPermissions.ts. Aucun batiment ne le porte encore. */
+  unlocksHarvest?: 'trees' | 'deposits';
   /** Facteur de taille VISUELLE du modele par rapport a son emprise (voir
    *  ObstacleDef.scale) ; l'emprise de collision et de placement ne change
    *  pas. Absent = 1. */
@@ -230,6 +245,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // via le talent "Le temps, c'est de l'argent" (retiré, voir
     // data/talents.ts).
     cost: 20,
+    resourceCost: { wood: 5 },
+    buildTime: 6,
     buildingModel: 'blue_mine',
     footprintTilesX: 2,
     footprintTilesZ: 2,
@@ -239,6 +256,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
   ballista: {
     id: 'ballista',
     displayName: 'Baliste',
+    // Coeur du camp initial : point de depot des ressources (Hero RTS).
+    resourceDepot: true,
     maxHp: 25 * HP_PER_PIP,
     // Légèrement plus grand que la Mine — la baliste+tour est visuellement
     // plus imposante (voir render/ballista.ts, BALLISTA_TOWER_FOOTPRINT =
@@ -271,6 +290,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     countsForDefeat: true,
     hpBarHeight: 2.7,
     cost: 15,
+    resourceCost: { wood: 10 },
+    buildTime: 8,
     buildingModel: 'blue_barracks',
     footprintTilesX: 3,
     footprintTilesZ: 3,
@@ -296,6 +317,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     countsForDefeat: true,
     hpBarHeight: 2.7,
     cost: 15,
+    resourceCost: { wood: 8 },
+    buildTime: 8,
     buildingModel: 'blue_archeryrange',
     footprintTilesX: 3,
     footprintTilesZ: 3,
@@ -320,6 +343,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // barre juste au-dessus du toit, comme la Mine.
     hpBarHeight: 1.7,
     cost: 10,
+    resourceCost: { wood: 5, stone: 5 },
+    buildTime: 8,
     buildingModel: 'blue_blacksmith',
     footprintTilesX: 2,
     footprintTilesZ: 2,
@@ -340,6 +365,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     countsForDefeat: true,
     hpBarHeight: 2.1,
     cost: 5,
+    resourceCost: { wood: 6 },
+    buildTime: 5,
     buildingModel: 'blue_home_A',
     footprintTilesX: 2,
     footprintTilesZ: 2,
@@ -363,6 +390,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     countsForDefeat: true,
     hpBarHeight: 3.4,
     cost: 20,
+    resourceCost: { wood: 5, stone: 10 },
+    buildTime: 10,
     buildingModel: 'blue_tower_A',
     footprintTilesX: 2,
     footprintTilesZ: 2,
@@ -398,6 +427,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // Caserne (3,14) ; barre juste au-dessus.
     hpBarHeight: 3.2,
     cost: 35,
+    resourceCost: { wood: 10, stone: 10 },
+    buildTime: 12,
     buildingModel: 'blue_church',
     footprintTilesX: 2,
     footprintTilesZ: 2,
@@ -411,26 +442,31 @@ export const BUILDINGS: Record<string, BuildingDef> = {
   // TOUTES les unites, son camp compris (on passe par une porte ou on
   // contourne ; les tirs passent, blocksShots). 50 PV, aucune attaque, aucun effet, aucune
   // population, aucune amelioration. Ne compte pas pour la defaite : un mur
-  // seul ne maintient pas le camp en vie. Segment droit 2 x 1 a l'echelle
-  // native du modele (2,0 x 0,8 x 1,1), pose par lignes (placementMode).
-  // Cout PROVISOIRE (1 or par segment), a reequilibrer apres playtest.
+  // seul ne maintient pas le camp en vie. UNITE CANONIQUE (2026-11-01) :
+  // un segment = UNE case (donnees, PV, pose, sauvegarde, selection,
+  // destruction ; core/wallTrace.ts). Memes PV et meme prix par case
+  // qu'avant (25 PV et 0,5 or par case ; un ancien segment 2 x 1 valait 50 PV
+  // et 1 or). Rendu : modele droit KayKit comprime a une case, ou modele long
+  // natif sur deux cases voisines d'une meme ligne (appariement visuel,
+  // render/wallVisuals.ts). Pose par lignes (placementMode). Cout PROVISOIRE.
   wall: {
     id: 'wall',
     displayName: 'Muraille',
-    maxHp: 50 * HP_PER_PIP,
-    radius: 1.0,
+    maxHp: 25 * HP_PER_PIP,
+    radius: 0.5,
     targetable: true,
     countsForDefeat: false,
     hpBarHeight: 1.5,
-    cost: 1,
+    cost: 0.5,
+    resourceCost: { stone: 1 },
+    buildTime: 1.2,
     buildingModel: 'neutral_wall_straight',
-    footprintTilesX: 2,
+    footprintTilesX: 1,
     footprintTilesZ: 1,
-    footprintFollowsRotation: true,
     blocksShots: false,
     outerFaceTowardHostiles: true,
+    modelLengthScale: 0.5,
     traceCorners: { outside: 'wall_corner_outside', inside: 'wall_corner_inside' },
-    traceHalf: 'wall_half',
     placementMode: 'line',
     editorGroup: 'Murailles',
   },
@@ -448,6 +484,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     countsForDefeat: false,
     hpBarHeight: 1.8,
     cost: 1,
+    resourceCost: { wood: 3 },
+    buildTime: 3,
     buildingModel: 'neutral_wall_straight_gate',
     footprintTilesX: 2,
     footprintTilesZ: 1,
@@ -540,6 +578,47 @@ export function buildingFootprintTiles(buildingId: string, rotationY = 0): { til
 
 /** Pas de rotation du batiment en placement : 90° si son emprise suit la
  *  rotation, sinon 45° (rotation visuelle). */
+/** Duree de construction d'un chantier sans BuildingDef.buildTime (virages
+ *  de muraille, poses par le trace). */
+export const DEFAULT_BUILD_TIME = 1.2;
+
+/** Duree de construction (s) d'un chantier de `buildingId`. */
+export function buildTimeOf(buildingId: string): number {
+  return getBuilding(buildingId).buildTime ?? DEFAULT_BUILD_TIME;
+}
+
+/** Cases de mur que `buildingId` (porte, BuildingDef.placeOverBuildingId)
+ *  remplacerait, coin d'emprise (cornerX, cornerZ) : chacune de ses cases doit
+ *  porter un mur d'une case aligne sur son axe (porte de 2 cases posee sur
+ *  deux cases de mur, 2026-11-01) ; sinon liste vide. */
+export function replacedWallCells<T extends { buildingId: string; x: number; z: number; rotationY?: number }>(buildingId: string, cornerX: number, cornerZ: number, rotationY: number, placed: readonly T[]): T[] {
+  const over = getBuilding(buildingId).placeOverBuildingId;
+  if (!over) return [];
+  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
+  const alongX = tilesX >= tilesZ;
+  const inside = placed.filter((b) => b.buildingId === over && b.x > cornerX && b.x < cornerX + tilesX && b.z > cornerZ && b.z < cornerZ + tilesZ);
+  return inside.length === tilesX * tilesZ && inside.every((b) => !isOddQuarterTurn(b.rotationY ?? 0) === alongX) ? inside : [];
+}
+
+/** Murailles d'une ANCIENNE carte (avant le 2026-11-01) dans l'unite
+ *  canonique d'une case : un segment `wall` de 2 cases devient deux cases
+ *  `wall` (memes rotation et camp ; PV partages s'il en porte), un
+ *  demi-segment `wall_half` une case `wall`. Un ancien segment se reconnait
+ *  a son centre, sur une ligne de grille le long de son axe (celui d'une case
+ *  tombe au milieu d'une case). Portes et virages inchanges. Pur et
+ *  idempotent. */
+export function migrateLegacyWalls<T extends { buildingId: string; x: number; z: number; rotationY?: number; hp?: number }>(placed: readonly T[]): T[] {
+  return placed.flatMap((b): T[] => {
+    if (b.buildingId === 'wall_half') return [{ ...b, buildingId: 'wall' }];
+    if (b.buildingId !== 'wall') return [b];
+    const alongX = !isOddQuarterTurn(b.rotationY ?? 0);
+    const axis = alongX ? b.x : b.z;
+    if (Math.abs(axis - Math.round(axis)) > 1e-6) return [b];
+    const hp = b.hp !== undefined ? { hp: Math.min(BUILDINGS['wall']!.maxHp, b.hp / 2) } : {};
+    return [-0.5, 0.5].map((d) => ({ ...b, ...hp, ...(alongX ? { x: b.x + d } : { z: b.z + d }) }));
+  });
+}
+
 /** Vrai si deux batiments centres en (ax, az) et (bx, bz) ont exactement la
  *  meme emprise (memes cases) — remplacement d'un mur par une porte. */
 export function sameBuildingFootprint(aId: string, ax: number, az: number, aRotationY: number, bId: string, bx: number, bz: number, bRotationY: number): boolean {

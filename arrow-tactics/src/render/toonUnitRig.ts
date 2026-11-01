@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { FACTION_PALETTES, LOCAL_PLAYER_COLOR, type VisualFaction } from '../config/factions';
 import type { Team } from '../sim/entity';
 
 /**
@@ -10,6 +11,10 @@ import type { Team } from '../sim/entity';
  * que certains. Exception : l'Oracle, le Piquier et le Vengeur, sans modele
  * officiel, sont en Toon RTS des que leur asset est present (`defaultOn`),
  * sinon ils reprennent le Mage (Oracle) ou le Fantassin officiel ;
+ * `?toonUnits=barbarian` habille Fantassin, Vengeur, Archer, Mage et
+ * Sentinelle en Guerrier, Berserker, Chasseur, Chaman et Brute barbares
+ * (`skins`, deux camps) ; `?toonUnits=human,barbarian` garde les humains
+ * pour le joueur et met les barbares en face ;
  * `&toonMix=1` n'en remplace qu'un sur deux (comparaison avec les unites
  * officielles) ; `&toonColors=green,orange` choisit les palettes du joueur et
  * de l'ennemi. Remplacement purement graphique : stats, collisions,
@@ -19,7 +24,8 @@ import type { Team } from '../sim/entity';
  * depuis un pack Toon RTS (pieces et dossier d'animations par unite, voir
  * `units.json`) : un GLB par unite (un maillage skinne, un materiau, tous les
  * clips du pack), textures PARTAGEES par source (`wk_albedo.png`,
- * `wk_team_mask.png` : atlas neutre et masque des zones d'equipe).
+ * `wk_team_mask.png` : atlas neutre et masque des zones d'equipe ; `brb_*`
+ * pour les Barbares).
  *
  * Couleur d'equipe : l'atlas neutre est multiplie par la teinte de la palette
  * dans les zones du masque (shader). La PALETTE (TOON_PALETTES) est distincte
@@ -28,7 +34,11 @@ import type { Team } from '../sim/entity';
  */
 const DIR = '/assets/units/toon';
 
-export type ToonUnitKind = 'fantassin' | 'archer' | 'mage' | 'sentinel' | 'oracle' | 'piquier' | 'vengeur';
+/** Humains (Western Kingdoms) : un par kit du jeu. */
+type HumanToonKind = 'fantassin' | 'archer' | 'mage' | 'sentinel' | 'oracle' | 'piquier' | 'vengeur' | 'hero' | 'cavalier';
+/** Barbares (pack Barbarians) : chacun habille une unite du jeu (ToonUnitDef.skins). */
+type BarbarianToonKind = 'barbare_guerrier' | 'barbare_berserker' | 'barbare_chasseur' | 'barbare_chaman' | 'barbare_brute' | 'barbare_cavalier';
+export type ToonUnitKind = HumanToonKind | BarbarianToonKind;
 
 /** Clip du GLB pour un etat du jeu (UnitViews) et vitesse de lecture,
  *  purement visuelle : cooldowns et vitesses de deplacement restent ceux de
@@ -55,6 +65,12 @@ interface ToonUnitDef {
   scale?: number;
   /** Unite sans modele officiel : Toon RTS sans `?toonUnits=`, jamais alternee par `toonMix`. */
   defaultOn?: boolean;
+  /** Unite du jeu habillee par ce modele d'une autre faction (Barbares). */
+  skins?: HumanToonKind;
+  /** Parties a texture propre (maillages `part_<partie>` du GLB) : suffixe
+   *  de leur texture, `<textures>_<suffixe>.png`, sans teinte d'equipe (le
+   *  cheval de la cavalerie humaine, hors de l'atlas des unites). */
+  parts?: Record<string, string>;
 }
 
 const loop = (clip: string, timeScale = 1): ClipRole => ({ clip, timeScale, loop: true });
@@ -70,7 +86,7 @@ const COMMON_ROLES = {
   knockdownB: once('deathB'),
 };
 
-export const TOON_UNITS: Record<ToonUnitKind, ToonUnitDef> = {
+const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
   fantassin: {
     file: 'human_footman.glb',
     textures: 'wk',
@@ -171,12 +187,83 @@ export const TOON_UNITS: Record<ToonUnitKind, ToonUnitDef> = {
       attackAlt: { ...once('attackB'), retime: { release: 0.4, releaseAt: 0.2, endAt: 0.58 } },
     },
   },
+  // Heros (2026-11-01, PROVISOIRE) : chef barbu tete nue, corps lourd, grosses
+  // epaulieres, gros marteau (x1,6) sans bouclier ; hache et pioche en outils
+  // commutables (maillages `tool_*`, setToonTool). Plus grand que toute autre
+  // unite. Toujours ce modele (aucun modele officiel).
+  hero: {
+    file: 'human_hero.glb',
+    textures: 'wk',
+    defaultOn: true,
+    scale: 1.3,
+    roles: {
+      ...COMMON_ROLES,
+      // 2,6 cases/s ; foulee agrandie de 30 % avec le modele.
+      walk: loop('run', 1),
+      // Coups de marteau en alternance (A par-dessus, B en revers), cadence 1,1 s.
+      attack: once('attackA', 1.25),
+      attackAlt: once('attackB', 1.25),
+      // Gestes de travail du dossier Worker (UnitViews, travail du Heros) :
+      // coup vertical debout (couper, hache), coup penche vers le sol
+      // (miner, pioche), petits coups accroupi (construire, marteau).
+      chop: loop('workingA'),
+      mine: loop('workingB'),
+      build: loop('workingC'),
+      // Ramasser un petit tas : meme geste accroupi que construire.
+      gather: loop('workingC', 1.3),
+    },
+  },
+  /** Cavalier leger (2026-11-01) : cheval, lance, petit bouclier (pack
+   *  Western Kingdoms, `WK_SM_Cavalry_Light_B`, clips `Cavalry_Spear`).
+   *  Course du cheval pour le deplacement (unite rapide), coup de lance
+   *  accelere pour tenir dans la cadence de 1,3 s. PROVISOIRE. */
+  cavalier: {
+    file: 'human_light_cavalry.glb',
+    textures: 'wk',
+    defaultOn: true,
+    parts: { horse: 'horse' },
+    roles: {
+      ...COMMON_ROLES,
+      walk: loop('run', 1),
+      attack: once('attack', 1.15),
+    },
+  },
 };
+
+/** Barbare qui habille l'unite humaine `skins` (laboratoire, jamais par
+ *  defaut) : memes roles et memes vitesses que celle-ci (meme squelette,
+ *  dossiers d'animations de memes noms et memes durees, voir
+ *  tools/toon-units/README.md), textures de la source `brb`. */
+function barbarian(file: string, skins: HumanToonKind, over: Partial<ToonUnitDef> = {}): ToonUnitDef {
+  return { ...HUMAN_TOON_UNITS[skins], defaultOn: false, file, textures: 'brb', skins, ...over };
+}
+
+export const TOON_UNITS: Record<ToonUnitKind, ToonUnitDef> = {
+  ...HUMAN_TOON_UNITS,
+  barbare_guerrier: barbarian('barbarian_warrior.glb', 'fantassin'),
+  barbare_berserker: barbarian('barbarian_berserker.glb', 'vengeur'),
+  barbare_chasseur: barbarian('barbarian_hunter.glb', 'archer'),
+  barbare_chaman: barbarian('barbarian_shaman.glb', 'mage'),
+  barbare_brute: barbarian('barbarian_brute.glb', 'sentinel'),
+  // Cavalerie legere barbare : unite propre (kit `cavalier_barbare`), pas
+  // un habillage ; memes roles que le Cavalier humain (memes clips du pack).
+  barbare_cavalier: { ...HUMAN_TOON_UNITS.cavalier, file: 'barbarian_light_cavalry.glb', textures: 'brb', parts: undefined },
+};
+
+/** Barbare qui habille chaque unite humaine (voir ToonUnitDef.skins). */
+const BARBARIAN_SKIN = new Map<ToonUnitKind, ToonUnitKind>(
+  (Object.keys(TOON_UNITS) as ToonUnitKind[]).flatMap((kind) => {
+    const skins = TOON_UNITS[kind].skins;
+    return skins ? [[skins, kind] as const] : [];
+  }),
+);
 
 /** Groupes de `?toonUnits=` (et alias francais). */
 const TOON_GROUPS: Record<string, readonly ToonUnitKind[]> = {
-  human: ['piquier', 'fantassin', 'archer', 'mage', 'sentinel', 'oracle', 'vengeur'],
+  human: ['piquier', 'fantassin', 'archer', 'mage', 'sentinel', 'oracle', 'vengeur', 'hero', 'cavalier'],
   sentinelle: ['sentinel'],
+  barbarian: ['barbare_guerrier', 'barbare_berserker', 'barbare_chasseur', 'barbare_chaman', 'barbare_brute', 'barbare_cavalier'],
+  barbare: ['barbare_guerrier', 'barbare_berserker', 'barbare_chasseur', 'barbare_chaman', 'barbare_brute', 'barbare_cavalier'],
 };
 
 /** Teinte des zones d'equipe (sRGB, multiplie l'atlas neutre), ajustee sur
@@ -184,9 +271,13 @@ const TOON_GROUPS: Record<string, readonly ToonUnitKind[]> = {
  *  masque), sauf `orange` et `neutral` (gris clair, unites neutres), absents
  *  du pack. */
 export const TOON_PALETTES = {
-  blue: [0.114, 0.572, 1],
-  red: [1, 0.217, 0.109],
-  green: [0.069, 0.737, 0.391],
+  // Camps (config/factions.ts, source unique) : Rouge, Bleu, Vert, Jaune, Neutre.
+  blue: FACTION_PALETTES.blue.toonTint,
+  red: FACTION_PALETTES.red.toonTint,
+  green: FACTION_PALETTES.green.toonTint,
+  yellow: FACTION_PALETTES.yellow.toonTint,
+  faction_neutral: FACTION_PALETTES.neutral.toonTint,
+  // Teintes du laboratoire (`?toonColors=`).
   purple: [0.531, 0.449, 0.697],
   orange: [1, 0.46, 0.06],
   neutral: [0.8, 0.8, 0.8],
@@ -196,7 +287,9 @@ export const TOON_PALETTES = {
 } as const satisfies Record<string, readonly [number, number, number]>;
 export type ToonPaletteId = keyof typeof TOON_PALETTES;
 
-const teamPalette: Record<Team, ToonPaletteId> = { player: 'blue', enemy: 'red' };
+/** Teinte par cote : celle de son allegeance (joueur Bleu, cote adverse
+ *  Neutre brun, config/factions.ts) ; `?toonColors=` la remplace. */
+const teamPalette: Record<Team, ToonPaletteId> = { player: LOCAL_PLAYER_COLOR, enemy: 'faction_neutral' };
 const enabled = new Set<ToonUnitKind>();
 let mix = false;
 /** Unites construites par type en mode `toonMix` (alternance). */
@@ -247,6 +340,8 @@ let loading: Promise<void> | null = null;
 const loadedTextures = new Map<string, ToonTextures>();
 
 const textureLoader = new THREE.TextureLoader();
+/** Textures de parties (`ToonUnitDef.parts`), par fichier. */
+const partTextures = new Map<string, THREE.Texture>();
 
 async function loadTexture(url: string, srgb: boolean): Promise<THREE.Texture> {
   const texture = await textureLoader.loadAsync(url);
@@ -272,7 +367,14 @@ function texturesOf(prefix: string): Promise<ToonTextures> {
 
 async function loadPrototype(kind: ToonUnitKind): Promise<void> {
   const def = TOON_UNITS[kind];
-  const [gltf] = await Promise.all([new GLTFLoader().loadAsync(`${DIR}/${def.file}`), texturesOf(def.textures)]);
+  const [gltf] = await Promise.all([
+    new GLTFLoader().loadAsync(`${DIR}/${def.file}`),
+    texturesOf(def.textures),
+    ...Object.values(def.parts ?? {}).map(async (suffix) => {
+      const file = `${def.textures}_${suffix}.png`;
+      if (!partTextures.has(file)) partTextures.set(file, await loadTexture(`${DIR}/${file}`, true));
+    }),
+  ]);
   const clips = new Map(gltf.animations.map((clip) => [clip.name, clip]));
   const roleClips = new Map<string, THREE.AnimationClip>();
   for (const [name, role] of Object.entries(def.roles)) {
@@ -306,13 +408,67 @@ export async function preloadToonUnits(): Promise<void> {
   await loading;
 }
 
-/** Vrai si la prochaine unite `kind` construite doit etre la Toon RTS. */
-export function useToonUnit(kind: ToonUnitKind): boolean {
-  if (!prototypes[kind] || !enabled.has(kind)) return false;
-  if (!mix || TOON_UNITS[kind].defaultOn) return true;
-  const n = decisions[kind] ?? 0;
-  decisions[kind] = n + 1;
-  return n % 2 === 0;
+/** Modele Toon RTS du role `kit` dans la faction visuelle `faction`
+ *  (config/factions.ts) : le barbare qui habille ce role, ou null. */
+export function toonFactionKind(kit: string, faction: VisualFaction): ToonUnitKind | null {
+  if (faction !== 'barbarian') return null;
+  return BARBARIAN_SKIN.get(kit as ToonUnitKind) ?? BARBARIAN_OWN_KITS[kit] ?? null;
+}
+
+/** Kits propres a une unite barbare (pas un habillage d'un role humain). */
+const BARBARIAN_OWN_KITS: Readonly<Record<string, ToonUnitKind>> = { cavalier_barbare: 'barbare_cavalier' };
+
+/** Modele de faction pret (precharge) pour ce role, ou null : l'appelant
+ *  garde alors le modele humain du role (GLB absent, assets hors Git). */
+export function readyToonFactionKind(kit: string, faction: VisualFaction): ToonUnitKind | null {
+  const kind = toonFactionKind(kit, faction);
+  return kind && prototypes[kind] ? kind : null;
+}
+
+/** Precharge les modeles des unites d'une faction visuelle (unites neutres
+ *  barbares, data/units.ts) : jamais actives pour les autres unites
+ *  (toonUnitFor exige `?toonUnits=`). Ne rejette jamais. */
+export async function preloadToonFaction(faction: VisualFaction): Promise<void> {
+  const kinds = (Object.keys(TOON_UNITS) as ToonUnitKind[]).filter((k) => toonFactionKind(TOON_UNITS[k].skins ?? '', faction) === k);
+  await Promise.all(kinds.map((k) => ensureToonUnitPrototype(k)));
+}
+
+const prototypeLoads = new Map<ToonUnitKind, Promise<boolean>>();
+
+/** Charge le modele `kind` meme s'il n'est pas active (apercus du bestiaire
+ *  de l'editeur) : il ne remplace pas pour autant une unite en jeu
+ *  (toonUnitFor exige `?toonUnits=`). Faux si le chargement echoue (GLB
+ *  absent : assets commerciaux hors Git). Ne rejette jamais. */
+export function ensureToonUnitPrototype(kind: ToonUnitKind): Promise<boolean> {
+  if (prototypes[kind]) return Promise.resolve(true);
+  let pending = prototypeLoads.get(kind);
+  if (!pending) {
+    pending = loadPrototype(kind).then(
+      () => true,
+      (error: unknown) => {
+        console.warn(`Unite Toon RTS ${kind} : apercu impossible.`, error);
+        return false;
+      },
+    );
+    prototypeLoads.set(kind, pending);
+  }
+  return pending;
+}
+
+/** Modele Toon RTS de la prochaine unite `kind` (kit du jeu) du camp `team`,
+ *  ou null (modele officiel). Un barbare demande habille l'unite ; si son
+ *  pendant humain l'est aussi (`?toonUnits=human,barbarian`), le joueur garde
+ *  l'humain et l'ennemi prend le barbare. Un modele non charge est ignore. */
+export function toonUnitFor(kind: ToonUnitKind, team: Team): ToonUnitKind | null {
+  const ready = (k: ToonUnitKind | undefined): k is ToonUnitKind => k !== undefined && !!prototypes[k] && enabled.has(k);
+  const skin = BARBARIAN_SKIN.get(kind);
+  const human = ready(kind) ? kind : null;
+  const pick = ready(skin) && (team === 'enemy' || !human) ? skin : human;
+  if (!pick) return null;
+  if (!mix || TOON_UNITS[pick].defaultOn) return pick;
+  const n = decisions[pick] ?? 0;
+  decisions[pick] = n + 1;
+  return n % 2 === 0 ? pick : null;
 }
 
 /** Materiau d'une instance (le flash d'impact et le fondu de mort le
@@ -361,10 +517,15 @@ export function buildToonUnitModel(kind: ToonUnitKind, team: Team, palette: Toon
   const def = TOON_UNITS[kind];
   const group = cloneSkinned(prototype.scene) as THREE.Group;
   const material = createToonUnitMaterial(def.textures, palette);
+  // Parties a texture propre : un materiau par partie, sans teinte d'equipe.
+  const partMaterials = new Map<string, THREE.MeshStandardMaterial>();
+  for (const [part, suffix] of Object.entries(def.parts ?? {})) {
+    partMaterials.set(`part_${part}`, new THREE.MeshStandardMaterial({ map: partTextures.get(`${def.textures}_${suffix}.png`)!, metalness: 0, roughness: 1, emissiveIntensity: 0 }));
+  }
   group.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh) return;
-    mesh.material = material;
+    mesh.material = partMaterials.get(mesh.name) ?? material;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     // Boite du clone a la pose de liaison : trop etroite pour une chute ou une attaque.
@@ -390,6 +551,15 @@ export function buildToonUnitModel(kind: ToonUnitKind, team: Team, palette: Toon
     }
     actions[role] = action;
   }
+  // Outils commutables (maillages `tool_*` du GLB) : marteau par defaut.
+  const tools = new Map<string, THREE.Object3D>();
+  group.traverse((obj) => {
+    if (obj.name.startsWith('tool_')) tools.set(obj.name.slice(5), obj);
+  });
+  if (tools.size > 0) {
+    root.userData['toonTools'] = tools;
+    setToonTool(root, 'hammer');
+  }
   actions['idle']!.play();
   mixer.update(0);
   root.userData['riggedMixer'] = mixer;
@@ -397,6 +567,15 @@ export function buildToonUnitModel(kind: ToonUnitKind, team: Team, palette: Toon
   root.userData['riggedAttackFadeSeconds'] = ATTACK_FADE_SECONDS;
   if (def.castReleaseFraction !== undefined) root.userData['riggedCastReleaseFraction'] = def.castReleaseFraction;
   return root;
+}
+
+/** Outil visible d'un modele a outils commutables (Heros : `hammer`,
+ *  `axe`, `pick`) ; sans effet sur un autre modele. */
+export function setToonTool(root: THREE.Object3D, tool: string): void {
+  const tools = root.userData['toonTools'] as Map<string, THREE.Object3D> | undefined;
+  if (!tools || root.userData['toonTool'] === tool) return;
+  for (const [name, mesh] of tools) mesh.visible = name === tool;
+  root.userData['toonTool'] = tool;
 }
 
 /** Tous les clips d'une unite chargee (laboratoire, outils de test). */

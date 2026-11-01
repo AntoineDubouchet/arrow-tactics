@@ -54,7 +54,7 @@ de l'éditeur de maps, voir `EDITOR.md`. Pour les problèmes connus, voir
 | `models/archer/` | 12 | ~78 Mo | .glb | Archer bleu / rouge : base, marche, 3 morts, attaque |
 | `models/fantassin/` | 2 | ~19 Mo | .glb | Ancien Fantassin bleu / rouge (`?footman=v1`, repli du Footman V2) |
 | `assets/units/footman_v2/` | 30 | ~58 Mo | .glb, .json, .png | Footman V2 (Fantassin par défaut) : corps, épée, boucliers, clips, textures PBR 2K |
-| `assets/units/toon/` | 9 | ~4,3 Mo | .glb, .png | Unités Toon RTS (Oracle, Piquier et Vengeur par défaut, les autres en laboratoire) : **locales, non versionnées** (§3.1) |
+| `assets/units/toon/` | 16 | ~7,7 Mo | .glb, .png | Unités Toon RTS humaines et barbares (Oracle, Piquier et Vengeur par défaut, les autres en laboratoire) : **locales, non versionnées** (§3.1) |
 | `models/sentinel/` | 2 | ~20,5 Mo | .glb | Sentinelle bleue / rouge |
 | `models/mage/` | 1 | ~4,4 Mo | .glb | Mage (maillage + 5 clips) |
 | `models/ballista/fbx/` | 11 | ~150,7 Mo | .fbx, .png, .tga | Baliste actuelle, animations, textures |
@@ -106,10 +106,28 @@ le Vengeur celui du Fantassin officiel (replis PROVISOIRES). Par défaut,
 ces trois unités Toon côtoient donc les modèles officiels des autres
 (styles mélangés).
 
+**Barbares** (2026-11-01, laboratoire, pack Toon RTS **Barbarians**) :
+- `?toonUnits=barbarian` habille, dans les deux camps :
+  - le Fantassin en **Guerrier** ;
+  - le Vengeur en **Berserker** ;
+  - l'Archer en **Chasseur** ;
+  - le Mage en **Chaman** ;
+  - la Sentinelle en **Brute**.
+- `?toonUnits=human,barbarian` garde les humains pour le joueur et met les
+  barbares en face.
+- Purement visuel : stats, capacités et simulation sont celles de l'unité
+  habillée.
+- GLB `barbarian_*.glb` et textures partagées `brb_albedo.png` /
+  `brb_team_mask.png`, mêmes palettes que les humains.
+- Sans un GLB barbare, l'unité garde son modèle humain Toon s'il est
+  demandé, sinon son modèle officiel.
+
 - Un GLB par unité (`human_footman`, `human_archer`, `human_mage`,
-  `human_sentinel`, `human_oracle`, `human_pikeman`, `human_avenger` : un maillage skinné de 410 à 490 triangles, un
+  `human_sentinel`, `human_oracle`, `human_pikeman`, `human_avenger`, `human_hero`, `human_light_cavalry` : un maillage skinné de 390 à 490 triangles, un
   matériau, squelette de 29 os, **tous** les clips du pack ; Sentinelle
-  affichée 15 % plus grande, rendu seulement) et deux PNG 1024 **partagés** : atlas neutre et
+  affichée 15 % plus grande, rendu seulement ; Héros : trois outils en maillages séparés ; cavaleries : FBX
+  « single mesh » `*_Light_B`, squelette de 46 os (cheval + cavalier), cheval humain en maillage séparé avec sa
+  texture `wk_horse.png` ; voir le README de `tools/toon-units/`) et deux PNG 1024 **partagés** : atlas neutre et
   masque des zones d'équipe (`wk_albedo.png`, `wk_team_mask.png`).
 - Couleur d'équipe : l'atlas neutre est multiplié par la teinte d'une palette
   dans les zones du masque (shader, `TOON_PALETTES` : bleu, rouge, vert,
@@ -122,8 +140,9 @@ ces trois unités Toon côtoient donc les modèles officiels des autres
 - **Assets commerciaux, jamais dans Git** : le pack Toon RTS Units est un
   pack payant du Unity Asset Store, et le dépôt est public. Ses sources (FBX,
   atlas TGA, PSD) restent hors du dépôt, dans
-  `C:\Users\antoi\ToonRTS_Test\Assets\Toon_RTS\WesternKingdoms\` (chemin
-  lu dans `tools/toon-units/units.json`, champ `pack`). Les sorties
+  `C:\Users\antoi\ToonRTS_Test\Assets\Toon_RTS\WesternKingdoms\` et
+  `...\Toon_RTS\Barbarians\` (chemins lus dans `tools/toon-units/units.json`,
+  champ `pack`). Les sorties
   (`public/assets/units/toon/`) en sont dérivées : elles sont ignorées par
   Git (`.gitignore` à la racine), restent locales et se reconstruisent depuis
   `arrow-tactics/` :
@@ -467,7 +486,7 @@ utilise le même modèle que la Mine ou la Caserne (voir `EDITOR.md`, §16).
 | `models/nature/` | Kenney, Nature Kit | Autorisés | CC0 selon les commentaires du code | Aucun fichier de licence archivé dans le dépôt |
 | `textures/vfx/` | Kenney, Particle Pack | Autorisés | CC0 selon les commentaires du code | Aucun fichier de licence archivé dans le dépôt |
 | `models/kaykit/`, `models/buildings/` | KayKit (Kay Lousberg), Medieval Hexagon Pack | Autorisés | CC0 selon les commentaires du code | Aucun fichier de licence archivé dans le dépôt |
-| `assets/units/toon/` (laboratoire) | Pack commercial Toon RTS Units — Western Kingdoms (Unity Asset Store), pièces listées dans `tools/toon-units/units.json` ; sources hors du dépôt (`C:\Users\antoi\ToonRTS_Test\`) | **À vérifier** : aucun fichier de licence dans le pack local | Probablement l'EULA standard de l'Asset Store (usage dans un jeu, pas de redistribution des assets eux-mêmes) | Facture ou page du pack ; sorties **non versionnées** (`.gitignore`), le dépôt étant public |
+| `assets/units/toon/` (laboratoire) | Pack commercial Toon RTS Units — Western Kingdoms et Barbarians (Unity Asset Store), pièces listées dans `tools/toon-units/units.json` ; sources hors du dépôt (`C:\Users\antoi\ToonRTS_Test\`) | **À vérifier** : aucun fichier de licence dans le pack local | Probablement l'EULA standard de l'Asset Store (usage dans un jeu, pas de redistribution des assets eux-mêmes) | Facture ou page du pack ; sorties **non versionnées** (`.gitignore`), le dépôt étant public |
 | Baliste (`models/ballista/fbx/`) | Non documentée dans le dépôt (le corps a été exporté depuis Maya, les animations avec un exporteur FBX d'Unreal) | Utilisation dans le jeu autorisée (confirmé par Antoine) | Non documentée | À archiver |
 | Flèche (`arrow_bow.obj`) | Non documentée (fichier issu d'un projet Blender « Adventurers_2.0_Accessories_Export ») | Utilisation dans le jeu autorisée (confirmé par Antoine) | Non documentée | À archiver |
 | Sol, ciel, icônes de parchemins | Fournis par Antoine | Utilisation dans le jeu autorisée (confirmé par Antoine) | Non documentée | À archiver |

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { obstacleCenter, TILE, type ObstacleDef } from '../config/constants';
 import { cloneScaledTo, createMissingModelPlaceholder, isLazyModel, type EnvironmentAssets } from './assetLibrary';
+import { isTreePropModel, TREE_VISUAL_SCALE } from './trees';
 
 /**
  * Prop independant : un seul modele .glb (buche, souche, champignon,
@@ -14,7 +15,9 @@ export function createPropObstacle(def: ObstacleDef, assets: EnvironmentAssets, 
   const width = def.tilesX * TILE;
   const depth = def.tilesZ * TILE;
   const { x: centerX, z: centerZ } = obstacleCenter(def);
-  const footprint = Math.min(width, depth) * 0.85 * (def.scale ?? 1);
+  // Arbre isole KayKit : meme agrandissement que les autres arbres.
+  const treeScale = isTreePropModel(def.propModel) ? TREE_VISUAL_SCALE : 1;
+  const footprint = Math.min(width, depth) * 0.85 * (def.scale ?? 1) * treeScale;
 
   const prototype = assets.propsByName[def.propModel ?? ''];
   if (!prototype && isLazyModel(def.propModel ?? '')) {

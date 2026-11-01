@@ -186,7 +186,8 @@ buildcraft.
   massivement dans le contenu.
 - **Dépendances** : C3 ; M1 au moins dans une première version.
 - **Décisions ouvertes** : quelles unités, quels sorts, quel rôle pour les
-  bâtiments. Le Cavalier n'est **pas** réintroduit d'office.
+  bâtiments. Le Cavalier léger est revenu sur demande d'Antoine (G8),
+  bestiaire et éditeur seulement ; sa place dans le jeu reste à décider.
 - **Ce qui doit attendre** : la quantité. La variété des choix passe d'abord.
 
 ### M4 — Premières synergies et archétypes de builds — *Direction forte*
@@ -340,7 +341,7 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
   - quelles unités joueur et quels ennemis ;
   - quels sorts ;
   - quels bâtiments ;
-  - retour éventuel du Cavalier ou d'un Chevalier ;
+  - place des cavaleries légères (G8), Chevalier éventuel ;
   - bâtiments ennemis.
 - **Talents** : profondeur de l'arbre, exclusivités, nouvelles branches.
 - **Achievements** : récompenses et présentation (voir L4).
@@ -361,6 +362,97 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
 - Sens de rotation de Ctrl+molette dans l'éditeur.
 
 ---
+
+## 6 bis. Parking « Hero RTS Survival » (fondation construite, le reste en attente)
+
+Voir `DESIGN_DECISIONS.md` G1 à G9. **Construit le 2026-11-01**, en version
+provisoire : le Héros (XP, niveaux 1 à 3, mort et retour à la Baliste,
+construction), départ Héros + Baliste, carte procédurale 96 × 96,
+brouillard de guerre, petits tas finis portés et déposés à la Baliste,
+verrous de récolte avancée, cavaleries légères (bestiaire, éditeur),
+chantiers bâtis en bataille (`CURRENT_STATE.md` §6 bis). À ne pas
+construire avant une décision explicite d'Antoine :
+
+- la **Scierie** et le **Camp de mineur** (crochet `BuildingDef.unlocksHarvest`
+  prêt) et leur économie ;
+- les **camps PvE** de la carte, la place des cavaleries (recrutement,
+  vagues) ;
+- **performance de la grande carte** (KI-34) : décors instanciés ou fusionnés
+  par morceau, plateau de jeu en morceaux de 16 cases, puis chargement par
+  zones si la carte grandit encore ;
+
+- les **capacités du Héros** (compétences, sorts, objets) et des niveaux
+  au-delà du 3 ;
+- une **économie de ressources physiques** au-delà du sac du Héros :
+  porteurs, ouvriers, récolte hors bataille, or récolté, réapparition des
+  tas ;
+- l'économie de RTS associée (production, améliorations) au-delà des coûts
+  actuels ;
+- le **remplacement de la Boutique** actuelle (ni retrait ni extension
+  incompatible d'ici là) ;
+- plusieurs joueurs réels (Rouge, Vert, Jaune) dans la simulation, au-delà
+  de la couche d'allégeance actuelle ;
+- des camps neutres de carte (PvE à farmer, objectifs), au-delà des unités
+  neutres posables dans l'éditeur.
+
+## 6 quater. Survie en temps réel continu — ce qui reste legacy
+
+La Survie n'emprunte plus la préparation (`DESIGN_DECISIONS.md` G10). Reste
+à convertir ou à retirer :
+
+- **murailles et portes** en temps réel (tracé, paires, recomposition) ;
+- **Boutique** : parchemins de bataille (plus achetables en Survie),
+  recrutement direct, « Vendre » ; à remplacer par des commandes de
+  bâtiment ou du Héros, puis retirer la Boutique ;
+- **file de production** au-delà d'une entrée, annulation et remboursement ;
+- améliorations de la **Baliste** et des unités déjà en jeu (appliquées à
+  l'apparition seulement), production de la Caserne par niveau (legacy
+  `unitsProducedPerWave`) ;
+- **Mine** : quota de productions par vague (remis à zéro à chaque vague) ;
+- code de préparation (`startPlacement`, emplacements, aperçus, panneau
+  « Prêt pour la bataille », écran de fin de manche, `applyBattleOutcome`
+  hors défaite) et agrandissement E4 : conservés, plus utilisés par la
+  Survie ;
+- acquisition des **unités** selon la vision (aujourd'hui : portée d'aggro).
+
+## 6 ter. Parking — outils internes de conception (documentation seulement)
+
+Rien n'est construit. À reprendre sur décision d'Antoine.
+
+**Atelier de personnage** (accessible à terme depuis le menu) : composer
+visuellement une unité et en exporter la configuration exacte pour
+`tools/toon-units/units.json`.
+
+- choix de la source / faction, puis des pièces : tête, corps, bras, jambes,
+  épaulières, casque, cape, arme main droite, arme main gauche, bouclier,
+  accessoires ; n'importe quelle pièce compatible dans chaque main ;
+- échelle propre à un équipement (comme `tool_scale`) ;
+- palettes et couleurs, mélange de couleurs si c'est raisonnable
+  techniquement (masque d'équipe actuel : une teinte) ;
+- animation de prévisualisation (clips du dossier choisi) ;
+- export d'une entrée `units.json` prête à construire ;
+- **préalable** : un aperçu des pièces dans le navigateur demande soit le
+  FBX modulaire converti (catalogue `--catalogue` du pipeline), soit un
+  export par pièce ; le FBX modulaire de **cavalerie** ne s'importe pas
+  aujourd'hui dans Blender (KI-36).
+
+**Éditeur d'items** (équipements du Héros) : un item définit un
+identifiant, un nom, un type (épée, marteau, casque, bouclier, cape…), une
+rareté, un modèle / une pièce visuelle, un emplacement d'équipement, des
+stats, une valeur de vente et un éventuel effet spécial. Exemple :
+« Épée du débutant », épée, commune, +3 dégâts de mêlée, valeur de vente X ;
+plus tard « +3 dégâts de feu à chaque coup ». Changer d'item change le
+modèle porté. Pas de système de loot dans cette étape.
+
+**Ne pas figer le Héros** : aujourd'hui `human_hero.glb` fusionne tête, corps,
+bras, jambes et épaulières en un maillage, et seuls les outils (marteau,
+hache, pioche) sont des maillages séparés commutables (`pieces.tools`,
+`setToonTool`). La voie prévue pour les emplacements remplaçables (arme
+principale, seconde arme / bouclier, casque, épaulières, cape) est la même :
+exporter chaque emplacement comme maillage séparé nommé (comme
+`tool_<nom>`), choisi à l'exécution par l'item équipé. Les stats d'item
+passeront par le pipeline de stats existant (base → talents → achats →
+buffs), jamais par la simulation directement.
 
 ## 7. En attente volontaire
 
@@ -386,28 +478,12 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
      calculés au pixel ; +0,3 à 0,6 ms mesurés sur une RTX 2070 seulement.
      À mesurer sur une puce graphique intégrée ; si besoin, précalculer les
      accents dans une petite texture.
-  4. **surfaces bloquantes (eau, lave)** (cadré le 2026-10-31, non fait) :
-     aujourd'hui une unité marche sur l'eau ou la lave (règle : une surface
-     ne bloque rien, `DESIGN_DECISIONS.md` E7). Pour les rendre
-     infranchissables à pied sans bloquer les tirs :
-     - décision d'Antoine : changer la règle (une surface peut porter une
-       propriété de jeu), et dire si la lave blesse ou bloque seulement ;
-     - donnée : une table de propriétés par surface (`data/` ou `config/`,
-       par exemple `walkable: false`) et une fonction pure
-       `blockedSurfaceCells(map)` partagée par la simulation, l'éditeur et la
-       pose ;
-     - simulation : `World.setMap` ajoute, comme pour les trous
-       (`computeVoidObstacles`), un obstacle par case bloquante avec
-       `blocksShots: false` (collision et `buildPathGrid` le voient, les tirs
-       passent) ; la simulation ne lit toujours pas la surface elle-même ;
-     - pose et éditeur : `isValidPlacementTile`, bâtiments, Baliste, murs et
-       portes, territoire, points d'apparition et renforts ennemis, et un
-       refus (ou un avertissement) quand on peint de l'eau sous une unité, un
-       bâtiment ou un décor, comme les refus du pinceau de relief ;
-     - tests : trajets qui contournent un lac, cible inatteignable derrière
-       l'eau, apparition jamais dans l'eau, sauvegarde et rechargement.
-     Coût estimé : un chantier moyen, surtout dans `main.ts` (pose) et
-     l'éditeur ; la simulation ne change que dans `World.setMap`.
+  4. **surfaces bloquantes** : **eau faite** (2026-11-01,
+     `DESIGN_DECISIONS.md` E9) ; reste la **lave** (visuelle) : à Antoine de
+     dire si elle bloque comme l'eau ou blesse. Écart avec le cadrage du
+     2026-10-31 : `World.setMap` lit lui-même les `surfaceCells` d'eau (via
+     `config/groundSurfaces.ts`, aucune dépendance au rendu), au lieu d'une
+     fonction partagée appelée hors simulation.
   5. **relief `hybrid` : grandes facettes planes aux coins rentrants**
      des parois (noté lors de la passe relief, revu le 2026-10-31) : les
      colonnes de roche restent verticales aux sommets rentrants pour que les

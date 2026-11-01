@@ -7,6 +7,7 @@ import {
 } from '../config/constants';
 import { getItem } from '../data/items';
 import { getUnit } from '../data/units';
+import type { ResourceKind } from '../config/resourceNodes';
 import type { Entity } from '../sim/entity';
 import { createInitialMapExpansionState, type MapExpansionState } from './mapExpansion';
 import type { RunUpgradeLevels } from './runUpgrades';
@@ -130,7 +131,31 @@ export interface OwnedBuilding {
    *  0 = aucune amelioration, affiche « Niv. 1 ». Achete depuis sa fiche,
    *  voir run/buildingUpgrades.ts. Absent = 0. */
   level?: number;
+  /** CHANTIER (2026-11-01, direction Hero RTS) : avancement 0..1 tant que le
+   *  Heros ne l'a pas construit (sans aucun effet : production, tir,
+   *  population, deblocages, ameliorations). Absent = batiment construit. */
+  constructionProgress?: number;
 }
+
+/** Vrai pour un batiment construit (pas un chantier). */
+export function isBuildingBuilt(b: Pick<OwnedBuilding, 'constructionProgress'>): boolean {
+  return b.constructionProgress === undefined;
+}
+
+/** Progression du Heros sur la run (data/hero.ts) : XP totale, niveau,
+ *  nombre de morts (delai de resurrection), sac (ressources portees, pas
+ *  encore deposees). */
+export interface HeroProgress {
+  xp: number;
+  level: number;
+  deaths: number;
+  carry: Record<ResourceKind, number>;
+}
+
+/** Stock de depart de bois et de pierre d'une run : rien (2026-11-01,
+ *  demande d'Antoine) — le joueur doit explorer et deposer a la Baliste avant
+ *  tout chantier. PROVISOIRE. */
+export const STARTING_RESOURCES: Readonly<Record<ResourceKind, number>> = { wood: 0, stone: 0 };
 
 export interface RunState {
   gold: number;
@@ -164,6 +189,15 @@ export interface RunState {
    *  Instantane propre a la run, jamais partage avec MetaProgress : le
    *  modifier ne touche pas la progression permanente, et inversement. */
   upgrades: RunUpgradeLevels;
+  /** Heros : progression de la run (2026-11-01). */
+  hero: HeroProgress;
+  /** Bois et pierre en stock (DEPOSES a la Baliste, couts des batiments). */
+  resources: Record<ResourceKind, number>;
+  /** Quantites restantes des petits tas deja entames de la carte
+   *  (MapDef.resourcePiles, id -> quantite) : un tas vide ne revient pas. */
+  resourcePileAmounts: Record<number, number>;
+  /** Graine de la carte procedurale de la run (0 sur une carte dessinee). */
+  mapSeed: number;
 }
 
 /** Nombre d'emplacements de l'inventaire (demande d'Antoine, 2026-08-09).
@@ -248,6 +282,15 @@ export const KILL_REWARD: Record<string, number> = {
  *  compris comme "vaincue", a confirmer si Antoine voulait autre chose). */
 export const WAVE_CLEAR_BONUS = 5;
 
+/** Vague repoussee : bonus d'or et vague suivante. Fin de manche (legacy,
+ *  applyBattleOutcome) ou fin de vague de la Survie en temps reel continu,
+ *  sans changement de phase. Renvoie l'or gagne. */
+export function applyWaveVictory(run: RunState): number {
+  run.gold = roundGold(run.gold + WAVE_CLEAR_BONUS);
+  run.waveNumber += 1;
+  return WAVE_CLEAR_BONUS;
+}
+
 function rewardForKill(unitId: string): number {
   return KILL_REWARD[unitId] ?? 0;
 }
@@ -255,8 +298,10 @@ function rewardForKill(unitId: string): number {
 /** Or de depart d'une toute nouvelle run (20 ; 15 puis 5 avant). */
 export const STARTING_GOLD = 20;
 
-/** Fantassins de l'armee de depart (Pop. 4 / 5 avec PLAYER_BASE_POPULATION). */
-export const STARTING_FANTASSIN_COUNT = 4;
+/** Hommes d'armes (identifiant `fantassin`) de l'armee de depart : aucun
+ *  depuis la passe Hero RTS du 2026-11-01 (Heros et Baliste seuls ; 3 puis 4
+ *  avant). Pop. 0 / 5 au depart (le Heros ne compte pas). */
+export const STARTING_FANTASSIN_COUNT = 0;
 
 /** Etat de depart d'une toute nouvelle run : un seul fantassin a pleins PV —
  *  "le minimum possible pour une partie" (Antoine). `startingGoldBonus`
@@ -280,9 +325,9 @@ export const STARTING_FANTASSIN_COUNT = 4;
 export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = getUnit('fantassin').stats.maxHp, upgrades: RunUpgradeLevels = {}, baseMap: Pick<MapDef, 'width' | 'height'> = SURVIVAL_BASE_MAP): RunState {
   return {
     gold: roundGold(STARTING_GOLD + startingGoldBonus),
-    // Armee de depart : 4 Fantassins de niveau 1 (STARTING_FANTASSIN_COUNT),
-    // presents meme sans Caserne (seul le recrutement en exige une).
-    army: Array.from({ length: STARTING_FANTASSIN_COUNT }, () => ({ unitId: 'fantassin', hp: startingFantassinMaxHp, productionLevel: 0 })),
+    // Armee de depart (2026-11-01, demande d'Antoine) : le Heros seul, avec
+    // la Baliste ; STARTING_FANTASSIN_COUNT Hommes d'armes en plus (0).
+    army: [{ unitId: 'hero', hp: getUnit('hero').stats.maxHp, productionLevel: 0 }, ...Array.from({ length: STARTING_FANTASSIN_COUNT }, () => ({ unitId: 'fantassin', hp: startingFantassinMaxHp, productionLevel: 0 }))],
     inventory: [],
     buildings: [],
     waveNumber: 1,
@@ -290,6 +335,10 @@ export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = get
     mapExpansion: createInitialMapExpansionState(baseMap),
     ballistaPosition: null,
     upgrades: { ...upgrades },
+    hero: { xp: 0, level: 1, deaths: 0, carry: { wood: 0, stone: 0 } },
+    resources: { ...STARTING_RESOURCES },
+    resourcePileAmounts: {},
+    mapSeed: 0,
   };
 }
 
@@ -498,15 +547,13 @@ export function awardKillGold(run: RunState, unitId: string, hooks: TalentEconom
 export function applyBattleOutcome(run: RunState, entities: Entity[], pendingEnemyGroups = 0): BattleOutcome {
   const enemyAlive = entities.some((e) => e.team === 'enemy' && e.alive && e.countsForDefeat);
   const playerAlive = entities.some((e) => e.team === 'player' && e.alive && e.countsForDefeat);
+  // Heros a terre et Baliste detruite : defaite (meme regle que World.isHeroDefeat).
+  const heroFell = entities.some((e) => e.hero && e.team === 'player' && !e.alive) && !entities.some((e) => e.team === 'player' && e.alive && e.unitId === 'ballista');
   // Mini-vagues : pas de victoire tant que des groupes ennemis restent a venir.
-  const won = playerAlive && !enemyAlive && pendingEnemyGroups === 0;
+  const won = playerAlive && !enemyAlive && pendingEnemyGroups === 0 && !heroFell;
 
   let goldEarned = 0;
-  if (won) {
-    goldEarned = WAVE_CLEAR_BONUS;
-    run.gold = roundGold(run.gold + goldEarned);
-    run.waveNumber += 1;
-  }
+  if (won) goldEarned = applyWaveVictory(run);
 
   // Correlation ordre-de-spawn UNIQUEMENT avec les vraies unites (jamais un
   // batiment gameplay, voir le commentaire de fonction ci-dessus). Inclut
@@ -521,6 +568,13 @@ export function applyBattleOutcome(run: RunState, entities: Entity[], pendingEne
   const updatedArmy: OwnedUnit[] = [];
   for (let i = 0; i < run.army.length; i++) {
     const entity = playerUnitEntities[i];
+    // Heros : jamais perdu (resurrection) ; mort en fin de bataille, il
+    // revient a pleins PV. Sa progression est relue sur son entite.
+    if (entity?.hero) {
+      run.hero = { xp: entity.hero.xp, level: entity.hero.level, deaths: entity.hero.deaths, carry: { ...entity.hero.carry } };
+      updatedArmy.push({ ...run.army[i]!, hp: entity.alive ? entity.hp : entity.stats.maxHp });
+      continue;
+    }
     if (entity?.alive) updatedArmy.push({ ...run.army[i]!, hp: entity.hp });
   }
   run.army = updatedArmy;
@@ -550,6 +604,8 @@ export function applyBattleOutcome(run: RunState, entities: Entity[], pendingEne
         // quelle que soit la rotation reellement choisie par le joueur.
         rotationY: run.buildings[i]!.rotationY,
         level: run.buildings[i]!.level,
+        // Chantier : avancement relu sur l'entite (absent une fois construit).
+        ...(entity.construction ? { constructionProgress: entity.construction.progress } : {}),
       });
     }
   }
