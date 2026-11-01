@@ -2,8 +2,9 @@ import { recruitmentBuildingFor } from '../data/buildings';
 import type { RunState } from './runState';
 
 /**
- * Batiment requis pour recruter une unite en boutique (Caserne ->
- * Fantassin, Camp d'archerie -> Archer, Eglise -> Mage, voir
+ * Batiment requis pour recruter une unite en boutique (Caserne -> Piquier,
+ * et Fantassin au Niv. 2 ; Camp d'archerie -> Archer ; Eglise -> Mage,
+ * Oracle et Vengeur, voir
  * BuildingDef.recruitmentUnlock). Seule source de cette regle, lue par la
  * boutique (ui/screens.ts) et par l'achat (main.ts, buyUnit). Lu sur les
  * batiments possedes de la run : un
@@ -18,8 +19,11 @@ import type { RunState } from './runState';
 export function missingRecruitmentBuildingHint(run: Pick<RunState, 'buildings'>, unitId: string): string | null {
   const required = recruitmentBuildingFor(unitId);
   if (!required) return null;
-  if (run.buildings.some((owned) => owned.buildingId === required.id)) return null;
-  return required.recruitmentUnlock?.missingBuildingHint ?? null;
+  // Niveau minimal (RecruitmentUnlockConfig.minLevels : Fantassin a la Caserne Niv. 2).
+  const minLevel = required.recruitmentUnlock?.minLevels?.[unitId] ?? 0;
+  if (run.buildings.some((owned) => owned.buildingId === required.id && (owned.level ?? 0) >= minLevel)) return null;
+  const hint = required.recruitmentUnlock?.missingBuildingHint ?? null;
+  return hint !== null && minLevel > 0 ? `${hint} Niv. ${minLevel + 1}` : hint;
 }
 
 export function hasRecruitmentBuilding(run: Pick<RunState, 'buildings'>, unitId: string): boolean {

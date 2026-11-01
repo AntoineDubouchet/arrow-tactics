@@ -14,6 +14,20 @@ import type { Entity } from './entity';
  * n'appellent jamais cette fonction, donc aucun Shield n'est consomme sur un
  * coup qui ne touche pas.
  */
+/**
+ * Applique un soin a une entite de la simulation (Oracle, voir
+ * sim/systems/abilities.ts) : PV plafonnes aux PV max, sans bouclier ni
+ * surplus conserve. Renvoie les PV reellement rendus (echelle interne).
+ * Pendant des degats : SOURCE UNIQUE des soins appliques PAR LA SIMULATION
+ * (les parchemins, eux, passent par main.ts, applyPlayerHeal).
+ */
+export function applyHealToEntity(target: Entity, amount: number): number {
+  if (amount <= 0 || !target.alive) return 0;
+  const before = target.hp;
+  target.hp = Math.min(target.stats.maxHp, before + amount);
+  return target.hp - before;
+}
+
 export function applyDamageToEntity(target: Entity, amount: number): void {
   if (amount <= 0) return;
   let remaining = amount;

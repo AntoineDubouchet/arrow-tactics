@@ -105,14 +105,18 @@ export function unitProductionSummary(unitId: string, productionLevel: number): 
   const effects = computePlayerUnitUpgradeEffects(unitId, productionLevel);
   const fireball = findAbility(def.abilities, 'area-blast');
   const taunt = findAbility(def.abilities, 'taunt');
+  // Oracle : son action principale est le soin, affiche a la place de l'attaque.
+  const heal = findAbility(def.abilities, 'heal');
   const attackInternal = fireball
     ? fireball.damage + effects.abilityDamageBonus
-    : (effects.statOverrides.damage ?? def.stats.damage);
+    : heal
+      ? heal.amount
+      : (effects.statOverrides.damage ?? def.stats.damage);
   return {
     productionLevel,
     hp: playerUnitMaxHp(unitId, productionLevel) / HP_PER_PIP,
     attack: attackInternal / HP_PER_PIP,
-    attackLabel: fireball ? 'Boule de feu' : 'Attaque',
+    attackLabel: fireball ? 'Boule de feu' : heal ? 'Soin' : 'Attaque',
     tauntShield: taunt ? SHIELD_PER_TAUNTED_ENEMY + effects.tauntShieldBonusDisplay : null,
     cost: playerUnitProductionCost(unitId, productionLevel),
     population: def.populationCost,

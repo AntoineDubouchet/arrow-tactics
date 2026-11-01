@@ -45,6 +45,12 @@ export interface UnitStats {
   radius: number;
   /** Exception reservee a la charge du chevalier. */
   canAttackWhileMoving: boolean;
+  /** Elan de l'attaque de base (s), 0 ou absent = coup resolu des le depart
+   *  (toutes les unites d'avant 2026-11). Sinon le coup (rate, esquive,
+   *  degats) n'est resolu qu'a la fin de l'elan, et un ordre de deplacement
+   *  pendant l'elan l'annule (sim/systems/combat.ts). Toujours inferieur a
+   *  attackCooldown. */
+  attackWindup?: number;
   /** Distance (cases) a laquelle movementSystem arrete de POURSUIVRE une
    *  cible verrouillee — absent = retombe sur `attackRange` (comportement
    *  IDENTIQUE a avant l'introduction de ce champ pour toute unite qui ne le
@@ -65,7 +71,7 @@ export interface UnitStats {
 
 export interface UnitVisual {
   /** Quel constructeur de silhouette utiliser dans render/unitMesh.ts */
-  kit: 'fantassin' | 'archer' | 'mage' | 'sentinel';
+  kit: 'fantassin' | 'archer' | 'mage' | 'sentinel' | 'oracle' | 'piquier' | 'vengeur';
   /** Hauteur monde (voir config/constants.ts, HP_BAR_WORLD_HEIGHT) a
    *  laquelle ancrer la barre de PV de CETTE unite specifiquement — absent
    *  = retombe sur HP_BAR_WORLD_HEIGHT (comportement inchange pour toute
@@ -332,7 +338,8 @@ export const UNITS: Record<string, UnitDef> = {
   sentinel: {
     id: 'sentinel',
     name: 'Sentinelle',
-    cost: 40,
+    // 40 -> 20 (2026-11-01, decision de design d'Antoine) ; le reste inchange.
+    cost: 20,
     populationCost: 5,
     // Deblocage par victoire (2026-08-15, meme systeme que le Mage) : le
     // joueur doit avoir vaincu au moins une Sentinelle ENNEMIE (apparait a
@@ -399,6 +406,93 @@ export const UNITS: Record<string, UnitDef> = {
         initialLockoutSeconds: SENTINEL_INITIAL_TAUNT_LOCKOUT,
       },
     ],
+  },
+  // Oracle (2026-11-01, demande d'Antoine) : soutien fragile recrute a
+  // l'Eglise. Soigne l'allie le plus blesse a portee, a la FIN d'une
+  // incantation (data/abilities.ts, HealAbility). Cout 15 or decide par
+  // Antoine ; toutes les autres valeurs sont PROVISOIRES (fiche B7,
+  // docs/DESIGN_DECISIONS.md). Joueur seulement : absent des vagues ennemies.
+  oracle: {
+    id: 'oracle',
+    name: 'Oracle',
+    cost: 15,
+    populationCost: 2,
+    stats: {
+      // 3 PV, comme l'Archer : tombe vite au contact.
+      maxHp: 30,
+      // Coup de baton de repli, 0,5 : il ne doit pas tenir une ligne.
+      damage: 5,
+      attackRange: 0.95,
+      aggroRange: 10,
+      moveSpeed: 2.0,
+      attackCooldown: 2.0,
+      missChance: 0.3,
+      dodgeChance: 0,
+      radius: 0.44,
+      canAttackWhileMoving: false,
+      // Reste en retrait : s'arrete a 3,5 cases de sa cible ennemie, assez
+      // pres de la melee pour que les allies au contact soient a portee de soin.
+      engageRange: 3.5,
+    },
+    visual: { kit: 'oracle' },
+    abilities: [
+      // 2 PV toutes les 4 s (0,5 PV/s), incantation de 1 s.
+      { type: 'heal', cooldown: 4, rangeTiles: 4.5, endRangeMarginTiles: 1, castTime: 1, amount: 20 },
+    ],
+  },
+  // Piquier (2026-11-01, demande d'Antoine) : soldat de base de la Caserne,
+  // lance et petit bouclier. Plus faible seul que le Fantassin, moins cher,
+  // fiable (peu de rates) ; sa lance porte assez loin pour frapper depuis le
+  // deuxieme rang. Valeurs PROVISOIRES (fiche B8, docs/DESIGN_DECISIONS.md).
+  // Joueur seulement.
+  piquier: {
+    id: 'piquier',
+    name: 'Piquier',
+    cost: 1.5,
+    populationCost: 1,
+    stats: {
+      maxHp: 40,
+      damage: 8,
+      // Lance : 1,4 contre 0,95 (reste du corps a corps, MELEE_CONTACT_RANGE).
+      attackRange: 1.4,
+      aggroRange: 9,
+      moveSpeed: 2.0,
+      attackCooldown: 1.2,
+      // Estoc resolu 0,3 s apres le debut du geste (impact du clip, voir
+      // UnitStats.attackWindup) ; un ordre de deplacement l'annule avant.
+      attackWindup: 0.3,
+      missChance: 0.08,
+      dodgeChance: 0,
+      radius: 0.45,
+      canAttackWhileMoving: false,
+    },
+    visual: { kit: 'piquier' },
+  },
+  // Vengeur (2026-11-01, demande d'Antoine) : combattant religieux de
+  // l'Eglise, deux epees, DPS de melee brutal et tres rapide ; ni tank ni bon
+  // marche. Valeurs PROVISOIRES (fiche B9). Joueur seulement.
+  vengeur: {
+    id: 'vengeur',
+    name: 'Vengeur',
+    cost: 25,
+    populationCost: 3,
+    stats: {
+      // 10 PV : deux fois un Fantassin, cinq fois moins qu'une Sentinelle.
+      maxHp: 100,
+      // 2 par coup toutes les 0,6 s : environ 3,3 par seconde.
+      damage: 20,
+      attackRange: 0.95,
+      aggroRange: 9,
+      moveSpeed: 2.6,
+      attackCooldown: 0.6,
+      // Impact 0,2 s apres le debut du geste (voir UnitStats.attackWindup).
+      attackWindup: 0.2,
+      missChance: 0.1,
+      dodgeChance: 0,
+      radius: 0.5,
+      canAttackWhileMoving: false,
+    },
+    visual: { kit: 'vengeur' },
   },
 };
 

@@ -62,6 +62,10 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | B4 | Identité du combat automatique | Historique (intention d'origine) / Ouverte (évolution) |
 | B5 | Début de bataille défensif pour le joueur | Active |
 | B6 | Vagues ennemies en mini-groupes | Active (mécanique) / Ouverte (courbe des vagues tardives) |
+| B7 | Oracle, soutien soigneur de l'Église | Active (rôle, Église, 15 or, soin en fin d'incantation) / Ouverte (autres valeurs, apparence) |
+| B8 | Piquier, recrue de base de la Caserne | Active (rôle, Caserne Niv. 1 / Fantassin Niv. 2, production) / Ouverte (valeurs) |
+| B9 | Vengeur, combattant à deux épées de l'Église | Active (rôle, Église, deux épées) / Ouverte (valeurs, animations) |
+| B10 | Ordre de déplacement prioritaire sur l'attaque de base, élan opt-in | Active (règle) / Ouverte (élan des unités existantes) |
 | C1 | Grand arbre de talents abandonné | Remplacée |
 | C2 | Exclusivités dans l'arbre de talents | Remplacée (fondateurs) / Active (talents frères) |
 | C3 | Attribution des points de talent | Active (forme actuelle) / Remplacée (formes antérieures) |
@@ -302,6 +306,126 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Sources** : `run/enemyWaveGroups.ts`, `sim/systems/enemyReinforcements.ts`,
   `config/constants.ts`, `main.ts` (`computeEnemyWavePlan`),
   `CURRENT_STATE.md` §10.
+
+### B7 — Oracle, soutien soigneur de l'Église
+
+- **Statut** : Active (rôle, Église, 15 or, soin appliqué à la fin de
+  l'incantation). Ouverte : toutes les autres valeurs et règles ci-dessous,
+  **PROVISOIRES** tant qu'elles n'ont pas été jouées, et l'apparence.
+- **Contexte** : aucune unité de soutien ; les soins ne venaient que du
+  joueur (parchemins, soin de l'armée à l'Église).
+- **Décision** (demande d'Antoine, 2026-11-01) :
+  - unité humaine **Oracle**, recrutée à l'**Église** (avec le Mage),
+    **15 or** ; soutien fragile, presque pur, qui soigne ses alliés ;
+  - le soin est appliqué par la simulation **à la fin de l'incantation**,
+    jamais au début ; déterministe, sans hasard, au pas fixe de 30 Hz ;
+  - pas de changement de phase.
+- **Valeurs et règles PROVISOIRES** (proposées à l'implémentation) :
+  - population 2 ; 3 PV ; 2 cases/s ; rayon 0,44 ; joueur seulement (absent
+    des vagues ennemies) ; aucun niveau de production à la Forge ;
+  - soin de 2 PV, portée 4,5 cases, incantation 1 s, recharge 4 s comptée
+    depuis le **début** de l'incantation (0,5 PV/s par Oracle) ;
+  - cible : allié vivant et blessé à portée, jamais lui-même ni un
+    bâtiment ; priorité à la plus faible part de PV, puis aux PV les plus
+    bas, puis au plus proche, puis au plus petit id. Les soins déjà en
+    incantation par un autre Oracle comptent comme rendus ;
+  - sans allié blessé : pas d'incantation, recharge non consommée. Il se
+    tient à 3,5 cases de son ennemi (`engageRange`) et ne frappe qu'au
+    contact (0,5, 30 % de ratés) ;
+  - fin d'incantation : cible morte, devenue invalide ou à plus de
+    5,5 cases (portée + 1 de tolérance) → soin **perdu**, recharge
+    conservée, aucune autre cible ; Oracle mort pendant l'incantation →
+    incantation annulée ;
+  - PV plafonnés aux PV max, aucun surplus ; ne déclenche pas « Soins
+    excédentaires » ; peut faire repasser une unité au-dessus du seuil
+    d'« Aux petits oignons » ;
+  - apparence Toon RTS (capuche, robe, bâton doré), proche du Mage par la
+    robe ; sans l'asset local, il reprend le modèle du Mage.
+- **Raison connue** : demande d'Antoine pour le rôle, le bâtiment, le coût
+  et le moment du soin. Les autres valeurs ne sont pas encore validées.
+- **Aujourd'hui** : `data/units.ts` (`oracle`), `data/abilities.ts`
+  (`HealAbility`), `sim/systems/abilities.ts` (`findHealTarget`,
+  `tryTriggerHeal`, `resolveHeal`), `sim/damage.ts` (`applyHealToEntity`),
+  `data/buildings.ts` (`recruitmentUnlock.unitIds`), `CURRENT_STATE.md` §3
+  et §4.
+- **À ne pas faire** : appliquer le soin au début de l'incantation ; tirer
+  la cible au hasard ; modifier des PV de simulation hors de
+  `applyHealToEntity` / `applyDamageToEntity`.
+- **Sources** : demande d'Antoine du 2026-11-01 ; code ci-dessus.
+
+### B8 — Piquier, recrue de base de la Caserne
+
+- **Statut** : Active (rôle, lance et petit bouclier, Caserne : verrou du
+  Fantassin et production). Ouverte : valeurs **PROVISOIRES** (validées
+  pour le prototype).
+- **Décision** (demande d'Antoine, 2026-11-01) : soldat de base de la
+  Caserne, lance et petit bouclier, plus léger et plus commun que le
+  Fantassin ; à terme, le Fantassin devient une unité plus avancée. Pas de
+  mécanique anti-cavalerie pour l'instant. Armée de départ inchangée.
+- **Valeurs PROVISOIRES** : 1,5 or, population 1, 4 PV, 0,8 dégât toutes
+  les 1,2 s (élan 0,3 s, B10), portée 1,4, 8 % de ratés, 2 cases/s, rayon
+  0,45 ; joueur seulement.
+  - Plus faible seul que le Fantassin (5 PV, 1 dégât par seconde) et moins
+    cher ; fiable (peu de ratés).
+  - Intéressant en nombre : sa portée lui permet de frapper depuis le
+    deuxième rang.
+- **Caserne** (décision d'Antoine, 2026-11-01) : Niv. 1, Piquier
+  recrutable et Fantassin verrouillé, production d'1 Piquier par manche ;
+  Niv. 2, Fantassin recrutable, production d'1 Piquier et d'1 Fantassin.
+  Les 4 Fantassins de l'armée de départ restent (soldats déjà
+  disponibles). Verrou : `RecruitmentUnlockConfig.minLevels` ; production :
+  `UnitProductionConfig.unitsByLevel`.
+- **Sources** : `data/units.ts` (`piquier`), `data/buildings.ts`
+  (`barracks`), `run/recruitment.ts`, `CURRENT_STATE.md` §3 et §4.
+
+### B9 — Vengeur, combattant à deux épées de l'Église
+
+- **Statut** : Active (rôle, Église, une épée dans chaque main). Ouverte :
+  valeurs **PROVISOIRES**, choix des animations.
+- **Décision** (demande d'Antoine, 2026-11-01) : combattant religieux
+  offensif, rapide, DPS de mêlée brutal ; ni tank, ni bon marché ;
+  branche offensive de l'Église, qui ne soigne pas.
+- **Valeurs PROVISOIRES** : 25 or, population 3, 10 PV, 2 dégâts toutes les
+  0,6 s (élan 0,2 s, B10 ; cadence réelle 0,633 s, KI-30), portée 0,95,
+  10 % de ratés, 2,6 cases/s, rayon 0,5 ; aucun prérequis au-delà de
+  l'Église ; joueur seulement.
+  - Avantages : meilleurs dégâts par seconde au contact, rapide.
+  - Faiblesses : cher en or et en population, 10 PV sans bouclier ni
+    capacité (la Sentinelle en a 50), aucune attaque à distance.
+- **Animations** : le pack n'a pas de clip à deux armes. Retenus :
+  - gestes de l'Infantry (repos, garde, course, morts) ;
+  - attaque alternée, côté rendu seulement : la frappe à deux mains du
+    Worker (les deux lames montent et retombent ensemble), puis le revers
+    `attackB` de l'Infantry ;
+  - limites : main gauche passive dans la garde et dans le revers ;
+    acceptée pour le prototype (Antoine, 2026-11-01), à reprendre en
+    polish.
+- **Sources** : `data/units.ts` (`vengeur`), `render/toonUnitRig.ts`,
+  `tools/toon-units/units.json` (`offhand_weapon`, `extra_animations`).
+
+### B10 — Ordre de déplacement prioritaire sur l'attaque de base, élan opt-in
+
+- **Statut** : Active (règle). Ouverte : donner un élan aux unités
+  existantes.
+- **Contexte** : une attaque de base était résolue dès son premier pas
+  (dégâts, raté, esquive), puis l'animation se jouait après coup. La flèche
+  visible de l'Archer partait environ 1,2 s après ses dégâts. Il n'existait
+  aucune phase « avant impact » à annuler.
+- **Décision** (Antoine, 2026-11-01, option « élan opt-in ») :
+  - nouvelle stat `attackWindup` (0 par défaut) : le coup est résolu à la
+    fin de l'élan. Un ordre de déplacement pendant l'élan l'annule sans
+    dégât ni tirage et rend la recharge. Une cible sortie du contact de plus
+    de 0,2 case à la fin de l'élan fait rater le coup (sans tirage).
+    Activée seulement pour le Piquier et le Vengeur, calée sur l'impact de
+    leur clip ;
+  - toutes les unités : sous un ordre de déplacement, l'animation d'attaque
+    est coupée net et la flèche visuelle en attente d'un Archer est
+    supprimée. Les dégâts déjà validés restent ;
+  - sorts, soin de l'Oracle et Provocation ne sont pas concernés.
+- **Aujourd'hui** : les batailles sans Piquier ni Vengeur sont identiques à
+  avant la règle (vérifié par instantanés à graine fixe).
+- **Sources** : `sim/systems/combat.ts`, `render/unitViews.ts`, `main.ts`,
+  `CURRENT_STATE.md` §2 et §3.
 
 ---
 
@@ -600,7 +724,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     l'armée de départ, ne sont jamais retirées ;
   - **Caserne** : 15 or, 3 × 3, débloque le Fantassin et en produit 1 par
     manche au Niv. 1, 2 au Niv. 2. Une seule amélioration, 20 or, Niv. 2
-    maximum, sans PV ni autre bonus ;
+    maximum, sans PV ni autre bonus. Depuis le 2026-11-01 (B8) : Piquier au
+    Niv. 1 (1 Piquier produit), Fantassin au Niv. 2 (1 Piquier et 1
+    Fantassin produits) ;
   - **Camp d'archerie** : mêmes règles pour l'Archer (15 or, 3 × 3, 1 puis
     2 Archers par manche, amélioration 20 or, Niv. 2 maximum) ;
   - **production** : une fois par manche, au début de la bataille, sans
@@ -610,7 +736,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     la bataille). Le quota restant est perdu à la fin de la bataille, sans
     report ;
   - **Église** : 35 or ; elle débloque désormais le recrutement du Mage,
-    en plus de son soin et de ses améliorations.
+    en plus de son soin et de ses améliorations (et ceux de l'Oracle et du
+    Vengeur depuis le 2026-11-01, B7 et B9). Depuis le 2026-11-01, la
+    Caserne débloque le Piquier, et le Fantassin seulement au Niv. 2 (B8,
+    PROVISOIRE).
 - **Raison connue** :
   - le départ à 4 / 5 force un choix immédiat : Maison + Caserne ou Maison
     + Camp d'archerie (20 or). Caserne + Camp d'archerie (30 or) est

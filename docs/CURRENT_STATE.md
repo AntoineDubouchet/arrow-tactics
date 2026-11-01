@@ -70,15 +70,16 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
    **Début de run** : 20 or, 4 Fantassins, Pop. 4 / 5, aucun bâtiment.
    Une seule place est libre : une Maison (5 or, +2 population) est le
    premier levier. Recruter exige un bâtiment (§4) : Fantassin → Caserne,
-   Archer → Camp d'archerie, Mage → Église. Maison + Caserne ou Maison +
+   Piquier → Caserne (Fantassin → Caserne Niv. 2), Archer → Camp d'archerie,
+   Mage, Oracle et Vengeur → Église. Maison + Caserne ou Maison +
    Camp d'archerie tiennent dans les 20 or ; Caserne + Camp d'archerie
    (30 or) non.
 
    **Population** (`data/population.ts`, `run/population.ts`) : maximum
    5 + 2 par Maison possédée (5, 7, 9, 11…) ; en bataille, par Maison
    vivante ; chaque
-   unité en occupe `populationCost` (Fantassin et Archer 1, Mage 3,
-   Sentinelle 5). Affichée par le HUD « Pop. N / M » et dans la boutique.
+   unité en occupe `populationCost` (Piquier, Fantassin et Archer 1,
+   Oracle 2, Mage et Vengeur 3, Sentinelle 5). Affichée par le HUD « Pop. N / M » et dans la boutique.
    Un recrutement qui dépasserait le maximum est refusé ; la production
    des bâtiments est limitée de la même façon (§6).
 2. **Démarrage direct**. La run part de l'arène officielle (§11) remise à
@@ -171,6 +172,17 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
      sélectionnée n'en a pas. Le remplissage prend la couleur du camp ;
    - **clic droit** : ordre aux unités sélectionnées (attaque si un ennemi
      est sous le curseur, sinon déplacement de groupe) ;
+   - **ordre de déplacement > attaque de base** (2026-11-01) : l'unité
+     n'attaque plus en chemin, et son attaque de base visible est coupée
+     net (animation quittée à la frame suivante, fondu de 0,05 s) :
+     - attaque **à élan** (`attackWindup` : Piquier, Vengeur) encore en
+       cours : annulée **avant l'impact**, sans dégât ni tirage, recharge
+       rendue ;
+     - attaque déjà résolue (toutes les autres unités, dont le coup part au
+       premier pas, ou élan terminé) : dégâts conservés ; la flèche visuelle
+       qu'un Archer n'a pas encore lâchée est supprimée ;
+     - la Provocation reste prioritaire sur l'ordre ; sorts (Boule de feu,
+       soin de l'Oracle) et Provocation ne sont pas interrompus ;
    - **S** : Stop, les unités sélectionnées passent en Garde ;
    - **Q** : tir de la Baliste en mode MANUEL, sans effet en AUTO (voir §5) ;
    - caméra : Maj + clic droit pour pivoter, clic gauche + clic droit pour
@@ -211,7 +223,8 @@ Après une victoire, l'écran de fin de vague présente :
 - « **VICTOIRE** », d'abord seul, puis « Vague N terminée » ;
 - une ligne par type d'ennemi réellement vaincu pendant la manche
   (« Fantassins vaincus 8 », « Sentinelles vaincues 1 »), dans l'ordre
-  Fantassin, Archer, Mage, Sentinelle ; aucune ligne à 0 ;
+  Fantassin, Archer, Mage, Sentinelle (puis Oracle, Piquier et Vengeur,
+  jamais ennemis aujourd'hui) ; aucune ligne à 0 ;
 - « **Or gagné cette manche** », en dernier ;
 - le bouton « Continuer », vers la préparation suivante.
 
@@ -256,7 +269,7 @@ en bataille. Elle n'existe pas dans l'éditeur.
   unité du joueur affiche aussi son **coût** (celui de son niveau) et sa
   population.
 - **Contenu** (titre, camp, PV actuels / max avec une barre de PV) :
-  - **Fantassin, Archer, Sentinelle** : dégâts, portée (« Mêlée » ou en
+  - **Fantassin, Archer, Sentinelle, Piquier, Vengeur** : dégâts, portée (« Mêlée » ou en
     cases), cadence, vitesse, et l'esquive quand elle est non nulle. Ni rayon,
     ni aggro, ni chance de rater ;
   - **Mage** : PV et vitesse, puis la section **Attaque — Boule de feu**,
@@ -264,6 +277,9 @@ en bataille. Elle n'existe pas dans l'éditeur.
     recharge. Son coup de repli au contact n'est pas affiché ;
   - **Sentinelle** : section **Provocation** : recharge, rayon, bouclier
     par ennemi provoqué (amélioration comprise) ;
+  - **Oracle** : dégâts de repli, portée, cadence et vitesse comme le
+    Fantassin, puis la section **Soin** : soin, portée, incantation,
+    recharge ;
   - en bataille, chaque capacité indique son état (Prête, Recharge x.x s,
     Incantation, « Dans x.x s » pendant le verrou initial de la
     Provocation), et un bouclier actif s'affiche sous la barre de PV ;
@@ -271,9 +287,9 @@ en bataille. Elle n'existe pas dans l'éditeur.
     et emprise. En préparation, aussi l'effet du niveau suivant et le bouton
     **« Améliorer la mine — N or »** (§6) ;
   - **Caserne / Camp d'archerie** : « Nom — Niv. N », PV, production
-    (« 1 Fantassin par manche »), recrutement débloqué (« Recrutement de
-    Fantassins », « Recrutement d'Archers ») et emprise. En préparation, au
-    Niv. 1, aussi l'effet du Niv. 2 (« 2 Fantassins par manche ») et le
+    (« 1 Piquier par manche »), recrutement débloqué (« Recrutement de
+    Piquiers et de Fantassins (Niv. 2) », « Recrutement d'Archers ») et emprise. En préparation, au
+    Niv. 1, aussi l'effet du Niv. 2 (« 1 Piquier et 1 Fantassin par manche ») et le
     bouton **« Améliorer — 20 or »** ; au Niv. 2, « Niveau maximum » et plus
     de bouton. En bataille, « En attente : N (population pleine) » ou
     « (aucune case libre) » tant que le quota de la manche n'est pas
@@ -284,7 +300,7 @@ en bataille. Elle n'existe pas dans l'éditeur.
     2.5 s ») et emprise. En préparation, aussi l'effet du niveau suivant
     (« +5 PV, +2 dégâts ») et le bouton **« Améliorer — N or »** (§6) ;
   - **Église** : « Église — Niv. N », PV, soin (« 5 PV par or »),
-    recrutement débloqué (« Recrutement de Mages ») et emprise. En préparation, aussi les PV manquants de l'armée, l'effet du
+    recrutement débloqué (« Recrutement de Mages, d’Oracles et de Vengeurs ») et emprise. En préparation, aussi les PV manquants de l'armée, l'effet du
     niveau suivant (« +5 PV, +2 PV par or ») et les boutons **« Soigner
     l'armée — N or »**, **« Améliorer — N or »** et **« Améliorations de
     l'Église »** (§6, §14). En bataille, « En préparation uniquement » ;
@@ -325,14 +341,18 @@ en bataille. Elle n'existe pas dans l'éditeur.
 
 Sources : `data/units.ts`, `run/runState.ts` (`KILL_REWARD`).
 
-Quatre unités existent, communes au joueur et à l'ennemi.
+Sept unités existent. Les quatre premières sont communes au joueur et à
+l'ennemi ; l'Oracle, le Piquier et le Vengeur sont réservés au joueur.
 
 | Unité | Coût de base | PV | Dégâts | Portée / aggro | Cadence | Raté |
 |---|---|---|---|---|---|---|
 | Fantassin | 2 | 5 | 1 | 0,95 / 9 | 1,0 s | 12 % |
 | Archer | 3 | 3 | 1,2 | 6 / 10 | 2,0 s | 5 % |
 | Mage | 10 | 5 | 1 (mêlée de repli) | 0,95 / 10 | 2,0 s | 30 % |
-| Sentinelle | 40 | 50 | 1 | 0,95 / 9 | 1,5 s | 12 % |
+| Sentinelle | 20 | 50 | 1 | 0,95 / 9 | 1,5 s | 12 % |
+| Oracle | 15 | 3 | 0,5 (mêlée de repli) | 0,95 / 10 | 2,0 s | 30 % |
+| Piquier | 1,5 | 4 | 0,8 | 1,4 / 9 | 1,2 s (élan 0,3 s) | 8 % |
+| Vengeur | 25 | 10 | 2 | 0,95 / 9 | 0,6 s (élan 0,2 s) | 10 % |
 
 - **Mage** :
   - s'arrête à 6 cases de sa cible (`engageRange`) ;
@@ -344,11 +364,43 @@ Quatre unités existent, communes au joueur et à l'ennemi.
   - gagne un bouclier de 3 par ennemi provoqué, pendant 10 s ;
   - recharge 12 s, et indisponible pendant les 7 premières secondes de la
     bataille.
+- **Oracle** (2026-11-01, valeurs PROVISOIRES sauf le coût, voir
+  `DESIGN_DECISIONS.md` B7) : population 2, vitesse 2 cases/s, rayon 0,44 ;
+  s'arrête à 3,5 cases de sa cible ennemie (`engageRange`) ; capacité
+  **Soin** :
+  - soigne l'allié blessé à 4,5 cases ou moins dont la part de PV est la
+    plus faible (puis le moins de PV, le plus proche, le plus petit id) ;
+    jamais lui-même ni un bâtiment ; un soin déjà en incantation par un
+    autre Oracle compte comme rendu ;
+  - incantation de 1 s, puis **2 PV rendus à la fin** de l'incantation
+    (plafonnés aux PV max) ; recharge 4 s depuis le début de l'incantation ;
+  - cible morte, invalide ou à plus de 5,5 cases à la fin : soin perdu,
+    recharge conservée. Oracle tué pendant l'incantation : rien n'est
+    soigné ;
+  - sans allié blessé, il n'incante pas et garde sa recharge ;
+  - effets du parchemin (halo doré, « +2 ») sur l'allié soigné, Oracle
+    tourné vers lui pendant l'incantation ; pas de télégraphe au sol ; ne
+    déclenche pas « Soins excédentaires ».
+- **Piquier** (2026-11-01, valeurs PROVISOIRES, `DESIGN_DECISIONS.md` B8) :
+  population 1, 2 cases/s, rayon 0,45. Lance et petit bouclier ; sa portée
+  de 1,4 lui permet de frapper depuis le deuxième rang. Coup d'estoc
+  résolu 0,3 s après le début du geste (élan).
+- **Vengeur** (2026-11-01, valeurs PROVISOIRES, B9) : population 3,
+  2,6 cases/s, rayon 0,5. Deux épées ; coup résolu 0,2 s après le début du
+  geste, environ 3 dégâts par seconde (cadence réelle 0,633 s, voir
+  `KNOWN_ISSUES.md` KI-30). Ni bouclier ni capacité.
+- **Élan** (`attackWindup`, Piquier et Vengeur seulement) : le rate,
+  l'esquive et les dégâts arrivent à la fin de l'élan, sur la cible
+  verrouillée au départ, si elle est vivante et à portée (+0,2 case) ;
+  sinon le coup est perdu. Le cooldown part au début du geste. Un ordre
+  de déplacement pendant l'élan l'annule (§2). Les autres unités frappent
+  toujours au premier pas.
 - **Valeur au kill et à la revente** (`KILL_REWARD`) : Fantassin 1, Archer
-  1,5, Mage 5, Sentinelle 20.
+  1,5, Mage 5, Sentinelle 20, Oracle 7,5, Piquier 0,75, Vengeur 12,5.
 - Le coût payé en partie est le coût de base **plus le surcoût du niveau
   de production courant** de l'unité (§14) : Fantassin et Archer +1 or,
-  Mage +3, Sentinelle +10 par niveau. La boutique affiche ce coût, le niveau
+  Mage +3, Sentinelle +10 par niveau ; l'Oracle, le Piquier et le Vengeur
+  n'ont pas de niveau de production (coût fixe). La boutique affiche ce coût, le niveau
   (« Niv. N ») et, en infobulle, les stats de la prochaine recrue.
 
 ## 4. Déblocage des unités
@@ -374,6 +426,15 @@ Sources : `data/units.ts` (`playerUnlockMode`), `run/metaProgress.ts`
     (`defeatedEnemyUnitIds`) et signalé par un toast.
   - Tant qu'elles ne sont pas débloquées, ces unités sont masquées dans la
     boutique.
+- **Oracle** (`starter`) : recrutable dès la première run, à condition de
+  posséder au moins une **Église** (« Nécessite une Église »). Sans Église,
+  sa ligne de boutique est masquée (`refreshShop`).
+- **Vengeur** (`starter`) : même règle que l'Oracle (Église).
+- **Piquier** (`starter`) : recrutable avec une **Caserne** ; il est en tête
+  de la boutique. Le **Fantassin** exige désormais une **Caserne Niv. 2**
+  (`RecruitmentUnlockConfig.minLevels`, décision d'Antoine ; « Nécessite
+  une Caserne Niv. 2 ») ; sa ligne est masquée en dessous. L'armée de
+  départ garde ses 4 Fantassins (soldats déjà disponibles en début de run).
 - `MAGE_UNLOCK_WAVE` (`config/constants.ts`) ne règle que l'**apparition des
   Mages ennemis**, pas leur déblocage pour le joueur.
 
@@ -600,7 +661,7 @@ du dossier « neutral », visuel neutre non teinté, mais constructions du
 |---|---|---|---|---|---|---|---|
 | Coût en partie | 20 | 15 | 15 | 5 | 10 | 20 | 35 |
 | PV / emprise | 15 / 2×2 | 25 / 3×3 | 25 / 3×3 | 10 / 2×2 | 15 / 2×2 | 15 / 2×2 | 15 / 2×2 |
-| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Débloque le recrutement des Fantassins et en produit (voir ci-dessous) | Débloque le recrutement des Archers et en produit (voir ci-dessous) | +2 population maximale (§2) | Accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; débloque le recrutement du Mage (§4) ; accès aux améliorations des parchemins et de Soins excédentaires (voir ci-dessous et §14) |
+| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Débloque le recrutement des Piquiers (Fantassins au Niv. 2) ; produit 1 Piquier par manche, plus 1 Fantassin au Niv. 2 (voir ci-dessous) | Débloque le recrutement des Archers et en produit (voir ci-dessous) | +2 population maximale (§2) | Accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; débloque le recrutement du Mage, de l'Oracle et du Vengeur (§4) ; accès aux améliorations des parchemins et de Soins excédentaires (voir ci-dessous et §14) |
 
 Le coût d'achat est fixe : il ne dépend d'aucune amélioration (une Mine
 coûte toujours 20, une Caserne toujours 15).
@@ -644,14 +705,21 @@ Production de la Mine :
   reprend dès l'arrivée du groupe ;
 - jamais dans « Tester le scénario » ; une Mine détruite s'arrête aussitôt.
 
-Production de la Caserne (Fantassins) et du Camp d'archerie (Archers) :
+Production de la Caserne et du Camp d'archerie :
 
 - **Une fois par manche** : au début de chaque bataille, chaque bâtiment
-  reçoit un quota de **1 unité au Niv. 1, 2 au Niv. 2**, produit
-  gratuitement dès que possible. Aucun minuteur, aucune production répétée
+  reçoit la liste d'unités de son niveau (`UnitProductionConfig.unitsByLevel`),
+  produite dans l'ordre, gratuitement, dès que possible :
+  - Caserne : **1 Piquier** au Niv. 1, **1 Piquier puis 1 Fantassin** au
+    Niv. 2 (2026-11-01) ;
+  - Camp d'archerie : 1 Archer au Niv. 1, 2 au Niv. 2.
+
+  Aucun minuteur, aucune production répétée Aucun minuteur, aucune production répétée
   pendant la bataille. Chaque bâtiment produit son propre quota.
 - **Population** : le quota est limité aux places libres ; ce qui manque
-  attend et réessaie pendant la bataille (une mort libère une place). Un
+  attend et réessaie pendant la bataille (une mort libère une place).
+  L'ordre est gardé : une Caserne Niv. 2 avec une seule place produit le
+  Piquier, le Fantassin attend. Un
   quota non produit à la fin de la bataille est perdu, sans cumul.
 - **Cases** : les unités apparaissent sur des cases libres autour de
   l'emprise, les plus avancées vers le champ de bataille d'abord ; si
@@ -711,7 +779,7 @@ Soin de l'Église (modèle `blue_church`, ajusté à l'emprise 2 × 2) :
 - **Améliorations** : « Améliorations de l'Église » ouvre les améliorations
   de run des parchemins et de Soins excédentaires (§14).
 - **Recrutement** : posséder au moins une Église débloque le recrutement
-  du Mage (§4).
+  du Mage, de l'Oracle et du Vengeur (§4).
 - Une Église détruite disparaît de la run comme les autres bâtiments.
 
 La Forge (modèle `blue_blacksmith`) est un vrai bâtiment : ciblable,

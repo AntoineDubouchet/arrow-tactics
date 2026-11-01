@@ -5,8 +5,11 @@ import type { Team } from '../sim/entity';
 
 /**
  * Unites Toon RTS — LABORATOIRE (2026-11-01), jamais par defaut :
- * `?toonUnits=human` remplace visuellement le Fantassin, l'Archer et le Mage ;
- * une liste (`?toonUnits=fantassin,mage`) n'en remplace que certains ;
+ * `?toonUnits=human` remplace visuellement le Fantassin, l'Archer, le Mage et
+ * la Sentinelle ; une liste (`?toonUnits=fantassin,sentinelle`) n'en remplace
+ * que certains. Exception : l'Oracle, le Piquier et le Vengeur, sans modele
+ * officiel, sont en Toon RTS des que leur asset est present (`defaultOn`),
+ * sinon ils reprennent le Mage (Oracle) ou le Fantassin officiel ;
  * `&toonMix=1` n'en remplace qu'un sur deux (comparaison avec les unites
  * officielles) ; `&toonColors=green,orange` choisit les palettes du joueur et
  * de l'ennemi. Remplacement purement graphique : stats, collisions,
@@ -25,7 +28,7 @@ import type { Team } from '../sim/entity';
  */
 const DIR = '/assets/units/toon';
 
-export type ToonUnitKind = 'fantassin' | 'archer' | 'mage';
+export type ToonUnitKind = 'fantassin' | 'archer' | 'mage' | 'sentinel' | 'oracle' | 'piquier' | 'vengeur';
 
 /** Clip du GLB pour un etat du jeu (UnitViews) et vitesse de lecture,
  *  purement visuelle : cooldowns et vitesses de deplacement restent ceux de
@@ -48,6 +51,10 @@ interface ToonUnitDef {
   castReleaseFraction?: number;
   /** Os ou poser le repere `RightHand` (origine visuelle des fleches, main.ts). */
   arrowHandBone?: string;
+  /** Echelle par rapport aux autres unites de la source (defaut 1) : rendu seulement, la collision reste `stats.radius`. */
+  scale?: number;
+  /** Unite sans modele officiel : Toon RTS sans `?toonUnits=`, jamais alternee par `toonMix`. */
+  defaultOn?: boolean;
 }
 
 const loop = (clip: string, timeScale = 1): ClipRole => ({ clip, timeScale, loop: true });
@@ -103,10 +110,74 @@ export const TOON_UNITS: Record<ToonUnitKind, ToonUnitDef> = {
     },
     castReleaseFraction: 0.34,
   },
+  sentinel: {
+    file: 'human_sentinel.glb',
+    textures: 'wk',
+    // Unite lourde : ~12 % plus haute que le Fantassin (mesure en garde, plumet
+    // du Fantassin compris), 16 % plus large, pas davantage.
+    scale: 1.15,
+    roles: {
+      ...COMMON_ROLES,
+      // 1,65 case/s ; foulee agrandie de 15 % avec le modele.
+      walk: loop('run', 0.72),
+      // Coup de marteau par-dessus la tete (1,33 s), cooldown de 1,5 s.
+      attack: once('attackA', 1),
+    },
+  },
+  oracle: {
+    file: 'human_oracle.glb',
+    textures: 'wk',
+    defaultOn: true,
+    roles: {
+      ...COMMON_ROLES,
+      // 2,0 cases/s.
+      walk: loop('run', 1),
+      // Coup de baton de repli (impact vers 0,4 s), cooldown de 2 s.
+      attack: once('attackA', 1.3),
+      // Soin (clip de 1,33 s) : se ramasse, puis se redresse baton leve vers
+      // l'avant ; le soin tombe a 0,8 s du clip (fin de l'incantation), le
+      // retour au repos suit a vitesse naturelle.
+      cast: once('castB', 1),
+    },
+    castReleaseFraction: 0.6,
+  },
+  piquier: {
+    file: 'human_pikeman.glb',
+    textures: 'wk',
+    defaultOn: true,
+    roles: {
+      ...COMMON_ROLES,
+      // 2,0 cases/s.
+      walk: loop('run', 1),
+      // Estoc (clip Spearman de 1,33 s, impact a 0,43 s) recadence sur le
+      // gameplay : impact a 0,3 s (fin de l'elan, UnitStats.attackWindup),
+      // geste fini a 1,1 s (cadence 1,2 s).
+      attack: { ...once('attack'), retime: { release: 0.43, releaseAt: 0.3, endAt: 1.1 } },
+    },
+  },
+  vengeur: {
+    file: 'human_avenger.glb',
+    textures: 'wk',
+    defaultOn: true,
+    roles: {
+      ...COMMON_ROLES,
+      // 2,6 cases/s.
+      walk: loop('run', 1.3),
+      // Deux gestes en alternance (UnitViews.playAttack), impact a 0,4 s dans
+      // les deux clips de 1,33 s, recadences sur la cadence de 0,6 s : impact
+      // a 0,2 s (fin de l'elan), geste fini a 0,58 s. Double frappe
+      // par-dessus la tete (clip `attack` du Worker), puis revers (Infantry B).
+      attack: { ...once('attackDouble'), retime: { release: 0.4, releaseAt: 0.2, endAt: 0.58 } },
+      attackAlt: { ...once('attackB'), retime: { release: 0.4, releaseAt: 0.2, endAt: 0.58 } },
+    },
+  },
 };
 
-/** Groupes de `?toonUnits=`. */
-const TOON_GROUPS: Record<string, readonly ToonUnitKind[]> = { human: ['fantassin', 'archer', 'mage'] };
+/** Groupes de `?toonUnits=` (et alias francais). */
+const TOON_GROUPS: Record<string, readonly ToonUnitKind[]> = {
+  human: ['piquier', 'fantassin', 'archer', 'mage', 'sentinel', 'oracle', 'vengeur'],
+  sentinelle: ['sentinel'],
+};
 
 /** Teinte des zones d'equipe (sRGB, multiplie l'atlas neutre), ajustee sur
  *  les atlas de couleur du pack (moindres carres blanc x teinte dans le
@@ -135,6 +206,7 @@ const decisions: Partial<Record<ToonUnitKind, number>> = {};
  *  (`joueur,ennemi`), avant le prechargement (main.ts). Un nom inconnu est
  *  ignore. */
 export function configureToonUnits(units: string | null, alternate: boolean, colors?: string | null): void {
+  for (const kind of Object.keys(TOON_UNITS) as ToonUnitKind[]) if (TOON_UNITS[kind].defaultOn) enabled.add(kind);
   for (const name of (units ?? '').split(',')) {
     for (const kind of TOON_GROUPS[name] ?? (name in TOON_UNITS ? [name as ToonUnitKind] : [])) enabled.add(kind);
   }
@@ -237,7 +309,7 @@ export async function preloadToonUnits(): Promise<void> {
 /** Vrai si la prochaine unite `kind` construite doit etre la Toon RTS. */
 export function useToonUnit(kind: ToonUnitKind): boolean {
   if (!prototypes[kind] || !enabled.has(kind)) return false;
-  if (!mix) return true;
+  if (!mix || TOON_UNITS[kind].defaultOn) return true;
   const n = decisions[kind] ?? 0;
   decisions[kind] = n + 1;
   return n % 2 === 0;
@@ -304,7 +376,7 @@ export function buildToonUnitModel(kind: ToonUnitKind, team: Team, palette: Toon
   facingFix.add(group);
   const root = new THREE.Group();
   root.add(facingFix);
-  root.scale.setScalar(TOON_UNIT_MODEL_SCALE);
+  root.scale.setScalar(TOON_UNIT_MODEL_SCALE * (def.scale ?? 1));
 
   const mixer = new THREE.AnimationMixer(group);
   const actions: Record<string, THREE.AnimationAction> = {};

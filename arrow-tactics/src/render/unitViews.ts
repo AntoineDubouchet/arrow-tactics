@@ -19,6 +19,10 @@ import type { ProceduralAttackAnimator } from './proceduralAttackAnimator';
 import { buildUnit } from './unitMesh';
 import { surfaceY } from './terrainSurface';
 
+/** Fondu de sortie d'une attaque interrompue par un ordre de deplacement :
+ *  assez court pour paraitre immediat, sans saut de pose. */
+const ATTACK_INTERRUPT_FADE_SECONDS = 0.05;
+
 /**
  * Fait le pont entre la simulation et l'ecran. La simulation ne sait pas que
  * cette classe existe : elle se contente de bouger des nombres, et le rendu vient
@@ -88,6 +92,9 @@ export class UnitViews {
    *  hasard pour CETTE attaque — `sync()`/l'ancrage de position le relisent
    *  ensuite sans avoir a savoir combien de variantes l'unite possede. */
   private readonly activeProceduralAttack = new Map<number, ProceduralAttackAnimator>();
+  /** Attaques jouees par entite : choisit `attack` ou `attackAlt` en
+   *  alternance (Vengeur, voir playAttack). Purement visuel, sans hasard. */
+  private readonly attackCount = new Map<number, number>();
 
   /** `simulationFrozen` (2026-08-13, correctif "les jambes continuent de
    *  marcher dans le vide lors de la victoire/défaite d'une manche") : vrai
@@ -200,8 +207,13 @@ export class UnitViews {
 
       if (entity.alive) {
         const isMoving = !simulationFrozen && dist(entity.x, entity.z, entity.prevX, entity.prevZ) > WALK_MOVE_THRESHOLD;
+        // Ordre joueur > attaque (2026-11-01) : sous un ordre de deplacement
+        // (Provocation exceptee), l'attaque de base visible est coupee net,
+        // lue sur l'etat de simulation. Sorts et Provocation non concernes.
+        const orderedToMove = entity.order?.type === 'move' && (entity.tauntSourceId ?? null) === null;
+        if (orderedToMove) this.interruptAttack(entity.id, view);
         this.tickWalkAnim(entity.id, realDt, view, isMoving);
-        this.tickRiggedAnimation(entity, realDt, view, isMoving);
+        this.tickRiggedAnimation(entity, realDt, view, isMoving, orderedToMove);
         // APRES le mixer (voir proceduralAttackAnimator.ts) : l'attaque
         // procedurale (Fantassin, 2026-08-12) s'applique par-dessus la pose
         // ecrite par AnimationMixer.update ci-dessus, jamais avant.
@@ -212,7 +224,8 @@ export class UnitViews {
         this.riggedActionState.delete(entity.id);
       }
 
-      const isAttackingRigged = this.riggedActionState.get(entity.id) === 'attack';
+      const riggedState = this.riggedActionState.get(entity.id);
+      const isAttackingRigged = riggedState === 'attack' || riggedState === 'attackAlt';
       const isAttackingProcedural = (proceduralAttack?.isPlaying() ?? false) || (proceduralTaunt?.isPlaying() ?? false);
       const anchor = isAttackingRigged || isAttackingProcedural ? this.attackAnchor.get(entity.id) : undefined;
       if (anchor) {
@@ -272,15 +285,20 @@ export class UnitViews {
       // Exception : une vue qui declare `riggedAttackFadeSeconds` (Footman
       // V2, voir fantassinV2Rig.ts) enchaine par un court fondu croise.
       const fade = view?.userData['riggedAttackFadeSeconds'] as number | undefined;
+      // Deux gestes en alternance quand la vue en fournit un second
+      // (`attackAlt`, Vengeur : A, B, A, B...) : rendu seulement, sans hasard.
+      const count = this.attackCount.get(entityId) ?? 0;
+      this.attackCount.set(entityId, count + 1);
+      const key = actions['attackAlt'] && count % 2 === 1 ? 'attackAlt' : 'attack';
       const previous = this.riggedActionState.get(entityId);
-      if (previous && previous !== 'attack') {
+      if (previous && previous !== key) {
         if (fade) actions[previous]?.fadeOut(fade);
         else actions[previous]?.stop();
       }
 
-      if (fade) actions['attack'].reset().fadeIn(fade).play();
-      else actions['attack'].reset().play();
-      this.riggedActionState.set(entityId, 'attack');
+      if (fade) actions[key]!.reset().fadeIn(fade).play();
+      else actions[key]!.reset().play();
+      this.riggedActionState.set(entityId, key);
       anchored = true;
     }
 
@@ -375,7 +393,20 @@ export class UnitViews {
     this.riggedActionState.clear();
     this.attackAnchor.clear();
     this.activeProceduralAttack.clear();
+    this.attackCount.clear();
     this.group.clear();
+  }
+
+  /** Coupe net l'attaque de base visible d'une unite (ordre de deplacement du
+   *  joueur) : amorce en boites et attaque procedurale ici, clip riggé dans
+   *  tickRiggedAnimation. L'ancrage de position tombe avec elles. */
+  private interruptAttack(entityId: number, view: THREE.Group): void {
+    if (this.attackAnim.delete(entityId)) {
+      const arm = view.userData['attackArm'] as THREE.Object3D | undefined;
+      if (arm) arm.rotation.x = 0;
+    }
+    const procedural = this.activeProceduralAttack.get(entityId);
+    if (procedural?.isPlaying()) procedural.stop();
   }
 
   /** Resout le ProceduralAttackAnimator ACTUELLEMENT associe a l'attaque
@@ -588,18 +619,27 @@ export class UnitViews {
    *      `actions.cast.isRunning()` (meme mecanisme que 'attack') — le clip
    *      termine donc sa retombee avant de ceder la main a marche/repos.
    */
-  private tickRiggedAnimation(entity: Entity, realDt: number, view: THREE.Group, isMoving: boolean): void {
+  private tickRiggedAnimation(entity: Entity, realDt: number, view: THREE.Group, isMoving: boolean, attackInterrupted = false): void {
     const mixer = view.userData['riggedMixer'] as THREE.AnimationMixer | undefined;
     const actions = view.userData['riggedActions'] as RiggedActions | undefined;
     if (!mixer || !actions) return;
 
     const previous = this.riggedActionState.get(entity.id) ?? null;
     const cast = actions['cast'];
+    // Attaque en cours (`attackAlt` : second geste alterne ; le geste courant
+    // prime sur le precedent encore en fondu de sortie), ignoree quand un
+    // ordre de deplacement l'interrompt.
+    const current = previous === 'attack' || previous === 'attackAlt' ? previous : null;
+    const runningAttack = attackInterrupted
+      ? undefined
+      : current && actions[current]?.isRunning()
+        ? current
+        : (['attack', 'attackAlt'] as const).find((key) => actions[key]?.isRunning());
 
     let desired: string | null = null;
     if (cast && entity.cast) desired = 'cast';
     else if (cast && previous === 'cast' && cast.isRunning()) desired = 'cast'; // retombee en cours
-    else if (actions['attack']?.isRunning()) desired = 'attack';
+    else if (runningAttack) desired = runningAttack;
     else if (isMoving) desired = 'walk';
     // Repos anime, seulement pour une unite qui le fournit (Fantassin Toon
     // RTS, voir toonUnitRig.ts) : en combat (cible verrouillee) puis hors
@@ -608,7 +648,9 @@ export class UnitViews {
     else if (actions['idle']) desired = 'idle';
 
     if (desired !== previous) {
-      if (previous) actions[previous]?.fadeOut(RIGGED_ANIM_FADE_SECONDS);
+      // Attaque coupee par un ordre : sortie quasi immediate, pas le fondu habituel.
+      const cut = attackInterrupted && (previous === 'attack' || previous === 'attackAlt');
+      if (previous) actions[previous]?.fadeOut(cut ? ATTACK_INTERRUPT_FADE_SECONDS : RIGGED_ANIM_FADE_SECONDS);
       if (desired === 'cast' && cast) {
         cast.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
       } else if (desired === 'walk') {
@@ -653,9 +695,12 @@ export class UnitViews {
     return { x: pos.x, z: pos.z };
   }
 
-  /** Angle (rotation.y) pour regarder vers la cible verrouillee, ou vers l'avant a defaut. */
+  /** Angle (rotation.y) pour regarder vers la cible verrouillee, ou vers l'avant a defaut.
+   *  Pendant un soin (Oracle), vers l'allie soigne plutot que vers l'ennemi. */
   private computeFacing(entity: Entity, byId: Map<number, Entity>): number {
-    const target = entity.targetId !== null ? byId.get(entity.targetId) : undefined;
+    const healId = entity.cast?.heal?.targetId;
+    const targetId = healId ?? entity.targetId;
+    const target = targetId !== null ? byId.get(targetId) : undefined;
     const dx = target ? target.x - entity.x : 0;
     const dz = target ? target.z - entity.z : forwardDir(entity.team);
 

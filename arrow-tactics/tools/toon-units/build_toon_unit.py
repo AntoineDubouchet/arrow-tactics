@@ -9,8 +9,9 @@ Options : --texture 1024 (cote des textures), --catalogue <dossier> (GLB d'etude
 modele, separees, pour choisir un assemblage ; jamais dans le jeu), --atlas <dossier> (atlas de couleur
 du pack en PNG, pour comparer), --rapport <fichier.json> (inventaire).
 
-Une unite = une SOURCE (pack, FBX modulaire, atlas) + ses PIECES (noms d'objets du FBX) + un dossier
-d'ANIMATIONS (tous ses clips sont exportes, noms normalises). Etapes :
+Une unite = une SOURCE (pack, FBX modulaire, atlas) + ses PIECES (noms d'objets du FBX ; `offhand_weapon` :
+piece de main droite copiee en miroir dans la main gauche) + un dossier d'ANIMATIONS (tous ses clips sont
+exportes, noms normalises ; `extra_animations` : quelques clips d'autres dossiers, renommes). Etapes :
  1. modele : FBX modulaire, sans les pieces non choisies ; pieces rigides (armes, bouclier, carquois :
     portees par un os) fusionnees dans le maillage skinne, poids 1 sur leur os porteur : un seul
     maillage, un seul materiau ; 4 influences au plus par sommet (glTF, Three.js) ;
@@ -28,6 +29,7 @@ import sys
 
 import bpy
 import numpy as np
+from mathutils import Matrix
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ap = argparse.ArgumentParser()
@@ -59,6 +61,32 @@ def pieces_of(unit):
     """Noms d'objets du FBX : emplacements standard (une piece ou rien) puis `extras` (liste)."""
     names = [unit["pieces"].get(slot) for slot in PIECE_SLOTS]
     return [n for n in names if n] + list(unit["pieces"].get("extras", []))
+
+
+def mirror_to_left_hand(arm, piece):
+    """`offhand_weapon` : copie en miroir (plan sagittal des mains du squelette, normales retournees) d'une
+    piece de main droite, portee par la main gauche. Renvoie le nom de la copie."""
+    src = bpy.data.objects.get(piece)
+    if src is None or src.parent_type != "BONE" or src.parent_bone != "R_hand_container":
+        raise SystemExit(f"offhand_weapon : {piece} n'est pas une piece de main droite (R_hand_container)")
+    right, left = (arm.matrix_world @ arm.data.bones[n].head_local for n in ("Bip001 R Hand", "Bip001 L Hand"))
+    n = (right - left).normalized()
+    mid = (right + left) / 2
+    reflect = Matrix([[(1 if i == j else 0) - 2 * n[i] * n[j] for j in range(3)] for i in range(3)]).to_4x4()
+    mirror = Matrix.Translation(mid) @ reflect @ Matrix.Translation(-mid)
+    copy = src.copy()
+    copy.data = src.data.copy()
+    copy.name = piece + "_gauche"
+    bpy.context.scene.collection.objects.link(copy)
+    copy.parent = None
+    copy.data.transform(mirror @ src.matrix_world)
+    copy.data.flip_normals()
+    copy.matrix_world = Matrix.Identity(4)
+    copy.parent = arm
+    copy.parent_type = "BONE"
+    copy.parent_bone = "L_hand_container"
+    copy.matrix_world = Matrix.Identity(4)
+    return copy.name
 
 
 def clip_name(fbx_file):
@@ -140,8 +168,9 @@ def clean_materials(material):
         bpy.data.images.remove(img)
 
 
-def bake_clips(arm, folder, only=None):
-    """Tous les clips du dossier (ou `only`), recibles en espace monde sur `arm`, une piste NLA chacun."""
+def bake_clips(arm, folder, only=None, rename=None):
+    """Tous les clips du dossier (ou `only`), recibles en espace monde sur `arm`, une piste NLA chacun.
+    `rename` ({clip: nouveau nom}) : seulement ces clips, renommes (`extra_animations`)."""
     rest = {b.name: b.matrix_local.copy() for b in arm.data.bones}
     arm_inv = arm.matrix_world.inverted()
     for pb in arm.pose.bones:
@@ -154,6 +183,10 @@ def bake_clips(arm, folder, only=None):
         name = clip_name(fbx_file)
         if only and name not in only:
             continue
+        if rename is not None:
+            if name not in rename:
+                continue
+            name = rename[name]
         path = os.path.join(folder, fbx_file)
         settings = unity_clip_settings(path)
         before = set(bpy.data.objects)
@@ -216,7 +249,11 @@ def build_unit(name):
     unit = CONFIG["units"][name]
     source = source_of(unit["source"])
     arm = import_model(source)
-    pieces, carriers = keep_pieces(arm, pieces_of(unit))
+    names = pieces_of(unit)
+    offhand = unit["pieces"].get("offhand_weapon")
+    if offhand:
+        names.append(mirror_to_left_hand(arm, offhand))
+    pieces, carriers = keep_pieces(arm, names)
     stats = {p.name: {"sommets": len(p.data.vertices), "os_porteur": carriers.get(p.name)} for p in pieces}
     # Fusion : un maillage (le corps actif garde ses modificateurs : armature).
     body = bpy.data.objects.get(unit["pieces"].get("body")) or pieces[0]
@@ -232,6 +269,9 @@ def build_unit(name):
     clean_materials(material)
     mesh.data.calc_loop_triangles()
     clips = bake_clips(arm, os.path.join(source["pack"], unit["animations"]))
+    # Clips pris dans d'autres dossiers, renommes : {"folder": ..., "clips": {"attack": "attackDouble"}}.
+    for extra in unit.get("extra_animations", []):
+        clips.update(bake_clips(arm, os.path.join(source["pack"], extra["folder"]), rename=extra["clips"]))
     path = os.path.join(args.out, name + ".glb")
     export_glb(path, [arm, mesh])
     rapport["unites"][name] = {

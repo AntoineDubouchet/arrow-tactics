@@ -1,7 +1,8 @@
 # Outil unités Toon RTS
 
 `build_toon_unit.py` produit les assets des unités Toon RTS chargées par le
-jeu en laboratoire (`src/render/toonUnitRig.ts`, `?toonUnits=human`), à
+jeu en laboratoire (`src/render/toonUnitRig.ts`, `?toonUnits=human`) et de
+l'Oracle (par défaut, faute de modèle officiel), à
 partir des packs Toon RTS (Unity Asset Store). Le jeu ne dépend ni de Unity
 ni de Blender : le script est lancé une fois, ses sorties sont des fichiers
 glTF et PNG.
@@ -56,11 +57,22 @@ est le même, les octets du GLB peuvent différer.
 - `animations` : dossier de clips FBX. **Tous** ses clips sont exportés, noms
   normalisés : `WK_infantry_07_attack_A` → `attackA`, `WK_mage_11_cast_B` →
   `castB`. Plages et boucles : celles de l'import Unity du pack (`.meta`).
+- `pieces.offhand_weapon` (facultatif) : pièce de **main droite** copiée en
+  miroir dans la main gauche (`L_hand_container`). Le plan de symétrie est
+  celui des deux mains du squelette, et les normales sont retournées. Le
+  résultat reste un seul maillage, poids 1 sur l'os porteur. Exemple : le
+  Vengeur, `"weapon": "WK_weapon_sword_B", "offhand_weapon":
+  "WK_weapon_sword_B"`. Les gestes d'un dossier prévu pour un bouclier
+  laissent cette main assez passive.
+- `extra_animations` (facultatif) : quelques clips d'autres dossiers,
+  renommés, par exemple `[{ "folder": "animation/Worker", "clips":
+  { "attack": "attackDouble" } }]`.
 
 Côté jeu, une entrée de `TOON_UNITS` (`toonUnitRig.ts`) associe le GLB, le
 préfixe des textures et les rôles du jeu (`idle`, `combatIdle`, `walk`,
-`attack`, `cast`, `knockdownA/B`) à un clip et une vitesse de lecture
-visuelle.
+`attack`, `attackAlt` (second geste alterné), `cast`, `knockdownA/B`) à un
+clip et une vitesse de lecture visuelle, ou à un recadençage (`retime`)
+qui place l'impact du clip sur la fin de l'élan de l'unité.
 
 ## Ajouter une faction (Barbares, Orcs…)
 
@@ -86,6 +98,10 @@ l'archer) est à adapter côté jeu.
 | `human_footman.glb` | 1 maillage skinné, 474 sommets GPU, 476 triangles, 29 os, 11 clips, 410 Ko |
 | `human_archer.glb` | 1 maillage skinné, 398 sommets GPU, 429 triangles, 29 os, 9 clips, 343 Ko |
 | `human_mage.glb` | 1 maillage skinné, 392 sommets GPU, 468 triangles, 29 os, 14 clips, 483 Ko |
+| `human_sentinel.glb` | 1 maillage skinné, 476 triangles, 29 os, 11 clips (`Infantry`), 410 Ko ; affichée à l'échelle 1,15 en jeu |
+| `human_oracle.glb` | 1 maillage skinné, 409 sommets GPU, 490 triangles, 29 os, 14 clips (`Mage`), 484 Ko |
+| `human_pikeman.glb` | Piquier : 1 maillage skinné, 375 sommets GPU, 412 triangles, 29 os, 10 clips (`Spearman`), 372 Ko |
+| `human_avenger.glb` | Vengeur (deux épées, `offhand_weapon`) : 1 maillage skinné, 407 sommets GPU, 454 triangles, 29 os, 12 clips (`Infantry` + `attackDouble` du `Worker`), 440 Ko |
 | `wk_albedo.png` | atlas neutre du pack (`WK_StandardUnits_white`), 2048 → 1024, **partagé** |
 | `wk_team_mask.png` | zones de couleur d'équipe (pixels qui varient entre les 8 atlas de couleur), 1024, **partagé** |
 
@@ -102,6 +118,22 @@ l'archer) est à adapter côté jeu.
    jamais dupliquées dans les GLB.
 
 ## Clips des humains (Western Kingdoms)
+
+La Sentinelle utilise les clips `Infantry`, comme le Fantassin (épée ou
+marteau et bouclier). L'Oracle (capuche, robe, bâton doré `staff_B`) utilise
+les clips `Mage` ; son soin joue `castB` (le pack n'a pas de dossier de
+prêtre ; `Worker` ne contient que des gestes d'outil).
+
+Le Piquier (lance et petit bouclier) utilise les clips `Spearman`, faits
+pour cet équipement. Le Vengeur (deux épées) garde les gestes `Infantry`
+et ajoute la frappe à deux mains du `Worker` (`attackDouble`), alternée en
+jeu avec `attackB`. Aucun clip du pack n'est prévu pour deux armes.
+
+Armes : chaque pièce d'arme est portée par l'os prévu dans le FBX (épée,
+hache, marteau, pioche, lance : `R_hand_container` ; bâtons et arc :
+`L_hand_container` ; boucliers : `L_shield_container`). Changer d'arme dans
+la même main ne demande qu'un nom de pièce. Une seconde arme dans la main
+gauche passe par `offhand_weapon`.
 
 | Clip | Fantassin (`Infantry`) | Archer (`Archer`) | Mage (`Mage`) |
 |---|---|---|---|

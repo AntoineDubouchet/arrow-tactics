@@ -1,9 +1,9 @@
 import { CHARGE_KNOCKBACK_TILES, TILE, type ObstacleDef } from '../../config/constants';
 import { clamp, dist } from '../../core/math';
-import { findAbility, type AreaBlastAbility, type ChargeAbility, type TauntAbility } from '../../data/abilities';
+import { findAbility, type AreaBlastAbility, type ChargeAbility, type HealAbility, type TauntAbility } from '../../data/abilities';
 import { getUnit } from '../../data/units';
-import { applyDamageToEntity } from '../damage';
-import type { Entity, Team } from '../entity';
+import { applyDamageToEntity, applyHealToEntity } from '../damage';
+import type { CastState, Entity, Team } from '../entity';
 import { findBlockingObstacle, obstaclesCollidingTeam } from '../geometry';
 
 /**
@@ -44,7 +44,11 @@ export type AbilityEvent =
   | { type: 'charge-impact'; entityId: number; targetId: number; x: number; z: number }
   | { type: 'blast-launch'; entityId: number; fromX: number; fromZ: number; targetX: number; targetZ: number }
   | { type: 'blast-impact'; x: number; z: number; radiusTiles: number; hitIds: number[] }
-  | { type: 'taunt'; entityId: number; x: number; z: number; radiusTiles: number; targetIds: number[]; shieldAmount: number };
+  | { type: 'taunt'; entityId: number; x: number; z: number; radiusTiles: number; targetIds: number[]; shieldAmount: number }
+  /** Soin applique a la fin d'une incantation (Oracle) : `healed` = PV reellement rendus, `amount` = demandes (interne). */
+  | { type: 'heal'; entityId: number; targetId: number; amount: number; healed: number; x: number; z: number }
+  /** Incantation de soin terminee sans soin : cible morte, devenue invalide ou hors de portee. */
+  | { type: 'heal-lost'; entityId: number; targetId: number };
 
 /**
  * Projectile de zone EN VOL, independant de son lanceur (voir Entity.cast
@@ -128,7 +132,7 @@ export function abilitySystem(
     }
 
     if (e.cast) {
-      advanceCast(e, dt, blasts, events);
+      advanceCast(e, dt, blasts, events, byId);
       continue;
     }
 
@@ -141,6 +145,12 @@ export function abilitySystem(
     const areaBlast = findAbility(getUnit(e.unitId).abilities, 'area-blast');
     if (areaBlast && (e.abilityCooldowns['area-blast'] ?? 0) <= 0) {
       tryTriggerAreaBlast(e, areaBlast, entities);
+      continue;
+    }
+
+    const heal = findAbility(getUnit(e.unitId).abilities, 'heal');
+    if (heal && (e.abilityCooldowns.heal ?? 0) <= 0) {
+      tryTriggerHeal(e, heal, entities);
       continue;
     }
 
@@ -161,10 +171,15 @@ export function abilitySystem(
  * instant) et libere l'entite (`e.cast = null`, redonne la main au ciblage/
  * mouvement/combat normaux des le tick suivant).
  */
-function advanceCast(e: Entity, dt: number, blasts: BlastProjectile[], events: AbilityEvent[]): void {
+function advanceCast(e: Entity, dt: number, blasts: BlastProjectile[], events: AbilityEvent[], byId: Map<number, Entity>): void {
   const cast = e.cast!;
   cast.elapsed += dt;
   if (cast.elapsed < cast.duration) return;
+  if (cast.heal) {
+    resolveHeal(e, cast.heal, byId, events);
+    e.cast = null;
+    return;
+  }
 
   const travelDist = dist(e.x, e.z, cast.targetX, cast.targetZ);
   blasts.push({
@@ -181,6 +196,84 @@ function advanceCast(e: Entity, dt: number, blasts: BlastProjectile[], events: A
   });
   events.push({ type: 'blast-launch', entityId: e.id, fromX: e.x, fromZ: e.z, targetX: cast.targetX, targetZ: cast.targetZ });
   e.cast = null;
+}
+
+/**
+ * Fin d'une incantation de soin (Oracle) : la cible verrouillee doit etre
+ * encore valide — vivante, du meme camp, pas un batiment, a portee de fin
+ * (`rangeTiles` + `endRangeMarginTiles`). Sinon le soin est PERDU (aucune
+ * autre cible n'est choisie a sa place, le cooldown deja engage reste du).
+ * Regle simple et deterministe, documentee dans DESIGN_DECISIONS (B7).
+ */
+function resolveHeal(e: Entity, heal: NonNullable<CastState['heal']>, byId: Map<number, Entity>, events: AbilityEvent[]): void {
+  const target = byId.get(heal.targetId);
+  if (!target || !target.alive || target.team !== e.team || target.isBuilding || dist(e.x, e.z, target.x, target.z) > heal.endRangeTiles * TILE) {
+    events.push({ type: 'heal-lost', entityId: e.id, targetId: heal.targetId });
+    return;
+  }
+  const healed = applyHealToEntity(target, heal.amount);
+  events.push({ type: 'heal', entityId: e.id, targetId: target.id, amount: heal.amount, healed, x: target.x, z: target.z });
+}
+
+/**
+ * Allie a soigner (Oracle), ou null : unite vivante du meme camp, jamais le
+ * lanceur lui-meme ni un batiment, blessee, a `rangeTiles`. Les soins deja en
+ * cours d'incantation par d'autres Oracles comptent comme rendus : deux
+ * Oracles ne se jettent pas sur le meme allie quand un seul suffit.
+ * Priorite : plus faible part de PV (ainsi comptes), puis moins de PV, puis la
+ * plus proche, puis l'id le plus bas — aucun hasard.
+ */
+export function findHealTarget(e: Entity, ability: HealAbility, entities: Entity[]): Entity | null {
+  const pending = new Map<number, number>();
+  for (const o of entities) {
+    const h = o.cast?.heal;
+    if (h && o !== e && o.alive && o.team === e.team) pending.set(h.targetId, (pending.get(h.targetId) ?? 0) + h.amount);
+  }
+  let best: Entity | null = null;
+  let bestHp = Infinity;
+  let bestRatio = Infinity;
+  let bestDist = Infinity;
+  for (const a of entities) {
+    if (a === e || !a.alive || a.team !== e.team || a.isBuilding) continue;
+    const hp = Math.min(a.stats.maxHp, a.hp + (pending.get(a.id) ?? 0));
+    if (hp >= a.stats.maxHp) continue;
+    const d = dist(e.x, e.z, a.x, a.z);
+    if (d > ability.rangeTiles * TILE) continue;
+    const ratio = hp / a.stats.maxHp;
+    const better =
+      best === null ||
+      ratio < bestRatio ||
+      (ratio === bestRatio && (hp < bestHp || (hp === bestHp && (d < bestDist || (d === bestDist && a.id < best.id)))));
+    if (better) {
+      best = a;
+      bestHp = hp;
+      bestRatio = ratio;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * Declenche une incantation de soin si un allie blesse est a portee (voir
+ * findHealTarget) — sinon ne fait RIEN, sans consommer le cooldown. Le
+ * cooldown demarre au DEBUT de l'incantation, comme la Boule de feu ; le
+ * soin, lui, n'arrive qu'a la fin (voir resolveHeal).
+ */
+function tryTriggerHeal(e: Entity, ability: HealAbility, entities: Entity[]): void {
+  const target = findHealTarget(e, ability, entities);
+  if (!target) return;
+  e.cast = {
+    targetX: target.x,
+    targetZ: target.z,
+    elapsed: 0,
+    duration: ability.castTime,
+    projectileSpeed: 0,
+    damage: 0,
+    radiusTiles: 0,
+    heal: { targetId: target.id, amount: ability.amount, endRangeTiles: ability.rangeTiles + ability.endRangeMarginTiles },
+  };
+  e.abilityCooldowns.heal = ability.cooldown;
 }
 
 /**

@@ -54,7 +54,7 @@ de l'éditeur de maps, voir `EDITOR.md`. Pour les problèmes connus, voir
 | `models/archer/` | 12 | ~78 Mo | .glb | Archer bleu / rouge : base, marche, 3 morts, attaque |
 | `models/fantassin/` | 2 | ~19 Mo | .glb | Ancien Fantassin bleu / rouge (`?footman=v1`, repli du Footman V2) |
 | `assets/units/footman_v2/` | 30 | ~58 Mo | .glb, .json, .png | Footman V2 (Fantassin par défaut) : corps, épée, boucliers, clips, textures PBR 2K |
-| `assets/units/toon/` | 5 | ~2,6 Mo | .glb, .png | Unités Toon RTS (laboratoire) : **locales, non versionnées** (§3.1) |
+| `assets/units/toon/` | 9 | ~4,3 Mo | .glb, .png | Unités Toon RTS (Oracle, Piquier et Vengeur par défaut, les autres en laboratoire) : **locales, non versionnées** (§3.1) |
 | `models/sentinel/` | 2 | ~20,5 Mo | .glb | Sentinelle bleue / rouge |
 | `models/mage/` | 1 | ~4,4 Mo | .glb | Mage (maillage + 5 clips) |
 | `models/ballista/fbx/` | 11 | ~150,7 Mo | .fbx, .png, .tga | Baliste actuelle, animations, textures |
@@ -91,15 +91,25 @@ Quatre unités jouables, toutes des `.glb` avec squelette (`SkinnedMesh`) :
   `tools/footman-v2/`), `fantassinRig.ts`, `archerRig.ts`, `mageRig.ts`,
   `sentinelRig.ts`, et `render/riggedGltf.ts` pour le chargement commun.
 
-**En laboratoire (2026-11-01), jamais par défaut** : Fantassin, Archer et
-Mage **Toon RTS**, `public/assets/units/toon/`, chargés seulement avec
-`?toonUnits=human` (les trois) ou une liste (`?toonUnits=fantassin,mage`) ;
+**En laboratoire (2026-11-01), jamais par défaut** : Fantassin, Archer, Mage
+et Sentinelle **Toon RTS**, `public/assets/units/toon/`, chargés seulement
+avec `?toonUnits=human` (les quatre) ou une liste
+(`?toonUnits=fantassin,sentinelle`) ;
 `&toonMix=1` n'en remplace qu'un sur deux ; `&toonColors=green,orange`
 choisit les palettes du joueur et de l'ennemi.
 
-- Un GLB par unité (`human_footman`, `human_archer`, `human_mage` : un
-  maillage skinné de 430 à 480 triangles, un matériau, squelette de 29 os,
-  **tous** les clips du pack) et deux PNG 1024 **partagés** : atlas neutre et
+**Oracle, Piquier et Vengeur** (2026-11-01) : sans modèle officiel, ils
+sont en Toon RTS **par défaut** dès que leur GLB est présent (`defaultOn`,
+jamais alternés par `toonMix`), et font partie de `?toonUnits=human`. Sans
+leur fichier, l'Oracle reprend le modèle du Mage officiel, le Piquier et
+le Vengeur celui du Fantassin officiel (replis PROVISOIRES). Par défaut,
+ces trois unités Toon côtoient donc les modèles officiels des autres
+(styles mélangés).
+
+- Un GLB par unité (`human_footman`, `human_archer`, `human_mage`,
+  `human_sentinel`, `human_oracle`, `human_pikeman`, `human_avenger` : un maillage skinné de 410 à 490 triangles, un
+  matériau, squelette de 29 os, **tous** les clips du pack ; Sentinelle
+  affichée 15 % plus grande, rendu seulement) et deux PNG 1024 **partagés** : atlas neutre et
   masque des zones d'équipe (`wk_albedo.png`, `wk_team_mask.png`).
 - Couleur d'équipe : l'atlas neutre est multiplié par la teinte d'une palette
   dans les zones du masque (shader, `TOON_PALETTES` : bleu, rouge, vert,
@@ -121,7 +131,9 @@ choisit les palettes du joueur et de l'ennemi.
   Seuls le script, sa configuration et sa documentation sont versionnés.
 - Sans ces fichiers (autre machine, clone neuf), le build et le jeu par
   défaut fonctionnent ; avec `?toonUnits=`, chaque unité absente garde son
-  modèle officiel (avertissement dans la console).
+  modèle officiel, l'Oracle prend celui du Mage, le Piquier et le Vengeur
+  celui du Fantassin (avertissement dans la console, y compris sans
+  paramètre pour ces trois unités).
 
 ### 3.2 Baliste et tour — utilisées
 

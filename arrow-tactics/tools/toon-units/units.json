@@ -53,6 +53,66 @@
         "extras": []
       },
       "animations": "animation/Mage"
+    },
+    "human_sentinel": {
+      "source": "western_kingdoms",
+      "pieces": {
+        "head": "WK_Units_head_D",
+        "body": "WK_Units_Body_D",
+        "arms": "WK_Units_Arms_B",
+        "legs": "WK_Units_Legs_C",
+        "shoulderpads": "WK_Units_shoulderpads_A",
+        "weapon": "WK_weapon_hammer_A",
+        "offhand": "WK_Shield_B",
+        "extras": []
+      },
+      "animations": "animation/Infantry"
+    },
+    "human_oracle": {
+      "source": "western_kingdoms",
+      "pieces": {
+        "head": "WK_Units_head_H",
+        "body": "WK_Units_Body_E",
+        "arms": "WK_Units_Arms_A",
+        "legs": "WK_Units_Legs_A",
+        "shoulderpads": null,
+        "weapon": null,
+        "offhand": "WK_weapon_staff_B",
+        "extras": []
+      },
+      "animations": "animation/Mage"
+    },
+    "human_pikeman": {
+      "source": "western_kingdoms",
+      "pieces": {
+        "head": "WK_Units_head_B",
+        "body": "WK_Units_Body_B",
+        "arms": "WK_Units_Arms_A",
+        "legs": "WK_Units_Legs_B",
+        "shoulderpads": null,
+        "weapon": "WK_weapon_spear",
+        "offhand": "WK_Shield_A",
+        "extras": []
+      },
+      "animations": "animation/Spearman"
+    },
+    "human_avenger": {
+      "source": "western_kingdoms",
+      "pieces": {
+        "head": "WK_Units_head_E",
+        "body": "WK_Units_Body_B",
+        "arms": "WK_Units_Arms_B",
+        "legs": "WK_Units_Legs_C",
+        "shoulderpads": "WK_Units_shoulderpads_B",
+        "weapon": "WK_weapon_sword_B",
+        "offhand": null,
+        "offhand_weapon": "WK_weapon_sword_B",
+        "extras": []
+      },
+      "animations": "animation/Infantry",
+      "extra_animations": [
+        { "folder": "animation/Worker", "clips": { "attack": "attackDouble" } }
+      ]
     }
   }
 }

@@ -17,28 +17,30 @@ import { HP_PER_PIP } from '../config/constants';
  * un décor KayKit ne l'est jamais.
  */
 /**
- * Batiment de production d'unites (Caserne -> Fantassin, Camp d'archerie ->
- * Archer), GENERIQUE : il en produit gratuitement un lot UNE FOIS PAR MANCHE,
+ * Batiment de production d'unites (Caserne -> Piquier, puis Fantassin au
+ * Niv. 2 ; Camp d'archerie -> Archer), GENERIQUE : il en produit gratuitement un lot UNE FOIS PAR MANCHE,
  * au debut de la bataille (sim/systems/buildingProduction.ts).
  */
 export interface UnitProductionConfig {
-  /** Unite produite (data/units.ts). Les unites produites recoivent le
-   *  niveau de production courant de leur type au moment de leur apparition
-   *  (main.ts). */
-  unitId: string;
-  /** Unites produites par manche, par niveau interne du batiment (index 0 =
-   *  Niv. 1). Voir aussi BuildingDef.maxUpgradeLevel. */
-  unitsPerWaveByLevel: number[];
+  /** Unites produites par manche, dans l'ordre, par niveau interne du
+   *  batiment (index 0 = Niv. 1 ; voir aussi BuildingDef.maxUpgradeLevel).
+   *  Les unites produites recoivent le niveau de production courant de leur
+   *  type au moment de leur apparition (main.ts). */
+  unitsByLevel: readonly (readonly string[])[];
 }
 
 /**
- * Recrutement debloque par un batiment (Caserne -> Fantassin, Camp
- * d'archerie -> Archer, Eglise -> Mage) : sans au moins un exemplaire
+ * Recrutement debloque par un batiment (Caserne -> Piquier, puis Fantassin au
+ * Niv. 2 ; Camp d'archerie -> Archer ; Eglise -> Mage, Oracle et Vengeur) : sans au moins un exemplaire
  * possede, l'unite ne se recrute pas en boutique (run/recruitment.ts). Les
  * unites deja possedees, dont l'armee de depart, ne sont jamais concernees.
  */
 export interface RecruitmentUnlockConfig {
-  unitId: string;
+  /** Unites debloquees (une ou plusieurs : l'Eglise debloque Mage, Oracle et Vengeur). */
+  unitIds: readonly string[];
+  /** Niveau interne minimal du batiment pour certaines de ces unites (0 =
+   *  Niv. 1, defaut) : la Caserne Niv. 2 debloque le Fantassin (PROVISOIRE). */
+  minLevels?: Readonly<Record<string, number>>;
   /** Raison affichee quand ce batiment manque pour recruter l'unite. */
   missingBuildingHint: string;
 }
@@ -275,8 +277,11 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // Une seule amelioration : Niv. 1 -> Niv. 2 pour 20 or.
     upgradeGoldCostBase: 20,
     maxUpgradeLevel: 1,
-    production: { unitId: 'fantassin', unitsPerWaveByLevel: [1, 2] },
-    recruitmentUnlock: { unitId: 'fantassin', missingBuildingHint: 'Nécessite une Caserne' },
+    // Piquier = recrue de base, Fantassin a la Caserne Niv. 2 (decision
+    // d'Antoine, 2026-11-01) ; production : Niv. 1 un Piquier, Niv. 2 un
+    // Piquier et un Fantassin.
+    production: { unitsByLevel: [['piquier'], ['piquier', 'fantassin']] },
+    recruitmentUnlock: { unitIds: ['piquier', 'fantassin'], minLevels: { fantassin: 1 }, missingBuildingHint: 'Nécessite une Caserne' },
   },
   // Camp d'archerie : meme role que la Caserne pour les Archers (memes PV,
   // emprise, prix et amelioration). Modele KayKit `blue_archeryrange`
@@ -296,8 +301,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintTilesZ: 3,
     upgradeGoldCostBase: 20,
     maxUpgradeLevel: 1,
-    production: { unitId: 'archer', unitsPerWaveByLevel: [1, 2] },
-    recruitmentUnlock: { unitId: 'archer', missingBuildingHint: 'Nécessite un Camp d’archerie' },
+    production: { unitsByLevel: [['archer'], ['archer', 'archer']] },
+    recruitmentUnlock: { unitIds: ['archer'], missingBuildingHint: 'Nécessite un Camp d’archerie' },
   },
   // Forge (refonte economique) — batiment allie achetable, sans production,
   // revenu ni effet passif pour l'instant : ciblable, destructible et
@@ -399,7 +404,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     upgradeGoldCostBase: 5,
     hpPerLevel: 5 * HP_PER_PIP,
     armyHeal: { hpPerGold: 5, hpPerGoldPerLevel: 2 },
-    recruitmentUnlock: { unitId: 'mage', missingBuildingHint: 'Nécessite une Église' },
+    recruitmentUnlock: { unitIds: ['mage', 'oracle', 'vengeur'], missingBuildingHint: 'Nécessite une Église' },
   },
   // Muraille : construction d'un camp (modele KayKit du dossier « neutral »,
   // visuel neutre, jamais teinte). Seul role : bloquer le deplacement de
@@ -566,13 +571,14 @@ export function getBuilding(id: string): BuildingDef {
 /** Batiment requis pour recruter `unitId` (voir RecruitmentUnlockConfig),
  *  ou null si l'unite n'en exige aucun (Sentinelle). */
 export function recruitmentBuildingFor(unitId: string): BuildingDef | null {
-  return Object.values(BUILDINGS).find((def) => def.recruitmentUnlock?.unitId === unitId) ?? null;
+  return Object.values(BUILDINGS).find((def) => def.recruitmentUnlock?.unitIds.includes(unitId)) ?? null;
 }
 
-/** Unites produites par manche par le batiment `buildingId` a son niveau
- *  interne `level` (borne au dernier niveau defini), 0 sans production. */
-export function unitsProducedPerWave(buildingId: string, level: number): number {
-  const byLevel = BUILDINGS[buildingId]?.production?.unitsPerWaveByLevel;
-  if (!byLevel || byLevel.length === 0) return 0;
+/** Unites produites par manche, dans l'ordre, par le batiment `buildingId` a
+ *  son niveau interne `level` (borne au dernier niveau defini), aucune sans
+ *  production. */
+export function unitsProducedPerWave(buildingId: string, level: number): readonly string[] {
+  const byLevel = BUILDINGS[buildingId]?.production?.unitsByLevel;
+  if (!byLevel || byLevel.length === 0) return [];
   return byLevel[Math.min(Math.max(level, 0), byLevel.length - 1)]!;
 }

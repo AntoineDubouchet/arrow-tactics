@@ -222,6 +222,7 @@ function buildUnitInfo(source: UnitInfoSource): UnitInfo {
   const { stats, battle } = source;
   const fireball = findAbility(def.abilities, 'area-blast');
   const taunt = findAbility(def.abilities, 'taunt');
+  const heal = findAbility(def.abilities, 'heal');
 
   const rows: EntityInfoRow[] = [];
   const sections: EntityInfoSection[] = [];
@@ -266,6 +267,17 @@ function buildUnitInfo(source: UnitInfoSource): UnitInfo {
       tauntRows.push({ label: 'État', value: abilityState(battle.abilityCooldowns.taunt, lockoutRemaining) });
     }
     sections.push({ title: 'Provocation', rows: tauntRows });
+  }
+
+  if (heal) {
+    const healRows: EntityInfoRow[] = [
+      { label: 'Soin', value: formatPoints(heal.amount) },
+      { label: 'Portée', value: `${formatNumber(heal.rangeTiles)} cases` },
+      { label: 'Incantation', value: formatSeconds(heal.castTime) },
+      { label: 'Recharge', value: formatSeconds(heal.cooldown) },
+    ];
+    if (battle) healRows.push({ label: 'État', value: battle.casting ? 'Incantation' : abilityState(battle.abilityCooldowns.heal) });
+    sections.push({ title: 'Soin', rows: healRows });
   }
 
   return {
@@ -413,25 +425,34 @@ function mineRows(level: number, produced: number | null = null): EntityInfoRow[
 }
 
 /** "1 Fantassin par manche", "2 Archers par manche". */
-function unitsPerWaveText(unitId: string, count: number): string {
-  const name = getUnit(unitId).name;
-  return `${count} ${count > 1 ? `${name}s` : name} par manche`;
+/** « 1 Piquier et 1 Fantassin par manche » : unites produites, regroupees par type dans leur ordre. */
+function unitsPerWaveText(unitIds: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const unitId of unitIds) counts.set(unitId, (counts.get(unitId) ?? 0) + 1);
+  const parts = [...counts].map(([unitId, count]) => {
+    const name = getUnit(unitId).name;
+    return `${count} ${count > 1 ? `${name}s` : name}`;
+  });
+  return `${parts.join(' et ')} par manche`;
 }
 
 /** Recrutement debloque par le batiment (Caserne, Camp d'archerie, Eglise). */
 function recruitmentUnlockRows(buildingId: string): EntityInfoRow[] {
   const unlock = getBuilding(buildingId).recruitmentUnlock;
   if (!unlock) return [];
-  const plural = `${getUnit(unlock.unitId).name}s`;
-  const article = /^[AEIOUYÉÈ]/i.test(plural) ? 'd’' : 'de ';
-  return [{ label: 'Débloque', value: `Recrutement ${article}${plural}` }];
+  const names = unlock.unitIds.map((unitId) => {
+    const plural = `${getUnit(unitId).name}s`;
+    const minLevel = unlock.minLevels?.[unitId] ?? 0;
+    return `${/^[AEIOUYÉÈ]/i.test(plural) ? 'd’' : 'de '}${plural}${minLevel > 0 ? ` (Niv. ${minLevel + 1})` : ''}`;
+  });
+  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} et ${names.at(-1)}` : names[0];
+  return [{ label: 'Débloque', value: `Recrutement ${list}` }];
 }
 
 /** Batiment de production (Caserne, Camp d'archerie) a son niveau propre. */
 function productionRows(buildingId: string, level: number): EntityInfoRow[] {
-  const unitId = getBuilding(buildingId).production!.unitId;
   return [
-    { label: 'Produit', value: unitsPerWaveText(unitId, unitsProducedPerWave(buildingId, level)) },
+    { label: 'Produit', value: unitsPerWaveText(unitsProducedPerWave(buildingId, level)) },
     ...recruitmentUnlockRows(buildingId),
   ];
 }
@@ -492,7 +513,7 @@ function nextLevelRow(buildingId: string, level: number): EntityInfoRow {
     return { label, value: `${min} à ${max} or` };
   }
   const production = getBuilding(buildingId).production;
-  return { label, value: production ? unitsPerWaveText(production.unitId, unitsProducedPerWave(buildingId, level + 1)) : '' };
+  return { label, value: production ? unitsPerWaveText(unitsProducedPerWave(buildingId, level + 1)) : '' };
 }
 
 const UPGRADE_LABELS: Readonly<Record<string, string>> = { mine: 'Améliorer la mine' };
@@ -559,9 +580,9 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
     rows = productionRows(def.id, ownedLevel ?? 0);
     // Quota de la manche pas encore produit : il attend une place de
     // population ou des cases libres (voir sim/systems/buildingProduction.ts).
-    if (entity.productionRemaining > 0) {
+    if (entity.productionQueue.length > 0) {
       const reason = entity.productionWaitingForPopulation ? 'population pleine' : 'aucune case libre';
-      rows.push({ label: 'En attente', value: `${entity.productionRemaining} (${reason})` });
+      rows.push({ label: 'En attente', value: `${entity.productionQueue.length} (${reason})` });
     }
   } else if (entity.buildingAttack) {
     const attack = entity.buildingAttack;

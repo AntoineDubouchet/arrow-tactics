@@ -26,7 +26,8 @@ export class TelegraphView {
     const activeIds = new Set<number>();
 
     for (const e of entities) {
-      if (!e.alive || !e.cast) continue;
+      // Soin de l'Oracle : pas de zone de danger a annoncer.
+      if (!e.alive || !e.cast || e.cast.heal) continue;
       activeIds.add(e.id);
 
       let disc = this.discs.get(e.id);

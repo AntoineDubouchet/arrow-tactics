@@ -41,6 +41,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-27 | L'agrandissement de run ne déplace ni le relief ni les surfaces | Confirmé (mesuré, arène candidate) |
 | KI-28 | Faces de raccord sombres aux coins d'un bord qui change de niveau | Confirmé (rendu par défaut ; absent de `?relief=`) |
 | KI-29 | Eau et lave peignables mais franchissables | Limite assumée (rendu seulement) |
+| KI-30 | Cadence d'attaque allongée d'un pas par l'arrondi flottant | Confirmé (mesuré) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19 et
@@ -218,6 +219,23 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 - **Piste** : faire suivre au relief et aux surfaces les déplacements de
   cases, ou repenser l'agrandissement pour une arène ronde (décision de
   design, à trancher avec la passe des zones de spawn).
+
+### KI-30 — Cadence d'attaque allongée d'un pas par l'arrondi flottant
+
+- **Statut** : Confirmé, mesuré le 2026-11-01 (duel contre une cible
+  passive, pas de 1/30 s).
+- **Cause** : `combatSystem` (`sim/systems/combat.ts`) retire `dt` de
+  `attackTimer` à chaque pas et n'attaque que lorsque `attackTimer > 0` est
+  faux. Selon le cooldown, la soustraction répétée laisse un reste positif
+  infime et l'attaque part un pas plus tard.
+- **Mesure** : Fantassin 1 s → 31 pas (1,033 s) ; Vengeur 0,6 s → 19 pas
+  (0,633 s) ; Sentinelle 1,5 s → 45 pas, Archer 2 s → 60 pas et Piquier
+  1,2 s → 36 pas tombent juste.
+- **Impact** : cadences réelles légèrement plus lentes que les valeurs
+  affichées, de façon déterministe. Les gestes du Vengeur (0,58 s) tiennent
+  dans sa période réelle.
+- **Piste** : comparer à une tolérance (`attackTimer > 1e-9`). Cela changerait
+  le rythme de combat existant (Fantassin), donc à décider avec Antoine.
 
 ## B. Éditeur de maps
 

@@ -239,6 +239,9 @@ export const KILL_REWARD: Record<string, number> = {
   archer: 1.5,
   mage: 5, // moitie du prix boutique (10, voir data/units.ts), meme convention
   sentinel: 20, // moitie du prix boutique (40, voir data/units.ts), meme convention
+  oracle: 7.5, // moitie du prix boutique (15), meme convention ; jamais ennemi aujourd'hui
+  piquier: 0.75, // moitie de 1,5 ; jamais ennemi aujourd'hui
+  vengeur: 12.5, // moitie de 25 ; jamais ennemi aujourd'hui
 };
 
 /** Bonus fixe a la VICTOIRE d'une vague (pas a la defaite — "terminee" est

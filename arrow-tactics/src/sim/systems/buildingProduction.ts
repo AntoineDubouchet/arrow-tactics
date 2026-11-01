@@ -42,21 +42,26 @@ export function buildingProductionSystem(entities: Entity[], obstacles: Obstacle
   const reserved: { x: number; z: number }[] = [];
 
   for (const e of entities) {
-    if (!e.alive || e.productionUnitId === null || e.productionRemaining <= 0) continue;
+    if (!e.alive || e.productionQueue.length === 0) continue;
 
-    let count = e.productionRemaining;
-    const unitCost = e.team === 'player' ? unitPopulationCost(e.productionUnitId) : 0;
-    if (unitCost > 0) count = Math.min(count, Math.floor(Math.max(playerRoom, 0) / unitCost));
-    e.productionWaitingForPopulation = count === 0;
-    if (count === 0) continue;
+    // File dans l'ordre (Caserne Niv. 2 : Piquier puis Fantassin) : on
+    // s'arrete a la premiere unite sans place de population, sans la doubler.
+    const costOf = (unitId: string): number => (e.team === 'player' ? unitPopulationCost(unitId) : 0);
+    e.productionWaitingForPopulation = costOf(e.productionQueue[0]!) > Math.max(playerRoom, 0);
+    if (e.productionWaitingForPopulation) continue;
 
-    const cells = findFreeAdjacentCells(e, entities, obstacles, reserved, count);
+    const cells = findFreeAdjacentCells(e, entities, obstacles, reserved, e.productionQueue.length);
+    let produced = 0;
     for (const cell of cells) {
-      events.push({ entityId: e.id, unitId: e.productionUnitId, team: e.team, x: cell.x, z: cell.z });
+      const unitId = e.productionQueue[produced]!;
+      const unitCost = costOf(unitId);
+      if (unitCost > Math.max(playerRoom, 0)) break;
+      events.push({ entityId: e.id, unitId, team: e.team, x: cell.x, z: cell.z });
       reserved.push(cell);
+      playerRoom -= unitCost;
+      produced++;
     }
-    e.productionRemaining -= cells.length;
-    playerRoom -= cells.length * unitCost;
+    e.productionQueue.splice(0, produced);
   }
 
   return events;

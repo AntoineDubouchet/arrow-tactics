@@ -89,6 +89,11 @@ export interface CastState {
   damage: number;
   radiusTiles: number;
   knockbackTiles?: number;
+  /** Incantation de SOIN (HealAbility, Oracle) : cible verrouillee par son id
+   *  (targetX/targetZ = sa position au declenchement, pour le rendu), montant
+   *  et portees copies au declenchement. Absent pour la Boule de feu ; pour
+   *  un soin, projectileSpeed, damage et radiusTiles valent 0. */
+  heal?: { targetId: number; amount: number; endRangeTiles: number };
 }
 
 export interface Entity {
@@ -123,6 +128,9 @@ export interface Entity {
   /** Secondes avant la prochaine attaque possible. Descend sous zero pendant
    *  l'approche ; l'attaque part des le premier tick a portee. */
   attackTimer: number;
+  /** Attaque de base en cours d'elan (UnitStats.attackWindup), cible
+   *  verrouillee au depart ; null sinon. Voir sim/systems/combat.ts. */
+  pendingAttack: { targetId: number; remaining: number } | null;
 
   /** Secondes restantes de contournement d'obstacle. Tant que positif,
    *  movementSystem se deplace selon (sidestepX, sidestepZ) au lieu de
@@ -316,15 +324,13 @@ export interface Entity {
    *  VERS ce batiment. */
   footprintObstacle: ObstacleDef | null;
 
-  /** Unite produite par un batiment de production (Caserne, Camp
-   *  d'archerie — voir data/buildings.ts, BuildingDef.production et
-   *  sim/systems/buildingProduction.ts) ; `null` pour toute entite qui ne
-   *  produit rien. */
-  productionUnitId: string | null;
-  /** Unites restant a produire pendant cette manche : fixe a l'apparition du
-   *  batiment (World.spawnBuilding), decremente a chaque unite produite,
-   *  jamais renouvele en cours de bataille. 0 = quota de la manche epuise. */
-  productionRemaining: number;
+  /** Unites restant a produire pendant cette manche par un batiment de
+   *  production (Caserne, Camp d'archerie — voir data/buildings.ts,
+   *  BuildingDef.production et sim/systems/buildingProduction.ts), dans
+   *  l'ordre : fixees a l'apparition du batiment (World.spawnBuilding),
+   *  retirees a chaque unite produite, jamais renouvelees en cours de
+   *  bataille. Vide = rien a produire. */
+  productionQueue: string[];
   /** Vrai tant que le quota restant attend une place de population (voir
    *  buildingProductionSystem) : affiche par la fiche, jamais lu par la
    *  simulation elle-meme. */

@@ -218,6 +218,11 @@ export interface ScreenHandlers {
   /** Sentinelle (2026-08-14, tank lourd) — meme motif que les 3 handlers
    *  ci-dessus, jamais reservee par vague (contrairement au Mage). */
   onBuySentinel: () => void;
+  /** Oracle (2026-11-01, soutien de l'Eglise) — meme motif. */
+  onBuyOracle: () => void;
+  /** Piquier (Caserne) et Vengeur (Eglise), 2026-11-01 — meme motif. */
+  onBuyPiquier: () => void;
+  onBuyVengeur: () => void;
   /** Achat d'un parchemin de soin (chantier inventaire, voir CLAUDE.md) —
    *  verifie lui-meme l'or ET la capacite de l'inventaire (voir
    *  INVENTORY_CAPACITY). Remplace l'ancien "Soigner une unité" (soin
@@ -407,6 +412,9 @@ export class Screens {
   private readonly shopBuyArcher: HTMLButtonElement;
   private readonly shopBuyMage: HTMLButtonElement;
   private readonly shopBuySentinel: HTMLButtonElement;
+  private readonly shopBuyOracle: HTMLButtonElement;
+  private readonly shopBuyPiquier: HTMLButtonElement;
+  private readonly shopBuyVengeur: HTMLButtonElement;
   private readonly shopBuyHealScroll: HTMLButtonElement;
   /** "Annuler le dernier achat" (2026-08-13) — active seulement s'il y a
    *  quelque chose a annuler, voir refreshShop/showShop. */
@@ -598,6 +606,10 @@ export class Screens {
     this.shopPopulation = document.createElement('p');
     this.shopPopulation.className = 'screen-text shop-population';
 
+    // Piquier (2026-11-01) : recrue de base de la Caserne, en tete de liste.
+    const piquierRow = this.unitPurchaseRow(getUnit('piquier'), handlers.onBuyPiquier, () => handlers.onBuyFive('piquier'));
+    this.shopBuyPiquier = piquierRow.button;
+    this.shopUnitRows.set('piquier', piquierRow.row);
     const fantassinDef = getUnit('fantassin');
     const archerDef = getUnit('archer');
     const fantassinRow = this.unitPurchaseRow(fantassinDef, handlers.onBuyFantassin, () => handlers.onBuyFive('fantassin'));
@@ -614,6 +626,14 @@ export class Screens {
     const mageRow = this.unitPurchaseRow(mageDef, handlers.onBuyMage, () => handlers.onBuyFive('mage'));
     this.shopBuyMage = mageRow.button;
     this.shopUnitRows.set('mage', mageRow.row);
+    // Oracle (2026-11-01) : sous le Mage, l'Eglise recrute les deux.
+    const oracleRow = this.unitPurchaseRow(getUnit('oracle'), handlers.onBuyOracle, () => handlers.onBuyFive('oracle'));
+    this.shopBuyOracle = oracleRow.button;
+    this.shopUnitRows.set('oracle', oracleRow.row);
+    // Vengeur (2026-11-01) : branche offensive de l'Eglise.
+    const vengeurRow = this.unitPurchaseRow(getUnit('vengeur'), handlers.onBuyVengeur, () => handlers.onBuyFive('vengeur'));
+    this.shopBuyVengeur = vengeurRow.button;
+    this.shopUnitRows.set('vengeur', vengeurRow.row);
     // Sentinelle (2026-08-14, tank lourd) — RESERVEE depuis le 2026-08-15
     // (systeme generique de deblocage par victoire, voir refreshShop) :
     // auparavant toujours visible, jamais reservee par vague.
@@ -1068,6 +1088,9 @@ export class Screens {
     const costArcher = effectivePlayerUnitCost('archer', run.upgrades);
     const costMage = effectivePlayerUnitCost('mage', run.upgrades);
     const costSentinel = effectivePlayerUnitCost('sentinel', run.upgrades);
+    const costOracle = effectivePlayerUnitCost('oracle', run.upgrades);
+    const costPiquier = effectivePlayerUnitCost('piquier', run.upgrades);
+    const costVengeur = effectivePlayerUnitCost('vengeur', run.upgrades);
     // Population (voir run/population.ts) : un recrutement qui depasserait
     // le maximum est refuse, bouton desactive avec la raison en infobulle.
     const population = runPopulation(run);
@@ -1098,6 +1121,9 @@ export class Screens {
     gateUnit(this.shopBuyArcher, 'archer', costArcher, 1);
     gateUnit(this.shopBuyMage, 'mage', costMage, 1);
     gateUnit(this.shopBuySentinel, 'sentinel', costSentinel, 1);
+    gateUnit(this.shopBuyOracle, 'oracle', costOracle, 1);
+    gateUnit(this.shopBuyPiquier, 'piquier', costPiquier, 1);
+    gateUnit(this.shopBuyVengeur, 'vengeur', costVengeur, 1);
     const fantassinPriceEl = this.shopUnitPriceEls.get('fantassin');
     if (fantassinPriceEl) fantassinPriceEl.textContent = formatGold(costFantassin);
     const archerPriceEl = this.shopUnitPriceEls.get('archer');
@@ -1106,6 +1132,12 @@ export class Screens {
     if (magePriceEl) magePriceEl.textContent = formatGold(costMage);
     const sentinelPriceEl = this.shopUnitPriceEls.get('sentinel');
     if (sentinelPriceEl) sentinelPriceEl.textContent = formatGold(costSentinel);
+    const oraclePriceEl = this.shopUnitPriceEls.get('oracle');
+    if (oraclePriceEl) oraclePriceEl.textContent = formatGold(costOracle);
+    const piquierPriceEl = this.shopUnitPriceEls.get('piquier');
+    if (piquierPriceEl) piquierPriceEl.textContent = formatGold(costPiquier);
+    const vengeurPriceEl = this.shopUnitPriceEls.get('vengeur');
+    if (vengeurPriceEl) vengeurPriceEl.textContent = formatGold(costVengeur);
 
     // Boutons "×5" (2026-08-13) — desactives des que l'or ne couvre pas 5
     // achats d'affilee (le cout par unite reste CONSTANT sur ces 5 achats).
@@ -1118,6 +1150,12 @@ export class Screens {
     if (mageFiveEl) gateUnit(mageFiveEl, 'mage', costMage, 5);
     const sentinelFiveEl = this.shopUnitBuyFiveEls.get('sentinel');
     if (sentinelFiveEl) gateUnit(sentinelFiveEl, 'sentinel', costSentinel, 5);
+    const oracleFiveEl = this.shopUnitBuyFiveEls.get('oracle');
+    if (oracleFiveEl) gateUnit(oracleFiveEl, 'oracle', costOracle, 5);
+    const piquierFiveEl = this.shopUnitBuyFiveEls.get('piquier');
+    if (piquierFiveEl) gateUnit(piquierFiveEl, 'piquier', costPiquier, 5);
+    const vengeurFiveEl = this.shopUnitBuyFiveEls.get('vengeur');
+    if (vengeurFiveEl) gateUnit(vengeurFiveEl, 'vengeur', costVengeur, 5);
 
     // Une unite n'est affichee que si elle est recrutable structurellement :
     // debloquee par la progression (canPlayerRecruitUnit, Mage/Sentinelle) ET
@@ -1237,8 +1275,9 @@ export class Screens {
     // Caserne, Camp d'archerie : unite debloquee et production de niveau 1.
     if (def.production) {
       const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
-      const units = `${getUnit(def.production.unitId).name}s`;
-      return `${costLine} Débloque les ${units} et en produit ${formatGold(def.production.unitsPerWaveByLevel[0] ?? 0)} par manche. ${size}.`;
+      const first = def.production.unitsByLevel[0] ?? [];
+      const units = `${getUnit(first[0]!).name}s`;
+      return `${costLine} Débloque les ${units} et en produit ${formatGold(first.length)} par manche. ${size}.`;
     }
     // Batiment defensif (Tour) : valeurs de niveau 1, lues dans ses donnees.
     if (def.attack) {

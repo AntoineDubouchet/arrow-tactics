@@ -352,11 +352,23 @@ Le bouclier absorbe d'abord, puis les PV baissent. Les appelants :
 - **Combat** : le raté et l'esquive passent par la RNG. La ligne de tir est
   testée par `findBlockingObstacle` ; un tir bloqué provoque un petit
   déplacement latéral (*sidestep*).
+- **Élan** (`UnitStats.attackWindup`, opt-in) : au départ du coup,
+  `Entity.pendingAttack` verrouille la cible ; le jet et les dégâts arrivent
+  à la fin de l'élan. Sans cible (ordre de déplacement), l'élan est annulé
+  et la recharge rendue. Événements `windup` (début du geste, joué par le
+  rendu) et `cancelled` ; les coups issus d'un élan portent `windup: true`.
+  Côté rendu, `UnitViews` coupe l'attaque visible d'une unité sous ordre de
+  déplacement, et `main.ts` supprime la flèche visuelle en attente d'un
+  Archer parti.
 - **Capacités** : `AbilityDef` est une union (`charge` | `area-blast` |
-  `taunt`, `data/abilities.ts`), configurée directement sur chaque unité dans
+  `taunt` | `heal`, `data/abilities.ts`), configurée directement sur chaque unité dans
   `data/units.ts`. Elle est exécutée par le système générique
   `sim/systems/abilities.ts`. Les projectiles de zone sont stockés dans
   `World` et non sur leur lanceur : ils survivent à sa mort.
+- **Soins de simulation** : `applyHealToEntity` (`sim/damage.ts`), seul
+  point d'entrée ; utilisé par le soin de l'Oracle, appliqué à la fin de son
+  incantation (`Entity.cast.heal`, événements `heal` / `heal-lost`). Les
+  parchemins, hors simulation, passent par `applyPlayerHeal` (`main.ts`).
 - **Hors entités** : la flèche du joueur (`sim/playerArrow.ts`, une volée de
   un ou plusieurs carreaux sous un cooldown commun) et les effets déclenchés
   depuis `main.ts` via `World` (`applyIceNovaRoot`, `createBlizzardZone`,

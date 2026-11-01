@@ -42,7 +42,7 @@ export function buildFantassin(team: Team): THREE.Group {
   if (useToonUnit('fantassin')) return buildToonUnitModel('fantassin', team);
   // Prototype Footman V2 (`?footman=v2`, voir fantassinV2Rig.ts) : jamais
   // pret sans le parametre ou si son chargement a echoue -> V1.
-  return isFantassinV2Ready() ? buildFantassinV2Model(team) : buildFantassinModel(team);
+  return officialFantassin(team);
 }
 
 /**
@@ -79,7 +79,37 @@ export function buildMage(team: Team): THREE.Group {
  * TOUTES procedurales (aucune animation embarquee dans le modele source).
  */
 export function buildSentinel(team: Team): THREE.Group {
+  if (useToonUnit('sentinel')) return buildToonUnitModel('sentinel', team);
   return buildSentinelModel(team);
+}
+
+/**
+ * Oracle (2026-11-01) : soutien de l'Eglise, modele Toon RTS uniquement
+ * (`human_oracle.glb`, voir toonUnitRig.ts). Sans cet asset local, il
+ * reprend le Mage officiel (repli PROVISOIRE : meme baton, meme gestuelle).
+ */
+export function buildOracle(team: Team): THREE.Group {
+  if (useToonUnit('oracle')) return buildToonUnitModel('oracle', team);
+  return buildMageModel(team);
+}
+
+/** Fantassin officiel (Footman V2, sinon V1), sans passer par le laboratoire
+ *  Toon : repli des unites Toon sans modele officiel. */
+function officialFantassin(team: Team): THREE.Group {
+  return isFantassinV2Ready() ? buildFantassinV2Model(team) : buildFantassinModel(team);
+}
+
+/** Piquier et Vengeur (2026-11-01) : modeles Toon RTS uniquement
+ *  (`human_pikeman.glb`, `human_avenger.glb`). Sans ces assets locaux, ils
+ *  reprennent le Fantassin officiel (repli PROVISOIRE). */
+export function buildPiquier(team: Team): THREE.Group {
+  if (useToonUnit('piquier')) return buildToonUnitModel('piquier', team);
+  return officialFantassin(team);
+}
+
+export function buildVengeur(team: Team): THREE.Group {
+  if (useToonUnit('vengeur')) return buildToonUnitModel('vengeur', team);
+  return officialFantassin(team);
 }
 
 /** Construit la silhouette adaptee au kit d'une unite. Point d'entree unique
@@ -96,5 +126,11 @@ export function buildUnit(unitId: string, team: Team): THREE.Group {
       return buildMage(team);
     case 'sentinel':
       return buildSentinel(team);
+    case 'oracle':
+      return buildOracle(team);
+    case 'piquier':
+      return buildPiquier(team);
+    case 'vengeur':
+      return buildVengeur(team);
   }
 }

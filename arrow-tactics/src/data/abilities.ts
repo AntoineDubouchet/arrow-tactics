@@ -126,9 +126,33 @@ export interface TauntAbility {
   initialLockoutSeconds?: number;
 }
 
-/** Union extensible : un futur type ('heal', 'buff'...) s'ajoute ici,
- *  jamais comme champ special sur UnitDef ou logique dispersee ailleurs. */
-export type AbilityDef = ChargeAbility | AreaBlastAbility | TauntAbility;
+/**
+ * Soin mono-cible a INCANTATION (Oracle, 2026-11-01) — declenchement
+ * automatique des qu'un allie blesse est a portee (voir
+ * sim/systems/abilities.ts, tryTriggerHeal). Sequence : choix de la cible
+ * (regle deterministe) -> incantation (`castTime`, cible VERROUILLEE par son
+ * id) -> a la FIN de l'incantation seulement, soin applique si la cible est
+ * encore valide (vivante, a `rangeTiles` + `endRangeMarginTiles`), sinon
+ * perdu -> cooldown, demarre au DEBUT de l'incantation comme la Boule de feu.
+ * Aucun hasard : ni rate, ni esquive, ni variation du montant.
+ */
+export interface HealAbility {
+  type: 'heal';
+  /** Secondes entre deux DECLENCHEMENTS (debut d'incantation), incantation comprise. */
+  cooldown: number;
+  /** Portee (cases) a laquelle une cible peut etre choisie. */
+  rangeTiles: number;
+  /** Marge (cases) toleree a la FIN de l'incantation, la cible ayant pu bouger. */
+  endRangeMarginTiles: number;
+  /** Secondes d'incantation ; le soin n'arrive qu'a leur issue. */
+  castTime: number;
+  /** PV rendus, echelle interne x10, plafonnes aux PV max (pas de surplus conserve). */
+  amount: number;
+}
+
+/** Union extensible : un futur type ('buff'...) s'ajoute ici, jamais comme
+ *  champ special sur UnitDef ou logique dispersee ailleurs. */
+export type AbilityDef = ChargeAbility | AreaBlastAbility | TauntAbility | HealAbility;
 
 /** Retrouve, parmi les capacites d'une unite, celle d'un type donne — typee
  *  precisement (Extract) plutot qu'un simple `.find()` qui retomberait sur

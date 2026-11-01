@@ -276,6 +276,7 @@ export class World {
       orderProgressTimer: 0,
       orderProgressRef: Number.POSITIVE_INFINITY,
       attackTimer: 0,
+      pendingAttack: null,
       sidestepTimer: 0,
       sidestepX: 0,
       sidestepZ: 0,
@@ -314,9 +315,8 @@ export class World {
       // Entity.footprintObstacle, seul spawnBuilding en pose un).
       footprintObstacle: null,
       // Une unite normale ne produit jamais rien (voir
-      // Entity.productionUnitId).
-      productionUnitId: null,
-      productionRemaining: 0,
+      // Entity.productionQueue).
+      productionQueue: [],
       productionWaitingForPopulation: false,
       buildingAttack: null,
       gate: null,
@@ -360,10 +360,10 @@ export class World {
    * corrigee pour les unites, voir CLAUDE.md).
    */
   /**
-   * `productionCountOverride` : quota d'unites a produire pendant CETTE
-   * manche par un batiment de production (BuildingDef.production), calcule
-   * par l'appelant depuis le niveau propre du batiment ; Niv. 1 de
-   * `unitsPerWaveByLevel` par defaut. Sans effet pour un batiment sans
+   * `productionOverride` : unites a produire pendant CETTE manche par un
+   * batiment de production (BuildingDef.production), calculees par
+   * l'appelant depuis le niveau propre du batiment ; Niv. 1 de
+   * `unitsByLevel` par defaut. Sans effet pour un batiment sans
    * `def.production`.
    */
   spawnBuilding(
@@ -374,11 +374,11 @@ export class World {
     footprint?: ObstacleDef,
     hp?: number,
     maxHpOverride?: number,
-    productionCountOverride?: number,
+    productionOverride?: readonly string[],
     attackDamageOverride?: number,
   ): Entity {
     const effectiveMaxHp = maxHpOverride ?? def.maxHp;
-    const productionQuota = def.production ? (productionCountOverride ?? def.production.unitsPerWaveByLevel[0] ?? 0) : 0;
+    const productionQueue = def.production ? (productionOverride ?? def.production.unitsByLevel[0] ?? []) : [];
     const entity: Entity = {
       id: this.nextId++,
       team,
@@ -396,6 +396,7 @@ export class World {
       orderProgressTimer: 0,
       orderProgressRef: Number.POSITIVE_INFINITY,
       attackTimer: 0,
+      pendingAttack: null,
       sidestepTimer: 0,
       sidestepX: 0,
       sidestepZ: 0,
@@ -451,9 +452,8 @@ export class World {
       // de tir/poursuite vers lui-meme).
       footprintObstacle: footprint ?? null,
       // Production de la manche (Caserne, Camp d'archerie) — voir
-      // Entity.productionUnitId : le quota est consomme des le premier tick.
-      productionUnitId: def.production?.unitId ?? null,
-      productionRemaining: productionQuota,
+      // Entity.productionQueue : consommee des le premier tick.
+      productionQueue: [...productionQueue],
       productionWaitingForPopulation: false,
       // Batiment defensif (Tour) : degats EFFECTIFS du niveau propre du
       // batiment (attackDamageOverride), base sinon. Premier tir des qu'une

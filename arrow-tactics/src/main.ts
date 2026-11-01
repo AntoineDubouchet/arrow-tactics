@@ -6189,6 +6189,14 @@ const loop = new Loop(
       const attacker = world.getById(event.attackerId);
       const target = world.getById(event.targetId);
       if (!attacker || !target) continue;
+      // Attaque a elan (UnitStats.attackWindup) : le geste part au debut de
+      // l'elan, le coup (rate, flash) a sa fin ; un elan annule ne montre rien
+      // de plus (l'animation est coupee par UnitViews si c'est un ordre).
+      if (event.result === 'cancelled') continue;
+      if (event.result === 'windup') {
+        unitViews.playAttack(attacker.id, attacker.x, attacker.z);
+        continue;
+      }
 
       // Le geste d'attaque se joue qu'il touche, rate ou finisse dans un
       // obstacle. Un arc ne se brandit pas comme une epee : l'archer tire une
@@ -6203,7 +6211,7 @@ const loop = new Loop(
       // puisque l'archer en boites n'avait pas de bras anime a declencher.
       // Le tir de fleche visuel (projectile separe) reste EN PLUS, pas a la
       // place — les deux effets sont independants.
-      unitViews.playAttack(attacker.id, attacker.x, attacker.z);
+      if (!('windup' in event)) unitViews.playAttack(attacker.id, attacker.x, attacker.z);
       if (getUnit(attacker.unitId).visual.kit === 'archer') {
         // Retarde le depart VISUEL de la fleche pour le caler sur le clip
         // d'attaque riggé (voir pendingArrowSpawns) — les degats sont deja
@@ -6308,6 +6316,21 @@ const loop = new Loop(
         unitViews.playTaunt(event.entityId, event.x, event.z);
         tauntVfxView.spawnTauntWave(event.x, event.z, event.radiusTiles);
         tauntVfxView.spawnShieldGain(event.x, event.z);
+      }
+      // Soin de l'Oracle (2026-11-01) : PV deja rendus par la simulation a la
+      // FIN de l'incantation (sim/systems/abilities.ts). Ici : retour visuel
+      // (memes effets que le parchemin) et franchissement du seuil "Aux petits
+      // oignons" (voir applyPlayerHeal). Ne declenche pas "Soins
+      // excédentaires" (PROVISOIRE, fiche B7). Un soin perdu ('heal-lost')
+      // n'affiche rien.
+      if (event.type === 'heal') {
+        const target = world.getById(event.targetId);
+        if (target && target.hp / target.stats.maxHp > AUTO_HEAL_TRIGGER_RATIO) belowAutoHealThreshold.delete(target.id);
+        if (event.healed > 0) {
+          combatOverlay.spawnHealText(event.x, event.z, Math.round(event.healed) / HP_PER_PIP);
+          const pos = unitViews.getPosition(event.targetId) ?? { x: event.x, z: event.z };
+          healVfxView.spawnHeal(pos.x, pos.z);
+        }
       }
     }
 
@@ -6697,6 +6720,14 @@ const loop = new Loop(
     // avant cette boucle, pas apres comme precedemment.
     for (let i = pendingArrowSpawns.length - 1; i >= 0; i--) {
       const pending = pendingArrowSpawns[i]!;
+      // Ordre joueur > attaque (2026-11-01) : un Archer qui a recu un ordre de
+      // deplacement ne lache pas de fleche fantome apres son depart. Le coup,
+      // deja resolu par la simulation, n'est pas annule.
+      const shooter = world.getById(pending.attackerId);
+      if (shooter && shooter.order.type === 'move' && shooter.tauntSourceId === null) {
+        pendingArrowSpawns.splice(i, 1);
+        continue;
+      }
       pending.elapsed += realDt;
       if (pending.elapsed < pending.delay) continue;
       const hand = unitViews.getBoneWorldPosition(pending.attackerId, 'RightHand');
@@ -7266,6 +7297,9 @@ const screens = new Screens({
   onBuyArcher: () => buyUnit('archer'),
   onBuyMage: () => buyUnit('mage'),
   onBuySentinel: () => buyUnit('sentinel'),
+  onBuyOracle: () => buyUnit('oracle'),
+  onBuyPiquier: () => buyUnit('piquier'),
+  onBuyVengeur: () => buyUnit('vengeur'),
   onBuyFive: buyUnitFive,
   onUndoLastUnitPurchase: undoLastUnitPurchase,
   // Consommables (2026-08-15, chantier polish/equilibrage) : x1 ET x5
