@@ -128,6 +128,7 @@ import { UnitViews } from './render/unitViews';
 import { preloadMageModel } from './render/mageRig';
 import { preloadFantassinModel } from './render/fantassinRig';
 import { preloadFantassinV2Model } from './render/fantassinV2Rig';
+import { configureToonUnits, preloadToonUnits } from './render/toonUnitRig';
 import { preloadArcherModel } from './render/archerRig';
 import { preloadSentinelModel } from './render/sentinelRig';
 import { TelegraphView } from './render/telegraph';
@@ -396,6 +397,12 @@ if (reliefShadowsParam === 'on' || reliefShadowsParam === 'off') setReliefShadow
 // reste toujours a la taille de DEPART (aucune run n'existe encore a ce
 // stade du chargement du module).
 const footmanParam = new URLSearchParams(location.search).get('footman');
+// Laboratoire unites Toon RTS : `?toonUnits=human` (Fantassin, Archer, Mage)
+// ou une liste (`fantassin,mage`) ; `&toonMix=1` (une sur deux, avec les
+// unites officielles) ; `&toonColors=green,orange` (palettes du joueur et de
+// l'ennemi). Purement visuel, voir toonUnitRig.ts.
+const labParams = new URLSearchParams(location.search);
+configureToonUnits(labParams.get('toonUnits'), labParams.get('toonMix') === '1', labParams.get('toonColors'));
 let [board] = await Promise.all([
   createBoard(currentMap),
   preloadMageModel(),
@@ -404,6 +411,7 @@ let [board] = await Promise.all([
   // Fantassin. Ne rejette jamais (repli V1 si un asset manque, voir
   // fantassinV2Rig.ts).
   footmanParam === 'v1' ? Promise.resolve() : preloadFantassinV2Model(),
+  preloadToonUnits(),
   preloadArcherModel(),
   preloadSentinelModel(),
   preloadPlayerArrowModel(),

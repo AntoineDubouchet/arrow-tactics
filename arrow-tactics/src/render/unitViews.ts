@@ -601,6 +601,11 @@ export class UnitViews {
     else if (cast && previous === 'cast' && cast.isRunning()) desired = 'cast'; // retombee en cours
     else if (actions['attack']?.isRunning()) desired = 'attack';
     else if (isMoving) desired = 'walk';
+    // Repos anime, seulement pour une unite qui le fournit (Fantassin Toon
+    // RTS, voir toonUnitRig.ts) : en combat (cible verrouillee) puis hors
+    // combat. Les autres restent en pose de repos (null).
+    else if (actions['combatIdle'] && entity.targetId !== null) desired = 'combatIdle';
+    else if (actions['idle']) desired = 'idle';
 
     if (desired !== previous) {
       if (previous) actions[previous]?.fadeOut(RIGGED_ANIM_FADE_SECONDS);
@@ -608,6 +613,11 @@ export class UnitViews {
         cast.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
       } else if (desired === 'walk') {
         actions['walk']?.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
+      } else if (desired === 'idle' || desired === 'combatIdle') {
+        // Sans fondu au premier etat de l'unite : un fondu depuis rien
+        // passerait par la pose de liaison.
+        if (previous) actions[desired]?.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
+        else actions[desired]?.reset().play();
       }
       this.riggedActionState.set(entity.id, desired);
     }
@@ -621,7 +631,10 @@ export class UnitViews {
     if (cast && entity.cast) {
       const clipDuration = cast.getClip().duration;
       const progress = clamp(entity.cast.elapsed / entity.cast.duration, 0, 1);
-      cast.time = progress * MAGE_CAST_RELEASE_FRACTION * clipDuration;
+      // Part du clip ou le sort part : celle de la vue (unites Toon RTS, voir
+      // toonUnitRig.ts), sinon celle du Mage officiel.
+      const release = (view.userData['riggedCastReleaseFraction'] as number | undefined) ?? MAGE_CAST_RELEASE_FRACTION;
+      cast.time = progress * release * clipDuration;
     }
   }
 

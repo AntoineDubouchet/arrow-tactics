@@ -52,7 +52,9 @@ de l'éditeur de maps, voir `EDITOR.md`. Pour les problèmes connus, voir
 | Dossier | Fichiers | Poids | Formats | Contenu |
 |---|---|---|---|---|
 | `models/archer/` | 12 | ~78 Mo | .glb | Archer bleu / rouge : base, marche, 3 morts, attaque |
-| `models/fantassin/` | 2 | ~19 Mo | .glb | Fantassin bleu / rouge |
+| `models/fantassin/` | 2 | ~19 Mo | .glb | Ancien Fantassin bleu / rouge (`?footman=v1`, repli du Footman V2) |
+| `assets/units/footman_v2/` | 30 | ~58 Mo | .glb, .json, .png | Footman V2 (Fantassin par défaut) : corps, épée, boucliers, clips, textures PBR 2K |
+| `assets/units/toon/` | 5 | ~2,6 Mo | .glb, .png | Unités Toon RTS (laboratoire) : **locales, non versionnées** (§3.1) |
 | `models/sentinel/` | 2 | ~20,5 Mo | .glb | Sentinelle bleue / rouge |
 | `models/mage/` | 1 | ~4,4 Mo | .glb | Mage (maillage + 5 clips) |
 | `models/ballista/fbx/` | 11 | ~150,7 Mo | .fbx, .png, .tga | Baliste actuelle, animations, textures |
@@ -77,15 +79,49 @@ Quatre unités jouables, toutes des `.glb` avec squelette (`SkinnedMesh`) :
 
 | Unité | Fichiers chargés | Teinte d'équipe | Animations |
 |---|---|---|---|
-| Fantassin | `fantassin_{blue,red}_base.glb` | Deux exports déjà teintés | Marche et attaque générées par le code |
+| Fantassin (Footman V2, par défaut) | `assets/units/footman_v2/` : `footman_{blue,red}.glb`, `sword.glb`, `shield_{blue,red}.glb`, clips JSON, textures PNG | Un rig et des textures par camp | Marche et Left Slash depuis les clips JSON (Spartan Kick conservé, non joué) |
+| Fantassin V1 (`?footman=v1`, repli si un asset V2 manque) | `fantassin_{blue,red}_base.glb` | Deux exports déjà teintés | Marche et attaque générées par le code |
 | Archer | `archer_{blue,red}_base.glb` + `_walk`, `_death`, `_death_forward`, `_death_slow` | Deux exports déjà teintés | Marche et 3 morts depuis les fichiers ; attaque générée par le code |
 | Mage | `mage_biped.glb` | Teinte par le code (couleur d'équipe éclaircie) | `Walking`, `Attack`, `mage_soell_cast_4` depuis le fichier |
 | Sentinelle | `sentinel_{blue,red}.glb` | Deux exports déjà teintés | Marche, attaques et Provocation générées par le code |
 
 - Le fichier du Mage contient aussi `Running` et `mage_soell_cast_7`, qui ne
   sont pas utilisés.
-- Fichiers : `render/fantassinRig.ts`, `archerRig.ts`, `mageRig.ts`,
+- Fichiers : `render/fantassinV2Rig.ts` (Footman V2, assets produits par
+  `tools/footman-v2/`), `fantassinRig.ts`, `archerRig.ts`, `mageRig.ts`,
   `sentinelRig.ts`, et `render/riggedGltf.ts` pour le chargement commun.
+
+**En laboratoire (2026-11-01), jamais par défaut** : Fantassin, Archer et
+Mage **Toon RTS**, `public/assets/units/toon/`, chargés seulement avec
+`?toonUnits=human` (les trois) ou une liste (`?toonUnits=fantassin,mage`) ;
+`&toonMix=1` n'en remplace qu'un sur deux ; `&toonColors=green,orange`
+choisit les palettes du joueur et de l'ennemi.
+
+- Un GLB par unité (`human_footman`, `human_archer`, `human_mage` : un
+  maillage skinné de 430 à 480 triangles, un matériau, squelette de 29 os,
+  **tous** les clips du pack) et deux PNG 1024 **partagés** : atlas neutre et
+  masque des zones d'équipe (`wk_albedo.png`, `wk_team_mask.png`).
+- Couleur d'équipe : l'atlas neutre est multiplié par la teinte d'une palette
+  dans les zones du masque (shader, `TOON_PALETTES` : bleu, rouge, vert,
+  violet, orange, neutre…) ; la palette est choisie par camp, distincte de
+  l'identité du camp.
+- Produits par `tools/toon-units/` (Blender en ligne de commande, une unité =
+  des pièces du FBX modulaire et un dossier d'animations, voir `units.json`)
+  depuis le pack Toon RTS Units ; voir son README pour les pièces, les clips
+  et l'ajout d'une faction. Fichier : `render/toonUnitRig.ts`.
+- **Assets commerciaux, jamais dans Git** : le pack Toon RTS Units est un
+  pack payant du Unity Asset Store, et le dépôt est public. Ses sources (FBX,
+  atlas TGA, PSD) restent hors du dépôt, dans
+  `C:\Users\antoi\ToonRTS_Test\Assets\Toon_RTS\WesternKingdoms\` (chemin
+  lu dans `tools/toon-units/units.json`, champ `pack`). Les sorties
+  (`public/assets/units/toon/`) en sont dérivées : elles sont ignorées par
+  Git (`.gitignore` à la racine), restent locales et se reconstruisent depuis
+  `arrow-tactics/` :
+  `"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" -b --factory-startup --python-exit-code 1 --python tools/toon-units/build_toon_unit.py -- --config tools/toon-units/units.json --out public/assets/units/toon --all`.
+  Seuls le script, sa configuration et sa documentation sont versionnés.
+- Sans ces fichiers (autre machine, clone neuf), le build et le jeu par
+  défaut fonctionnent ; avec `?toonUnits=`, chaque unité absente garde son
+  modèle officiel (avertissement dans la console).
 
 ### 3.2 Baliste et tour — utilisées
 
@@ -419,6 +455,7 @@ utilise le même modèle que la Mine ou la Caserne (voir `EDITOR.md`, §16).
 | `models/nature/` | Kenney, Nature Kit | Autorisés | CC0 selon les commentaires du code | Aucun fichier de licence archivé dans le dépôt |
 | `textures/vfx/` | Kenney, Particle Pack | Autorisés | CC0 selon les commentaires du code | Aucun fichier de licence archivé dans le dépôt |
 | `models/kaykit/`, `models/buildings/` | KayKit (Kay Lousberg), Medieval Hexagon Pack | Autorisés | CC0 selon les commentaires du code | Aucun fichier de licence archivé dans le dépôt |
+| `assets/units/toon/` (laboratoire) | Pack commercial Toon RTS Units — Western Kingdoms (Unity Asset Store), pièces listées dans `tools/toon-units/units.json` ; sources hors du dépôt (`C:\Users\antoi\ToonRTS_Test\`) | **À vérifier** : aucun fichier de licence dans le pack local | Probablement l'EULA standard de l'Asset Store (usage dans un jeu, pas de redistribution des assets eux-mêmes) | Facture ou page du pack ; sorties **non versionnées** (`.gitignore`), le dépôt étant public |
 | Baliste (`models/ballista/fbx/`) | Non documentée dans le dépôt (le corps a été exporté depuis Maya, les animations avec un exporteur FBX d'Unreal) | Utilisation dans le jeu autorisée (confirmé par Antoine) | Non documentée | À archiver |
 | Flèche (`arrow_bow.obj`) | Non documentée (fichier issu d'un projet Blender « Adventurers_2.0_Accessories_Export ») | Utilisation dans le jeu autorisée (confirmé par Antoine) | Non documentée | À archiver |
 | Sol, ciel, icônes de parchemins | Fournis par Antoine | Utilisation dans le jeu autorisée (confirmé par Antoine) | Non documentée | À archiver |

@@ -8,3 +8,7 @@ Thumbs.db
 
 # Config Claude Code spécifique à cette machine (pas à partager/versionner)
 .claude/settings.local.json
+
+# Unités Toon RTS : dérivées d'un pack commercial (Unity Asset Store), dépôt
+# public. Restent locales, reconstruites par tools/toon-units/ (docs/ASSETS.md).
+arrow-tactics/public/assets/units/toon/

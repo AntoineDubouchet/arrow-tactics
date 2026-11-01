@@ -5,6 +5,7 @@ import { buildFantassinModel } from './fantassinRig';
 import { buildFantassinV2Model, isFantassinV2Ready } from './fantassinV2Rig';
 import { buildMageModel } from './mageRig';
 import { buildSentinelModel } from './sentinelRig';
+import { buildToonUnitModel, useToonUnit } from './toonUnitRig';
 import type { Team } from '../sim/entity';
 
 /**
@@ -36,6 +37,9 @@ import type { Team } from '../sim/entity';
  * render/fantassinRig.ts pour le detail, decision explicite d'Antoine).
  */
 export function buildFantassin(team: Team): THREE.Group {
+  // Laboratoire Toon RTS (`?toonUnits=`, voir toonUnitRig.ts) : jamais
+  // sans le parametre.
+  if (useToonUnit('fantassin')) return buildToonUnitModel('fantassin', team);
   // Prototype Footman V2 (`?footman=v2`, voir fantassinV2Rig.ts) : jamais
   // pret sans le parametre ou si son chargement a echoue -> V1.
   return isFantassinV2Ready() ? buildFantassinV2Model(team) : buildFantassinModel(team);
@@ -50,6 +54,7 @@ export function buildFantassin(team: Team): THREE.Group {
  * camp), voir archerRig.ts pour le detail.
  */
 export function buildArcher(team: Team): THREE.Group {
+  if (useToonUnit('archer')) return buildToonUnitModel('archer', team);
   return buildArcherModel(team);
 }
 
@@ -63,6 +68,7 @@ export function buildArcher(team: Team): THREE.Group {
  * simulation vit dans `UnitViews.tickRiggedAnimation`, pas ici.
  */
 export function buildMage(team: Team): THREE.Group {
+  if (useToonUnit('mage')) return buildToonUnitModel('mage', team);
   return buildMageModel(team);
 }
 

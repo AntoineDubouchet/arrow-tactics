@@ -1,0 +1,58 @@
+{
+  "sources": {
+    "western_kingdoms": {
+      "pack": "C:/Users/antoi/ToonRTS_Test/Assets/Toon_RTS/WesternKingdoms",
+      "model": "models/WK_Characters_customizable.FBX",
+      "team_color_atlases": "models/Materials/Colors/textures",
+      "neutral_atlas": "WK_StandardUnits_white.tga",
+      "textures": "wk",
+      "catalogue_animations": "animation/Infantry"
+    }
+  },
+  "units": {
+    "human_footman": {
+      "source": "western_kingdoms",
+      "pieces": {
+        "head": "WK_Units_head_C",
+        "body": "WK_Units_Body_D",
+        "arms": "WK_Units_Arms_B",
+        "legs": "WK_Units_Legs_C",
+        "shoulderpads": "WK_Units_shoulderpads_B",
+        "weapon": "WK_weapon_sword_A",
+        "offhand": "WK_Shield_C",
+        "extras": []
+      },
+      "animations": "animation/Infantry"
+    },
+    "human_archer": {
+      "source": "western_kingdoms",
+      "pieces": {
+        "head": "WK_Units_head_I",
+        "body": "WK_Units_Body_A",
+        "arms": "WK_Units_Arms_A",
+        "legs": "WK_Units_Legs_A",
+        "shoulderpads": null,
+        "weapon": null,
+        "offhand": "WK_weapon_Bow",
+        "extras": [
+          "WK_Xtra_quiver"
+        ]
+      },
+      "animations": "animation/Archer"
+    },
+    "human_mage": {
+      "source": "western_kingdoms",
+      "pieces": {
+        "head": "WK_Units_head_F",
+        "body": "WK_Units_Body_E",
+        "arms": "WK_Units_Arms_C",
+        "legs": "WK_Units_Legs_A",
+        "shoulderpads": null,
+        "weapon": null,
+        "offhand": "WK_weapon_staff_C",
+        "extras": []
+      },
+      "animations": "animation/Mage"
+    }
+  }
+}
