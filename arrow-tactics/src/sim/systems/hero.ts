@@ -1,14 +1,17 @@
 import type { ObstacleBounds } from '../../config/constants';
-import type { ResourceKind, ResourceNode } from '../../config/resourceNodes';
+import type { ResourceNode } from '../../config/resourceNodes';
+import { CARRIED_RESOURCES, type CarriedResource } from '../../data/resources';
+import { addItem, addResource, carriedResourceTotal, removeOneResource, resourceCount, roomFor } from '../inventory';
 import { getBuilding } from '../../data/buildings';
 import {
   BUILD_CHAIN_RADIUS,
   BUILD_REACH,
+  CHEST_OPEN_SECONDS,
+  CHEST_REACH,
   CONSTRUCTION_START_HP_FRACTION,
   DEPOSIT_SECONDS_PER_ITEM,
   HARVEST_INTERVAL,
   HARVEST_REACH,
-  HERO_CARRY_CAPACITY,
   HERO_XP_SHARE_RADIUS,
   heroLevelForXp,
   heroRespawnDelay,
@@ -17,9 +20,10 @@ import {
   PICKUP_REACH,
   PICKUP_SECONDS,
 } from '../../data/hero';
-import type { Entity } from '../entity';
+import type { Entity, HeroState } from '../entity';
 import { isWorkOrder, type UnitOrder } from '../orders';
 import type { AbilityEvent } from './abilities';
+import type { Chest } from './camps';
 
 /**
  * Heros (2026-11-01, direction Hero RTS, data/hero.ts) : progression (XP en
@@ -45,16 +49,22 @@ export type HeroEvent =
   | { type: 'death'; heroId: number; respawnIn: number }
   | { type: 'respawn'; heroId: number; x: number; z: number }
   /** Une unite recoltee sur un arbre ou un rocher, mise dans le sac. */
-  | { type: 'harvest'; heroId: number; resource: ResourceKind; amount: number; nodeId: number }
+  | { type: 'harvest'; heroId: number; resource: CarriedResource; amount: number; nodeId: number }
   /** Petit tas ramasse : quantite prise et quantite restante au sol. */
-  | { type: 'pickup'; heroId: number; resource: ResourceKind; amount: number; pileId: number; remaining: number }
+  | { type: 'pickup'; heroId: number; resource: CarriedResource; amount: number; pileId: number; remaining: number }
   /** Sac plein : le travail s'arrete (le Heros passe en Garde). */
   | { type: 'carryFull'; heroId: number }
   /** Item au sol ramasse (butin) : la run l'ajoute a l'inventaire du Heros. */
   | { type: 'itemPickup'; heroId: number; dropId: number; itemId: string }
+  /** Butin non ramasse : aucune case libre (l'item reste au sol). */
+  | { type: 'itemPickupFull'; heroId: number; dropId: number; itemId: string }
+  /** Coffre ouvert : item tire (null : rien) pose au sol a cote (`dropId`). */
+  | { type: 'chestOpened'; heroId: number; chestId: number; itemId: string | null; dropId: number | null }
+  /** Coffre encore verrouille (camp defendu) a l'arrivee : rien ne s'ouvre. */
+  | { type: 'chestLocked'; heroId: number; chestId: number }
   /** Unite versee au stock de la run (depot, une toutes les
    *  DEPOSIT_SECONDS_PER_ITEM s) ; `remaining` : unites encore portees. */
-  | { type: 'deposit'; heroId: number; wood: number; stone: number; remaining: number }
+  | { type: 'deposit'; heroId: number; wood: number; stone: number; gold: number; remaining: number }
   | { type: 'built'; heroId: number; buildingId: number }
   /** Incantation commencee (mana retenu). */
   | { type: 'spellStart'; heroId: number; spellId: string; targetId: number }
@@ -79,7 +89,7 @@ export interface ResourcePile {
   id: number;
   x: number;
   z: number;
-  resource: ResourceKind;
+  resource: CarriedResource;
   amount: number;
 }
 
@@ -89,11 +99,16 @@ export interface HeroWorkContext {
   nodes: ReadonlyMap<number, ResourceNode>;
   piles: readonly ResourcePile[];
   drops: readonly ItemDrop[];
+  /** Coffres (World.chests), verrou (camp pas nettoye) et ouverture (tirage
+   *  du butin avec la RNG du monde, item pose au sol). */
+  chests: readonly Chest[];
+  chestLocked(chest: Chest): boolean;
+  openChest(chest: Chest): { itemId: string | null; dropId: number | null };
 }
 
 /** Unites portees par un Heros. */
-export function carriedAmount(h: { carry: { wood: number; stone: number } }): number {
-  return h.carry.wood + h.carry.stone;
+export function carriedAmount(h: Pick<HeroState, 'inventory'>): number {
+  return carriedResourceTotal(h.inventory);
 }
 
 /** But du travail d'un Heros (source, chantier, tas, depot) et portee de
@@ -122,6 +137,11 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
     const drop = work.drops[order.dropId];
     if (!drop || drop.taken) return null;
     return { x: drop.x, z: drop.z, reached: Math.hypot(drop.x - e.x, drop.z - e.z) <= e.stats.radius + PICKUP_REACH, target: null };
+  }
+  if (order.type === 'openChest') {
+    const chest = work.chests[order.chestId];
+    if (!chest || chest.opened) return null;
+    return { x: chest.x, z: chest.z, reached: Math.hypot(chest.x - e.x, chest.z - e.z) <= e.stats.radius + CHEST_REACH, target: null };
   }
   if (order.type === 'pickup') {
     const pile = work.piles[order.pileId];
@@ -182,10 +202,11 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
         const before = Math.floor(h.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9);
         h.workTimer += dt;
         let due = Math.floor(h.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9) - before;
+        // Bois, puis pierre, puis or ; les equipements ne sont jamais deposes.
         while (due-- > 0 && carriedAmount(h) > 0) {
-          const kind = h.carry.wood > 0 ? 'wood' : 'stone';
-          h.carry[kind]--;
-          events.push({ type: 'deposit', heroId: e.id, wood: kind === 'wood' ? 1 : 0, stone: kind === 'stone' ? 1 : 0, remaining: carriedAmount(h) });
+          const kind = CARRIED_RESOURCES.find((r) => resourceCount(h.inventory, r) > 0)!;
+          h.inventory = removeOneResource(h.inventory, kind)!;
+          events.push({ type: 'deposit', heroId: e.id, wood: kind === 'wood' ? 1 : 0, stone: kind === 'stone' ? 1 : 0, gold: kind === 'gold' ? 1 : 0, remaining: carriedAmount(h) });
         }
       }
       if (carriedAmount(h) === 0) {
@@ -196,7 +217,8 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       continue;
     }
     if (e.order.type === 'harvest' || e.order.type === 'pickup') {
-      if (carriedAmount(h) >= HERO_CARRY_CAPACITY) {
+      const resource = e.order.type === 'harvest' ? work.nodes.get(e.order.nodeId)!.resource : work.piles[e.order.pileId]!.resource;
+      if (roomFor(h.inventory, resource) === 0) {
         events.push({ type: 'carryFull', heroId: e.id });
         e.order = { type: 'guard' };
         h.working = null;
@@ -208,9 +230,9 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       const node = work.nodes.get(e.order.nodeId)!;
       h.working = node.resource === 'wood' ? 'chop' : 'mine';
       h.workTimer += dt;
-      while (h.workTimer >= HARVEST_INTERVAL && carriedAmount(h) < HERO_CARRY_CAPACITY) {
+      while (h.workTimer >= HARVEST_INTERVAL && roomFor(h.inventory, node.resource) > 0) {
         h.workTimer -= HARVEST_INTERVAL;
-        h.carry[node.resource]++;
+        h.inventory = addResource(h.inventory, node.resource, 1).inventory;
         events.push({ type: 'harvest', heroId: e.id, resource: node.resource, amount: 1, nodeId: node.id });
       }
       continue;
@@ -221,8 +243,31 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       h.working = 'gather';
       h.workTimer += dt;
       if (h.workTimer < PICKUP_SECONDS) continue;
-      drop.taken = true;
-      events.push({ type: 'itemPickup', heroId: e.id, dropId: drop.id, itemId: drop.itemId });
+      // Une case libre du sac ; sinon l'item reste au sol.
+      const next = addItem(h.inventory, drop.itemId);
+      if (next) {
+        h.inventory = next;
+        drop.taken = true;
+        events.push({ type: 'itemPickup', heroId: e.id, dropId: drop.id, itemId: drop.itemId });
+      } else events.push({ type: 'itemPickupFull', heroId: e.id, dropId: drop.id, itemId: drop.itemId });
+      e.order = { type: 'guard' };
+      h.working = null;
+      h.workTimer = 0;
+      continue;
+    }
+    if (e.order.type === 'openChest') {
+      // Coffre (2026-11-02) : CHEST_OPEN_SECONDS au contact, une seule fois ;
+      // encore verrouille a l'arrivee : rien, Garde.
+      const chest = work.chests[e.order.chestId]!;
+      if (work.chestLocked(chest)) {
+        events.push({ type: 'chestLocked', heroId: e.id, chestId: chest.id });
+      } else {
+        h.working = 'gather';
+        h.workTimer += dt;
+        if (h.workTimer < CHEST_OPEN_SECONDS) continue;
+        const loot = work.openChest(chest);
+        events.push({ type: 'chestOpened', heroId: e.id, chestId: chest.id, itemId: loot.itemId, dropId: loot.dropId });
+      }
       e.order = { type: 'guard' };
       h.working = null;
       h.workTimer = 0;
@@ -233,11 +278,13 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       h.working = 'gather';
       h.workTimer += dt;
       if (h.workTimer < PICKUP_SECONDS) continue;
-      // Tout ce que le sac peut prendre ; le reste du tas reste au sol.
-      const amount = Math.min(pile.amount, HERO_CARRY_CAPACITY - carriedAmount(h));
-      pile.amount -= amount;
-      h.carry[pile.resource] += amount;
-      events.push({ type: 'pickup', heroId: e.id, resource: pile.resource, amount, pileId: pile.id, remaining: pile.amount });
+      // Tout ce que le sac peut prendre (piles entamees, puis cases libres) ;
+      // le reste du tas reste au sol.
+      const { inventory, added } = addResource(h.inventory, pile.resource, pile.amount);
+      h.inventory = inventory;
+      pile.amount -= added;
+      events.push({ type: 'pickup', heroId: e.id, resource: pile.resource, amount: added, pileId: pile.id, remaining: pile.amount });
+      if (pile.amount > 0) events.push({ type: 'carryFull', heroId: e.id });
       e.order = { type: 'guard' };
       h.working = null;
       h.workTimer = 0;

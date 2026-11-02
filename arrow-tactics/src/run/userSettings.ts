@@ -66,6 +66,30 @@ export function loadUserSettings(): UserSettings {
   }
 }
 
+/** Camera (2026-11-02) : vitesse du defilement par les bords (multiplicateur,
+ *  0,25 a 2,5). Cle propre : independante des reglages audio. */
+const CAMERA_STORAGE_KEY = 'arrow-tactics.camera-settings.v1';
+export const CAMERA_SPEED_MIN = 0.25;
+export const CAMERA_SPEED_MAX = 2.5;
+
+export function loadCameraSpeed(): number {
+  try {
+    const raw = localStorage.getItem(CAMERA_STORAGE_KEY);
+    const speed = raw ? (JSON.parse(raw) as { speed?: unknown }).speed : undefined;
+    return typeof speed === 'number' && Number.isFinite(speed) ? Math.min(CAMERA_SPEED_MAX, Math.max(CAMERA_SPEED_MIN, speed)) : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function saveCameraSpeed(speed: number): void {
+  try {
+    localStorage.setItem(CAMERA_STORAGE_KEY, JSON.stringify({ speed }));
+  } catch {
+    // Navigation privee, quota plein : jamais bloquant.
+  }
+}
+
 export function saveUserSettings(settings: UserSettings): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));

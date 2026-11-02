@@ -55,12 +55,14 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-41 | Gros rochers (décors non bloquants) : un bâtiment s'y pose | Limite assumée (règle E8, à trancher) |
 | KI-42 | Héros : aucun clip d'incantation dans son GLB (Soin en garde de combat) | Limite assumée (assets) |
 | KI-43 | Carte générée : pas d'ombres portées au-delà d'environ 21 cases du centre | Confirmé (observé) |
-| KI-44 | Équipement : casque et épaulières sans visuel en jeu (modèle du Héros fusionné) | Limite assumée |
-| KI-45 | Butin au sol : pièce dressée plutôt que couchée | À améliorer (observé) |
+| KI-44 | Équipement : casque, épaulières, torse, bras, jambes sans visuel en jeu (modèle du Héros fusionné) | Limite assumée |
+| KI-46 | Camps neutres : état non sauvegardé si le monde était reconstruit en cours de run | Hypothèse (pas de cas aujourd'hui) |
+| KI-47 | Or au sol non ramassé : les tas restent toute la run (aucune disparition) | Limite assumée (à surveiller) |
+| KI-48 | Héros permanent : une unité militaire sélectionnée prend les ordres à sa place ; pas de commande Héros + armée | Limite assumée (à décider) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
-(c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19 et
-KI-25).
+(c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
+KI-25 et KI-45, butin couché depuis le 2026-11-02).
 
 Retirées lors de la refonte de l'éditeur, résolues côté code :
 
@@ -481,12 +483,32 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 - **Suite** : composer le Héros en jeu à partir du catalogue (comme
   l'Atelier), ou exporter les pièces de corps séparées par le pipeline.
 
-### KI-45 — Butin au sol dressé
+### KI-47 — Or au sol qui s'accumule
 
-- **Statut** : à améliorer (capture du 2026-11-02).
-- **Constat** : la pièce d'un item au sol est recentrée mais reste dressée
-  (épées en bâtons, bouclier debout) : l'axe long de la pièce au repos
-  n'est pas celui supposé. Lisible grâce à l'anneau et à la colonne.
+- **Statut** : limite assumée (2026-11-02).
+- **Constat** : chaque ennemi abattu laisse un tas d'or ; un tas non
+  ramassé reste jusqu'à la fin de la run (`World.resourcePiles` grandit
+  d'une entrée par mort, parcourue chaque frame par le rendu). Sans effet
+  mesurable aux volumes actuels ; à revoir (fusion des tas proches,
+  disparition, aimant) si les vagues grossissent.
+
+### KI-48 — Héros permanent et sélection d'armée
+
+- **Statut** : limite assumée (2026-11-02), décision à prendre.
+- **Constat** : sans unité sélectionnée, le Héros reçoit le clic droit ;
+  une unité militaire sélectionnée le reçoit seule (comportement d'avant
+  conservé) ; il faut vider la sélection (clic au sol, Échap) ou cliquer
+  le portrait pour reprendre le Héros. Groupes, multi-sélection et
+  contrôle mixte restent à concevoir.
+
+### KI-46 — État des camps non sauvegardé
+
+- **Statut** : hypothèse (2026-11-02), aucun cas aujourd'hui.
+- **Constat** : camps nettoyés et coffres ouverts vivent dans `World` ; la
+  Survie en temps réel ne reconstruit pas le monde pendant une run, donc
+  aucun retour des gardes. Si un jour le monde est reconstruit en cours de
+  run (sauvegarde, manches), il faudra garder cet état dans la run (comme
+  `resourcePileAmounts`).
 
 ### KI-43 — Ombres limitées au centre de la carte générée
 

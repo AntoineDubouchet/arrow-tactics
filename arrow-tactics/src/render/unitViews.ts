@@ -168,7 +168,7 @@ export class UnitViews {
         // temps du travail, sinon son arme (equipement, ou le marteau).
         if (entity.hero) setHeroWorkTool(view, entity.hero.working);
         // Sac du Heros non vide : petit ballot sur le dos (rendu seulement).
-        if (entity.hero) updateCarryBundle(view, entity.hero.carry);
+        if (entity.hero) updateCarryBundle(view, entity.hero.inventory);
         view.visible = true;
         view.rotation.x = 0;
         this.setOpacity(view, 1);

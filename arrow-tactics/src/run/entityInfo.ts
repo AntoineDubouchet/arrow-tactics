@@ -19,8 +19,10 @@ import { churchHealCost, churchHealHpPerGold } from './churchHeal';
 import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isBuildingAtMaxLevel, isUpgradableBuilding } from './buildingUpgrades';
 import { getUnitUpgradeDef } from '../data/unitUpgrades';
-import { EQUIPMENT_SLOT_ORDER, EQUIPMENT_SLOTS, getEquipment, RARITIES, type EquipmentSlot } from '../data/equipment';
-import { describeEquipment, type HeroInventory } from './heroEquipment';
+import { BODY_LAYOUT, EQUIPMENT_SLOTS, EQUIPMENT_TYPES, getEquipment, RARITIES, type EquipmentSlot } from '../data/equipment';
+import { RESOURCE_ITEMS } from '../data/resources';
+import { describeEquipment } from './heroEquipment';
+import { freeSlotCount, resourceCount, type HeroInventory } from '../sim/inventory';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
 import { displayedUpgradeLevel, entityRunUpgradeLevel, type PlayerProgression, type RunUpgradeLevels } from './runUpgrades';
 import { playerUnitProductionCost } from './unitUpgradeEffects';
@@ -363,9 +365,18 @@ export interface HeroSheetItem {
   rarity: string;
   color: string;
   slot: string;
+  /** Emplacement de donnees (glisser-deposer vers la silhouette). */
+  slotId: EquipmentSlot;
+  type: string;
   lines: string[];
   sellValue: number;
 }
+
+/** Case du sac (grille) : vide, pile de ressource ou equipement. */
+export type HeroSheetCell =
+  | { kind: 'empty' }
+  | { kind: 'resource'; resource: string; name: string; amount: number; max: number; color: string }
+  | { kind: 'item'; item: HeroSheetItem };
 
 /** Feuille du Heros (2026-11-02, inventaire, touche I) : remplace sa fiche,
  *  qui ne s'affiche plus a sa selection. Statistiques EFFECTIVES de son
@@ -376,18 +387,21 @@ export interface HeroSheetInfo {
   hp: EntityInfoHp;
   rows: EntityInfoRow[];
   spells: { name: string; detail: string; description: string }[];
-  equipment: { slot: EquipmentSlot; label: string; item: HeroSheetItem | null }[];
-  items: HeroSheetItem[];
+  /** Silhouette (BODY_LAYOUT) : emplacements du corps et item porte. */
+  body: { id: string; label: string; accepts: readonly EquipmentSlot[]; item: HeroSheetItem | null }[];
+  /** Cases du sac, dans l'ordre. */
+  cells: HeroSheetCell[];
   capacity: string;
 }
 
 function sheetItem(itemId: string): HeroSheetItem {
   const def = getEquipment(itemId);
   const rarity = RARITIES[def.rarity];
-  return { id: def.id, name: def.name, rarity: rarity.name, color: rarity.color, slot: EQUIPMENT_SLOTS[def.slot].label, lines: describeEquipment(def), sellValue: def.sellValue };
+  return { id: def.id, name: def.name, rarity: rarity.name, color: rarity.color, slot: EQUIPMENT_SLOTS[def.slot].label, slotId: def.slot, type: EQUIPMENT_TYPES[def.type], lines: describeEquipment(def), sellValue: def.sellValue };
 }
 
-export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: number | null, carryCapacity: number, inventory: HeroInventory): HeroSheetInfo {
+export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: number | null): HeroSheetInfo {
+  const inventory: HeroInventory = entity.hero!.inventory;
   const h = entity.hero!;
   const s = entity.stats;
   const rows: EntityInfoRow[] = [
@@ -400,7 +414,7 @@ export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: num
   if (s.dodgeChance > 0) rows.push({ label: 'Esquive', value: `${Math.round(s.dodgeChance * 100)} %` });
   rows.push(
     { label: 'Expérience', value: nextLevelXp === null ? `${h.xp} XP (niveau max)` : `${h.xp} / ${nextLevelXp} XP` },
-    { label: 'Sac', value: `${h.carry.wood + h.carry.stone} / ${carryCapacity} (bois ${h.carry.wood}, pierre ${h.carry.stone})` },
+    { label: 'Porté', value: `bois ${resourceCount(inventory, 'wood')}, pierre ${resourceCount(inventory, 'stone')}, or ${resourceCount(inventory, 'gold')}` },
   );
   return {
     title: `${heroName} — Niv. ${h.level}`,
@@ -411,9 +425,17 @@ export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: num
       detail: `${spell.manaCost} mana · ${formatSeconds(spell.castSeconds)} · portée ${formatNumber(spell.rangeTiles)} cases`,
       description: spell.description,
     })),
-    equipment: EQUIPMENT_SLOT_ORDER.map((slot) => ({ slot, label: EQUIPMENT_SLOTS[slot].label, item: inventory.equipped[slot] ? sheetItem(inventory.equipped[slot]!) : null })),
-    items: inventory.items.map(sheetItem),
-    capacity: `${inventory.items.length} / ${inventory.capacity}`,
+    body: BODY_LAYOUT.map((b) => {
+      const worn = b.accepts.map((slot) => inventory.equipped[slot]).find((id) => id !== undefined);
+      return { id: b.id, label: b.label, accepts: b.accepts, item: worn ? sheetItem(worn) : null };
+    }),
+    cells: inventory.slots.map((s): HeroSheetCell => {
+      if (!s) return { kind: 'empty' };
+      if (s.kind === 'item') return { kind: 'item', item: sheetItem(s.itemId) };
+      const def = RESOURCE_ITEMS[s.resource];
+      return { kind: 'resource', resource: s.resource, name: def.name, amount: s.amount, max: def.maxStack, color: def.color };
+    }),
+    capacity: `${inventory.slots.length - freeSlotCount(inventory)} / ${inventory.slots.length}`,
   };
 }
 

@@ -1510,6 +1510,66 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `sim/systems/hero.ts`, `sim/systems/combat.ts`, `render/heroEquipmentView.ts`,
   `render/itemDropViews.ts`, `src/itemEditor/`.
 
+### G14 — Camps neutres, coffres, première boucle d'exploration
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-02) : explorer → découvrir un camp →
+  combattre → XP / récompense → coffre → item → l'équiper → repartir plus
+  fort ; un bon camp et une architecture multiple plutôt que dix camps.
+- **Choix de la passe** :
+  - camps et vagues distincts : gardes hors du compte de fin de vague,
+    jamais d'ordre `assault`, stats de base sans montée par vague ;
+  - gardes liés au camp : détection, laisse, retour au poste,
+    régénération au calme (pas d'usure par allers-retours) ;
+  - **camp au calme jamais ciblé automatiquement** par le joueur : sans
+    cette règle, le Héros en Garde (aggro 9 = sa vision) chargeait tout
+    camp qu'il voyait, et découvrir sans combattre était impossible ;
+  - coffre verrouillé tant qu'un garde vit ; ouverture d'1 s ; butin au sol
+    (pas directement au sac) ;
+  - or au nettoyage (8 / 15), pas de prime par kill ;
+  - petit camp gagnable au niveau 1, grand camp seulement au niveau 2 avec
+    un premier item (mortel avant) ;
+  - décor traversable (règle du décor du 2026-10-28), une lumière par camp ;
+  - un item Rare ajouté (Hache du chef pillard) pour que la table ait ses
+    trois raretés.
+- **Effets d'équilibrage** : nouvelles sources d'XP (58 / 100), d'or et
+  d'items ; le grand camp peut tuer un Héros niveau 1 qui l'attaque.
+- **Sources** : `data/camps.ts`, `data/loot.ts`, `run/camps.ts`,
+  `sim/systems/camps.ts`, `sim/world.ts`, `config/maps/proceduralSurvival.ts`,
+  `render/campViews.ts`, `main.ts`.
+- **Validation** (2026-11-02) : Antoine valide la règle « camp au calme
+  jamais ciblé automatiquement ».
+
+### G15 — Inventaire unique, or physique, Héros permanent
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-02) : un seul inventaire de 20 cases
+  (ressources empilables par 5, équipements, butin), or trouvé physique
+  (sol → sac → dépôt → stock), seul le stock se dépense, Mine au stock
+  directement, HUD économique, sac 3D, silhouette d'équipement et
+  glisser-déposer, défilement caméra par les bords, éditeur vierge, Héros
+  contrôle primaire permanent (bâtiment = contexte secondaire).
+- **Choix de la passe** :
+  - inventaire = état de simulation (ramassage partiel décidé dans le pas
+    fixe), recopié dans la run ; l'interface agit au pas suivant ;
+  - dépôt dans l'ordre bois, pierre, or ; pile retirée par la fin ;
+  - or des ennemis = ancienne prime arrondie en tas (`ENEMY_GOLD_DROPS`) ;
+    or du camp en tas de 5 ;
+  - **restent versés au stock** : Mine, or de départ, bonus de vague
+    repoussée (récompense système, pas trouvée dans le monde) — à trancher ;
+  - Héros permanent : il prend les ordres dès qu'aucune unité n'est
+    sélectionnée ; une unité militaire sélectionnée garde la main (pas de
+    contrôle mixte Héros + armée pour l'instant) ;
+  - encart du Héros déplacé en haut à droite sous la ligne économique
+    (description d'Antoine) ;
+  - vitesse caméra : défilement par les bords seulement (le glisser suit la
+    souris, la rotation n'est pas un déplacement).
+- **Effets d'équilibrage** : l'or n'arrive plus instantanément ; aller
+  chercher l'or des vagues prend du temps et du risque ; le Héros porte au
+  plus 100 unités de ressources (20 piles de 5).
+- **Sources** : `sim/inventory.ts`, `data/resources.ts`, `sim/systems/hero.ts`,
+  `sim/world.ts`, `ui/heroInventory.ts`, `ui/economyHud.ts`, `main.ts`.
+
 ---
 
 ## H. Outils internes

@@ -324,6 +324,8 @@ export interface ScreenHandlers {
   onCloseSettings: () => void;
   /** Valeurs 0..1 — l'ecran convertit lui-meme depuis/vers l'affichage 0-100%. */
   onSetMasterVolume: (value: number) => void;
+  /** Vitesse de la camera (multiplicateur, 0,25 a 2,5). */
+  onSetCameraSpeed: (value: number) => void;
   onSetMusicVolume: (value: number) => void;
   onSetSfxVolume: (value: number) => void;
   onSetMuted: (muted: boolean) => void;
@@ -512,6 +514,7 @@ export class Screens {
   private readonly placementGoldWarningText: HTMLElement;
   private readonly settings: HTMLElement;
   private readonly settingsMaster: SliderControl;
+  private readonly settingsCameraSpeed: SliderControl;
   private readonly settingsMusic: SliderControl;
   private readonly settingsSfx: SliderControl;
   private readonly settingsMuted: { row: HTMLElement; input: HTMLInputElement };
@@ -883,23 +886,38 @@ export class Screens {
     this.settingsSfx = this.sliderControl('Effets sonores', handlers.onSetSfxVolume);
     this.settingsMuted = this.checkboxControl('Muet', handlers.onSetMuted);
 
-    const soundTabButton = this.tabButton('Son', () => {});
-    soundTabButton.classList.add('shop-tab--active');
+    // Camera (2026-11-02) : vitesse du defilement par les bords, 25 a 250 %.
+    this.settingsCameraSpeed = this.sliderControl('Vitesse de déplacement de la caméra', handlers.onSetCameraSpeed);
+    this.settingsCameraSpeed.input.min = '25';
+    this.settingsCameraSpeed.input.max = '250';
+    this.settingsCameraSpeed.input.step = '5';
+    this.settingsCameraSpeed.input.dataset['name'] = 'camera-speed';
+
     const soundTabPanel = this.shopTabPanel([
       this.settingsMaster.row,
       this.settingsMusic.row,
       this.settingsSfx.row,
       this.settingsMuted.row,
     ]);
-    soundTabPanel.classList.add('shop-tab-content--active');
+    const cameraTabPanel = this.shopTabPanel([this.settingsCameraSpeed.row]);
+    const settingsTabPanels = [soundTabPanel, cameraTabPanel];
+    const soundTabButton = this.tabButton('Son', () => selectSettingsTab(0));
+    const cameraTabButton = this.tabButton('Caméra', () => selectSettingsTab(1));
+    const settingsTabButtons = [soundTabButton, cameraTabButton];
+    const selectSettingsTab = (index: number): void => {
+      settingsTabButtons.forEach((b, i) => b.classList.toggle('shop-tab--active', i === index));
+      settingsTabPanels.forEach((p, i) => p.classList.toggle('shop-tab-content--active', i === index));
+    };
+    selectSettingsTab(0);
     const settingsTabs = document.createElement('div');
     settingsTabs.className = 'shop-tabs';
-    settingsTabs.append(soundTabButton);
+    settingsTabs.append(soundTabButton, cameraTabButton);
 
     this.settings = this.overlay('settings', [
       this.title('Paramètres'),
       settingsTabs,
       soundTabPanel,
+      cameraTabPanel,
       this.button('Retour', handlers.onCloseSettings),
     ]);
 
@@ -1774,8 +1792,9 @@ export class Screens {
 
   /** Affiche l'ecran Parametres a jour — toujours appeler ceci plutot que
    *  show('settings') directement (meme motif que showShop/showTalents). */
-  showSettings(audio: AudioSettings): void {
+  showSettings(audio: AudioSettings, cameraSpeed = 1): void {
     this.refreshSettings(audio);
+    this.setSliderValue(this.settingsCameraSpeed, cameraSpeed);
     this.show('settings');
   }
 

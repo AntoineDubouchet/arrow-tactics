@@ -39,6 +39,8 @@ export type UnitOrder =
   | { type: 'pickup'; pileId: number }
   /** Heros : ramasser l'item au sol `dropId` (World.itemDrops, butin). */
   | { type: 'pickupItem'; dropId: number }
+  /** Heros : ouvrir le coffre `chestId` (World.chests), camp nettoye. */
+  | { type: 'openChest'; chestId: number }
   /** Heros : deposer ce qu'il porte au depot `targetEntityId` (Baliste). */
   | { type: 'deposit'; targetEntityId: number }
   /** Heros : lancer le sort `spellId` (Entity.hero.spells) sur
@@ -58,6 +60,7 @@ export type PlayerCommand =
   | { kind: 'build'; entityIds: readonly number[]; targetEntityId: number }
   | { kind: 'pickup'; entityIds: readonly number[]; pileId: number }
   | { kind: 'pickupItem'; entityIds: readonly number[]; dropId: number }
+  | { kind: 'openChest'; entityIds: readonly number[]; chestId: number }
   | { kind: 'deposit'; entityIds: readonly number[]; targetEntityId: number }
   | { kind: 'cast'; entityIds: readonly number[]; spellId: string; targetEntityId: number };
 
@@ -69,9 +72,9 @@ export type CommandRejectionReason = 'no-commandable-entity' | 'invalid-destinat
 /** Ordres de TRAVAIL du Heros (recolte, construction, ramassage, depot,
  *  sort) : comme un deplacement, ils suspendent le ciblage et l'attaque de
  *  base. */
-export type WorkOrder = Extract<UnitOrder, { type: 'harvest' | 'build' | 'pickup' | 'pickupItem' | 'deposit' | 'cast' }>;
+export type WorkOrder = Extract<UnitOrder, { type: 'harvest' | 'build' | 'pickup' | 'pickupItem' | 'openChest' | 'deposit' | 'cast' }>;
 export function isWorkOrder(order: UnitOrder): order is WorkOrder {
-  return order.type === 'harvest' || order.type === 'build' || order.type === 'pickup' || order.type === 'pickupItem' || order.type === 'deposit' || order.type === 'cast';
+  return order.type === 'harvest' || order.type === 'build' || order.type === 'pickup' || order.type === 'pickupItem' || order.type === 'openChest' || order.type === 'deposit' || order.type === 'cast';
 }
 
 /** Ce que la validation des ordres de travail lit du monde (World). */
@@ -83,11 +86,13 @@ export interface WorkLookups {
   hasPile(id: number): boolean;
   /** Item au sol encore present (butin). */
   hasDrop(id: number): boolean;
+  /** Coffre : ouvrable, verrouille (camp encore defendu) ou absent / deja ouvert. */
+  chest(id: number): 'ok' | 'locked' | 'missing';
   /** Depot de ressources (BuildingDef.resourceDepot) vivant. */
   isDepot(entity: Entity): boolean;
 }
 
-const NO_WORK: WorkLookups = { node: () => 'missing', hasPile: () => false, hasDrop: () => false, isDepot: () => false };
+const NO_WORK: WorkLookups = { node: () => 'missing', hasPile: () => false, hasDrop: () => false, chest: () => 'missing', isDepot: () => false };
 
 /** Resultat de l'application d'une commande — sert au retour visuel et a la
  *  verification. Une commande peut etre acceptee pour une partie seulement
@@ -385,6 +390,7 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
       case 'build':
       case 'pickup':
       case 'pickupItem':
+      case 'openChest':
       case 'deposit': {
         // Travail : Heros seulement ; source exploitable, chantier allie
         // vivant, tas encore present ou depot allie vivant.
@@ -396,12 +402,13 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
         }
         const target = command.kind === 'build' || command.kind === 'deposit' ? lookup(command.targetEntityId) : undefined;
         const allied = target !== undefined && target.alive && accepted.every((e) => e.team === target.team);
-        const nodeState = command.kind === 'harvest' ? work.node(command.nodeId) : 'ok';
+        const nodeState = command.kind === 'harvest' ? work.node(command.nodeId) : command.kind === 'openChest' ? work.chest(command.chestId) : 'ok';
         const valid =
           command.kind === 'harvest' ? nodeState === 'ok'
           : command.kind === 'build' ? allied && target!.construction !== null
           : command.kind === 'pickup' ? work.hasPile(command.pileId)
           : command.kind === 'pickupItem' ? work.hasDrop(command.dropId)
+          : command.kind === 'openChest' ? nodeState === 'ok'
           : allied && work.isDepot(target!);
         if (!valid) {
           result.rejection = nodeState === 'locked' ? 'locked' : 'invalid-target';
@@ -412,6 +419,7 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
           : command.kind === 'build' ? { type: 'build', targetEntityId: command.targetEntityId }
           : command.kind === 'pickup' ? { type: 'pickup', pileId: command.pileId }
           : command.kind === 'pickupItem' ? { type: 'pickupItem', dropId: command.dropId }
+          : command.kind === 'openChest' ? { type: 'openChest', chestId: command.chestId }
           : { type: 'deposit', targetEntityId: command.targetEntityId };
         break;
       }

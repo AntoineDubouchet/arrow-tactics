@@ -21,6 +21,8 @@ contient ni intentions de design ni décisions futures.
 6. Bâtiments gameplay : Mine, Caserne, Camp d'archerie, Forge, Tour et Église
 6 bis. Héros, ressources, carte procédurale
 6 ter. Équipement, items et butin du Héros
+6 quater. Camps neutres et coffres
+6 quinquies. Inventaire unique, or physique, HUD et contrôles
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -1151,10 +1153,10 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES) :
   Lame des braises (Peu commune, +4 dégâts, feu +3 à chaque coup), Bouclier
   robuste (Peu commun, +8 PV max), Épaulières de garde (Commune, +4 PV,
   +0,1 vitesse) ;
-- **inventaire de run** (`run/heroEquipment.ts`, `HeroProgress.inventory`) :
-  items possédés (sac d'objets, 12 au plus), items équipés par
-  emplacement ; équiper, remplacer (l'ancien revient au sac), retirer ;
-  jamais d'item perdu ni dupliqué ;
+- **inventaire** : depuis le 2026-11-02, inventaire unique de 20 cases
+  (`sim/inventory.ts`, §6 quinquies) : équipements et ressources dans les
+  mêmes cases, items équipés par emplacement ; équiper, remplacer (l'ancien
+  revient au sac), retirer ; jamais d'item perdu ni dupliqué ;
 - **stats finales** = fiche du niveau + bonus d'équipement, recalculées
   d'un bloc (`refreshHeroStats`) : rien ne se cumule ; PV et mana actuels
   gardent la même proportion du maximum quand l'équipement change (équiper
@@ -1166,7 +1168,7 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES) :
 - **interface** : inventaire du Héros (touche I) avec ses emplacements
   (« Retirer ») et son sac d'objets (« Équiper »), cartes à la couleur de la
   rareté. Console : `arrowItems.give / equip / unequip / list`.
-  `?items=demo` met les quatre items dans le sac au lancement ;
+  `?items=demo` met les items du catalogue dans le sac au lancement ;
 - **visuel en jeu** : l'arme et le bouclier équipés apparaissent dans les
   mains du Héros (même placement que l'Atelier, pièces de toute source). Au
   travail, l'outil (hache, pioche, marteau de chantier) remplace l'arme le
@@ -1177,9 +1179,122 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES) :
   anneau et colonne de lumière à la couleur de la rareté, caché tant que
   sa case n'est pas explorée ; clic droit du Héros → ramassage (0,6 s,
   barre de progression) → sac d'objets (« Butin : … ») ; sac plein : l'item
-  reste au sol. `?loot=demo` pose les quatre items autour de la Baliste.
-  Sources de butin (ennemi, coffre, camp, boss) et tables : format seul
-  (`data/loot.ts`), rien ne lâche encore d'item.
+  reste au sol. `?loot=demo` pose les items du catalogue autour de la
+  Baliste. La pièce est couchée sur sa face la plus large, légèrement
+  inclinée, orientation fixe tirée de son id (KI-45 corrigé le 2026-11-02) ;
+- **butin branché** (2026-11-02, `data/loot.ts`, RNG du monde) : coffres
+  des camps neutres (§6 quater) et Maraudeur abattu (12 %, item commun,
+  une fois par mort) ; l'item tombe au sol et se ramasse comme ci-dessus ;
+- **Hache du chef pillard** (Rare, 2026-11-02) : +4 dégâts, +15 % vitesse
+  d'attaque, +4 PV max, vente 20 or ; butin rare des coffres de camp.
+
+## 6 quater. Camps neutres et coffres
+
+Première boucle d'exploration (2026-11-02, valeurs PROVISOIRES,
+`DESIGN_DECISIONS.md` G14) :
+
+- **génération** (`placeCamps`, carte procédurale seulement) : un **petit
+  camp** (toujours) et un **grand camp** (sur la plupart des graines, à
+  plus de 20 cases du petit), à 31-38 cases du centre : hors de la zone
+  explorée au départ (22) et de l'anneau des vagues, loin du bord.
+  Clairière de rayon 3,5 sans eau, relief, rampe, rocher ni tas ; au plus
+  4 arbres, retirés ; abords ouverts et reliés à pied à la Baliste.
+  Déterministe sans tirer dans la RNG de la carte : le reste du terrain
+  d'une graine est inchangé. Deux petits tas (3 bois, 2 pierre) à côté ;
+- **décor** : feu de camp, tente, bannière, caisses, tonneau, tas de bois,
+  râtelier d'armes (seconde tente et seconde bannière pour le grand camp),
+  en props **traversables** comme tout décor ; flammes et **une lumière
+  ponctuelle** par camp, éteinte tant que le camp n'est pas découvert ;
+- **gardes** (`data/camps.ts`) : petit camp 2 Maraudeurs, 1 Traqueur,
+  1 Féticheur ; grand camp 2 Maraudeurs, 1 Ravageur, 2 Traqueurs,
+  1 Féticheur. Stats de base (pas de montée par vague). Ils ne comptent
+  pas pour la fin d'une vague et ne marchent jamais vers la Baliste ;
+- **comportement** (`sim/systems/camps.ts`) : au calme, à leur poste ; un
+  adversaire dans la **zone de détection** (6 / 6,5 cases du centre) ou un
+  garde blessé met le camp en **alerte** : tous les gardes chassent dans la
+  **laisse** (11 / 12 cases) ; l'alerte retombe quand plus personne n'y est,
+  les gardes **rentrent** à leur poste (adversaires ignorés en chemin) et
+  s'y régénèrent (10 % des PV max par seconde) ;
+- **camp au calme** : jamais ciblé automatiquement par les unités du
+  joueur (un Héros en Garde qui voit un camp ne fonce pas dessus) ; un
+  ordre d'attaque, l'entrée dans la zone de détection ou une blessure
+  lancent le combat ;
+- **brouillard** : rien du camp n'est visible avant exploration (gardes,
+  coffre, flammes, lumière ; le décor est noirci par la passe de
+  brouillard) ; ensuite mémoire normale, gardes visibles seulement dans la
+  vision ; annonce « Camp de pillards découvert ! » ;
+- **états** : non découvert (présentation, `main.ts`), actif, nettoyé
+  (tous les gardes morts : annonce, **or** 8 / 15, pas de retour des gardes
+  pendant la run) ;
+- **XP** : système existant (zone de partage, plafond par kill) : 58 XP
+  pour le petit camp (le Paladin passe niveau 2). Pas de prime d'or par
+  kill pour ces unités (barème `KILL_REWARD` sans elles) ;
+- **coffre** (`World.chests`) : low-poly (bois, ferrures, serrure dorée) ;
+  camp défendu → clic droit refusé (« Camp encore défendu ») ; nettoyé →
+  anneau doré qui pulse, clic droit → le Héros y va et l'ouvre en **1 s**
+  (barre d'action), couvercle relevé, une seule fois ; l'item tiré de la
+  table du camp tombe au sol devant le coffre (« Coffre ouvert : … ») ;
+- **tables** : petit coffre Commune 60 %, Peu commune 30 %, Rare 10 % ;
+  grand coffre 30 / 50 / 20 %. Toujours un item ;
+- **difficulté mesurée** (simulation, Paladin seul) : petit camp gagné au
+  niveau 1 avec 55-69 % des PV ; grand camp mortel au niveau 1, gagné au
+  niveau 2 avec l'Épée du débutant (~40 % des PV).
+- Règle **validée par Antoine** (2026-11-02) : un camp au calme n'est jamais
+  ciblé automatiquement par les unités du joueur.
+
+## 6 quinquies. Inventaire unique, or physique, HUD et contrôles
+
+Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
+
+- **inventaire unique du Héros** (`sim/inventory.ts`, `Entity.hero.inventory`,
+  recopié dans la run) : **20 cases** ; bois, pierre et or en **piles de 5**
+  (`RESOURCE_ITEMS.maxStack`), un équipement par case ; les items portés
+  sont dans les emplacements et ne prennent pas de case. Plus de sac de 6
+  ni de sac d'objets de 12. Ajout : piles entamées d'abord (ordre des
+  cases), puis cases libres ; sac plein : ramassage **partiel**, le reste
+  reste au sol ; un équipement exige une case libre ; rien ne disparaît ;
+- **or physique** : l'or trouvé dans le monde tombe au sol (tas de pièces),
+  se ramasse (clic droit), se porte et se **dépose à la Baliste** ; seul
+  l'or **stocké** se dépense. Ennemis : tas à leur mort
+  (`ENEMY_GOLD_DROPS`, RNG du monde ; plus de prime versée au stock ; talent
+  « Butin de guerre » : +1 par tas). Camp nettoyé : 8 / 15 or en tas de 5
+  près du feu. **Exceptions** (versées au stock) : Mine (infrastructure,
+  tranche toutes les 60 s), or de départ, bonus de vague repoussée ;
+- **dépôt** à la Baliste : bois, puis pierre, puis or, 0,5 s par unité
+  (barre d'action) ; les équipements ne sont jamais déposés ;
+- **stock** : bâtiments, recrutement, améliorations ne lisent que le stock
+  (bois, pierre, or) ; jamais le sac ni le sol ;
+- **HUD** : ligne économique permanente en haut à droite (Bois | Pierre | Or
+  | Pop. utilisée / maximum, valeurs **stockées**), encart du Héros juste
+  en dessous, fiche d'une sélection plus bas ; compteur FPS seulement en mode
+  debug (`?debug` ou F3) ;
+- **fenêtre du personnage** (I) : silhouette (tête, épaules, torse, bras,
+  main droite, main gauche = main secondaire ou bouclier, jambes, cape),
+  statistiques, sorts, sac en grille 5 × 4 (icône, quantité, cadre de
+  rareté), infobulles (ressource : nom, quantité ; équipement : nom,
+  rareté, emplacement, type, stats, effet, valeur). Glisser-déposer :
+  déplacer, échanger, fusionner les piles ; équiper vers un emplacement
+  compatible ; remplacer (l'ancien item revient dans la case d'origine) ;
+  retirer vers le sac ; double-clic : équiper / retirer. Emplacements
+  torse, bras, jambes : données, stats et interface (pas de visuel, KI-44) ;
+- **Héros permanent** : sans unité alliée sélectionnée, le clic droit et S
+  commandent le Héros, même quand un bâtiment est inspecté (sa fiche reste
+  ouverte) ; son anneau reste affiché ; Construire est disponible. Une
+  unité militaire sélectionnée explicitement garde la main jusqu'à ce que
+  la sélection soit vidée. Portrait : sélectionne le Héros et recentre la
+  caméra ;
+- **caméra** : défilement par les bords (4 bords, coins), temps réel,
+  limites de la caméra ; jamais sur un panneau d'interface, ni avec
+  l'inventaire, un menu ou les Paramètres ouverts. Paramètres > Caméra :
+  « Vitesse de déplacement de la caméra » (25 à 250 %, sauvegardée) ;
+- **Soin** : curseur normal entouré d'un petit cercle jaune pendant le
+  ciblage ; bref pulse à la validation ;
+- **sac 3D** : Paladin à l'échelle visuelle 1,4 (rayon de jeu inchangé) ;
+  sac plus gros, attaché à l'os du dos, visible dès que le Héros porte du
+  bois, de la pierre ou de l'or ;
+- **Éditeur de maps** : ouverture sur une carte vierge 96 × 96 (disque de
+  la carte Hero RTS, herbe plate, rien d'autre que la Baliste au centre) ;
+  les anciennes cartes restent chargeables.
 
 ## 7. Économie d'or
 

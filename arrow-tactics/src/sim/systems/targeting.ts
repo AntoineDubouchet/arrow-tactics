@@ -138,7 +138,9 @@ export function targetingSystem(entities: Entity[], dt: number): void {
 
     const isPlayer = e.team === 'player';
     const opposingGrid = isPlayer ? enemyGrid : playerGrid;
-    const candidates = opposingGrid ? opposingGrid.queryNeighborhood(e.x, e.z) : isPlayer ? enemyAlive : playerAlive;
+    // Zone de chasse (gardes de camp, peu nombreux) : tout le camp oppose,
+    // la zone pouvant depasser la cellule de la grille.
+    const candidates = opposingGrid && !e.huntZone ? opposingGrid.queryNeighborhood(e.x, e.z) : isPlayer ? enemyAlive : playerAlive;
 
     const attackable = findAttackableEnemy(e, candidates);
     if (attackable && attackable.id !== e.targetId) {
@@ -148,7 +150,7 @@ export function targetingSystem(entities: Entity[], dt: number): void {
 
     const current = e.targetId !== null ? byId.get(e.targetId) : undefined;
 
-    if (current && isInAggro(e, current)) continue;
+    if (current && (e.huntZone ? inHuntZone(e, current) : isInAggro(e, current))) continue;
 
     e.targetId = findNearestEnemy(e, candidates)?.id ?? null;
   }
@@ -158,13 +160,22 @@ function isInAggro(self: Entity, target: Entity): boolean {
   return dist(self.x, self.z, target.x, target.z) <= self.stats.aggroRange;
 }
 
+/** Cible automatique permise : dans la zone de chasse de `self` (vrai sans
+ *  zone), et pas un garde de camp au calme (sim/systems/camps.ts : seulement
+ *  sur ordre d'attaque). */
+function inHuntZone(self: Entity, other: Entity): boolean {
+  if (other.campGuard?.calm) return false;
+  const zone = self.huntZone;
+  return !zone || dist(zone.x, zone.z, other.x, other.z) <= zone.radius;
+}
+
 /** Ennemi le plus proche deja a portee d'attaque (pas seulement d'aggro). */
 function findAttackableEnemy(self: Entity, pool: Entity[]): Entity | null {
   let best: Entity | null = null;
   let bestDist = Infinity;
 
   for (const other of pool) {
-    if (other.team === self.team || !other.alive) continue;
+    if (other.team === self.team || !other.alive || !inHuntZone(self, other)) continue;
     const d = dist(self.x, self.z, other.x, other.z);
     if (d <= self.stats.attackRange + other.stats.radius && d < bestDist) {
       bestDist = d;
@@ -176,10 +187,11 @@ function findAttackableEnemy(self: Entity, pool: Entity[]): Entity | null {
 
 export function findNearestEnemy(self: Entity, pool: Entity[]): Entity | null {
   let best: Entity | null = null;
-  let bestDist = self.stats.aggroRange;
+  // Zone de chasse : n'importe quel adversaire dans la zone, le plus proche.
+  let bestDist = self.huntZone ? Infinity : self.stats.aggroRange;
 
   for (const other of pool) {
-    if (other.team === self.team || !other.alive) continue;
+    if (other.team === self.team || !other.alive || !inHuntZone(self, other)) continue;
     const d = dist(self.x, self.z, other.x, other.z);
     if (d < bestDist) {
       bestDist = d;

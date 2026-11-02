@@ -1269,6 +1269,47 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
 - Outils : `workshop/workshopStage.ts` (scène d'aperçu partagée Atelier /
   Éditeur d'items), `itemEditor/` (`itemEditorConfig.ts` pur, UI).
 
+## 13 quater. Camps neutres et coffres
+
+- Carte : `MapDef.camps` (`MapCampDef` : type, centre, rayon, coffre,
+  postes de garde), produit par `placeCamps`
+  (`config/maps/proceduralSurvival.ts`, liste `CAMP_SITES`) ; décor dans
+  `MapDef.obstacles` (props traversables).
+- Données : `data/camps.ts` (`CAMP_KINDS` : gardes, détection, laisse,
+  régénération, table du coffre, or), `data/loot.ts` (tables,
+  `ENEMY_LOOT_TABLES`).
+- Résolution : `run/camps.ts` (`campSpecOf` : emplacement + type →
+  `CampSpec`), appelée par `main.ts` à la mise en place de la bataille.
+- Simulation : `sim/systems/camps.ts` (`campSystem` avant le ciblage,
+  `campClearSystem` après les morts, `isChestLocked`),
+  `World.addCamp / camps / chests / campEvents / lootEvents`, butin à la
+  mort (`Entity.lootTableId`, tiré une fois), ordre `openChest` (travail
+  du Héros). Champs génériques d'entité : `campGuard` (poste, retour,
+  calme), `huntZone` (zone de chasse lue par `targetingSystem` à la place
+  de l'aggro).
+- Rendu : `render/campViews.ts` (flammes, lumière, coffres). La
+  découverte d'un camp (brouillard) reste côté `main.ts`.
+- Extensible : plusieurs camps par carte (ids = indices), types de camp
+  et tables par niveau, coffres sans camp (`Chest.campId` null).
+
+## 13 quinquies. Inventaire unique, économie, contrôles
+
+- `sim/inventory.ts` : inventaire pur (cases, piles, équipement), actions
+  (`InventoryAction`), `resolveEquipmentBonus` (données fixes des items,
+  comme les stats d'unité). État : `Entity.hero.inventory` ; l'interface
+  passe par `World.queueInventoryAction` (pas suivant) ; `run/heroEquipment`
+  ne garde que descriptions et visuels.
+- Données : `data/resources.ts` (bois, pierre, or : piles), `data/hero.ts`
+  (`HERO_INVENTORY_SLOTS`), `data/loot.ts` (`ENEMY_GOLD_DROPS`),
+  `data/equipment.ts` (`BODY_LAYOUT`, torse / bras / jambes).
+- Or au sol : `World.dropGold` (tas = `resourcePiles`, ressource `gold`),
+  `World.goldDropBonus` (talent résolu par `main.ts`).
+- Interface : `ui/economyHud.ts`, `ui/heroInventory.ts` (grille,
+  silhouette, glisser-déposer HTML5, infobulle) ; `main.ts` :
+  `rtsCommandIds` (Héros permanent), `updateEdgeScroll`, cercle du Soin,
+  `arrowEconomy` (console). `run/userSettings.ts` : vitesse caméra (clé
+  propre). `config/maps/blankMap.ts` : carte vierge de l'éditeur.
+
 ## 14. Audio
 
 - `audio/` contient un moteur complet : `AudioManager` (bus, budget de voix,

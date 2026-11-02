@@ -1,7 +1,7 @@
 import { Rng } from '../../core/rng';
 import type { ObstacleDef } from '../constants';
 import type { SurfaceCellDef } from '../groundSurfaces';
-import type { MapDef, TerrainCellDef } from '../mapDef';
+import type { MapCampDef, MapDef, TerrainCellDef } from '../mapDef';
 import type { ResourcePileDef } from '../resourceNodes';
 import type { SlopeDirection, SlopeShape, TerrainElevationCellDef } from '../terrainElevation';
 import type { TerritoryCell } from '../territory';
@@ -16,7 +16,8 @@ import type { TerritoryCell } from '../territory';
  * zone praticable reliee au camp) et tas de ressources trois fois plus rares.
  *
  * Valeurs PROVISOIRES (rayons, densites, nombres), voir
- * docs/DESIGN_DECISIONS.md G6. Pas de camp PvE dans cette passe.
+ * docs/DESIGN_DECISIONS.md G6. 2026-11-02 : camp neutre (placeCamps,
+ * data/camps.ts), hors de la zone exploree au depart.
  */
 export const PROCEDURAL_MAP_SIZE = 96;
 
@@ -575,6 +576,10 @@ export function generateSurvivalMap(seed: number): MapDef {
   for (let i = 0; i < 16; i++) placePile('wood', 12, MAP_RADIUS - 1.5);
   for (let i = 0; i < 13; i++) placePile('stone', 12, MAP_RADIUS - 1.5);
 
+  // ---- Camps neutres (2026-11-02) : apres tout le reste, sans tirer dans
+  // `rng` (le terrain d'une graine existante ne bouge pas hors des camps).
+  const camps = placeCamps(seed, { inMap, water, hill, ramps, rampClear, trees, occupied, pileCells, reached }, obstacles, resourcePiles);
+
   // ---- Territoire du joueur : disque central.
   const territory: TerritoryCell[] = cells.filter((c) => centerDistance(c.x, c.z) <= TERRITORY_RADIUS).map((c) => ({ x: c.x, z: c.z, team: 'player' }));
 
@@ -592,6 +597,143 @@ export function generateSurvivalMap(seed: number): MapDef {
     elevationCells,
     surfaceCells,
     resourcePiles,
+    camps,
     generator: { kind: 'survival-procedural', seed },
   };
+}
+
+/** Camps a placer, dans l'ordre (type de camp data/camps.ts, anneau de
+ *  distance au centre en cases). Au-dela de la zone exploree au depart
+ *  (INITIAL_EXPLORED_RADIUS 22) et de l'anneau des vagues, loin du bord ;
+ *  `large` : decor plus fourni. PROVISOIRE : un petit camp, un grand camp. */
+const CAMP_SITES: readonly { kind: string; dMin: number; dMax: number; large?: boolean }[] = [
+  { kind: 'raiders_small', dMin: 31, dMax: 38 },
+  { kind: 'raiders_large', dMin: 33, dMax: 38, large: true },
+];
+/** Rayon de la clairiere d'un camp (cases), et ecart minimal entre camps. */
+const CAMP_RADIUS = 3.5;
+const CAMP_SPACING = 20;
+
+interface CampGrid {
+  inMap: ReadonlySet<string>;
+  water: ReadonlySet<string>;
+  hill: ReadonlySet<string>;
+  ramps: ReadonlySet<string>;
+  rampClear: ReadonlySet<string>;
+  trees: Set<string>;
+  occupied: ReadonlySet<string>;
+  pileCells: Set<string>;
+  reached: ReadonlySet<string>;
+}
+
+/**
+ * Camps neutres (2026-11-02) : pour chaque type de CAMP_SITES, la meilleure
+ * clairiere d'un anneau (48 directions, depart tourne par la graine, sans
+ * tirer dans la RNG de la carte) : cases dans la carte, sans eau, relief,
+ * rampe, abords de rampe, rocher ni tas ; au plus 4 arbres (retires) ; abords
+ * ouverts et relies a pied a la Baliste (pas coince dans une foret). Decor en
+ * props traversables (feu, tente, banniere, caisses, tonneau, bois), coffre a
+ * l'abri de la tente, postes de garde autour du feu, deux petits tas a cote.
+ */
+function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: ResourcePileDef[]): MapCampDef[] {
+  const key = (x: number, z: number) => `${x},${z}`;
+  const camps: MapCampDef[] = [];
+  const disc = (cx: number, cz: number, rMin: number, rMax: number): string[] => {
+    const out: string[] = [];
+    for (let z = Math.floor(cz - rMax); z <= Math.ceil(cz + rMax); z++) {
+      for (let x = Math.floor(cx - rMax); x <= Math.ceil(cx + rMax); x++) {
+        const d = Math.hypot(x - cx, z - cz);
+        if (d > rMin && d <= rMax) out.push(key(x, z));
+      }
+    }
+    return out;
+  };
+  for (const site of CAMP_SITES) {
+    let best: { cx: number; cz: number } | null = null;
+    let bestScore = Infinity;
+    const turn = hash2(seed + 131, 0, 0) * Math.PI * 2;
+    for (let i = 0; i < 48; i++) {
+      const a = turn + (i / 48) * Math.PI * 2;
+      for (let d = site.dMin; d <= site.dMax; d += 1.5) {
+        const cx = Math.round(Math.cos(a) * d), cz = Math.round(Math.sin(a) * d);
+        if (camps.some((c) => Math.hypot(c.x - cx, c.z - cz) < CAMP_SPACING)) continue;
+        let treesIn = 0;
+        let ok = true;
+        for (const k of disc(cx, cz, -1, CAMP_RADIUS)) {
+          if (!g.inMap.has(k) || g.water.has(k) || g.hill.has(k) || g.ramps.has(k) || g.rampClear.has(k) || g.pileCells.has(k) || (g.occupied.has(k) && !g.trees.has(k))) {
+            ok = false;
+            break;
+          }
+          if (g.trees.has(k)) treesIn++;
+        }
+        if (!ok || treesIn > 4) continue;
+        let open = 0;
+        let ringTrees = 0;
+        for (const k of disc(cx, cz, CAMP_RADIUS, CAMP_RADIUS + 2)) {
+          if (g.trees.has(k)) ringTrees++;
+          if (g.reached.has(k)) open++;
+        }
+        if (open < 12) continue;
+        const score = treesIn * 4 + ringTrees + Math.abs(d - (site.dMin + site.dMax) / 2) * 0.3 + hash2(seed + 137, cx, cz) * 0.5;
+        if (score < bestScore) {
+          bestScore = score;
+          best = { cx, cz };
+        }
+      }
+    }
+    if (!best) continue;
+    const { cx, cz } = best;
+    const cell = new Set(disc(cx, cz, -1, CAMP_RADIUS));
+    const C = { x: cx + 0.5, z: cz + 0.5 };
+    // Clairiere : arbres retires, petits decors aleatoires retires.
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      const o = obstacles[i]!;
+      const ox = o.x ?? 0, oz = o.z ?? 0;
+      if ((o.kind === 'tree' && cell.has(key(Math.floor(ox), Math.floor(oz)))) || (o.kind === 'prop' && Math.hypot(ox - C.x, oz - C.z) <= CAMP_RADIUS + 1)) obstacles.splice(i, 1);
+    }
+    for (const k of cell) g.trees.delete(k);
+    // Repere du camp : `b` vers l'exterieur de la carte (le dos du camp), `p`
+    // perpendiculaire ; on arrive par l'avant (cote Baliste).
+    const len = Math.hypot(C.x, C.z) || 1;
+    const b = { x: C.x / len, z: C.z / len };
+    const p = { x: -b.z, z: b.x };
+    const at = (back: number, side: number) => ({ x: C.x + b.x * back + p.x * side, z: C.z + b.z * back + p.z * side });
+    const facing = (from: { x: number; z: number }) => Math.atan2(C.x - from.x, C.z - from.z);
+    const prop = (model: string, pos: { x: number; z: number }, tiles: number, scale: number, rotationY: number) => obstacles.push({ kind: 'prop', tilesX: tiles, tilesZ: tiles, propModel: model, x: pos.x, z: pos.z, scale, rotationY });
+    const tent = at(2.5, 0);
+    prop('campfire_stones', C, 1, 1, hash2(seed + 139, cx, cz) * Math.PI * 2);
+    prop('tent_detailedOpen', tent, 2, 1.1, facing(tent));
+    prop('kaykit_flag_red', at(1.7, -2.3), 1, 1.3, facing(at(1.7, -2.3)));
+    prop('kaykit_crate_A_big', at(1.6, 2.3), 1, 0.9, 0.3);
+    prop('kaykit_crate_B_small', at(0.8, 2.9), 1, 0.7, 1.1);
+    prop('kaykit_barrel', at(2.6, 1.7), 1, 0.7, 0);
+    prop('log_stack', at(0.2, -2.7), 1, 0.9, facing(at(0.2, -2.7)) + Math.PI / 2);
+    prop('kaykit_weaponrack', at(-0.6, -2.8), 1, 0.9, facing(at(-0.6, -2.8)));
+    if (site.large) {
+      // Grand camp : seconde tente et seconde banniere, sur les cotes.
+      prop('tent_smallClosed', at(1.2, -3.0), 1, 1.2, facing(at(1.2, -3.0)));
+      prop('kaykit_flag_red', at(1.9, 2.9), 1, 1.3, facing(at(1.9, 2.9)));
+    }
+    const chest = at(1.3, 1.2);
+    camps.push({
+      kind: site.kind,
+      x: C.x,
+      z: C.z,
+      radius: CAMP_RADIUS,
+      chest: { ...chest, rotationY: facing(chest) },
+      guardPosts: [at(-1.5, 0.9), at(-1.5, -0.9), at(0.2, -1.7), at(0.2, 1.8), at(-0.5, 2.6), at(-0.5, -2.6)],
+    });
+    // Un peu de bois et de pierre a cote (PROVISOIRE) : cases reliees, libres.
+    const ring = disc(cx, cz, CAMP_RADIUS + 0.5, CAMP_RADIUS + 3)
+      .filter((k) => g.reached.has(k) && !g.occupied.has(k) && !g.pileCells.has(k) && !g.ramps.has(k) && !g.hill.has(k))
+      .sort((u, v) => hash2(seed + 149, ...(u.split(',').map(Number) as [number, number])) - hash2(seed + 149, ...(v.split(',').map(Number) as [number, number])));
+    for (const [resource, amount] of [['wood', 3], ['stone', 2]] as const) {
+      const k = ring.shift();
+      if (!k) break;
+      const [x, z] = k.split(',').map(Number) as [number, number];
+      piles.push({ x: x + 0.5, z: z + 0.5, resource, amount });
+      g.pileCells.add(k);
+    }
+  }
+  return camps;
 }

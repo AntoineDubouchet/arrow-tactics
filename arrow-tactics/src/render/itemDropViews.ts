@@ -7,7 +7,8 @@ import { createToonUnitMaterial } from './toonUnitRig';
 
 /**
  * Items au sol (butin, 2026-11-02) : la piece de l'item (catalogue Toon RTS,
- * couche a plat, qui tourne doucement), un anneau et une colonne de lumiere a
+ * couchee sur sa face la plus large, legerement inclinee, orientation fixe
+ * tiree de son id — KI-45), un anneau et une colonne de lumiere a
  * la couleur de sa rarete, visibles de loin. Rendu seulement : la simulation
  * tient World.itemDrops. Un item jamais explore n'est pas affiche.
  */
@@ -51,8 +52,6 @@ export class ItemDropViews {
   animate(realDt: number): void {
     this.time += realDt;
     for (const view of this.views.values()) {
-      view.holder.rotation.y = this.time * 0.8;
-      view.holder.position.y = 0.25 + 0.06 * Math.sin(this.time * 2.2);
       (view.beam.material as THREE.MeshBasicMaterial).opacity = 0.18 + 0.07 * Math.sin(this.time * 3);
     }
   }
@@ -72,6 +71,8 @@ export class ItemDropViews {
     ring.position.y = 0.03;
     const beam = new THREE.Mesh(beamGeometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
     const holder = new THREE.Group();
+    // Orientation fixe et deterministe (id du butin), cosmetique.
+    holder.rotation.y = ((drop.id * 2.399963) % (Math.PI * 2));
     root.add(ring, beam, holder);
     this.group.add(root);
     const view = { root, holder, ring, beam };
@@ -82,7 +83,9 @@ export class ItemDropViews {
         .then(({ catalogue, gltf }) => {
           const source = cataloguePieceMesh(gltf, visual.piece);
           if (!source || !this.views.has(drop.id)) return;
-          // Piece a sa place de liaison, recentree, couchee a plat.
+          // Piece a sa place de liaison, recentree, couchee : son axe le plus
+          // fin a la verticale (l'axe long d'une piece au repos varie d'un
+          // modele a l'autre), puis legerement inclinee (KI-45).
           const mesh = new THREE.Mesh(source.geometry, createToonUnitMaterial(catalogue.textures, 'neutral'));
           mesh.matrixAutoUpdate = false;
           mesh.matrix.copy(source.bindMatrix);
@@ -95,9 +98,16 @@ export class ItemDropViews {
           pivot.position.copy(center).multiplyScalar(-1);
           const flat = new THREE.Group();
           flat.add(pivot);
-          flat.rotation.x = Math.PI / 2;
-          flat.scale.setScalar(Math.min(1.1, 0.9 / Math.max(size.x, size.y, size.z, 1e-3)) * visual.scale);
-          holder.add(flat);
+          const thin = Math.min(size.x, size.y, size.z);
+          if (thin === size.z) flat.rotation.x = Math.PI / 2;
+          else if (thin === size.x) flat.rotation.z = Math.PI / 2;
+          const scale = Math.min(1.1, 0.9 / Math.max(size.x, size.y, size.z, 1e-3)) * visual.scale;
+          flat.scale.setScalar(scale);
+          const tilt = new THREE.Group();
+          tilt.add(flat);
+          tilt.rotation.x = 0.22;
+          tilt.position.y = (thin * scale) / 2 + 0.05;
+          holder.add(tilt);
         })
         .catch((error: unknown) => console.warn('Butin : visuel indisponible.', error));
     }

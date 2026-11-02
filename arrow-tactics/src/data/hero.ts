@@ -95,3 +95,10 @@ export const HERO_CARRY_CAPACITY = 6;
 export const DEPOSIT_SECONDS_PER_ITEM = 0.5;
 export const PICKUP_SECONDS = 0.6;
 export const PICKUP_REACH = 0.5;
+/** Inventaire unique du Heros (2026-11-02) : cases du sac (ressources en
+ *  piles, equipements, butin). PROVISOIRE. */
+export const HERO_INVENTORY_SLOTS = 20;
+/** Ouverture d'un coffre (2026-11-02) : duree au contact (barre d'action),
+ *  portee de contact. PROVISOIRE. */
+export const CHEST_OPEN_SECONDS = 1;
+export const CHEST_REACH = 0.7;

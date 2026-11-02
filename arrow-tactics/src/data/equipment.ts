@@ -36,13 +36,13 @@ export const RARITY_ORDER: readonly EquipmentRarity[] = ['common', 'uncommon', '
  *  ici. `hand` : objet tenu (droite / gauche) ; `bodySlot` : piece de corps
  *  remplacee (emplacement de l'Atelier) ; `exclusiveWith` : emplacements qui
  *  occupent la meme main. */
-export type EquipmentSlot = 'mainHand' | 'offHand' | 'shield' | 'helmet' | 'shoulders' | 'cape';
+export type EquipmentSlot = 'mainHand' | 'offHand' | 'shield' | 'helmet' | 'shoulders' | 'chest' | 'arms' | 'legs' | 'cape';
 
 export interface EquipmentSlotDef {
   id: EquipmentSlot;
   label: string;
   hand: 'right' | 'left' | null;
-  bodySlot: 'head' | 'shoulderpads' | 'helmet' | 'cape' | null;
+  bodySlot: 'head' | 'shoulderpads' | 'helmet' | 'body' | 'arms' | 'legs' | 'cape' | null;
   exclusiveWith: readonly EquipmentSlot[];
 }
 
@@ -52,9 +52,27 @@ export const EQUIPMENT_SLOTS: Readonly<Record<EquipmentSlot, EquipmentSlotDef>> 
   shield: { id: 'shield', label: 'Bouclier', hand: 'left', bodySlot: null, exclusiveWith: ['offHand'] },
   helmet: { id: 'helmet', label: 'Casque', hand: null, bodySlot: 'head', exclusiveWith: [] },
   shoulders: { id: 'shoulders', label: 'Épaulières', hand: null, bodySlot: 'shoulderpads', exclusiveWith: [] },
+  // Torse, bras, jambes (2026-11-02) : stats et interface ; visuel en jeu
+  // pas encore (modele du Heros fusionne, KI-44).
+  chest: { id: 'chest', label: 'Torse', hand: null, bodySlot: 'body', exclusiveWith: [] },
+  arms: { id: 'arms', label: 'Bras', hand: null, bodySlot: 'arms', exclusiveWith: [] },
+  legs: { id: 'legs', label: 'Jambes', hand: null, bodySlot: 'legs', exclusiveWith: [] },
   cape: { id: 'cape', label: 'Cape', hand: null, bodySlot: 'cape', exclusiveWith: [] },
 };
-export const EQUIPMENT_SLOT_ORDER: readonly EquipmentSlot[] = ['mainHand', 'offHand', 'shield', 'helmet', 'shoulders', 'cape'];
+export const EQUIPMENT_SLOT_ORDER: readonly EquipmentSlot[] = ['mainHand', 'offHand', 'shield', 'helmet', 'shoulders', 'chest', 'arms', 'legs', 'cape'];
+
+/** Emplacements de la fiche du personnage, disposes comme le corps
+ *  (2026-11-02) : la main gauche accepte main secondaire ou bouclier. */
+export const BODY_LAYOUT: readonly { id: string; label: string; accepts: readonly EquipmentSlot[] }[] = [
+  { id: 'head', label: 'Tête', accepts: ['helmet'] },
+  { id: 'shoulders', label: 'Épaules', accepts: ['shoulders'] },
+  { id: 'chest', label: 'Torse', accepts: ['chest'] },
+  { id: 'arms', label: 'Bras', accepts: ['arms'] },
+  { id: 'right', label: 'Main droite', accepts: ['mainHand'] },
+  { id: 'left', label: 'Main gauche', accepts: ['offHand', 'shield'] },
+  { id: 'legs', label: 'Jambes', accepts: ['legs'] },
+  { id: 'cape', label: 'Cape', accepts: ['cape'] },
+];
 
 export type EquipmentType = 'weapon' | 'shield' | 'offhand' | 'armor' | 'accessory';
 export const EQUIPMENT_TYPES: Readonly<Record<EquipmentType, string>> = {
@@ -171,6 +189,19 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     stats: { maxHp: 4, moveSpeed: 0.1 },
     effects: {},
     sellValue: 3,
+  },
+  /** Butin rare des camps de pillards (2026-11-02, PROVISOIRE). */
+  raider_axe: {
+    id: 'raider_axe',
+    name: 'Hache du chef pillard',
+    description: 'La hache du chef d\'un camp barbare : lourde, mais elle frappe vite.',
+    rarity: 'rare',
+    type: 'weapon',
+    slot: 'mainHand',
+    visual: { source: 'barbarian', piece: 'BRB_weapon_axe_B', scale: 1.1, rotation: [0, 0, 0], offset: [0, 0, 0] },
+    stats: { damage: 4, attackSpeed: 15, maxHp: 4 },
+    effects: {},
+    sellValue: 20,
   },
 };
 

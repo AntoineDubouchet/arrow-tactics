@@ -126,9 +126,29 @@ export interface MapDef {
    *  ramasses par le Heros et deposes a la Baliste. Indice = identifiant.
    *  OPTIONNEL : absent sur les cartes dessinees. */
   resourcePiles?: ResourcePileDef[];
+  /** Camps neutres (2026-11-02, carte generee) : voir MapCampDef.
+   *  OPTIONNEL : absent sur les cartes dessinees. */
+  camps?: MapCampDef[];
   /** Carte produite par un generateur (config/maps/proceduralSurvival.ts) :
    *  graine, et regles propres (pas d'agrandissement E4, vagues sur l'anneau). */
   generator?: { kind: 'survival-procedural'; seed: number };
+}
+
+/** Camp neutre d'une carte (2026-11-02, config/maps/proceduralSurvival.ts) :
+ *  clairiere plate reliee a pied a la Baliste. Le type (`kind`, voir
+ *  data/camps.ts) dit qui le garde et ce qu'il rapporte ; son decor (feu,
+ *  tente, banniere, caisses) est dans `obstacles`, en props traversables. */
+export interface MapCampDef {
+  kind: string;
+  /** Centre (monde) : le feu de camp. */
+  x: number;
+  z: number;
+  /** Rayon degage (cases) : ni arbre, ni eau, ni relief, ni tas. */
+  radius: number;
+  /** Coffre du camp (monde) et son orientation. */
+  chest: { x: number; z: number; rotationY: number };
+  /** Postes de garde (monde), un par garde, dans l'ordre du type de camp. */
+  guardPosts: { x: number; z: number }[];
 }
 
 /** Cle stable d'une cellule — sert de cle de Map/Set (lookup O(1) "cette

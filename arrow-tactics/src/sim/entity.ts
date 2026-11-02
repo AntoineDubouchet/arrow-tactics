@@ -3,6 +3,7 @@ import type { ObstacleDef } from '../config/constants';
 import type { SpellDef } from '../data/spells';
 import type { UnitStats } from '../data/units';
 import type { UnitOrder } from './orders';
+import type { HeroInventory } from './inventory';
 
 export type Team = 'player' | 'enemy';
 
@@ -134,8 +135,9 @@ export interface HeroState {
   working: 'chop' | 'mine' | 'build' | 'gather' | 'deposit' | null;
   /** Temps accumule vers la prochaine unite recoltee (ou le ramassage). */
   workTimer: number;
-  /** Ressources portees (sac), pas encore deposees (data/hero.ts). */
-  carry: { wood: number; stone: number };
+  /** Inventaire unique (sim/inventory.ts, 2026-11-02) : ressources portees
+   *  (pas encore deposees), equipements du sac, items equipes. */
+  inventory: HeroInventory;
   /** Heros joue (data/heroes.ts), mana et sorts connus : parametres resolus
    *  copies a l'apparition (heroKit), jamais relus depuis data/. Le mana se
    *  regenere par pas de simulation (sim/systems/hero.ts, heroSpellSystem). */
@@ -291,6 +293,20 @@ export interface Entity {
   cast: CastState | null;
   /** Effets a l'impact (equipement du Heros), null sinon. */
   onHit: OnHitEffects | null;
+  /** Garde d'un camp neutre (sim/systems/camps.ts) : son camp, son poste,
+   *  `returning` (il y rentre, adversaires ignores), `lastHp` (PV au pas
+   *  precedent : un garde blesse alerte son camp), `calm` (camp au calme :
+   *  jamais cible automatiquement par l'adversaire, seulement sur ordre
+   *  d'attaque). null sinon. */
+  campGuard: { campId: number; postX: number; postZ: number; returning: boolean; lastHp: number; calm: boolean } | null;
+  /** Zone de chasse (posee par campSystem) : l'unite ne cible que des
+   *  adversaires DANS ce disque — n'importe ou dedans, a la place de son
+   *  aggroRange — et lache une cible qui en sort. null : ciblage normal. */
+  huntZone: { x: number; z: number; radius: number } | null;
+  /** Table de butin tiree a la mort (data/loot.ts), une seule fois. */
+  lootTableId: string | null;
+  /** Ennemi dont l'or et le butin restent a lacher a sa mort (une fois). */
+  lootPending: boolean;
 
   /** Statut ROOT/MOVEMENT LOCK generique (2026-08-14, Nova de glace — voir
    *  sim/world.ts, applyIceNovaRoot) : secondes RESTANTES avant expiration,

@@ -195,7 +195,8 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
     file: 'human_hero.glb',
     textures: 'wk',
     defaultOn: true,
-    scale: 1.3,
+    // Echelle visuelle 1,4 (2026-11-02, decision d'Antoine) ; rayon de jeu inchange.
+    scale: 1.4,
     roles: {
       ...COMMON_ROLES,
       // ESSAI (2026-11-02, demande d'Antoine, « juste pour tester ») : clip

@@ -152,9 +152,9 @@ export interface HeroProgress {
   xp: number;
   level: number;
   deaths: number;
-  carry: Record<ResourceKind, number>;
   mana: number;
-  /** Items possedes et equipes (2026-11-02, run/heroEquipment.ts). */
+  /** Inventaire unique (2026-11-02, sim/inventory.ts) : ressources portees
+   *  (pas encore deposees), equipements du sac, items equipes. */
   inventory: HeroInventory;
 }
 
@@ -342,7 +342,7 @@ export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = get
     mapExpansion: createInitialMapExpansionState(baseMap),
     ballistaPosition: null,
     upgrades: { ...upgrades },
-    hero: { heroId: hero.id, xp: 0, level: 1, deaths: 0, carry: { wood: 0, stone: 0 }, mana: hero.mana.initial, inventory: createHeroInventory() },
+    hero: { heroId: hero.id, xp: 0, level: 1, deaths: 0, mana: hero.mana.initial, inventory: createHeroInventory() },
     resources: { ...STARTING_RESOURCES },
     resourcePileAmounts: {},
     mapSeed: 0,
@@ -578,7 +578,7 @@ export function applyBattleOutcome(run: RunState, entities: Entity[], pendingEne
     // Heros : jamais perdu (resurrection) ; mort en fin de bataille, il
     // revient a pleins PV. Sa progression est relue sur son entite.
     if (entity?.hero) {
-      run.hero = { heroId: entity.hero.heroId, xp: entity.hero.xp, level: entity.hero.level, deaths: entity.hero.deaths, carry: { ...entity.hero.carry }, mana: entity.hero.mana, inventory: run.hero.inventory };
+      run.hero = { heroId: entity.hero.heroId, xp: entity.hero.xp, level: entity.hero.level, deaths: entity.hero.deaths, mana: entity.hero.mana, inventory: entity.hero.inventory };
       updatedArmy.push({ ...run.army[i]!, hp: entity.alive ? entity.hp : entity.stats.maxHp });
       continue;
     }

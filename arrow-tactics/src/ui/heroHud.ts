@@ -1,5 +1,4 @@
 import { HP_PER_PIP } from '../config/constants';
-import { RESOURCE_KINDS, RESOURCE_LABELS, type ResourceKind } from '../config/resourceNodes';
 import { HERO_LEVELS, HERO_MAX_LEVEL } from '../data/hero';
 import { createItemIcon } from './itemIcons';
 
@@ -40,10 +39,6 @@ export interface HeroHudState {
   action: { progress: number; remaining: number } | null;
   /** Secondes avant resurrection (Heros a terre), sinon null. */
   respawnIn: number | null;
-  resources: Readonly<Record<ResourceKind, number>>;
-  /** Ressources portees par le Heros (pas encore deposees) et capacite. */
-  carry: Readonly<Record<ResourceKind, number>>;
-  capacity: number;
 }
 
 /** Barre horizontale avec texte centre. */
@@ -82,9 +77,6 @@ export class HeroHud {
   private readonly xpLevel: HTMLElement;
   private readonly xpFill: HTMLElement;
   private readonly xpText: HTMLElement;
-  private readonly root: HTMLElement;
-  private readonly carry: HTMLElement;
-  private readonly amounts = new Map<ResourceKind, HTMLElement>();
   private last = '';
 
   constructor(
@@ -174,24 +166,9 @@ export class HeroHud {
     xpBar.appendChild(this.xpFill);
     this.xpRoot.append(xpLine, xpBar);
 
-    // Ressources (sac et stocks), bas a droite.
-    this.root = document.createElement('div');
-    this.root.className = 'hero-hud';
-    this.carry = document.createElement('div');
-    this.carry.className = 'hero-hud-carry';
-    const stock = document.createElement('div');
-    stock.className = 'hero-hud-stock';
-    stock.title = 'Stock déposé à la Baliste (seul utilisable pour construire)';
-    for (const kind of RESOURCE_KINDS) {
-      const item = document.createElement('span');
-      item.className = `hero-hud-resource hero-hud-resource--${kind}`;
-      const amount = document.createElement('b');
-      item.append(`${RESOURCE_LABELS[kind]} `, amount);
-      this.amounts.set(kind, amount);
-      stock.appendChild(item);
-    }
-    this.root.append(this.carry, stock);
-    document.body.append(this.panel, this.xpRoot, this.root, this.actionBar, this.progressRoot);
+    // Stock et sac : ligne economique (ui/economyHud.ts) et inventaire (I)
+    // depuis le 2026-11-02.
+    document.body.append(this.panel, this.xpRoot, this.actionBar, this.progressRoot);
     this.setVisible(false);
   }
 
@@ -215,7 +192,7 @@ export class HeroHud {
     const key = JSON.stringify([
       state.level, state.xp, Math.ceil(state.hp / HP_PER_PIP), state.maxHp, Math.floor(state.mana), state.maxMana,
       state.cast ? [state.cast.name, Math.round(state.cast.progress * 50)] : null,
-      state.respawnIn === null ? null : Math.ceil(state.respawnIn), state.resources, state.carry, state.capacity, state.spells,
+      state.respawnIn === null ? null : Math.ceil(state.respawnIn), state.spells,
     ]);
     if (key === this.last) return;
     this.last = key;
@@ -261,10 +238,6 @@ export class HeroHud {
     this.xpFill.style.width = next ? ratio(state.xp - current.xp, next.xp - current.xp) : '100%';
     this.xpText.textContent = state.level >= HERO_MAX_LEVEL ? `${state.xp} XP (niveau max)` : `${state.xp} / ${next!.xp} XP`;
 
-    const carried = state.carry.wood + state.carry.stone;
-    this.carry.textContent = `Sac ${carried} / ${state.capacity} — bois ${state.carry.wood}, pierre ${state.carry.stone}`;
-    this.carry.classList.toggle('hero-hud-carry--full', carried >= state.capacity);
-    for (const [kind, el] of this.amounts) el.textContent = String(state.resources[kind]);
   }
 
   /** Emplacement `index` (0 a 5) de la barre d'action : clic ou touche 1 a 6.
@@ -280,6 +253,5 @@ export class HeroHud {
     this.actionBar.hidden = !visible;
     this.panel.hidden = !visible;
     this.xpRoot.hidden = !visible;
-    this.root.hidden = !visible;
   }
 }

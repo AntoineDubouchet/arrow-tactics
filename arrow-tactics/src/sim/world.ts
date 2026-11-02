@@ -9,6 +9,10 @@ import { getBuilding, type BuildingDef } from '../data/buildings';
 import { getUnit, type UnitStats } from '../data/units';
 import { NO_EQUIPMENT_BONUS, type ConstructionState, type Entity, type HeroEquipmentBonus, type Team } from './entity';
 import { heroStatsForLevel } from '../data/hero';
+import { ENEMY_LOOT_TABLES, LOOT_TABLES, rollLoot } from '../data/loot';
+import { applyInventoryAction, createHeroInventory, resolveEquipmentBonus, type HeroInventory, type InventoryAction } from './inventory';
+import { ENEMY_GOLD_DROPS } from '../data/loot';
+import { campClearSystem, campSystem, isChestLocked, type CampEvent, type CampSpec, type CampState, type Chest, type LootDropEvent } from './systems/camps';
 import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
 import { DEFAULT_HERO_ID, heroKit, type HeroKit } from '../data/heroes';
 import { applyCommands, resolveOrders, type CommandResult, type OrderEndEvent, type PlayerCommand } from './orders';
@@ -185,6 +189,14 @@ export class World {
   resourcePiles: ResourcePile[] = [];
   /** Items au sol (butin, 2026-11-02), indice = id ; vides a chaque carte. */
   itemDrops: ItemDrop[] = [];
+  /** Camps neutres (sim/systems/camps.ts, World.addCamp), indice = id. */
+  camps: CampState[] = [];
+  /** Coffres (camps, plus tard coffres isoles), indice = id. */
+  chests: Chest[] = [];
+  /** Evenements des camps du dernier pas (alerte, nettoyage). */
+  campEvents: CampEvent[] = [];
+  /** Items tombes au sol au dernier pas (coffre, ennemi abattu). */
+  lootEvents: LootDropEvent[] = [];
   /** Droits de recolte deja RESOLUS par l'orchestration (run/
    *  harvestPermissions.ts) : la simulation ne sait pas d'ou ils viennent
    *  (Scierie, Camp de mineur...). Faux par defaut. */
@@ -258,6 +270,10 @@ export class World {
   private commandQueue: PlayerCommand[] = [];
   /** Changements d'equipement des Heros, appliques au debut du prochain pas. */
   private equipmentQueue: { entityId: number; bonus: HeroEquipmentBonus }[] = [];
+  private inventoryQueue: { entityId: number; action: InventoryAction }[] = [];
+  /** Or en plus sur chaque tas lache par un ennemi (talent, resolu par
+   *  l'orchestration). */
+  goldDropBonus = 0;
 
   constructor(seed: number = randomSeed()) {
     this.seed = seed;
@@ -315,6 +331,8 @@ export class World {
     this.resourceNodes = new Map(resourceNodesOf(map.obstacles).map((n) => [n.id, n]));
     this.resourcePiles = (map.resourcePiles ?? []).map((p, id) => ({ id, x: p.x, z: p.z, resource: p.resource, amount: p.amount }));
     this.itemDrops = [];
+    this.camps = [];
+    this.chests = [];
     this.waterCells = waterCellKeys(map.surfaceCells);
     const water = computeWaterObstacles(this.waterCells, cellIndex, paddedBounds);
     const trees = computeTreeObstacles(map.obstacles, this.waterCells, cellIndex, paddedBounds);
@@ -402,6 +420,11 @@ export class World {
       dash: null,
       cast: null,
       onHit: null,
+      campGuard: null,
+      huntZone: null,
+      // Butin a la mort (data/loot.ts) : par type d'ennemi.
+      lootTableId: team === 'enemy' ? ENEMY_LOOT_TABLES[unitId] ?? null : null,
+      lootPending: team === 'enemy',
       abilityDamageBonus,
       rootTimer: 0,
       tauntTimer: 0,
@@ -546,6 +569,10 @@ export class World {
       dash: null,
       cast: null,
       onHit: null,
+      campGuard: null,
+      huntZone: null,
+      lootTableId: null,
+      lootPending: false,
       abilityDamageBonus: 0,
       rootTimer: 0,
       tauntTimer: 0,
@@ -666,7 +693,10 @@ export class World {
    *  la run (XP, niveau, morts, sac, mana). `hp` : PV actuels, pleins par
    *  defaut. `kit` : mana et sorts deja resolus (data/heroes.ts, heroKit) ;
    *  mana plein par defaut. */
-  spawnHero(team: Team, x: number, z: number, progress: { xp: number; level: number; deaths: number; carry?: { wood: number; stone: number }; mana?: number }, hp?: number, kit: HeroKit = heroKit(DEFAULT_HERO_ID), equipment: HeroEquipmentBonus = NO_EQUIPMENT_BONUS): Entity {
+  spawnHero(team: Team, x: number, z: number, progress: { xp: number; level: number; deaths: number; inventory?: HeroInventory; mana?: number }, hp?: number, kit: HeroKit = heroKit(DEFAULT_HERO_ID), equipment?: HeroEquipmentBonus): Entity {
+    const inventory = progress.inventory ?? createHeroInventory();
+    // Bonus des items portes (sim/inventory.ts), sauf bonus impose (essais).
+    equipment ??= progress.inventory ? resolveEquipmentBonus(inventory) : NO_EQUIPMENT_BONUS;
     const e = this.spawn('hero', team, x, z, hp, heroStatsForLevel(progress.level));
     e.hero = {
       xp: progress.xp,
@@ -675,7 +705,7 @@ export class World {
       respawnTimer: 0,
       working: null,
       workTimer: 0,
-      carry: { wood: progress.carry?.wood ?? 0, stone: progress.carry?.stone ?? 0 },
+      inventory,
       heroId: kit.heroId,
       mana: Math.min(kit.maxMana, progress.mana ?? kit.maxMana),
       maxMana: kit.maxMana,
@@ -696,6 +726,94 @@ export class World {
   dropItem(itemId: string, x: number, z: number): number {
     const id = this.itemDrops.length;
     this.itemDrops.push({ id, x, z, itemId, taken: false });
+    return id;
+  }
+
+  /** Camp neutre (2026-11-02) : gardes de l'equipe adverse a leurs postes
+   *  (ordre Garde, hors du compte de fin de vague, lies au camp) et son
+   *  coffre, verrouille tant qu'ils vivent. Deterministe : ordre d'appel. */
+  addCamp(spec: CampSpec): CampState {
+    const camp: CampState = {
+      id: this.camps.length,
+      kind: spec.kind,
+      x: spec.x,
+      z: spec.z,
+      detectRadius: spec.detectRadius,
+      leashRadius: spec.leashRadius,
+      regenPerSecond: spec.regenPerSecond,
+      clearGold: spec.clearGold,
+      guardIds: [],
+      state: 'active',
+      alerted: false,
+    };
+    for (const g of spec.guards) {
+      const e = this.spawn(g.unitId, 'enemy', g.x, g.z);
+      e.order = { type: 'guard' };
+      e.countsForDefeat = false;
+      e.campGuard = { campId: camp.id, postX: g.x, postZ: g.z, returning: false, lastHp: e.hp, calm: true };
+      camp.guardIds.push(e.id);
+    }
+    this.camps.push(camp);
+    if (spec.chest) this.chests.push({ id: this.chests.length, x: spec.chest.x, z: spec.chest.z, rotationY: spec.chest.rotationY, campId: camp.id, lootTableId: spec.chest.lootTableId, opened: false });
+    return camp;
+  }
+
+  /** Ouvre un coffre : tirage de sa table avec la RNG du monde, item pose
+   *  devant lui. Une seule fois. */
+  private lootChest(chest: Chest): { itemId: string | null; dropId: number | null } {
+    chest.opened = true;
+    const table = LOOT_TABLES[chest.lootTableId];
+    const itemId = table ? rollLoot(table, () => this.rng.next()) : null;
+    if (!itemId) return { itemId: null, dropId: null };
+    const dropId = this.dropItem(itemId, chest.x + Math.sin(chest.rotationY) * 0.9, chest.z + Math.cos(chest.rotationY) * 0.9);
+    this.lootEvents.push({ source: 'chest', sourceId: chest.id, itemId, dropId });
+    return { itemId, dropId };
+  }
+
+  /** Apres les morts du pas, une fois par ennemi tombe (ordre des
+   *  entites, RNG du monde) : son or au sol (ENEMY_GOLD_DROPS + bonus) et sa
+   *  table de butin (item pose a cote). */
+  private rollDeathLoot(): void {
+    for (const e of this.entities) {
+      if (e.alive || !e.lootPending) continue;
+      e.lootPending = false;
+      const gold = ENEMY_GOLD_DROPS[e.unitId];
+      if (gold) {
+        const amount = gold.min + Math.floor(this.rng.next() * (gold.max - gold.min + 1)) + this.goldDropBonus;
+        if (amount > 0) this.dropGold(e.x + 0.25, e.z - 0.2, amount);
+      }
+      const table = e.lootTableId ? LOOT_TABLES[e.lootTableId] : undefined;
+      e.lootTableId = null;
+      const itemId = table ? rollLoot(table, () => this.rng.next()) : null;
+      if (itemId) this.lootEvents.push({ source: 'enemy', sourceId: e.id, itemId, dropId: this.dropItem(itemId, e.x, e.z) });
+    }
+  }
+
+  /** Camp nettoye : son or en tas de 5 au plus autour du feu (ordre fixe). */
+  private dropCampGold(): void {
+    for (const ev of this.campEvents) {
+      if (ev.type !== 'campCleared' || ev.gold <= 0) continue;
+      const camp = this.camps[ev.campId]!;
+      const piles = Math.ceil(ev.gold / 5);
+      for (let i = 0; i < piles; i++) {
+        const a = (i / piles) * Math.PI * 2 + 0.6;
+        this.dropGold(camp.x + Math.cos(a) * 1.1, camp.z + Math.sin(a) * 1.1, Math.min(5, ev.gold - i * 5));
+      }
+    }
+  }
+
+  /** Action de l'interface sur l'inventaire d'un Heros (deplacer, equiper,
+   *  retirer, ajouter) : appliquee au debut du prochain pas fixe, dans
+   *  l'ordre d'appel ; une action impossible est ignoree. */
+  queueInventoryAction(entityId: number, action: InventoryAction): void {
+    this.inventoryQueue.push({ entityId, action: { ...action } });
+  }
+
+  /** Tas d'or au sol (ennemi abattu, camp nettoye), ramasse comme un tas de
+   *  la carte. Renvoie son id. */
+  dropGold(x: number, z: number, amount: number): number {
+    const id = this.resourcePiles.length;
+    this.resourcePiles.push({ id, x, z, resource: 'gold', amount });
     return id;
   }
 
@@ -726,7 +844,14 @@ export class World {
 
   /** Contexte du travail du Heros (sources et tas). */
   private heroWork(): HeroWorkContext {
-    return { nodes: this.resourceNodes, piles: this.resourcePiles, drops: this.itemDrops };
+    return {
+      nodes: this.resourceNodes,
+      piles: this.resourcePiles,
+      drops: this.itemDrops,
+      chests: this.chests,
+      chestLocked: (chest) => isChestLocked(chest, this.camps),
+      openChest: (chest) => this.lootChest(chest),
+    };
   }
 
   /** Point de resurrection d'un Heros : pres de la Baliste vivante de son
@@ -812,6 +937,12 @@ export class World {
     this.pathFailures = [];
     this.blockedReinforcementGroup = null;
     this.equipmentQueue = [];
+    this.inventoryQueue = [];
+    this.goldDropBonus = 0;
+    this.camps = [];
+    this.chests = [];
+    this.campEvents = [];
+    this.lootEvents = [];
     this.reachCache = null;
     this.commandQueue = [];
     this.commandResults = [];
@@ -925,6 +1056,11 @@ export class World {
         },
         hasPile: (id) => (this.resourcePiles[id]?.amount ?? 0) > 0,
         hasDrop: (id) => this.itemDrops[id]?.taken === false,
+        chest: (id) => {
+          const chest = this.chests[id];
+          if (!chest || chest.opened) return 'missing';
+          return isChestLocked(chest, this.camps) ? 'locked' : 'ok';
+        },
         isDepot: (entity) => entity.isBuilding && getBuilding(entity.unitId).resourceDepot === true,
       },
     );
@@ -940,10 +1076,29 @@ export class World {
       refreshHeroStats(hero, 'ratio');
     }
     this.equipmentQueue = [];
+    // Inventaire (interface) : deplacer, equiper, retirer ; bonus d'equipement
+    // recalcules d'un bloc si les items portes changent.
+    for (const change of this.inventoryQueue) {
+      const hero = this.entityById.get(change.entityId);
+      if (!hero?.hero) continue;
+      const next = applyInventoryAction(hero.hero.inventory, change.action);
+      if (!next) continue;
+      const equippedChanged = JSON.stringify(next.equipped) !== JSON.stringify(hero.hero.inventory.equipped);
+      hero.hero.inventory = next;
+      if (equippedChanged) {
+        hero.hero.equipment = resolveEquipmentBonus(next);
+        refreshHeroStats(hero, 'ratio');
+      }
+    }
+    this.inventoryQueue = [];
     // Sorts des Heros : un nouvel ordre (ou la mort, une Provocation) annule
     // l'incantation AVANT qu'abilitySystem ne puisse donner son effet.
     if (hasHero) interruptHeroSpells(this.entities, this.heroEvents);
 
+    // Camps neutres : alerte, zones de chasse, retours au poste (avant le ciblage).
+    this.campEvents = [];
+    this.lootEvents = [];
+    campSystem(this.camps, this.entities, this.entityById, dt, this.campEvents);
     targetingSystem(this.entities, dt);
     // Portes de muraille : etat d'ouverture du pas, avant tout deplacement.
     gateSystem(this.entities, dt, (gate, open) => this.setGatePassage(gate, open));
@@ -966,6 +1121,9 @@ export class World {
     tickProductionOrders(this.entities, dt);
     this.productionSpawnEvents = buildingProductionSystem(this.entities, this.obstacles);
     deathSystem(this.entities);
+    campClearSystem(this.camps, this.entityById, this.campEvents);
+    this.dropCampGold();
+    this.rollDeathLoot();
     if (aliveBefore) {
       heroDeathSystem(this.entities, aliveBefore, this.heroEvents);
       heroRespawnSystem(this.entities, dt, (hero) => this.heroSpawnPoint(hero), this.heroEvents);

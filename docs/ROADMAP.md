@@ -398,8 +398,8 @@ construire avant une décision explicite d'Antoine :
   incompatible d'ici là) ;
 - plusieurs joueurs réels (Rouge, Vert, Jaune) dans la simulation, au-delà
   de la couche d'allégeance actuelle ;
-- des camps neutres de carte (PvE à farmer, objectifs), au-delà des unités
-  neutres posables dans l'éditeur.
+- des camps neutres de carte au-delà des deux camps générés (G14) :
+  objectifs, camps à farmer, factions.
 
 ## 6 quater. Survie en temps réel continu — ce qui reste legacy
 
@@ -425,15 +425,28 @@ La Survie n'emprunte plus la préparation (`DESIGN_DECISIONS.md` G10). Reste
 - trajets selon la taille du corps (les rampes d'une case restent possibles
   dans l'éditeur).
 
+## 6 sexies. Économie et contrôles — suites
+
+Inventaire unique, or physique et Héros permanent construits le 2026-11-02
+(`DESIGN_DECISIONS.md` G15). À faire :
+
+- trancher le bonus de vague (stock direct ou or au sol) ;
+- tas d'or : fusion / disparition / aimant si accumulation (KI-47) ;
+- contrôle Héros + armée, groupes (KI-48) ;
+- consommables dans l'inventaire (cases déjà génériques) ;
+- vitesse caméra : autres déplacements au clavier s'ils sont ajoutés.
+
 ## 6 quinquies. Équipement et butin — suites
 
-Fondation construite le 2026-11-02 (`DESIGN_DECISIONS.md` G13). À faire :
+Fondation construite le 2026-11-02 (`DESIGN_DECISIONS.md` G13) ; premiers
+camps neutres et coffres le même jour (G14 : petit et grand camp, tables de
+coffre, drop du Maraudeur). À faire :
 
-- brancher des **tables de butin** (`data/loot.ts`) sur les camps neutres,
-  coffres, boss et certains ennemis ;
-- **camps neutres** générés sur la carte (gardes, coffre, ressources, XP) ;
+- plus de camps par graine, difficulté liée à la distance au centre,
+  tables par niveau de camp, coffres rares isolés (`Chest.campId` null),
+  boss, camps d'autres factions (`CAMP_SITES`, `CAMP_KINDS`) ;
 - **Marché** : vendre items (`sellValue`) et ressources, acheter ;
-- visuel des pièces de corps en jeu (KI-44), butin couché (KI-45) ;
+- visuel des pièces de corps en jeu (KI-44) ;
 - effets suivants : vol de vie, bonus contre un type d'ennemi,
   régénération, bonus de récolte (champ `effects`) ;
 - **Scierie** et **Camp de mineur** (crochets `unlocksHarvest` prêts) ;

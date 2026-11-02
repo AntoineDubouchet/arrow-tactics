@@ -28,6 +28,9 @@ const SLOT_TYPES: Readonly<Record<EquipmentDef['slot'], EquipmentDef['type']>> =
   shield: 'shield',
   helmet: 'armor',
   shoulders: 'armor',
+  chest: 'armor',
+  arms: 'armor',
+  legs: 'armor',
   cape: 'armor',
 };
 
