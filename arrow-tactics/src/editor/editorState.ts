@@ -87,6 +87,10 @@ export interface EditorUnit {
   team: Team;
   x: number;
   z: number;
+  /** Niveau d'unite explicite de la carte (MapUnitPlacement.level),
+   *  conserve tel quel au chargement et a la sauvegarde ; pas encore
+   *  modifiable dans l'editeur (2026-11-02). */
+  level?: number;
 }
 
 /** Batiment GAMEPLAY de scenario (onglet « Bâtiments », voir
@@ -939,7 +943,7 @@ export class EditorState {
   }
 
   private toEditorUnit(u: MapUnitPlacement, team: Team): EditorUnit {
-    return { id: this.nextId++, unitId: u.unitId, team, x: u.x, z: u.z };
+    return { id: this.nextId++, unitId: u.unitId, team, x: u.x, z: u.z, ...(u.level !== undefined ? { level: u.level } : {}) };
   }
 
   /** Change la taille du brouillon (en cases, minimum 1×1) — ne touche pas

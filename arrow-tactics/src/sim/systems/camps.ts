@@ -64,14 +64,18 @@ export interface CampSpec {
   leashRadius: number;
   regenPerSecond: number;
   clearGold: number;
-  /** Gardes et leurs postes (monde). */
-  guards: readonly { unitId: string; x: number; z: number }[];
+  /** Gardes, leurs postes (monde) et leur niveau d'unite deja resolu
+   *  (data/unitLevels.ts). */
+  guards: readonly { unitId: string; x: number; z: number; level: number }[];
   chest: { x: number; z: number; rotationY: number; lootTableId: string } | null;
 }
 
 /** Item tombe au sol (World.lootEvents) : coffre ou ennemi abattu. */
 export interface LootDropEvent {
-  source: 'chest' | 'enemy';
+  /** `destructible` : ressource (itemId = bois / pierre / or, tas = dropId
+   *  dans World.resourcePiles, `amount`). */
+  source: 'chest' | 'enemy' | 'destructible';
+  amount?: number;
   /** Coffre ou entite d'origine. */
   sourceId: number;
   itemId: string;

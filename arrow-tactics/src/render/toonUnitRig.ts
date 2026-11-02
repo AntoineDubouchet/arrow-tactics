@@ -5,12 +5,15 @@ import { FACTION_PALETTES, LOCAL_PLAYER_COLOR, type VisualFaction } from '../con
 import type { Team } from '../sim/entity';
 
 /**
- * Unites Toon RTS — LABORATOIRE (2026-11-01), jamais par defaut :
+ * Unites Toon RTS — laboratoire (2026-11-01) devenu le roster par defaut
+ * (2026-11-02 : tout le roster humain est `defaultOn`, voir plus bas) :
  * `?toonUnits=human` remplace visuellement le Fantassin, l'Archer, le Mage et
  * la Sentinelle ; une liste (`?toonUnits=fantassin,sentinelle`) n'en remplace
  * que certains. Exception : l'Oracle, le Piquier et le Vengeur, sans modele
  * officiel, sont en Toon RTS des que leur asset est present (`defaultOn`),
- * sinon ils reprennent le Mage (Oracle) ou le Fantassin officiel ;
+ * sinon ils reprennent le Mage (Oracle) ou le Fantassin officiel ; de meme,
+ * depuis le 2026-11-02, l'Archer, l'Homme d'armes (Fantassin), le Mage et la
+ * Sentinelle (repli : leurs anciens modeles Meshy / Footman V2) ;
  * `?toonUnits=barbarian` habille Fantassin, Vengeur, Archer, Mage et
  * Sentinelle en Guerrier, Berserker, Chasseur, Chaman et Brute barbares
  * (`skins`, deux camps) ; `?toonUnits=human,barbarian` garde les humains
@@ -90,6 +93,9 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
   fantassin: {
     file: 'human_footman.glb',
     textures: 'wk',
+    // Modele par defaut de l'Homme d'armes (2026-11-02, demande d'Antoine) ;
+    // Footman V2 / V1 officiels : repli si ce GLB manque.
+    defaultOn: true,
     roles: {
       ...COMMON_ROLES,
       // 2,2 cases/s ; coup d'epee de 1,33 s ramene sous le cooldown de 1 s.
@@ -100,6 +106,10 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
   archer: {
     file: 'human_archer.glb',
     textures: 'wk',
+    // Modele par defaut de l'Archer (2026-11-02, demande d'Antoine : le Camp
+    // d'archerie produisait encore l'ancien Archer Meshy, qui reste le repli
+    // si ce GLB manque).
+    defaultOn: true,
     roles: {
       ...COMMON_ROLES,
       // 2,0 cases/s.
@@ -115,6 +125,8 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
   mage: {
     file: 'human_mage.glb',
     textures: 'wk',
+    // Modele par defaut (2026-11-02) ; ancien Mage Meshy : repli.
+    defaultOn: true,
     roles: {
       ...COMMON_ROLES,
       // 1,8 case/s.
@@ -129,6 +141,8 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
   sentinel: {
     file: 'human_sentinel.glb',
     textures: 'wk',
+    // Modele par defaut (2026-11-02) ; ancienne Sentinelle Meshy : repli.
+    defaultOn: true,
     // Unite lourde : ~12 % plus haute que le Fantassin (mesure en garde, plumet
     // du Fantassin compris), 16 % plus large, pas davantage.
     scale: 1.15,

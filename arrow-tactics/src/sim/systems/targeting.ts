@@ -164,7 +164,7 @@ function isInAggro(self: Entity, target: Entity): boolean {
  *  zone), et pas un garde de camp au calme (sim/systems/camps.ts : seulement
  *  sur ordre d'attaque). */
 function inHuntZone(self: Entity, other: Entity): boolean {
-  if (other.campGuard?.calm) return false;
+  if (other.campGuard?.calm || other.destructible !== null) return false;
   const zone = self.huntZone;
   return !zone || dist(zone.x, zone.z, other.x, other.z) <= zone.radius;
 }

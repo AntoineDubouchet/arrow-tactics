@@ -554,8 +554,8 @@ export function awardKillGold(run: RunState, unitId: string, hooks: TalentEconom
 export function applyBattleOutcome(run: RunState, entities: Entity[], pendingEnemyGroups = 0): BattleOutcome {
   const enemyAlive = entities.some((e) => e.team === 'enemy' && e.alive && e.countsForDefeat);
   const playerAlive = entities.some((e) => e.team === 'player' && e.alive && e.countsForDefeat);
-  // Heros a terre et Baliste detruite : defaite (meme regle que World.isHeroDefeat).
-  const heroFell = entities.some((e) => e.hero && e.team === 'player' && !e.alive) && !entities.some((e) => e.team === 'player' && e.alive && e.unitId === 'ballista');
+  // Baliste detruite : defaite (meme regle que World.isBaseLost).
+  const heroFell = entities.some((e) => e.team === 'player' && e.unitId === 'ballista') && !entities.some((e) => e.team === 'player' && e.alive && e.unitId === 'ballista');
   // Mini-vagues : pas de victoire tant que des groupes ennemis restent a venir.
   const won = playerAlive && !enemyAlive && pendingEnemyGroups === 0 && !heroFell;
 

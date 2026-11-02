@@ -589,6 +589,18 @@ UNITS['razzieur'] = {
   neutral: true,
 };
 
+/** Vagues ennemies (2026-11-02, demande d'Antoine) : chaque role de la
+ *  composition (run/runState.ts, computeEnemyWaveComposition) est joue par le
+ *  barbare de meme role (memes stats et capacites, modele barbare). Le
+ *  renfort de vague, l'or et le butin restent ceux du role (main.ts) : les
+ *  vagues gardent leur equilibrage. */
+export const WAVE_UNIT_BY_ROLE: Readonly<Record<string, string>> = {
+  fantassin: 'maraudeur',
+  archer: 'traqueur',
+  mage: 'feticheur',
+  sentinel: 'colosse',
+};
+
 /** Pluriel affiche d'une unite (« Hommes d'armes », « Archers »). */
 export function unitPluralName(def: UnitDef): string {
   return def.pluralName ?? (/[sx]$/.test(def.name) ? def.name : `${def.name}s`);

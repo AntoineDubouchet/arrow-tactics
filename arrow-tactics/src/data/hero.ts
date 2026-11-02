@@ -8,9 +8,7 @@ import { getUnit } from './units';
 export const HERO_UNIT_ID = 'hero';
 
 /** Paliers de niveau : XP totale requise et bonus CUMULES par rapport a la
- *  fiche de base (data/units.ts). Niveau 1 a 3. PROVISOIRE. Bonus de vitesse
- *  augmentes de 60 % avec la vitesse de base (2026-11-02 : 0,15 et 0,3
- *  avant), pour garder +60 % a chaque niveau. */
+ *  fiche de base (data/units.ts). PROVISOIRE. */
 export interface HeroLevel {
   level: number;
   xp: number;
@@ -18,12 +16,61 @@ export interface HeroLevel {
   damageBonus: number;
   moveSpeedBonus: number;
 }
-export const HERO_LEVELS: readonly HeroLevel[] = [
-  { level: 1, xp: 0, maxHpBonus: 0, damageBonus: 0, moveSpeedBonus: 0 },
-  { level: 2, xp: 50, maxHpBonus: 75, damageBonus: 6, moveSpeedBonus: 0.24 },
-  { level: 3, xp: 150, maxHpBonus: 150, damageBonus: 12, moveSpeedBonus: 0.48 },
+
+/** Niveau maximum du Heros (2026-11-02, demande d'Antoine : 3 avant ; une
+ *  progression quasi sans fin). PROVISOIRE. */
+export const HERO_MAX_LEVEL = 100;
+
+/** XP pour passer du niveau `level` au suivant (2026-11-02, demande
+ *  d'Antoine) : jusqu'au niveau 10, 50 XP de plus a chaque niveau (50, 100,
+ *  150 ... 450 ; les seuils des niveaux 2 et 3, 50 et 150 XP, sont inchanges) ;
+ *  au-dela, 100 XP de plus a chaque niveau (10 -> 11 : 550, 20 -> 21 : 1 550,
+ *  50 -> 51 : 4 550). Niveau 10 a 2 250 XP au total, 20 a 12 250, 50 a
+ *  102 250, 100 a 452 250. PROVISOIRE. */
+export function heroXpToNextLevel(level: number): number {
+  return level < 10 ? 50 * level : 450 + 100 * (level - 9);
+}
+
+/** Gain de PV max et de degats PAR NIVEAU, par tranche (2026-11-02, demande
+ *  d'Antoine), en valeurs internes (x10 : 75 = 7,5 PV) : niveaux 2 a 10,
+ *  +7,5 PV et +0,6 degat ; 11 a 25, +4 et +0,3 ; 26 a 50, +2 et +0,15 ;
+ *  51 a 100, +1 et +0,08. Seule source de ces gains. PROVISOIRE. */
+const HERO_LEVEL_GAINS: readonly { upTo: number; hp: number; damage: number }[] = [
+  { upTo: 10, hp: 75, damage: 6 },
+  { upTo: 25, hp: 40, damage: 3 },
+  { upTo: 50, hp: 20, damage: 1.5 },
+  { upTo: 100, hp: 10, damage: 0.8 },
 ];
-export const HERO_MAX_LEVEL = HERO_LEVELS[HERO_LEVELS.length - 1]!.level;
+/** Vitesse : +0,24 aux niveaux 2 et 3 seulement (bonus augmentes de 60 %
+ *  avec la vitesse de base le 2026-11-02), puis plus rien : un Heros plus
+ *  rapide a chaque niveau deviendrait incontrolable. PROVISOIRE. */
+const HERO_SPEED_PER_LEVEL = 0.24;
+const HERO_SPEED_LEVELS = 2;
+
+/** Bonus CUMULES du niveau `level` (niveau 1 : aucun), tranche par tranche. */
+export function heroLevelBonus(level: number): { maxHpBonus: number; damageBonus: number; moveSpeedBonus: number } {
+  let hp = 0;
+  let damage = 0;
+  let previous = 1;
+  for (const gain of HERO_LEVEL_GAINS) {
+    const levels = Math.max(0, Math.min(level, gain.upTo) - previous);
+    hp += levels * gain.hp;
+    damage += levels * gain.damage;
+    previous = gain.upTo;
+  }
+  const round = (v: number) => Math.round(v * 1000) / 1000;
+  return { maxHpBonus: round(hp), damageBonus: round(damage), moveSpeedBonus: HERO_SPEED_PER_LEVEL * Math.min(level - 1, HERO_SPEED_LEVELS) };
+}
+
+export const HERO_LEVELS: readonly HeroLevel[] = (() => {
+  const levels: HeroLevel[] = [];
+  let xp = 0;
+  for (let level = 1; level <= HERO_MAX_LEVEL; level++) {
+    if (level > 1) xp += heroXpToNextLevel(level - 1);
+    levels.push({ level, xp, ...heroLevelBonus(level) });
+  }
+  return levels;
+})();
 
 /** Niveau atteint avec `xp` points. */
 export function heroLevelForXp(xp: number): HeroLevel {
@@ -102,3 +149,6 @@ export const HERO_INVENTORY_SLOTS = 20;
  *  portee de contact. PROVISOIRE. */
 export const CHEST_OPEN_SECONDS = 1;
 export const CHEST_REACH = 0.7;
+/** Reparation d'un batiment par le Heros (2026-11-02) : secondes pour
+ *  rendre 100 % des PV max (proportionnel aux PV manquants). PROVISOIRE. */
+export const REPAIR_FULL_SECONDS = 10;

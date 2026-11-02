@@ -58,6 +58,19 @@ export function upgradeOwnedBuilding(run: RunState, index: number): boolean {
   const owned = run.buildings[index]!;
   const level = ownedBuildingLevel(owned);
   if (!spendGold(run, buildingUpgradeGoldCost(owned.buildingId, level))) return false;
+  applyOwnedBuildingUpgrade(run, index);
+  return true;
+}
+
+/** Niveau suivant du batiment `index`, deja paye (amelioration terminee dans
+ *  la file de production temps reel, 2026-11-02) : memes effets que
+ *  upgradeOwnedBuilding, sans debit. Faux si le batiment est absent ou deja au
+ *  niveau maximum. */
+export function applyOwnedBuildingUpgrade(run: RunState, index: number): boolean {
+  const owned = run.buildings[index];
+  if (!owned) return false;
+  const level = ownedBuildingLevel(owned);
+  if (isBuildingAtMaxLevel(owned.buildingId, level)) return false;
   owned.level = level + 1;
   owned.hp += getBuilding(owned.buildingId).hpPerLevel ?? 0;
   return true;

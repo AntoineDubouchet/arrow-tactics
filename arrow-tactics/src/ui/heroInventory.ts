@@ -13,8 +13,24 @@ import type { HeroSheetCell, HeroSheetInfo, HeroSheetItem } from '../run/entityI
  * pendant qu'elle est ouverte. Les actions passent par la simulation
  * (World.queueInventoryAction) ; donnees deja mises en forme
  * (run/entityInfo.ts, heroSheetInfo).
+ *
+ * Deplacable par le joueur (2026-11-02) : clic maintenu sur le fond de la
+ * fenetre puis glisser (jamais depuis une case, un item ou un bouton) ;
+ * toujours au moins WINDOW_KEEP px a l'ecran, en-tete jamais au-dessus du
+ * bord haut ; position memorisee localement (preference, comme le HUD).
  */
 type DragSource = { from: 'bag'; index: number } | { from: 'body'; slot: EquipmentSlot };
+
+/** Position de la fenetre (coin haut gauche, px). */
+export interface InventoryWindowPosition {
+  x: number;
+  y: number;
+}
+
+/** Part minimale de la fenetre gardee a l'ecran (px). PROVISOIRE. */
+const WINDOW_KEEP = 80;
+/** Le glisser de la fenetre ne part jamais de ces elements. */
+const WINDOW_NO_DRAG = 'button, input, select, textarea, a, [draggable="true"], .inventory-cell';
 
 export class HeroInventoryPanel {
   private readonly root: HTMLElement;
@@ -24,11 +40,17 @@ export class HeroInventoryPanel {
   private shown = '';
   private info: HeroSheetInfo | null = null;
   private drag: DragSource | null = null;
+  /** Glisser de la fenetre en cours (pointeur, decalage au coin). */
+  private move: { pointerId: number; dx: number; dy: number } | null = null;
+  private position: InventoryWindowPosition | null;
 
   constructor(
     onClose: () => void,
     private readonly onAction: (action: InventoryAction) => void,
+    savedPosition: InventoryWindowPosition | null = null,
+    private readonly savePosition: (position: InventoryWindowPosition) => void = () => {},
   ) {
+    this.position = savedPosition;
     this.root = document.createElement('div');
     this.root.className = 'hero-inventory';
     this.root.hidden = true;
@@ -49,6 +71,13 @@ export class HeroInventoryPanel {
     this.tooltip.className = 'inventory-tooltip';
     this.tooltip.hidden = true;
     document.body.append(this.root, this.tooltip);
+    this.root.addEventListener('pointerdown', (e) => this.startMove(e));
+    this.root.addEventListener('pointermove', (e) => this.moveTo(e));
+    this.root.addEventListener('pointerup', (e) => this.endMove(e));
+    this.root.addEventListener('pointercancel', (e) => this.endMove(e));
+    window.addEventListener('resize', () => {
+      if (this.isOpen()) this.place();
+    });
   }
 
   isOpen(): boolean {
@@ -58,6 +87,50 @@ export class HeroInventoryPanel {
   open(info: HeroSheetInfo): void {
     this.update(info);
     this.root.hidden = false;
+    this.place();
+  }
+
+  // --- Deplacement de la fenetre -------------------------------------------
+
+  private startMove(e: PointerEvent): void {
+    if (e.button !== 0 || this.move) return;
+    const target = e.target as Element | null;
+    if (!target || target.closest(WINDOW_NO_DRAG)) return;
+    const r = this.root.getBoundingClientRect();
+    // Barre de defilement de la fenetre : pas un glisser.
+    if (target === this.root && e.clientX - r.left >= this.root.clientWidth) return;
+    this.move = { pointerId: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top };
+    this.root.setPointerCapture(e.pointerId);
+    this.root.classList.add('hero-inventory--moving');
+    this.tooltip.hidden = true;
+    e.preventDefault();
+  }
+
+  private moveTo(e: PointerEvent): void {
+    if (!this.move || e.pointerId !== this.move.pointerId) return;
+    this.position = { x: e.clientX - this.move.dx, y: e.clientY - this.move.dy };
+    this.place();
+  }
+
+  private endMove(e: PointerEvent): void {
+    if (!this.move || e.pointerId !== this.move.pointerId) return;
+    this.move = null;
+    this.root.classList.remove('hero-inventory--moving');
+    if (this.root.hasPointerCapture(e.pointerId)) this.root.releasePointerCapture(e.pointerId);
+    if (!this.position) return;
+    // Position retenue = position affichee (bornee a l'ecran).
+    this.position = { x: parseFloat(this.root.style.left), y: parseFloat(this.root.style.top) };
+    this.savePosition(this.position);
+  }
+
+  /** Applique la position choisie (CSS par defaut sinon), bornee a l'ecran. */
+  private place(): void {
+    if (!this.position) return;
+    const w = this.root.offsetWidth;
+    const x = Math.min(Math.max(this.position.x, WINDOW_KEEP - w), innerWidth - WINDOW_KEEP);
+    const y = Math.min(Math.max(this.position.y, 0), innerHeight - WINDOW_KEEP);
+    this.root.style.left = `${Math.round(x)}px`;
+    this.root.style.top = `${Math.round(y)}px`;
   }
 
   close(): void {

@@ -1,7 +1,8 @@
 /**
  * Trace continu d'une enceinte de murailles (pose en preparation et dans
- * l'editeur) : chaque clic ajoute une PORTION droite (axe dominant, jamais de
- * diagonale) depuis l'ancre courante, exactement de la longueur demandee ;
+ * l'editeur) : chaque clic ajoute une PORTION droite (axe dominant, ou
+ * DIAGONALE a 45 degres depuis le 2026-11-02 quand le curseur en est plus
+ * proche) depuis l'ancre courante, exactement de la longueur demandee ;
  * son extremite devient la nouvelle ancre ; un clic sur la case de depart
  * (ou a cote, si l'ancre lui est alignee) ferme l'enceinte.
  *
@@ -42,7 +43,10 @@ export interface TraceCell {
   z: number;
 }
 
-/** Direction d'une portion : un pas d'une case sur X ou sur Z. */
+/** Direction d'une portion : un pas d'une case sur X ou sur Z, ou les deux
+ *  (diagonale, 2026-11-02 : cases voisines par un coin, barriere etanche :
+ *  ni le corps d'une unite ni le pathfinding, anti-coupe-de-coin, ne passent
+ *  entre deux cases bloquees qui se touchent par un coin). */
 export interface TraceDir {
   x: number;
   z: number;
@@ -120,6 +124,8 @@ export function startWallTrace(cell: TraceCell): WallTrace {
 }
 
 const sameCell = (a: TraceCell, b: TraceCell): boolean => a.x === b.x && a.z === b.z;
+/** Direction diagonale (pas sur X ET sur Z). */
+export const isDiagonalDir = (d: TraceDir): boolean => d.x !== 0 && d.z !== 0;
 const sameDir = (a: TraceDir, b: TraceDir): boolean => a.x === b.x && a.z === b.z;
 const cellDistance = (a: TraceCell, b: TraceCell): number => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 
@@ -143,7 +149,9 @@ export function traceLayout(vertices: readonly TraceCell[], dirs: readonly Trace
     const from = vertices[i]!;
     const to = closed && i === dirs.length - 1 ? vertices[0]! : vertices[i + 1]!;
     const d = dirs[i]!;
-    const n = cellDistance(from, to);
+    // Nombre de pas (distance de Tchebychev : une diagonale avance d'une case
+    // sur les deux axes a chaque pas).
+    const n = Math.max(Math.abs(to.x - from.x), Math.abs(to.z - from.z));
     for (let k = 1; k <= n; k++) path.push({ cell: { x: from.x + d.x * k, z: from.z + d.z * k }, dir: d });
     vertexIndex.push(path.length - 1);
   }
@@ -156,6 +164,13 @@ export function traceLayout(vertices: readonly TraceCell[], dirs: readonly Trace
   let conflict = false;
   const addCorner = (index: number, inDir: TraceDir, outDir: TraceDir): void => {
     if (sameDir(inDir, outDir)) return;
+    // Virage avec une diagonale : pas de piece de coin (les modeles de coin
+    // sont a 90 degres) ; la case du sommet reste un segment de la portion
+    // entrante.
+    if (isDiagonalDir(inDir) || isDiagonalDir(outDir)) {
+      if (inDir.x === -outDir.x && inDir.z === -outDir.z) conflict = true;
+      return;
+    }
     if (corners.has(index) || (inDir.x === -outDir.x && inDir.z === -outDir.z)) conflict = true;
     const c = path[index]!.cell;
     corners.set(index, { kind: 'corner', cornerX: c.x, cornerZ: c.z, tilesX: 1, tilesZ: 1, inDir, outDir });
@@ -259,9 +274,18 @@ export function planWallTraceLeg(trace: WallTrace, cursorX: number, cursorZ: num
   } else {
     const dx = cursor.x - anchor.x;
     const dz = cursor.z - anchor.z;
-    const horizontal = Math.abs(dx) >= Math.abs(dz);
-    dir = horizontal ? { x: Math.sign(dx) || 1, z: 0 } : { x: 0, z: Math.sign(dz) || 1 };
-    length = Math.abs(horizontal ? dx : dz);
+    const adx = Math.abs(dx);
+    const adz = Math.abs(dz);
+    // Diagonale a 45 degres quand le curseur en est plus proche que d'un axe
+    // (entre 26,6 et 63,4 degres) : longueur moyenne des deux ecarts.
+    if (adx > 0 && adz > 0 && Math.min(adx, adz) >= 0.5 * Math.max(adx, adz)) {
+      dir = { x: Math.sign(dx), z: Math.sign(dz) };
+      length = Math.round((adx + adz) / 2);
+    } else {
+      const horizontal = adx >= adz;
+      dir = horizontal ? { x: Math.sign(dx) || 1, z: 0 } : { x: 0, z: Math.sign(dz) || 1 };
+      length = horizontal ? adx : adz;
+    }
   }
 
   const end: TraceCell = { x: anchor.x + dir.x * length, z: anchor.z + dir.z * length };
@@ -333,7 +357,13 @@ export function wallNetPiece(kind: WallNetPiece['kind'], cornerX: number, corner
   const quarter = (((Math.round(rotationY / (Math.PI / 2)) % 4) + 4) % 4);
   const c0 = { x: cornerX, z: cornerZ };
   let connectors: [WallConnector, WallConnector];
-  if (kind === 'corner') {
+  const eighth = Math.round(rotationY / (Math.PI / 4));
+  if (kind !== 'corner' && tilesX === 1 && tilesZ === 1 && Math.abs(eighth % 2) === 1) {
+    // Segment diagonal (rotation a 45 degres) : axe perpendiculaire a sa face.
+    const ax = Math.round(Math.cos(rotationY));
+    const az = Math.round(-Math.sin(rotationY));
+    connectors = [{ cell: c0, dir: { x: -ax, z: -az } }, { cell: c0, dir: { x: ax, z: az } }];
+  } else if (kind === 'corner') {
     const [a, b] = CORNER_ARMS_BY_QUARTER[quarter]!;
     connectors = [{ cell: c0, dir: DIRS[a]! }, { cell: c0, dir: DIRS[b]! }];
   } else if (kind === 'half' || (tilesX === 1 && tilesZ === 1)) {

@@ -59,6 +59,11 @@ export class BuildMenu {
   open(choices: readonly BuildChoice[]): void {
     this.refresh(choices);
     this.panel.hidden = false;
+    // Panneau AU-DESSUS du bouton (2026-11-02 : a sa gauche, il recouvrait la
+    // barre des sorts), aligne sur son bord gauche ; sur son bord droit s'il
+    // depasserait l'ecran (bouton deplace pres du bord droit).
+    const button = this.button.getBoundingClientRect();
+    this.root.classList.toggle('build-menu--align-right', button.left + this.panel.offsetWidth > innerWidth - 8);
     this.button.classList.add('build-menu-button--open');
   }
 

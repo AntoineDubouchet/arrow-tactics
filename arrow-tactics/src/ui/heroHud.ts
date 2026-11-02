@@ -61,6 +61,10 @@ const ratio = (value: number, max: number): string => `${Math.round(Math.min(1, 
 export class HeroHud {
   private readonly panel: HTMLElement;
   private readonly portrait: HTMLElement;
+  /** Medaillon du niveau, a cheval sur le bas droit du portrait. */
+  private readonly levelBadge: HTMLElement;
+  /** Bouton Inventaire du bas de l'ecran (a gauche de Construire). */
+  private readonly inventoryButton: HTMLButtonElement;
   private readonly respawn: HTMLElement;
   private readonly hpBar = bar('hero-bar--hp');
   private readonly manaBar = bar('hero-bar--mana');
@@ -70,9 +74,6 @@ export class HeroHud {
   private readonly actionBar: HTMLElement;
   private readonly slots: { root: HTMLButtonElement; icon: HTMLElement; cost: HTMLElement; cast: HTMLElement; spellId: string | null; enabled: boolean }[] = [];
   private shownSpells = '';
-  private readonly progressRoot: HTMLElement;
-  private readonly progressFill: HTMLElement;
-  private readonly progressText: HTMLElement;
   private readonly xpRoot: HTMLElement;
   private readonly xpLevel: HTMLElement;
   private readonly xpFill: HTMLElement;
@@ -105,15 +106,17 @@ export class HeroHud {
     this.castFill.className = 'hero-panel-cast-fill';
     castBar.appendChild(this.castFill);
     this.castLine.append(this.castName, castBar);
-    // Inventaire (les sorts sont dans la barre d'action).
-    const actions = document.createElement('div');
-    actions.className = 'hero-panel-actions';
-    const inventory = document.createElement('button');
-    inventory.className = 'hero-panel-button';
-    inventory.textContent = 'Inventaire (I)';
-    inventory.title = 'Statistiques, sorts et équipement du Héros';
-    inventory.addEventListener('click', onInventory);
-    actions.append(inventory);
+    // Inventaire (2026-11-02) : bouton du bas de l'ecran, a gauche de
+    // Construire (zone des commandes du Heros) ; la touche I reste.
+    this.inventoryButton = document.createElement('button');
+    this.inventoryButton.className = 'hud-inventory-button';
+    this.inventoryButton.title = 'Inventaire du Héros : sac, équipement, statistiques (touche I)';
+    const bag = document.createElement('i');
+    bag.className = 'hud-inventory-icon';
+    const key = document.createElement('kbd');
+    key.textContent = 'I';
+    this.inventoryButton.append(bag, 'Inventaire', key);
+    this.inventoryButton.addEventListener('click', onInventory);
 
     // Barre d'action, bas a gauche : 6 emplacements, touches 1 a 6.
     this.actionBar = document.createElement('div');
@@ -136,18 +139,16 @@ export class HeroHud {
       this.slots.push(slot);
       this.actionBar.appendChild(root);
     }
-    bars.append(this.hpBar.root, this.manaBar.root, this.castLine, actions);
-    this.panel.append(this.portrait, bars);
+    bars.append(this.hpBar.root, this.manaBar.root, this.castLine);
+    // Portrait et medaillon de niveau (a cheval sur son bord, bas droit).
+    this.levelBadge = document.createElement('span');
+    this.levelBadge.className = 'hero-level-badge';
+    const frame = document.createElement('div');
+    frame.className = 'hero-portrait-frame';
+    frame.append(this.portrait, this.levelBadge);
+    this.panel.append(frame, bars);
 
     // Progression de l'action, au centre, au-dessus de la barre d'XP.
-    this.progressRoot = document.createElement('div');
-    this.progressRoot.className = 'hero-progress';
-    this.progressFill = document.createElement('div');
-    this.progressFill.className = 'hero-progress-fill';
-    this.progressText = document.createElement('div');
-    this.progressText.className = 'hero-progress-text';
-    this.progressRoot.append(this.progressFill, this.progressText);
-    this.progressRoot.hidden = true;
 
     // Barre d'XP, tout en bas.
     this.xpRoot = document.createElement('div');
@@ -168,7 +169,7 @@ export class HeroHud {
 
     // Stock et sac : ligne economique (ui/economyHud.ts) et inventaire (I)
     // depuis le 2026-11-02.
-    document.body.append(this.panel, this.xpRoot, this.actionBar, this.progressRoot);
+    document.body.append(this.panel, this.xpRoot, this.actionBar, this.inventoryButton);
     this.setVisible(false);
   }
 
@@ -183,12 +184,6 @@ export class HeroHud {
   }
 
   update(state: HeroHudState): void {
-    // Progression : a chaque image (barre fluide), hors de la cle ci-dessous.
-    this.progressRoot.hidden = this.panel.hidden || state.action === null;
-    if (state.action) {
-      this.progressFill.style.width = ratio(state.action.progress, 1);
-      this.progressText.textContent = `${Math.max(0, state.action.remaining).toFixed(1).replace('.', ',')} s`;
-    }
     const key = JSON.stringify([
       state.level, state.xp, Math.ceil(state.hp / HP_PER_PIP), state.maxHp, Math.floor(state.mana), state.maxMana,
       state.cast ? [state.cast.name, Math.round(state.cast.progress * 50)] : null,
@@ -235,6 +230,8 @@ export class HeroHud {
     const current = HERO_LEVELS.find((l) => l.level === state.level) ?? HERO_LEVELS[0]!;
     const next = HERO_LEVELS.find((l) => l.level === state.level + 1);
     this.xpLevel.textContent = `Niv. ${state.level}`;
+    // Niveau reel du Heros (entite de la simulation, vivant ou a terre).
+    this.levelBadge.textContent = String(state.level);
     this.xpFill.style.width = next ? ratio(state.xp - current.xp, next.xp - current.xp) : '100%';
     this.xpText.textContent = state.level >= HERO_MAX_LEVEL ? `${state.xp} XP (niveau max)` : `${state.xp} / ${next!.xp} XP`;
 
@@ -249,9 +246,9 @@ export class HeroHud {
   }
 
   setVisible(visible: boolean): void {
-    if (!visible) this.progressRoot.hidden = true;
     this.actionBar.hidden = !visible;
     this.panel.hidden = !visible;
+    this.inventoryButton.hidden = !visible;
     this.xpRoot.hidden = !visible;
   }
 }

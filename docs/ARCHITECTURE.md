@@ -1310,6 +1310,89 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
   `arrowEconomy` (console). `run/userSettings.ts` : vitesse caméra (clé
   propre). `config/maps/blankMap.ts` : carte vierge de l'éditeur.
 
+## 13 sexies. Destructibles, production, réparation, murailles diagonales
+
+- Barils : `BUILDINGS.barrel`, `World.addDestructible` (entité bâtiment
+  de l'équipe adverse, `Entity.destructible`), butin `DESTRUCTIBLE_LOOT`
+  (`World.dropResource`), ciblage automatique exclu (`targeting.ts`),
+  rendu `render/destructibleViews.ts`. Carte : `MapDef.destructibles`.
+- Production : `buildingProduction.ts` (cases devant le bâtiment),
+  `Entity.rally`, `World.queueRallyPoint`, `ProductionSpawnEvent.rally`
+  (ordre de déplacement donné par `main.ts` à l'apparition) ;
+  `render/rallyMarkers.ts`.
+- Réparation : ordre `repair` (travail du Héros, `HeroState.repairJob`,
+  événement `repairEnd`), coût `run/buildingRepair.ts`, paiement et
+  remboursement dans `main.ts` (registre par `repairId`, refus de commande
+  remboursé).
+- Murailles : `core/wallTrace.ts` (portions diagonales, connecteurs),
+  `outwardRotationY` (huitième de tour), `render/buildings.ts` (étirement
+  à 45 degrés), `render/wallVisuals.ts` (`isDiagonalRotation`).
+- Défaite : `World.isBaseLost`. HUD : `ui/actionProgress.ts`.
+
+## 13 septies. Niveau d'unité, règles de survie, sol du village, HUD officiel
+
+- Niveau d'unité : `data/unitLevels.ts` (`normalizeUnitLevel`,
+  `resolveUnitLevel` : explicite > règle > 1, `unitLevelFromUpgradeLevel`),
+  `Entity.level`. La simulation reçoit un niveau **résolu** et n'en dérive
+  aucune stat : `World.spawn` / `spawnBuilding` → 1, `spawnHero` →
+  niveau de la progression (synchronisé par `gainHeroXp`), `addCamp` →
+  `CampSpec.guards[].level`. Résolution : `run/camps.ts` (`campSpecOf` :
+  poste > camp > 1), `main.ts` (`rememberPlayerUnitLevel`,
+  `rememberEnemyUnitLevel`, `setupTestBattle` pour `MapUnitPlacement.level`).
+  Fiche : `run/entityInfo.ts` (`battleUnitInfo`, `battleGroupInfo` lisent
+  `Entity.level` ; l'ancienne table `battleUnitLevels` de `main.ts` est
+  supprimée).
+- Format de carte : `MapUnitPlacement.level`, `MapCampDef.level`,
+  `guardPosts[].level`, `MapDef.survivalRules` et `usesHeroRtsRules`
+  (`config/mapDef.ts`). Les règles de la Survie Hero RTS se lisent par
+  `usesHeroRtsRules`, jamais par `MapDef.generator` (graine seulement).
+  Générateur : `config/maps/proceduralSurvival.ts` (`generatedCampLevel`,
+  point d'entrée d'une future difficulté procédurale). Éditeur :
+  `editor/editorState.ts` et `editor/mapSerializer.ts` conservent le niveau
+  des unités.
+- Sol du village : `render/settlementGround.ts` (calcul pur des cases),
+  `Board.terrain` = `ChunkedTerrainView` (`render/board.ts`,
+  `render/terrainChunks.ts`, `updateSurfaces` : morceaux touchés
+  seulement), `main.ts` (`updateSettlementGround` toutes les 0,2 s en
+  temps réel, emprises dans l'ordre de pose, remise à zéro à chaque run).
+- HUD : `ui/hudDefaultLayout.ts` (`officialHudLayout(largeur)`, format de
+  l'export), `ui/hudLayout.ts` (verrou, layout officiel par bloc,
+  `ResizeObserver` : un bloc qui change de taille est reposé sur son ancre,
+  export depuis la position affichée), `run/userSettings.ts`
+  (`arrow-tactics.hud-unlocked.v1`, `arrow-tactics.inventory-window.v1`),
+  `ui/heroInventory.ts` (déplacement de la fenêtre), `ui/buildMenu.ts`
+  (panneau au-dessus du bouton), `render/spellTargetFeedback.ts` (flash de
+  cible validée, groupe `spell-target-feedback`).
+- Arbres : `TREE_WOOD_AMOUNT` (`data/resources.ts`),
+  `World.resourceNodeAmounts` (bois restant par source, arbres seulement),
+  décompte dans `heroWorkSystem` (`HeroWorkContext.nodeAmounts`), ordre
+  refusé sur un arbre épuisé (`applyCommands`). Sélection d'une source
+  (arbre ou rocher) : `main.ts` (`selectedResourceNodeId`,
+  `resourceNodeAtClick` : feuillage à l'écran puis sol, anneau
+  `DepotTargetRing`) ; clic droit sur une source verrouillée : ordre de
+  déplacement vers `resourceApproachPoint` (`issueRightClickOrder`).
+- Arbres abattus : `World.fellTree` (appelé quand la récolte vide un arbre,
+  `HeroWorkContext.depleted`) → `World.felledTrees`, `World.treeCells` (cases
+  d'arbre debout : construction dans `main.ts`), obstacles `terrainTree`
+  recalculés et `World.obstacles` remplacé (grille de pathfinding et cases
+  reliées au camp recalculées, caches par tableau) ;
+  `World.treeFelledEvents` → `main.ts` (`handleFelledTrees` : décor retiré par
+  `InstancedDecor.hide`, souche `stump_roundDetailed` ajoutée au plateau).
+- Héros : `heroLevelBonus` (`data/hero.ts`, tranches `HERO_LEVEL_GAINS`),
+  seule source des gains par niveau.
+- Vagues : `WAVE_UNIT_BY_ROLE` (`data/units.ts`) ; `spawnEnemyReinforcements`
+  (`main.ts`) crée le barbare et résout renfort, niveau, or
+  (`Entity.goldDrop`, lu par `World.rollDeathLoot`) et butin
+  (`Entity.lootTableId`) d'après le rôle.
+- File de production : `Entity.productionOrders` (`ProductionOrder` :
+  unité ou amélioration), `World.queueProduction` / `cancelProduction`,
+  `tickProductionOrders` (seule la tête avance) →
+  `World.productionUpgradeEvents` ; `PRODUCTION_QUEUE_MAX`,
+  `BUILDING_UPGRADE_SECONDS` (`data/production.ts`). Paiement, annulation
+  et niveau appliqué : `main.ts` (`productionPayments`,
+  `handleProductionUpgrades`, `applyOwnedBuildingUpgrade` dans
+  `run/buildingUpgrades.ts`).
+
 ## 14. Audio
 
 - `audio/` contient un moteur complet : `AudioManager` (bus, budget de voix,

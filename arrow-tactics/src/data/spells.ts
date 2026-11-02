@@ -35,15 +35,15 @@ export interface SpellDef {
 }
 
 export const SPELLS = {
-  /** Soin du Paladin : 5 PV apres 2 s, 12 mana (20 avant le 2026-11-02),
-   *  a 5 cases. PROVISOIRE. */
+  /** Soin du Paladin : 15 PV apres 2 s (5 PV avant le 2026-11-02, demande
+   *  d'Antoine), 12 mana (20 avant le 2026-11-02), a 5 cases. PROVISOIRE. */
   heal: {
     id: 'heal',
     name: 'Soin',
-    description: 'Rend 5 PV au Héros ou à un allié proche après 2 s d’incantation.',
+    description: 'Rend 15 PV au Héros ou à un allié proche après 2 s d’incantation.',
     manaCost: 12,
     castSeconds: 2,
-    healAmount: 5 * HP_PER_PIP,
+    healAmount: 15 * HP_PER_PIP,
     rangeTiles: 5,
     endRangeMarginTiles: 1,
     targeting: 'self-or-ally',

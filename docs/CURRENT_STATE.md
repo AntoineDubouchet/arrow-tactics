@@ -23,6 +23,8 @@ contient ni intentions de design ni décisions futures.
 6 ter. Équipement, items et butin du Héros
 6 quater. Camps neutres et coffres
 6 quinquies. Inventaire unique, or physique, HUD et contrôles
+6 sexies. Barils, production, ralliement, réparation, murailles diagonales
+6 septies. Niveau d'unité, cartes de survie, sol du village
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -849,7 +851,8 @@ Sources : `data/hero.ts`, `sim/systems/hero.ts`, `config/resourceNodes.ts`,
 **Départ** : le **Héros** seul, avec la **Baliste** au centre de la carte.
 Aucun Homme d'armes, stock **0 bois, 0 pierre**, 20 or, Pop. 0 / 5. La
 Baliste est le cœur du camp : point de dépôt des ressources, point de vision,
-et l'un des deux éléments de la défaite par le Héros.
+et le **cœur de la base** : sa destruction est une défaite immédiate
+(2026-11-02).
 
 **Héros** (`hero`) :
 
@@ -860,18 +863,26 @@ et l'un des deux éléments de la défaite par le Héros.
 - stats affichées : 30 PV, 2,5 dégâts, portée 1, aggro 9, cadence 1,1 s,
   5 % de raté, vitesse **4,16** (2,6 avant le 2026-11-02 : +60 %, demande
   d'Antoine), rayon 0,6 ;
-- **niveaux** : niveau 2 à 50 XP (+7,5 PV, +0,6 dégât, +0,24 vitesse),
-  niveau 3 à 150 XP (+15 PV, +1,2 dégât, +0,48 vitesse, cumulés ; bonus de
-  vitesse augmentés de 60 % avec la base). Niveau 3
-  maximum ;
+- **niveaux** (2026-11-02, provisoire, `data/hero.ts`) : **niveau 100
+  maximum** (3 avant). XP pour le niveau suivant : 50 × niveau jusqu'au
+  niveau 10 (50, 100, 150… 450 : niveaux 2 et 3 toujours à 50 et 150 XP),
+  puis 100 XP de plus à chaque niveau (10 → 11 : 550, 20 → 21 : 1 550). Total :
+  niveau 10 à 2 250 XP, 20 à 12 250, 50 à 102 250, 100 à 452 250. Gains par
+  niveau, par tranche (`heroLevelBonus`, provisoire) : niveaux 2 à 10, +7,5 PV
+  et +0,6 dégât ; 11 à 25, +4 et +0,3 ; 26 à 50, +2 et +0,15 ; 51 à 100, +1
+  et +0,08. Vitesse +0,24 aux niveaux 2 et 3 seulement (figée ensuite).
+  Totaux : niveau 10, 97,5 PV et 7,9 dégâts ; 25, 157,5 et 12,4 ; 50, 207,5
+  et 16,15 ; 100, 257,5 et 20,15. Médaillon du portrait : rond jusqu'à 99,
+  pilule un peu plus large à 100 ;
 - **XP en zone partagée** : chaque unité adverse (pas un bâtiment) morte à
   6 cases ou moins du Héros vivant lui donne max(4, coût × 4) XP, **30 au
   plus par mort**, quel que soit le tueur (Maraudeur 8, Traqueur 12,
   Féticheur, Colosse, Ravageur et Razzieur 30). XP, niveau et morts sont
   gardés sur toute la run ;
 - **mort** : retour près de la Baliste après 15 s (première mort de la run),
-  30 s, 60 s, puis 90 s au plus, à pleins PV et en Garde. **Défaite** si le
-  Héros est à terre et que la Baliste est détruite ;
+  30 s, 60 s, puis 90 s au plus, à pleins PV et en Garde, tant que la
+  Baliste tient. **Défaite** dès que la Baliste est détruite, Héros vivant
+  ou mort (2026-11-02) ;
 - **Héros joué** (2026-11-02) : choisi sur l'écran « Choisir votre Héros »
   avant chaque partie Survie (`ui/heroSelect.ts`, données `data/heroes.ts`) ;
   un seul aujourd'hui, le **Paladin** (le Héros ci-dessus), présélectionné ;
@@ -883,7 +894,8 @@ et l'un des deux éléments de la défaite par le Héros.
 - **Soin** (2026-11-02, PROVISOIRE, `data/spells.ts`) : **12 mana** (20
   avant), icône propre (bouclier argenté, croix dorée, rayons de lumière
   sacrée ; SVG dessiné par code, `ui/itemIcons.ts`, `paladin_heal`), 2 s
-  d'incantation, **+5 PV** (sans dépasser le maximum), portée 5 cases, sur
+  d'incantation, **+15 PV** (5 PV avant le 2026-11-02, demande d'Antoine ;
+  sans dépasser le maximum), portée 5 cases, sur
   le Héros lui-même ou une unité alliée vivante (jamais un bâtiment).
   **Barre d'action** (emplacement 1, touche **1**, ou clic) → clic sur la
   cible (ou sur le portrait du HUD pour le Héros) ; clic droit / Échap :
@@ -959,12 +971,35 @@ et l'un des deux éléments de la défaite par le Héros.
 - **constructions** : elles se paient avec le stock **déposé**, jamais avec
   le sac ;
 - **récolte avancée verrouillée** : couper les vrais arbres
-  (`canHarvestTrees`) et exploiter les gros rochers (`canMineDeposits`) est
-  refusé (« il faut une Scierie / un Camp de mineur »). Un bâtiment **bâti**
+  (`canHarvestTrees`) et exploiter les gros rochers (`canMineDeposits`)
+  demande une Scierie / un Camp de mineur. **Clic droit sur un arbre ou un
+  rocher verrouillé** (2026-11-02, règle d'Antoine : « interaction reconnue +
+  déplacement autorisé », jamais « clic consommé ») : la source est
+  sélectionnée (anneau jaune, étiquette), la raison est rappelée (« il faut
+  une Scierie / un Camp de mineur »), et le Héros **va au pied de la
+  ressource** (point d'approche de son côté) sans la récolter. Avec le droit
+  de récolte : même sélection, puis déplacement à portée et récolte
+  automatique. Un bâtiment **bâti**
   dont la fiche porte `unlocksHarvest` (`trees` ou `deposits`) les ouvrira ;
   aucun n'existe encore. Une fois débloquée, la coupe remplit le sac
   (1 unité / 1,5 s), comme le reste ; un arbre étant bloquant, sa portée se
   mesure jusqu'à sa case ;
+- **arbres** (2026-11-02) : chaque arbre (arbre isolé ou bosquet) vaut
+  **20 bois** en tout (`TREE_WOOD_AMOUNT`, provisoire), décomptés par la
+  simulation à chaque unité coupée (`World.resourceNodeAmounts`). **À 0,
+  l'arbre est abattu** (décision d'Antoine) : la coupe s'arrête définitivement,
+  l'arbre disparaît et une **souche** décorative le remplace (une par case
+  libérée d'un bosquet) ; ses cases ne bloquent plus et redeviennent
+  constructibles ; le pathfinding en tient compte dès le pas suivant
+  (`World.fellTree`). Volontaire : abattre une forêt peut ouvrir un chemin,
+  aux vagues aussi. Une case partagée par deux arbres reste bloquée tant que
+  l'autre est debout. Aucune coupe n'est encore possible en partie sans
+  Scierie. Les rochers restent inépuisables. **Sélection** : clic gauche sur un arbre
+  exploré (tronc ou feuillage) → **anneau jaune** autour (même anneau que le
+  dépôt et les tas) et « **Arbre — 20 bois** » (bois restant) ; rocher
+  exploré : même anneau, « **Rocher — pierre** » ; un second clic, un clic
+  ailleurs ou une nouvelle sélection d'unités le retire (le clic droit du
+  Héros sélectionné le garde) ;
 - seul le Héros ramasse et dépose, et seulement en bataille.
 
 **Coûts des bâtiments** (en plus de l'or) et **durées de construction** :
@@ -1113,15 +1148,26 @@ horizon) derrière la carte ronde ; même rendu dans l'éditeur.
 - **production** (`data/production.ts`) : la fiche d'un bâtiment bâti
   propose « Produire : <unité> — or · durée » pour les unités qu'il
   débloque (Caserne : Piquier, + Homme d'armes au Niv. 2 ; Camp d'archerie :
-  Archer ; Église : Mage, Oracle, Vengeur). Une commande à la fois ; payée en
-  or (prix de l'unité) ; l'unité sort à la fin de sa durée (Piquier 6 s,
-  Homme d'armes 8 s, Archer 9 s, Mage et Oracle 14 s, Vengeur 16 s,
-  provisoires), près du bâtiment, en Garde, si la population le permet. La
-  production automatique de début de manche n'est plus utilisée ;
+  Archer ; Église : Mage, Oracle, Vengeur). **File de production**
+  (2026-11-02) : jusqu'à **5 commandes** par bâtiment (unités et
+  amélioration du bâtiment mélangées), traitées **dans l'ordre des clics**,
+  l'une après l'autre ; chacune est payée au clic (or) ; la fiche liste la
+  file (« 1. Piquier — 5 s ✕ », « 2. Amélioration Niv. 2 — en attente ✕ ») et
+  un clic sur une commande l'annule, or **rendu** en entier ; file pleine :
+  boutons « Produire » grisés. Une file perdue avec son bâtiment n'est pas
+  remboursée. L'unité sort à la fin de sa durée (Piquier 6 s, Homme d'armes
+  8 s, Archer 9 s, Mage et Oracle 14 s, Vengeur 16 s, provisoires), près du
+  bâtiment, en Garde, si la population le permet. La production automatique
+  de début de manche n'est plus utilisée ;
 - **améliorations, Forge, Église** : depuis la fiche du bâtiment bâti, en
-  temps réel. Une amélioration s'applique tout de suite (PV max, dégâts de
-  la Tour) ; l'écran de la Forge / de l'Église met le jeu en pause tant qu'il
-  est ouvert ; le soin de l'Église rend leurs PV aux unités vivantes ;
+  temps réel. Bâtiment **producteur** (Caserne, Camp d'archerie, Église) :
+  l'amélioration passe par sa file (20 s, provisoire ; une seule à la fois ;
+  payée au clic, appliquée à sa fin). Autres bâtiments (Mine, Tour…) :
+  amélioration immédiate (PV max, dégâts de la Tour). L'écran de la Forge /
+  de l'Église met le jeu en pause tant qu'il est ouvert ; le soin de l'Église
+  rend leurs PV aux unités vivantes ;
+- **menu Construire** : un clic gauche sur le terrain le ferme, sans rien
+  faire d'autre (2026-11-02) ;
 - **Boutique globale** : absente de la Survie (bouton masqué) ; parchemins
   et achat d'unités ne passent plus par elle (voir `ROADMAP.md` §6 quater) ;
 - **inventaire** (6 emplacements) et encart **« AUTO BALISTE — prête »** :
@@ -1264,10 +1310,48 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
   (barre d'action) ; les équipements ne sont jamais déposés ;
 - **stock** : bâtiments, recrutement, améliorations ne lisent que le stock
   (bois, pierre, or) ; jamais le sac ni le sol ;
-- **HUD** : ligne économique permanente en haut à droite (Bois | Pierre | Or
-  | Pop. utilisée / maximum, valeurs **stockées**), encart du Héros juste
-  en dessous, fiche d'une sélection plus bas ; compteur FPS seulement en mode
-  debug (`?debug` ou F3) ;
+- **HUD** (layout officiel du 2026-11-02, `ui/hudDefaultLayout.ts`) :
+  ligne économique permanente en haut à droite (Bois | Pierre | Or | Pop.
+  utilisée / maximum, valeurs **stockées**), seule en haut à droite avec la
+  fiche d'une sélection dessous ; **Vague** en haut au centre ; **encart du
+  Héros en bas à gauche** juste au-dessus de la barre d'XP (portrait rond
+  avec **médaillon du niveau** à cheval sur son bord bas droit, PV, mana) ;
+  en bas, bouton **Inventaire** (sac, touche I), **barre des 6 sorts**
+  centrée, bouton **Construire**, à 12 px les uns des autres, boutons
+  centrés sur la barre des sorts ; **barre d'action globale**
+  (`ui/actionProgress.ts`) juste au-dessus des sorts, même largeur,
+  absente sans action ; **barre d'XP** presque pleine largeur tout en bas
+  (niveau à gauche, progression à droite). Sous 1 200 px de large,
+  Inventaire, sorts et Construire s'alignent à 12 px après l'encart du
+  Héros au lieu d'être centrés (variante compacte, même ordre). Le panneau
+  **Construire** s'ouvre au-dessus du bouton, aligné sur son bord gauche
+  (sur son bord droit près du bord de l'écran) : il ne recouvre plus la
+  barre des sorts ;
+- **disposition du HUD verrouillée** par défaut (2026-11-02) : MAJ ne
+  fait rien, ni poignée ni guide. Paramètres > **HUD** > « Disposition du
+  HUD » : « **Déverrouiller la disposition du HUD** » (décochée par défaut,
+  mémorisée localement) rend disponible l'**outil de calibration**
+  (`ui/hudLayout.ts`), inchangé : MAJ maintenue = mode calibration (cadre
+  léger, noms des blocs après 0,4 s, poignée de taille, barre d'action
+  fantôme, grille optionnelle). MAJ + glisser le fond ou le cadre d'un bloc
+  (Héros, Sorts, Action, Inventaire, Construire, Économie, Vague, XP) le
+  déplace ; jamais depuis un bouton, un sort ou un item d'un bloc composé.
+  Poignée bas droit : échelle uniforme 65–175 % (Héros, Sorts, Inventaire,
+  Construire, Économie, Vague), largeur 160–900 et hauteur 8–32 px
+  (Action), largeur 200–4000 et hauteur de barre 6–24 px (XP). Pendant le
+  glisser : guides du centre de l'écran, alignements sur les bords et
+  centres des autres blocs, équidistance entre 3 blocs (« N px = N px »),
+  distances au voisin et aux bords, infobulle (X/Y en %, L/H en px,
+  échelle) ; aimantation à 8 px, ALT = sans aimantation. Réglage d'un bloc
+  sauvegardé en ancre (début, centre, fin par axe) + décalage en px, au
+  moins 24 px à l'écran, sauvegarde locale automatique ; un réglage local
+  passe avant le layout officiel, bloc par bloc. « Réinitialiser la
+  disposition du HUD » revient au **layout officiel** (pas à l'ancien) ;
+  « Copier la disposition du HUD » (JSON, même format que le layout
+  officiel, position affichée de chaque bloc), « Charger une
+  disposition », grille de calibration (10 px). Pas de défilement caméra
+  pendant MAJ (déverrouillé) ni pendant le glisser. Valeurs provisoires ;
+  compteur FPS seulement en mode debug (`?debug` ou F3) ;
 - **fenêtre du personnage** (I) : silhouette (tête, épaules, torse, bras,
   main droite, main gauche = main secondaire ou bouclier, jambes, cape),
   statistiques, sorts, sac en grille 5 × 4 (icône, quantité, cadre de
@@ -1277,6 +1361,10 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
   compatible ; remplacer (l'ancien item revient dans la case d'origine) ;
   retirer vers le sac ; double-clic : équiper / retirer. Emplacements
   torse, bras, jambes : données, stats et interface (pas de visuel, KI-44) ;
+  **déplaçable** par le joueur (2026-11-02) : clic maintenu sur son fond
+  puis glisser (jamais depuis une case, un item ou un bouton) ; au moins
+  80 px à l'écran, en-tête jamais au-dessus du bord haut ; position
+  mémorisée localement ;
 - **Héros permanent** : sans unité alliée sélectionnée, le clic droit et S
   commandent le Héros, même quand un bâtiment est inspecté (sa fiche reste
   ouverte) ; son anneau reste affiché ; Construire est disponible. Une
@@ -1287,14 +1375,114 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
   limites de la caméra ; jamais sur un panneau d'interface, ni avec
   l'inventaire, un menu ou les Paramètres ouverts. Paramètres > Caméra :
   « Vitesse de déplacement de la caméra » (25 à 250 %, sauvegardée) ;
-- **Soin** : curseur normal entouré d'un petit cercle jaune pendant le
-  ciblage ; bref pulse à la validation ;
+- **Soin** : curseur normal entouré d'un petit cercle jaune pendant que
+  le joueur cherche sa cible ; dès la validation, ce cercle disparaît (plus
+  de pulse : il dérivait vers la droite) et un **bref flash jaune** de
+  l'anneau d'unité, sous la cible, confirme le clic (0,25 s, à la position
+  rendue de l'unité, suit une cible qui bouge ;
+  `render/spellTargetFeedback.ts`) ; l'incantation prend le relais ;
 - **sac 3D** : Paladin à l'échelle visuelle 1,4 (rayon de jeu inchangé) ;
   sac plus gros, attaché à l'os du dos, visible dès que le Héros porte du
   bois, de la pierre ou de l'or ;
 - **Éditeur de maps** : ouverture sur une carte vierge 96 × 96 (disque de
   la carte Hero RTS, herbe plate, rien d'autre que la Baliste au centre) ;
   les anciennes cartes restent chargeables.
+
+## 6 sexies. Barils, production, ralliement, réparation, murailles diagonales
+
+Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G16) :
+
+- **barils** (`barrel`, `MapDef.destructibles`) : objets neutres
+  destructibles, une case bloquante, 4 PV (le Paladin les casse en deux
+  coups), jamais ciblés automatiquement (seulement sur ordre d'attaque),
+  ni XP, ni prime, hors du compte de fin de vague. Petit tremblement à
+  chaque coup, éclats de bois à la destruction. Visibles une fois la case
+  explorée. **Butin** : 30 % de chance d'une ressource au sol (1 ou 2 bois,
+  pierre ou or, RNG du monde), sinon rien ; jamais d'équipement. Placés
+  dans les camps (2 au petit, 3 au grand) ;
+- **Mine 3 × 3** : emprise logique (collision, pose, chantier, sélection,
+  pathfinding, destruction) et modèle calé sur l'emprise ; production
+  inchangée (tranche toutes les 60 s) ;
+- **sortie de production** : une unité produite apparaît DEVANT son
+  bâtiment (face +Z du modèle tournée par sa rotation), case la plus proche
+  du milieu de la façade ; façade bloquée : deuxième rangée devant, puis les
+  côtés ; derrière en dernier recours ;
+- **point de ralliement** (`Entity.rally`, simulation) : bouton
+  « Ralliement » (petit carré translucide) sous la fiche d'un producteur,
+  puis clic sur le terrain ; chaque unité produite sort devant puis y
+  marche. Gardé jusqu'à un nouveau point, « Retirer le ralliement » ou la
+  destruction du bâtiment. Drapeau au sol et ligne pointillée quand le
+  bâtiment est sélectionné, marqueur très discret sinon ;
+- **murailles diagonales** : le tracé accepte les portions à 45 degrés
+  (NE, NO, SE, SO) en plus de l'horizontal et du vertical ; chaque case
+  reste une emprise bloquante de 1 × 1, les cases d'une diagonale se
+  touchant par un coin (aucun passage, anti-coupe-de-coin du pathfinding) ;
+  modèle tourné à 45 degrés et étiré de racine de 2 pour une ligne continue.
+  Pas de pièce de coin aux virages avec une diagonale. Les murailles restent
+  absentes du menu Construire du temps réel (éditeur, préparation) ;
+- **réparation** : bouton « Réparer — coût » sur la fiche d'un bâtiment
+  allié bâti et endommagé (Baliste comprise). Coût : 50 % du prix de
+  construction pour 100 % des PV, proportionnel aux PV manquants (or au
+  demi supérieur, bois et pierre arrondis ; Baliste : base 30 or, 10 bois,
+  10 pierre), payé d'avance sur le stock. Le Héros va au bâtiment et le
+  répare (geste de chantier, barre d'action), 10 s pour 100 %. Ordre
+  manuel, mort du Héros ou perte du bâtiment : arrêt, et la part non
+  utilisée est rendue (or au dixième, bois et pierre à l'unité
+  inférieure) ;
+- **défaite** : Baliste détruite = défaite immédiate.
+
+## 6 septies. Niveau d'unité, cartes de survie, sol du village
+
+Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G18 à
+G20) :
+
+- **niveau d'unité** (`Entity.level`, `data/unitLevels.ts`) : toute
+  entité a un niveau entier d'au moins 1 (1 par défaut ; une valeur
+  absente, nulle, négative ou invalide retombe à 1). Donnée de
+  **difficulté et de présentation** : aucune stat n'en dépend pour
+  l'instant (aucun multiplicateur). Origine :
+  - Héros : copie de sa progression (XP, niveaux 1 à 100), suit ses montées
+    de niveau ;
+  - unité du joueur : niveau de production + 1 (améliorations de Forge ;
+    niveau 1 sans amélioration), unités produites en temps réel comprises ;
+  - ennemi de vague : niveau de renfort de vague + 1 (stats du renfort
+    calculées comme avant) ;
+  - garde de camp : niveau de son poste (`guardPosts[i].level`), sinon du
+    camp (`MapCampDef.level`), sinon 1 ; les deux camps générés sont au
+    niveau 1 ;
+  - unité placée par une carte (`MapUnitPlacement.level`, « Tester le
+    scénario ») : sa valeur, sinon 1 ; l'éditeur la conserve au chargement
+    et à la sauvegarde, sans permettre de la modifier ;
+  - bâtiments : 1, jamais affiché (leur niveau d'amélioration reste côté
+    run).
+  Fiche d'inspection : « Maraudeur — Niv. 1 », « Piquier — Niv. 1 », pour
+  toute unité (avant : seulement les types améliorables) ; groupe d'un seul
+  type et d'un seul niveau : niveau rappelé. Aucun label permanent au-dessus
+  des unités ; le Héros garde son médaillon ;
+- **cartes de survie dessinées ou générées** : les règles de la Survie Hero
+  RTS (formation autour de la Baliste, vagues sur l'anneau qui marchent vers
+  elle, brouillard de guerre, pas d'agrandissement E4, cadrage du camp) se
+  lisent dans `MapDef.survivalRules: 'hero-rts'` (`usesHeroRtsRules`),
+  plus dans l'origine de la carte : `MapDef.generator` ne sert plus qu'à
+  la graine et à la nouvelle carte de chaque run. Le générateur écrit ce
+  champ et le niveau de chaque camp dans le même format qu'une carte
+  dessinée. Aujourd'hui : une seule carte générée (`?map=arena` et
+  `?map=island` gardent les règles historiques), aucune sélection de
+  carte ; l'éditeur n'écrit ni camps ni `survivalRules` (KI-52) ;
+- **sol du village** (`render/settlementGround.ts`) : à la pose d'un
+  bâtiment du joueur (chantier compris ; Baliste comprise, dès le
+  lancement), le sol est repeint en **terre battue** sous son emprise et sur
+  un anneau d'une case autour (coins arrondis) ; un **chemin** de terre
+  battue d'une case de large (cases reliées par un côté) relie chaque
+  nouveau bâtiment au plus proche des bâtiments déjà posés, s'il est à
+  **20 cases** ou moins. Jamais sur l'eau ni hors de la carte (un chemin
+  saute les cases d'eau) ; murailles et portes : ni terre battue ni chemin.
+  Purement visuel (ni simulation, ni pathfinding, ni `MapDef`). Un bâtiment
+  détruit garde sa terre battue jusqu'à la run suivante. Plateau de la
+  Survie seulement (ni éditeur, ni « Tester le scénario »). Le sol du
+  plateau est désormais découpé en morceaux de 16 × 16 cases
+  (`Board.terrain`, comme dans l'éditeur) : une pose ne reconstruit que
+  les morceaux touchés (25 à 47 ms mesurés, 2 à 4 morceaux ; KI-53).
 
 ## 7. Économie d'or
 
@@ -1618,7 +1806,17 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   (`data/units.ts`, provisoires) : Maraudeur, Ravageur, Traqueur,
   Féticheur, Colosse, modèles barbares Toon RTS, stats et comportement du
   rôle habillé (Homme d'armes, Vengeur, Archer, Mage, Sentinelle) ; jamais
-  recrutées par le joueur.
+  recrutées par le joueur. **Vagues** (2026-11-02) : chaque rôle de la
+  composition est joué par le barbare de même rôle (Fantassin → Maraudeur,
+  Archer → Traqueur, Mage → Féticheur, Sentinelle → Colosse,
+  `WAVE_UNIT_BY_ROLE`) ; renfort de vague, niveau, or et butin restent ceux
+  du rôle (équilibrage des vagues inchangé : un Maraudeur de vague ne lâche
+  pas d'objet, un Féticheur de vague lâche l'or d'un Mage).
+- **roster humain en Toon RTS par défaut** (2026-11-02) : Homme d'armes
+  (`human_footman.glb`), Archer, Mage, Sentinelle, comme le Piquier, le
+  Vengeur, l'Oracle, le Cavalier et le Héros. Les anciens modèles (Footman
+  V2 / V1, Archer, Mage et Sentinelle Meshy) ne sont plus que des replis si
+  un fichier Toon manque.
 - **Collines arrondies, EXPÉRIMENTAL** (`?hills=organic`,
   `render/hillShape.ts`, 2026-11-01 ; rendu facetté seulement) : pentes
   en S (épaule et pied adoucis), coins de colline arrondis (profil radial
@@ -2290,9 +2488,10 @@ du menu principal, écran distinct de l'Atelier et de l'éditeur de maps :
     clic le replie ;
   - les valeurs restent calculées comme avant, replié ou non ;
   - la boutique, les menus et la barre d'outils de l'éditeur le recouvrent.
-- **Touche X** : bascule la vitesse de jeu entre ×1 et ×2. Son aide « X —
-  Vitesse fois 2 », en bas à gauche, est masquée dans l'éditeur (pas pendant
-  un test).
+- **Touche X** (mode debug seulement : `?debug` ou F3, 2026-11-02) :
+  bascule la vitesse de jeu entre ×1 et ×2. Plus aucune aide « X — Vitesse
+  fois 2 » à l'écran, ni dans le HUD joueur ni en mode debug ; la vitesse
+  courante se lit dans le détail du compteur FPS.
 - **Bouton « +1 point de talent (debug) »** dans l'écran des talents.
 - **Bouton « +100 or (debug) »** dans la boutique de run.
 

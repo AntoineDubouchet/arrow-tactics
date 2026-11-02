@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { obstacleCenter, TILE, type ObstacleDef } from '../config/constants';
 import { cloneScaledToFootprint, createMissingModelPlaceholder, isLazyModel, type EnvironmentAssets } from './assetLibrary';
 import { isTreeBuildingModel, TREE_VISUAL_SCALE } from './trees';
+import { isDiagonalRotation } from './wallVisuals';
 
 /** Correction d'orientation NATIVE par modele (radians), ajoutee a la
  *  rotation enregistree : elle fixe ce que montre « 0° » dans l'editeur et
@@ -95,9 +96,13 @@ export function createBuildingObstacle(def: ObstacleDef, assets: EnvironmentAsse
   // muraille vers les hostiles, ObstacleDef.modelFacingYaw) : un demi-tour
   // autour du centre laisse le modele dans son emprise.
   oriented.rotation.y = (BUILDING_MODEL_ROTATION_OFFSET[def.buildingModel ?? ''] ?? 0) + (def.modelFacingYaw ?? 0);
+  // Muraille comprimee posee a 45 degres (2026-11-02) : etiree de racine de 2
+  // le long de son axe pour rejoindre ses voisines diagonales par les coins
+  // (l'emprise de simulation reste la case).
+  const diagonalStretch = def.modelLengthScale !== undefined && isDiagonalRotation(def.rotationY ?? 0) ? Math.SQRT2 : 1;
   if (lengthScale !== 1) {
     const squashed = new THREE.Group();
-    squashed.scale.x = lengthScale;
+    squashed.scale.x = lengthScale * diagonalStretch;
     squashed.add(model);
     oriented.add(squashed);
   } else {

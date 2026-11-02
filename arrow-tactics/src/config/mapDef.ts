@@ -21,6 +21,9 @@ export interface MapUnitPlacement {
   unitId: string;
   x: number;
   z: number;
+  /** Niveau d'unite explicite (data/unitLevels.ts), prioritaire sur toute
+   *  regle. OPTIONNEL : absent = niveau 1 (toute carte anterieure). */
+  level?: number;
 }
 
 /** Batiment GAMEPLAY de scenario (onglet « Bâtiments » de l'editeur) : un
@@ -129,9 +132,26 @@ export interface MapDef {
   /** Camps neutres (2026-11-02, carte generee) : voir MapCampDef.
    *  OPTIONNEL : absent sur les cartes dessinees. */
   camps?: MapCampDef[];
+  /** Objets neutres destructibles (2026-11-02 : barils ; type = BUILDINGS),
+   *  poses sur la case de (x, z). OPTIONNEL : futurs camps, ruines,
+   *  batiments, editeur. */
+  destructibles?: { kind: string; x: number; z: number }[];
   /** Carte produite par un generateur (config/maps/proceduralSurvival.ts) :
-   *  graine, et regles propres (pas d'agrandissement E4, vagues sur l'anneau). */
+   *  sa graine. Origine seulement : les regles de jeu se lisent dans
+   *  `survivalRules`, jamais ici. */
   generator?: { kind: 'survival-procedural'; seed: number };
+  /** Regles de la Survie Hero RTS (2026-11-02) : formation autour de la
+   *  Baliste, vagues sur l'anneau marchant vers elle, brouillard de guerre,
+   *  pas d'agrandissement E4. Independant de l'origine de la carte : posees
+   *  par le generateur aujourd'hui, par une carte dessinee demain (voir
+   *  usesHeroRtsRules). OPTIONNEL : absent = regles de l'arene historique. */
+  survivalRules?: 'hero-rts';
+}
+
+/** Vrai si la carte se joue avec les regles de la Survie Hero RTS, qu'elle
+ *  soit dessinee a la main ou generee (MapDef.survivalRules). */
+export function usesHeroRtsRules(map: Pick<MapDef, 'survivalRules'>): boolean {
+  return map.survivalRules === 'hero-rts';
 }
 
 /** Camp neutre d'une carte (2026-11-02, config/maps/proceduralSurvival.ts) :
@@ -147,8 +167,13 @@ export interface MapCampDef {
   radius: number;
   /** Coffre du camp (monde) et son orientation. */
   chest: { x: number; z: number; rotationY: number };
-  /** Postes de garde (monde), un par garde, dans l'ordre du type de camp. */
-  guardPosts: { x: number; z: number }[];
+  /** Postes de garde (monde), un par garde, dans l'ordre du type de camp ;
+   *  `level` optionnel : niveau propre a ce garde (chef, boss). */
+  guardPosts: { x: number; z: number; level?: number }[];
+  /** Niveau d'unite des gardes (data/unitLevels.ts) : ecrit par la carte
+   *  dessinee ou par le generateur, meme format. OPTIONNEL : absent =
+   *  niveau 1. */
+  level?: number;
 }
 
 /** Cle stable d'une cellule — sert de cle de Map/Set (lookup O(1) "cette

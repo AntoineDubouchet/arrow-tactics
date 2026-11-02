@@ -9,7 +9,8 @@ import { ensureModels, loadEnvironmentAssets, obstacleModelKeys } from './assetL
 import { box } from './meshHelpers';
 import { hillHeightAt } from './hillShape';
 import { buildObstacleMesh, placeObstacleMesh } from './obstacleFactory';
-import { buildCellGridLines, buildTerrainCellsView } from './terrainCells';
+import { buildCellGridLines } from './terrainCells';
+import { ChunkedTerrainView } from './terrainChunks';
 import { appendCellSurfaceTriangles } from './terrainSurface';
 import { teamColor } from './unitSelectionRing';
 
@@ -33,6 +34,10 @@ export interface Board {
    *  independante, donc plus rien du plateau EN COURS ne doit rester visible
    *  pendant l'edition. */
   obstacles: THREE.Group;
+  /** Sol, en morceaux (render/terrainChunks.ts, memes sommets qu'un sol
+   *  d'un seul tenant) : surfaces repeintes a chaud, morceaux touches
+   *  seulement (terre battue du village, render/settlementGround.ts). */
+  terrain: ChunkedTerrainView;
 }
 
 /**
@@ -65,7 +70,8 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   // decors suivent la hauteur de chaque case.
   const field = resolveMapHeightField(map);
   // Surfaces peintes (MapDef.surfaceCells) : purement visuelles.
-  const terrain = buildTerrainCellsView(cells, field, buildSurfaceIndex(map.surfaceCells));
+  const terrain = new ChunkedTerrainView();
+  terrain.rebuild(cells, field, buildSurfaceIndex(map.surfaceCells));
   group.add(terrain.group);
 
   // Zones de camp : le territoire de la map (config/territory.ts,
@@ -124,7 +130,7 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   // avec les petits tas de bois a ramasser (MapDef.resourcePiles).
   if (!map.generator) scatterDecoration(group, cells, field);
 
-  return { group, gridLines, zones, obstacles, decor };
+  return { group, gridLines, zones, obstacles, decor, terrain };
 }
 
 /** Hauteur des zones au-dessus du sol (sous la grille, a 0.012). */

@@ -27,7 +27,7 @@ import {
   SURVIVAL_FIRST_WAVE_DELAY_SECONDS,
   SURVIVAL_NEXT_WAVE_DELAY_SECONDS,
 } from './config/constants';
-import { producibleUnits, unitProductionSeconds } from './data/production';
+import { BUILDING_UPGRADE_SECONDS, PRODUCTION_QUEUE_MAX, producibleUnits, unitProductionSeconds } from './data/production';
 import { teamVision, visionRadiusOf } from './sim/vision';
 import {
   BALLISTA_PLACEMENT_TILES,
@@ -38,11 +38,15 @@ import {
   DEFAULT_MAP,
   resolveBallistaOrigin,
   snapBallistaOrigin,
+  usesHeroRtsRules,
   type MapDef,
 } from './config/mapDef';
+import { resolveUnitLevel, unitLevelFromUpgradeLevel } from './data/unitLevels';
 import { SURVIVAL_ARENA_MAP, SURVIVAL_BASE_MAP } from './config/maps/survivalArena';
 import { createBlankMap } from './config/maps/blankMap';
-import { loadCameraSpeed, saveCameraSpeed } from './run/userSettings';
+import { loadCameraSpeed, loadHudGrid, loadHudLayout, loadHudUnlocked, loadInventoryWindowPosition, saveCameraSpeed, saveHudGrid, saveHudLayout, saveHudUnlocked, saveInventoryWindowPosition } from './run/userSettings';
+import { officialHudLayout } from './ui/hudDefaultLayout';
+import { HudLayout, type HudResize } from './ui/hudLayout';
 import { ISLAND_ARENA_MAP } from './config/maps/islandArena';
 import { generateSurvivalMap, ringSpawnSectors } from './config/maps/proceduralSurvival';
 import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type TerritoryCell, type TerritoryIndex } from './config/territory';
@@ -77,11 +81,13 @@ import {
   type WallTrace,
   type WallTraceLeg,
   type WallTracePiece,
+  isDiagonalDir,
 } from './core/wallTrace';
 import { BUILDINGS, buildingFootprintTiles, buildingRotationStep, buildTimeOf, getBuilding, listBuyableBuildingIds, migrateLegacyWalls, replacedWallCells, sameBuildingFootprint, unitsProducedPerWave } from './data/buildings';
 import { hasRecruitmentBuilding } from './run/recruitment';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
-import { getUnit, type UnitStats } from './data/units';
+import { getUnit, WAVE_UNIT_BY_ROLE, type UnitStats } from './data/units';
+import { ENEMY_GOLD_DROPS, ENEMY_LOOT_TABLES } from './data/loot';
 import {
   EDITOR_BALLISTA_OWNER,
   EditorState,
@@ -96,7 +102,8 @@ import {
 } from './editor/editorState';
 import { EditorHistory } from './editor/history';
 import { forestBrushCells, type ForestBrushSize, type ForestDensity, type ForestTreeTypeId } from './editor/forestBrush';
-import { surfaceBrushOrigin, waterCellKeys, type GroundTextureId, type SurfaceBrushSize, type SurfaceCellDef } from './config/groundSurfaces';
+import { buildSurfaceIndex, surfaceBrushOrigin, waterCellKeys, type GroundTextureId, type SurfaceBrushSize, type SurfaceCellDef } from './config/groundSurfaces';
+import { leavesSettlementGround, SETTLEMENT_SURFACE, settlementGroundCells, type SettlementSite } from './render/settlementGround';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
   buildCellPreview,
@@ -151,6 +158,7 @@ import { SpellCastVfxView } from './render/spellCastVfx';
 import { toonUnitPortrait } from './render/toonThumbnail';
 import { MoveOrderFeedback } from './render/moveOrderFeedback';
 import { AttackOrderFeedback } from './render/attackOrderFeedback';
+import { SpellTargetFeedback } from './render/spellTargetFeedback';
 import { RecyclageAuraView } from './render/recyclageAura';
 import { TauntVfxView } from './render/tauntVfx';
 import { ShadowProjectileView } from './render/shadowProjectileView';
@@ -180,7 +188,7 @@ import { HEAL_SCROLL_UPGRADE } from './data/healScrollUpgrade';
 import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
 import { computePlayerIceNovaUpgradeEffects, effectiveIceNovaCost } from './run/iceNovaUpgradeEffects';
 import { mineProductionIntervalSeconds, rollMineGold } from './run/mineUpgradeEffects';
-import { ownedBuildingLevel, upgradeOwnedBuilding } from './run/buildingUpgrades';
+import { applyOwnedBuildingUpgrade, buildingUpgradeGoldCost, canUpgradeOwnedBuilding, ownedBuildingLevel, upgradeOwnedBuilding } from './run/buildingUpgrades';
 import { harvestPermissionsOf } from './run/harvestPermissions';
 import { FogOfWar, type VisionSource } from './render/fogOfWar';
 import { DepotTargetRing, ResourcePileViews, type DepotRingTarget } from './render/resourcePiles';
@@ -230,7 +238,7 @@ import {
   type OwnedBuilding,
   type RunState,
 } from './run/runState';
-import { purchaseRunUpgrade, runUpgradeSite, type PlayerProgression, type RunUpgradeLevels, type RunUpgradeSite } from './run/runUpgrades';
+import { displayedUpgradeLevel, purchaseRunUpgrade, runUpgradeSite, type PlayerProgression, type RunUpgradeLevels, type RunUpgradeSite } from './run/runUpgrades';
 import { armyMissingHp, churchHealCost, churchHealHpPerGold, healArmyAtChurch } from './run/churchHeal';
 import { forwardDir, type Entity, type Team } from './sim/entity';
 import type { PlayerCommand } from './sim/orders';
@@ -253,6 +261,7 @@ import { equippedHandVisuals } from './run/heroEquipment';
 import { carriedResourceTotal, createHeroInventory, inventoryItems, type InventoryAction } from './sim/inventory';
 import { RESOURCE_ITEMS } from './data/resources';
 import { EconomyHud } from './ui/economyHud';
+import { ActionProgressBar } from './ui/actionProgress';
 import { EQUIPMENT, type EquipmentSlot } from './data/equipment';
 import { applyHeroEquipmentVisual } from './render/heroEquipmentView';
 import { ItemDropViews } from './render/itemDropViews';
@@ -261,12 +270,15 @@ import { WorldLabel } from './ui/worldLabel';
 import { DEFAULT_HERO_ID, getHero, heroKit, HEROES, type HeroDef } from './data/heroes';
 import { getSpell } from './data/spells';
 import { INITIAL_EXPLORED_RADIUS } from './data/vision';
-import { CHEST_OPEN_SECONDS, CONSTRUCTION_START_HP_FRACTION, DEPOSIT_SECONDS_PER_ITEM, HARVEST_INTERVAL, HERO_LEVELS, HERO_UNIT_ID, PICKUP_SECONDS } from './data/hero';
+import { REPAIR_FULL_SECONDS, CHEST_OPEN_SECONDS, CONSTRUCTION_START_HP_FRACTION, DEPOSIT_SECONDS_PER_ITEM, HARVEST_INTERVAL, HERO_LEVELS, HERO_UNIT_ID, PICKUP_SECONDS } from './data/hero';
 import { getCampKind } from './data/camps';
 import { campSpecOf } from './run/camps';
 import { isChestLocked, type Chest } from './sim/systems/camps';
 import { CampViews } from './render/campViews';
-import { treeCellKeys, type ResourceKind } from './config/resourceNodes';
+import { RallyMarkers } from './render/rallyMarkers';
+import { formatRepairCost, repairCost, repairRefund, type RepairCost } from './run/buildingRepair';
+import { DestructibleViews } from './render/destructibleViews';
+import { type ResourceKind, type ResourceNode } from './config/resourceNodes';
 import type { HeroEvent } from './sim/systems/hero';
 import { CombatOverlay, type PlacementBuildingHpSubject } from './ui/combatOverlay';
 import { spawnCoinPopup } from './ui/coinPopup';
@@ -314,10 +326,14 @@ const heroHud = new HeroHud(() => selectPlayerHero(), (spellId) => armSpellTarge
 const heroInventory = new HeroInventoryPanel(
   () => heroInventory.close(),
   (action) => heroInventoryAction(action),
+  loadInventoryWindowPosition(),
+  saveInventoryWindowPosition,
 );
 const populationHud = new PopulationHud();
 /** Ligne economique permanente (stock utilisable, population), en haut a droite. */
 const economyHud = new EconomyHud();
+/** Barre d'action globale, centree au-dessus de la barre d'XP. */
+const actionProgressBar = new ActionProgressBar();
 const telegraphView = new TelegraphView();
 const fireballView = new FireballView();
 const iceNovaView = new IceNovaView();
@@ -328,6 +344,7 @@ const moveOrderFeedback = new MoveOrderFeedback();
 // Ordre d'attaque accepte : anneau d'unite commun qui clignote brievement
 // sous la cible (meme taille que la selection et l'inspection).
 const attackOrderFeedback = new AttackOrderFeedback();
+const spellTargetFeedback = new SpellTargetFeedback();
 const recyclageAuraView = new RecyclageAuraView();
 const tauntVfxView = new TauntVfxView();
 const shadowProjectileView = new ShadowProjectileView();
@@ -509,6 +526,12 @@ renderer.scene.add(resourcePileViews.group);
 /** Items au sol (butin, World.itemDrops). */
 const itemDropViews = new ItemDropViews();
 renderer.scene.add(itemDropViews.group);
+/** Points de ralliement des producteurs : marqueur, ligne si selectionne. */
+const rallyMarkers = new RallyMarkers();
+renderer.scene.add(rallyMarkers.group);
+/** Objets destructibles (barils) : modele, tremblement, eclats. */
+const destructibleViews = new DestructibleViews(() => environmentAssets);
+renderer.scene.add(destructibleViews.group);
 /** Camps neutres : feux (flammes, lumiere) et coffres. */
 const campViews = new CampViews();
 renderer.scene.add(campViews.group);
@@ -528,6 +551,7 @@ renderer.scene.add(iceNovaView.group);
 renderer.scene.add(healVfxView.group);
 renderer.scene.add(moveOrderFeedback.group);
 renderer.scene.add(attackOrderFeedback.group);
+renderer.scene.add(spellTargetFeedback.group);
 renderer.scene.add(recyclageAuraView.group);
 renderer.scene.add(tauntVfxView.group);
 renderer.scene.add(shadowProjectileView.group);
@@ -651,10 +675,12 @@ function teamFacingYaw(team: Team): number {
  *  au rendu : il est compense ici. Toujours un quart de tour exact de meme
  *  parite que l'axe du segment : emprise, collision et position inchangees
  *  (un demi-tour garde la meme emprise). */
-function outwardRotationY(outwardX: number, outwardZ: number, team: Team): number {
-  const quarter = Math.PI / 2;
-  const turns = Math.round((Math.atan2(outwardX, outwardZ) - teamFacingYaw(team)) / quarter);
-  return (((turns % 4) + 4) % 4) * quarter;
+function outwardRotationY(outwardX: number, outwardZ: number, team: Team, diagonal = false): number {
+  // Segment diagonal (2026-11-02) : huitieme de tour (45 degres).
+  const step = diagonal ? Math.PI / 4 : Math.PI / 2;
+  const count = diagonal ? 8 : 4;
+  const turns = Math.round((Math.atan2(outwardX, outwardZ) - teamFacingYaw(team)) / step);
+  return (((turns % count) + count) % count) * step;
 }
 
 /** Piece de trace devenue batiment concret : mur, demi-segment
@@ -679,7 +705,8 @@ function tracedWallPiece(wallId: string, piece: WallTracePiece, interiorSign: nu
   if (facing.kind === 'corner') {
     return { ...base, buildingId: def.traceCorners ? def.traceCorners[facing.variant] : wallId, rotationY: facing.rotationY };
   }
-  return { ...base, buildingId: piece.kind === 'half' ? def.traceHalf ?? wallId : wallId, rotationY: outwardRotationY(facing.outwardX, facing.outwardZ, team) };
+  const diagonal = piece.kind !== 'corner' && isDiagonalDir(piece.dir);
+  return { ...base, buildingId: piece.kind === 'half' ? def.traceHalf ?? wallId : wallId, rotationY: outwardRotationY(facing.outwardX, facing.outwardZ, team, diagonal) };
 }
 
 /** Passage d'une disposition de trace a une autre (core/wallTrace.ts) :
@@ -1134,9 +1161,9 @@ async function rebuildGameBoardVisuals(spawnDepth: number): Promise<void> {
  */
 async function applyMapExpansionForCompletedWave(completedWave: number): Promise<void> {
   if (completedWave <= currentRun.mapExpansion.lastExpandedWave) return;
-  // Carte procedurale : deja a sa taille, pas d'agrandissement E4 (choix
-  // d'Antoine, 2026-11-01).
-  if (currentMap.generator) return;
+  // Survie Hero RTS (carte generee ou dessinee) : deja a sa taille, pas
+  // d'agrandissement E4 (choix d'Antoine, 2026-11-01).
+  if (usesHeroRtsRules(currentMap)) return;
 
   const step = expansionStepForCompletedWave(completedWave);
   const result = applyMapExpansionStep(currentMap, currentRun.mapExpansion, step);
@@ -1204,6 +1231,7 @@ const buildingViewsByEntityId = new Map<number, BuildingView>();
 function playHitFlash(entityId: number): void {
   const buildingView = buildingViewsByEntityId.get(entityId);
   if (buildingView) buildingView.playHit();
+  else if (world.getById(entityId)?.destructible) destructibleViews.hit(entityId);
   else unitViews.playHit(entityId);
 }
 
@@ -1335,22 +1363,20 @@ function enemyAbilityDamageBonus(unitId: string, waveNumber: number): number {
   return computeEnemyUnitUpgradeEffects(unitId, waveNumber).abilityDamageBonus;
 }
 
-/** Niveau propre a chaque unite de la bataille en cours, par id d'entite,
- *  pour la fiche d'inspection (l'Entity ne le porte pas) : niveau de vague
- *  d'un ennemi (rempli aux memes spawns que enemyStatOverrides, donc jamais
- *  en "Tester le scenario"), niveau de production d'une unite du joueur.
- *  Absent pour un type sans amelioration. Vide a chaque world.clear()
- *  (forgetBattleBuildings). */
-const battleUnitLevels = new Map<number, number>();
-
-function rememberEnemyUnitLevel(entity: Entity, waveNumber: number): void {
-  const level = enemyUnitUpgradeLevel(entity.unitId, waveNumber);
-  if (level !== null) battleUnitLevels.set(entity.id, level);
+/** Niveau d'unite (Entity.level, data/unitLevels.ts) d'un ennemi de vague :
+ *  son niveau de renfort de vague (memes spawns que enemyStatOverrides),
+ *  1 pour un type sans renfort. Presentation seulement : les stats viennent
+ *  de enemyStatOverrides, inchangees. */
+function rememberEnemyUnitLevel(entity: Entity, waveNumber: number, role: string = entity.unitId): void {
+  entity.level = unitLevelFromUpgradeLevel(enemyUnitUpgradeLevel(role, waveNumber) ?? 0);
 }
 
-/** Unite du joueur : son niveau de production, fige a sa creation. */
-function rememberPlayerUnitLevel(entity: Entity, productionLevel: number): void {
-  battleUnitLevels.set(entity.id, productionLevel);
+/** Unite du joueur : niveau d'unite d'apres son niveau de production, fige
+ *  a sa creation (niveau 1 sans amelioration) ; `explicit` (carte) passe
+ *  avant. Jamais pour le Heros (niveau de sa progression). */
+function rememberPlayerUnitLevel(entity: Entity, productionLevel: number, explicit?: number): void {
+  if (entity.hero) return;
+  entity.level = resolveUnitLevel(explicit, unitLevelFromUpgradeLevel(productionLevel));
 }
 
 // --- Economie / progression de run (chantier en cours — voir CLAUDE.md) -
@@ -1473,9 +1499,10 @@ function setupTestBattle(): void {
       playerUnitAbilityDamageBonus(pos.unitId, level),
       playerUnitTauntShieldBonus(pos.unitId, level),
     );
-    rememberPlayerUnitLevel(spawned, level);
+    rememberPlayerUnitLevel(spawned, level, pos.level);
   }
-  for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z);
+  // Niveau explicite de la carte (MapUnitPlacement.level), sinon 1.
+  for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z).level = resolveUnitLevel(pos.level);
   // Batiments gameplay du scenario (editeur, MapDef.buildings) : de VRAIES
   // entites au niveau 1 (PV, collision, fonction), apres les unites comme
   // les batiments possedes en vraie bataille.
@@ -1639,8 +1666,8 @@ function layoutFormation(unitIds: string[], frontZ: number, rowStep: number, per
  * a 6 emplacements) — voir layoutFormation pour la logique melee/distance.
  */
 function computeArmyFormation(unitIds: string[], map: MapDef): { x: number; z: number }[] {
-  // Carte procedurale : en rangs au sud de la Baliste, centre du camp.
-  if (map.generator && map.ballista) return layoutFormation(unitIds, map.ballista.z + 2.5, TILE, 6).map((p) => ({ x: p.x + map.ballista!.x - 0.5, z: p.z }));
+  // Survie Hero RTS : en rangs au sud de la Baliste, centre du camp.
+  if (usesHeroRtsRules(map) && map.ballista) return layoutFormation(unitIds, map.ballista.z + 2.5, TILE, 6).map((p) => ({ x: p.x + map.ballista!.x - 0.5, z: p.z }));
   const halfH = (map.height * TILE) / 2;
   // spawnDepth DYNAMIQUE (2026-08-18, agrandissement progressif de la map) —
   // remplace la constante globale PLACEMENT_ROWS pour le jeu REEL : voir
@@ -1673,7 +1700,7 @@ function computeEnemyWavePlan(waveNumber: number, map: MapDef): EnemyReinforceme
   // voir layoutFormation) ; la simulation decale une unite sur la case libre
   // la plus proche si sa place est prise (sim/systems/enemyReinforcements.ts).
   const groups = splitEnemyWaveComposition(computeEnemyWaveComposition(waveNumber));
-  if (map.generator && map.ballista) return ringEnemyWavePlan(waveNumber, groups, map.ballista);
+  if (usesHeroRtsRules(map) && map.ballista) return ringEnemyWavePlan(waveNumber, groups, map.ballista);
   const halfW = (map.width * TILE) / 2;
   const halfH = (map.height * TILE) / 2;
   // spawnDepth DYNAMIQUE — voir computeArmyFormation ci-dessus, meme raisonnement.
@@ -1725,19 +1752,25 @@ function logPathDiagnostics(): void {
 }
 
 /** Cree les ennemis d'un groupe de renfort avec les stats de la vague en
- *  cours — meme traitement que l'ancien spawn d'un bloc de la vague. */
+ *  cours — meme traitement que l'ancien spawn d'un bloc de la vague.
+ *  2026-11-02 : `spawn.unitId` est un ROLE de la composition, joue par le
+ *  barbare de meme role (WAVE_UNIT_BY_ROLE) ; renfort de vague, niveau, or et
+ *  butin restent ceux du role (equilibrage des vagues inchange). */
 function spawnEnemyReinforcements(spawns: EnemyReinforcementSpawn[]): void {
   for (const spawn of spawns) {
+    const role = spawn.unitId;
     const enemy = world.spawn(
-      spawn.unitId,
+      WAVE_UNIT_BY_ROLE[role] ?? role,
       'enemy',
       spawn.x,
       spawn.z,
       undefined,
-      enemyStatOverrides(spawn.unitId, currentRun.waveNumber),
-      enemyAbilityDamageBonus(spawn.unitId, currentRun.waveNumber),
+      enemyStatOverrides(role, currentRun.waveNumber),
+      enemyAbilityDamageBonus(role, currentRun.waveNumber),
     );
-    rememberEnemyUnitLevel(enemy, currentRun.waveNumber);
+    enemy.goldDrop = ENEMY_GOLD_DROPS[role] ?? null;
+    enemy.lootTableId = ENEMY_LOOT_TABLES[role] ?? null;
+    rememberEnemyUnitLevel(enemy, currentRun.waveNumber, role);
   }
 }
 
@@ -2331,6 +2364,8 @@ function onValidatePlacement(): void {
   // Camps neutres de la carte generee (2026-11-02) : gardes a leurs postes
   // et coffre, parametres resolus depuis data/camps.ts.
   for (const def of currentMap.camps ?? []) world.addCamp(campSpecOf(def));
+  // Objets destructibles de la carte (barils des camps).
+  for (const d of currentMap.destructibles ?? []) world.addDestructible(d.kind, d.x, d.z);
   // Or des ennemis abattus (tas au sol) : bonus du talent, resolu ici.
   world.goldDropBonus = Math.round(computeTalentEconomyHooks(metaProgress).bonusGoldPerKill?.() ?? 0);
   campViews.setCamps(currentMap.camps ?? []);
@@ -2370,8 +2405,7 @@ function spawnBallistaBuilding(): void {
 /** A appeler a chaque `world.clear()` : les ids d'entites repartent de 1
  *  dans la bataille suivante, donc aucune reference a un batiment de la
  *  bataille videe ne doit survivre (l'ancien id de la Baliste ou d'une Mine
- *  pourrait designer une tout autre entite du test suivant), ni aucun niveau
- *  d'unite memorise (battleUnitLevels). Remet aussi le
+ *  pourrait designer une tout autre entite du test suivant). Remet aussi le
  *  visuel de la Baliste dans son etat normal : detruite pendant la bataille
  *  videe, elle doit reapparaitre des la preparation suivante (ou le
  *  depart d'une nouvelle run, ou l'editeur), pas seulement au
@@ -2408,8 +2442,8 @@ function forgetBattleBuildings(): void {
   battleWallPairs.clear();
   buildingViewsByEntityId.clear();
   ownedBuildingIndexByEntityId.clear();
+  productionPayments.clear();
   scenarioBuildingEntityIds.clear();
-  battleUnitLevels.clear();
   ballistaBuildingView.reset();
 }
 
@@ -2432,7 +2466,7 @@ function startPlacement(): void {
   board.zones.visible = true;
   waveIndicator.setVisible(true);
   goldHud.setVisible(true);
-  heroHud.setVisible(true);
+  heroHud.setVisible(true); actionProgressBar.setVisible(true);
   populationHud.setVisible(true);
 
   const formation = computeArmyFormation(currentRun.army.map((u) => u.unitId), currentMap);
@@ -2508,12 +2542,13 @@ function startNewRun(heroId: string = selectedHeroId): void {
   if (survivalMapUsed && survivalBaseMap.generator) survivalBaseMap = survivalMapFor(survivalUrlSeed ?? randomSeed());
   survivalMapUsed = true;
   currentRun = createFreshRun(heroId);
+  resetSettlementGround();
   if (demoItems) currentRun.hero.inventory = createHeroInventory(Object.keys(EQUIPMENT));
   refreshHeroPortrait();
   currentRun.mapSeed = survivalBaseMap.generator?.seed ?? 0;
-  // Brouillard de guerre (carte procedurale) : rien d'explore au lancement.
+  // Brouillard de guerre (Survie Hero RTS) : rien d'explore au lancement.
   fogOfWar?.dispose();
-  fogOfWar = survivalBaseMap.generator ? new FogOfWar(survivalBaseMap.width, survivalBaseMap.height) : null;
+  fogOfWar = usesHeroRtsRules(survivalBaseMap) ? new FogOfWar(survivalBaseMap.width, survivalBaseMap.height) : null;
   heroCameraLock = false;
   resourcePileViews.clear();
   // Baliste native (Mode survie) : creee directement a la position definie
@@ -2551,8 +2586,8 @@ function startNewRun(heroId: string = selectedHeroId): void {
  *  (l'arene du Mode survie, 21 × 36, depasse le zoom par defaut). */
 function frameRunCamera(): void {
   renderer.resetCamera();
-  // Carte procedurale : le camp (plaine centrale), pas tout le disque.
-  const ballista = currentMap.generator ? currentMap.ballista : undefined;
+  // Survie Hero RTS : le camp (plaine centrale), pas toute la carte.
+  const ballista = usesHeroRtsRules(currentMap) ? currentMap.ballista : undefined;
   const box = ballista ? { minX: ballista.x - 11, maxX: ballista.x + 11, minZ: ballista.z - 9, maxZ: ballista.z + 9 } : computeMapCellBounds(resolveMapCells(currentMap));
   renderer.frameBox({ ...box, height: 2 }, CAMERA.gameFrameMarginsPx);
 }
@@ -2564,7 +2599,7 @@ function frameRunCamera(): void {
 let fogOfWar: FogOfWar | null = null;
 
 function fogActive(): boolean {
-  return fogOfWar !== null && !inEditorMode && !inTestMode && currentMap.generator !== undefined;
+  return fogOfWar !== null && !inEditorMode && !inTestMode && usesHeroRtsRules(currentMap);
 }
 
 /** Unite adverse hors de la vision actuelle du joueur. */
@@ -2612,6 +2647,9 @@ function updateFogOfWar(): void {
   // Butin : visible une fois explore.
   itemDropViews.group.visible = !inEditorMode;
   itemDropViews.sync(world.itemDrops, on ? (x, z) => fogOfWar!.isExplored(x, z) : undefined);
+  // Barils : reveles a l'exploration, comme le decor.
+  destructibleViews.group.visible = !inEditorMode;
+  destructibleViews.sync(world.entities, on ? (x, z) => fogOfWar!.isExplored(x, z) : undefined);
   // Camps : feu et coffre reveles a l'exploration ; annonce a la decouverte.
   campViews.group.visible = !inEditorMode;
   campViews.sync(world.chests, (chest) => isChestLocked(chest, world.camps), on ? (x, z) => fogOfWar!.isExplored(x, z) : undefined);
@@ -2694,7 +2732,7 @@ function selectPlayerHero(): void {
   if (!hero?.alive || !inBattlePhase()) return;
   if (spellTargeting && canIssueRtsOrder()) {
     world.issueCommand({ kind: 'cast', entityIds: [hero.id], spellId: spellTargeting.spellId, targetEntityId: hero.id });
-    cancelSpellTargeting(true);
+    cancelSpellTargeting();
     return;
   }
   // Selection explicite et camera recentree sur le Heros (portrait).
@@ -2727,7 +2765,7 @@ document.documentElement.addEventListener('mouseleave', () => (edgePointer = nul
 window.addEventListener('blur', () => (edgePointer = null));
 
 function updateEdgeScroll(realDt: number): void {
-  if (!edgePointer?.overCanvas || inEditorMode || pauseMenuOpen || heroInventory.isOpen() || document.querySelector('.screen-overlay--visible')) return;
+  if (!edgePointer?.overCanvas || inEditorMode || pauseMenuOpen || heroInventory.isOpen() || hudLayout.isDragging() || hudLayout.isCalibrating() || document.querySelector('.screen-overlay--visible')) return;
   if (!inBattlePhase() && !inPlacementPhase) return;
   const m = EDGE_SCROLL_MARGIN;
   const dirX = edgePointer.x <= m ? 1 : edgePointer.x >= innerWidth - 1 - m ? -1 : 0;
@@ -2738,8 +2776,9 @@ function updateEdgeScroll(realDt: number): void {
 }
 
 /** Ciblage d'un sort (2026-11-02) : curseur normal entoure d'un petit cercle
- *  jaune qui le suit ; bref pulse a la validation (meme langage que
- *  l'anneau des ressources). Rendu seulement. */
+ *  jaune qui le suit tant que le joueur cherche sa cible ; masque des la
+ *  validation (le retour de cible validee est sous l'unite,
+ *  render/spellTargetFeedback.ts). Rendu seulement. */
 const spellCursorRing = document.createElement('div');
 spellCursorRing.className = 'spell-cursor-ring';
 spellCursorRing.hidden = true;
@@ -2747,7 +2786,7 @@ document.body.appendChild(spellCursorRing);
 let lastPointer = { x: innerWidth / 2, y: innerHeight / 2 };
 window.addEventListener('mousemove', (e) => {
   lastPointer = { x: e.clientX, y: e.clientY };
-  if (!spellCursorRing.hidden && !spellCursorRing.classList.contains('spell-cursor-ring--pulse')) placeSpellCursorRing();
+  if (!spellCursorRing.hidden) placeSpellCursorRing();
 });
 function placeSpellCursorRing(): void {
   spellCursorRing.style.transform = `translate(${lastPointer.x}px, ${lastPointer.y}px)`;
@@ -2763,27 +2802,18 @@ function armSpellTargeting(spellId: string): void {
   buildingRotationHint.setText(`${getSpell(spellId).name} : clic sur le Héros (ou son portrait) ou un allié — clic droit ou Échap pour annuler`);
   buildingRotationHint.setVisible(true);
   canvas.classList.add('canvas--spell-target');
-  spellCursorRing.classList.remove('spell-cursor-ring--pulse');
   placeSpellCursorRing();
   spellCursorRing.hidden = false;
 }
 
-/** Fin du ciblage ; `validated` : le sort vient d'etre lance (pulse). */
-function cancelSpellTargeting(validated = false): void {
+/** Fin du ciblage (annule ou valide) : le cercle du curseur disparait
+ *  aussitot, sans animation. */
+function cancelSpellTargeting(): void {
   if (!spellTargeting) return;
   spellTargeting = null;
   buildingRotationHint.setVisible(false);
   canvas.classList.remove('canvas--spell-target');
-  if (!validated) {
-    spellCursorRing.hidden = true;
-    return;
-  }
-  placeSpellCursorRing();
-  spellCursorRing.classList.add('spell-cursor-ring--pulse');
-  window.setTimeout(() => {
-    spellCursorRing.classList.remove('spell-cursor-ring--pulse');
-    if (!spellTargeting) spellCursorRing.hidden = true;
-  }, 420);
+  spellCursorRing.hidden = true;
 }
 
 /** Clic gauche pendant le ciblage : ordre `cast` sur l'unite alliee (ou le
@@ -2801,7 +2831,7 @@ function useSpellOnClick(event: MouseEvent): void {
     return;
   }
   world.issueCommand({ kind: 'cast', entityIds: [hero.id], spellId, targetEntityId: picked.id });
-  cancelSpellTargeting(true);
+  cancelSpellTargeting();
 }
 
 /** Bouton Construire (bas a droite) : panneau des batiments, Heros selectionne. */
@@ -2809,6 +2839,39 @@ const buildMenu = new BuildMenu(toggleBuildMenu, (buildingId) => {
   cancelSpellTargeting();
   requestPlaceBuilding(buildingId);
 });
+
+/** HUD (ui/hudLayout.ts) : un bloc par element du HUD ; layout officiel
+ *  (ui/hudDefaultLayout.ts), reglages locaux eventuels, outil de calibration
+ *  (MAJ + glisser) seulement une fois deverrouille dans les Parametres. */
+const hudLayout = new HudLayout(
+  (
+    [
+      ['hero', 'Héros', '.hero-panel'],
+      ['spells', 'Sorts', '.hero-actions'],
+      ['action', 'Action', '.action-progress'],
+      ['inventory', 'Inventaire', '.hud-inventory-button', '.hud-inventory-button'],
+      ['build', 'Construire', '.build-menu', '.build-menu-button'],
+      ['economy', 'Économie', '.economy-hud'],
+      ['wave', 'Vague', '.wave-indicator'],
+      ['xp', 'XP', '.hero-xp'],
+    ] as const
+  ).flatMap(([id, label, selector, handle]: readonly [string, string, string, string?]) => {
+    const element = document.querySelector<HTMLElement>(selector);
+    if (!element) return [];
+    const handleEl = handle ? document.querySelector<HTMLElement>(handle) ?? undefined : undefined;
+    // Taille (PROVISOIRE) : echelle uniforme pour les blocs structures ;
+    // largeur et hauteur bornees pour la barre d'action et la barre d'XP.
+    const xpBar = document.querySelector<HTMLElement>('.hero-xp-bar') ?? undefined;
+    const resize: HudResize =
+      id === 'action' ? { mode: 'size', minW: 160, maxW: 900, minH: 8, maxH: 32 }
+      : id === 'xp' ? { mode: 'size', minW: 200, maxW: 4000, minH: 6, maxH: 24, ...(xpBar ? { heightTarget: xpBar } : {}) }
+      : { mode: 'scale' };
+    return [{ id, label, element, keepWidth: id === 'xp', resize, ...(handleEl ? { handle: handleEl } : {}) }];
+  }),
+  loadHudLayout(),
+  saveHudLayout,
+  { grid: loadHudGrid(), saveGrid: saveHudGrid, unlocked: loadHudUnlocked(), saveUnlocked: saveHudUnlocked, defaults: officialHudLayout },
+);
 
 function toggleBuildMenu(): void {
   if (buildMenu.isOpen()) {
@@ -2904,6 +2967,13 @@ function depotRingTarget(entity: Entity | undefined): DepotRingTarget | null {
 /** Tas selectionne au clic gauche (anneau jaune, etiquette), null sinon. */
 let selectedPileId: number | null = null;
 const pileLabel = new WorldLabel('pile-label');
+/** Source de ressource selectionnee (2026-11-02, demande d'Antoine) : arbre
+ *  ou rocher (id de World.resourceNodes), au clic gauche ou au clic droit du
+ *  Heros ; anneau jaune autour (meme anneau que le depot vise et les tas) et
+ *  ce qu'elle contient dans l'etiquette des tas. */
+let selectedResourceNodeId: number | null = null;
+const resourceSelectionRing = new DepotTargetRing();
+renderer.scene.add(resourceSelectionRing.mesh);
 let buildMenuRefreshAt = 0;
 let heroInventoryRefreshAt = 0;
 
@@ -2933,12 +3003,45 @@ function updateHeroUi(): void {
   const pile = selectedPileId !== null ? world.resourcePiles[selectedPileId] : undefined;
   if (battleSelection.size > 0 || !pile || pile.amount <= 0 || !inBattlePhase()) selectedPileId = null;
   resourcePileViews.setSelected(selectedPileId);
+  // Source (arbre, rocher) : retiree si epuisee ou hors bataille ; une
+  // nouvelle selection d'unites la retire aussi (setBattleSelection), mais pas
+  // l'ordre donne au Heros deja selectionne (clic droit).
+  const source = selectedResourceNodeId !== null ? world.resourceNodes.get(selectedResourceNodeId) : undefined;
+  // Quantite restante ; absente : inepuisable (rocher).
+  const sourceLeft = source ? world.resourceNodeAmounts.get(source.id) : undefined;
+  if (!source || (sourceLeft !== undefined && sourceLeft <= 0) || !inBattlePhase()) selectedResourceNodeId = null;
+  const shownSource = selectedResourceNodeId !== null ? source : undefined;
+  resourceSelectionRing.setTarget(shownSource ? { x: shownSource.x, z: shownSource.z, radius: resourceRingRadius(shownSource) } : null);
+  resourceSelectionRing.animate(0);
   if (selectedPileId !== null && pile) {
     const at = worldToScreen(pile.x, pile.z);
     pileLabel.show(`${RESOURCE_ITEMS[pile.resource].name} — ${pile.amount}`, at.x, at.y - 22);
+  } else if (shownSource) {
+    const at = worldToScreen(shownSource.x, shownSource.z);
+    pileLabel.show(shownSource.resource === 'wood' ? `Arbre — ${sourceLeft} bois` : 'Rocher — pierre', at.x, at.y - 22);
   } else {
     pileLabel.hide();
   }
+}
+
+/** Rayon de l'anneau d'une source : emprise d'un arbre (arbre isole,
+ *  bosquet) plus un peu de marge ; rocher : rayon fixe. */
+function resourceRingRadius(source: ResourceNode): number {
+  const b = source.block;
+  return b ? Math.max(b.maxX - b.minX, b.maxZ - b.minZ) / 2 + 0.3 : 0.9;
+}
+
+/** Point ou le Heros va voir une source qu'il ne peut pas encore exploiter :
+ *  au bord de son emprise, du cote du Heros (le pathfinding prend la case
+ *  libre la plus proche si ce point est bloque). */
+function resourceApproachPoint(source: ResourceNode, hero: Entity): { x: number; z: number } {
+  const b = source.block;
+  const half = b ? Math.max(b.maxX - b.minX, b.maxZ - b.minZ) / 2 : 0.5;
+  const dx = hero.x - source.x;
+  const dz = hero.z - source.z;
+  const d = Math.hypot(dx, dz);
+  const reach = half + hero.stats.radius + 0.35;
+  return d > 1e-6 ? { x: source.x + (dx / d) * reach, z: source.z + (dz / d) * reach } : { x: source.x, z: source.z + reach };
 }
 
 // --- Espace : Heros <-> Baliste (2026-11-01) --------------------------------
@@ -3005,7 +3108,7 @@ function startSurvivalRealtime(): void {
   refreshOwnedBuildingViews();
   waveIndicator.setVisible(true);
   goldHud.setVisible(false);
-  heroHud.setVisible(true);
+  heroHud.setVisible(true); actionProgressBar.setVisible(true);
   populationHud.setVisible(false);
   // Ligne economique (stock utilisable, population) en haut a droite.
   economyHud.setVisible(true);
@@ -3028,7 +3131,7 @@ function startSurvivalRealtime(): void {
   // (sim/systems/movement.ts, marchToGoal) et n'apparaissent que sur des
   // cases reliees a elle.
   const ballista = world.entities.find((e) => e.alive && e.team === 'player' && e.unitId === 'ballista');
-  if (currentMap.generator && ballista) world.assaultGoal = { x: ballista.x, z: ballista.z };
+  if (usesHeroRtsRules(currentMap) && ballista) world.assaultGoal = { x: ballista.x, z: ballista.z };
   // Boutique globale (legacy) : absente de la Survie en temps reel.
   sellZone.setVisible(false);
 }
@@ -3149,36 +3252,214 @@ function buildChoices(): BuildChoice[] {
  *  bouton Construire, sorts et inventaire dans son HUD (2026-11-02). */
 function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
   const inspected = info.kind === 'building' ? inspectedOwnedBuilding() : null;
-  if (!inspected || inspected.entity.construction) return info;
+  // Reparation (2026-11-02) : tout batiment allie bati et endommage, Baliste
+  // comprise.
+  const repair = info.kind === 'building' ? repairAction() : null;
+  if (!inspected || inspected.entity.construction) return repair ? { ...info, actions: [...(info.actions ?? []), repair] } : info;
   const { entity, owned } = inspected;
   const level = ownedBuildingLevel(owned);
   const actions: EntityInfoAction[] = [];
-  if (entity.productionOrder) {
-    const name = getUnit(entity.productionOrder.unitId).name;
-    actions.push({ id: 'produceUnit', label: `En production : ${name} — ${Math.ceil(entity.productionOrder.remaining)} s`, enabled: false });
-  } else {
-    for (const unitId of producibleUnits(owned.buildingId, level)) {
-      const cost = effectivePlayerUnitCost(unitId, playerProgression().upgrades);
-      const enabled = currentRun.gold >= cost;
-      actions.push({ id: 'produceUnit', payload: unitId, label: `Produire : ${getUnit(unitId).name} — ${formatGold(cost)} or · ${unitProductionSeconds(unitId)} s`, enabled, hint: enabled ? undefined : 'Or insuffisant' });
-    }
+  // File de production (2026-11-02) : unites et amelioration dans l'ordre des
+  // clics, PRODUCTION_QUEUE_MAX au plus ; un clic sur une commande l'annule.
+  const full = entity.productionOrders.length >= PRODUCTION_QUEUE_MAX;
+  for (const unitId of producibleUnits(owned.buildingId, level)) {
+    const cost = effectivePlayerUnitCost(unitId, playerProgression().upgrades);
+    const enabled = currentRun.gold >= cost && !full;
+    actions.push({ id: 'produceUnit', payload: unitId, label: `Produire : ${getUnit(unitId).name} — ${formatGold(cost)} or · ${unitProductionSeconds(unitId)} s`, enabled, hint: full ? `File pleine (${PRODUCTION_QUEUE_MAX})` : enabled ? undefined : 'Or insuffisant' });
   }
+  entity.productionOrders.forEach((order, i) => {
+    const what = order.kind === 'unit' ? getUnit(order.unitId).name : `Amélioration Niv. ${displayedUpgradeLevel(level + 1)}`;
+    const time = i === 0 ? `${Math.ceil(order.remaining)} s` : 'en attente';
+    actions.push({ id: 'cancelProduction', payload: String(order.id), label: `${i + 1}. ${what} — ${time} ✕`, enabled: true, hint: 'Clic : annuler (or rendu)' });
+  });
+  // Point de ralliement (2026-11-02) : batiment producteur.
+  if (getBuilding(owned.buildingId).production) {
+    actions.push({ id: 'setRally', label: entity.rally ? 'Ralliement : déplacer' : 'Ralliement', enabled: true, hint: 'Puis clic sur le terrain : les unités produites y marchent' });
+    if (entity.rally) actions.push({ id: 'clearRally', label: 'Retirer le ralliement', enabled: true });
+  }
+  if (repair) actions.push(repair);
   // Ameliorations, Forge, Eglise : memes actions que la fiche de preparation.
+  // Batiment producteur : l'amelioration passe par la file (duree, une seule a la fois).
   const legacy = placementBuildingInfo(owned, playerProgression(), currentRun.gold, realtimeArmyMissingHp());
-  return { ...info, actions: [...actions, ...(legacy.actions ?? [])] };
+  const queued = upgradesThroughQueue(owned.buildingId);
+  const pending = entity.productionOrders.some((o) => o.kind === 'upgrade');
+  const legacyActions = (legacy.actions ?? []).map((a) => {
+    if (a.id !== 'upgradeBuilding' || !queued) return a;
+    const hint = pending ? 'Amélioration déjà en file' : full ? `File pleine (${PRODUCTION_QUEUE_MAX})` : a.hint;
+    return { ...a, label: `${a.label} · ${BUILDING_UPGRADE_SECONDS} s`, enabled: a.enabled && !pending && !full, hint };
+  });
+  return { ...info, actions: [...actions, ...legacyActions] };
+}
+
+/** Batiment allie inspecte en jeu (Baliste comprise), null sinon. */
+function inspectedPlayerBuilding(): Entity | null {
+  const e = battleInspectedEntityId !== null ? world.getById(battleInspectedEntityId) : undefined;
+  return e && e.alive && e.isBuilding && e.team === 'player' && !e.destructible ? e : null;
+}
+
+/** Action « Reparer » de la fiche : batiment bati et endommage ; cout
+ *  (run/buildingRepair.ts) paye sur le stock ; le Heros s'en charge. */
+function repairAction(): EntityInfoAction | null {
+  const e = inspectedPlayerBuilding();
+  if (!e || e.construction || e.hp >= e.stats.maxHp - 1e-6 || !inBattlePhase() || inTestMode) return null;
+  const cost = repairCost(e.unitId, (e.stats.maxHp - e.hp) / e.stats.maxHp);
+  const hero = playerHero();
+  const busy = [...repairLedger.values()].some((r) => r.buildingId === e.id);
+  const affordable = canPayRepair(cost);
+  const enabled = !!hero?.alive && affordable && !busy;
+  const hint = !hero?.alive ? 'Le Héros est à terre' : busy ? 'Réparation en cours' : affordable ? 'Le Héros va réparer le bâtiment' : 'Stock insuffisant (or, bois, pierre déposés)';
+  return { id: 'repairBuilding', label: `Réparer — ${formatRepairCost(cost)}`, enabled, hint: enabled ? hint : hint };
+}
+
+function canPayRepair(cost: RepairCost): boolean {
+  return currentRun.gold >= cost.gold && currentRun.resources.wood >= cost.wood && currentRun.resources.stone >= cost.stone;
+}
+
+/** Reparations payees en cours (id -> paiement, budget de PV, batiment) :
+ *  remboursement de la part non utilisee a leur fin (repairEnd) ou si la
+ *  simulation refuse l'ordre. */
+const repairLedger = new Map<number, { paid: RepairCost; budgetHp: number; buildingId: number }>();
+let nextRepairId = 1;
+
+function startRepairOfInspected(): void {
+  const e = inspectedPlayerBuilding();
+  const hero = playerHero();
+  if (!e || !hero?.alive || e.construction || e.hp >= e.stats.maxHp || [...repairLedger.values()].some((r) => r.buildingId === e.id)) return;
+  const budgetHp = e.stats.maxHp - e.hp;
+  const cost = repairCost(e.unitId, budgetHp / e.stats.maxHp);
+  if (!canPayRepair(cost)) return;
+  currentRun.gold = roundGold(currentRun.gold - cost.gold);
+  currentRun.resources.wood -= cost.wood;
+  currentRun.resources.stone -= cost.stone;
+  const repairId = nextRepairId++;
+  repairLedger.set(repairId, { paid: cost, budgetHp, buildingId: e.id });
+  world.issueCommand({ kind: 'repair', entityIds: [hero.id], targetEntityId: e.id, repairId, budgetHp });
+  entityInfoSelectionKey = '';
+}
+
+/** Rend la part non utilisee d'une reparation (`unused` : 0..1 du budget). */
+function settleRepair(repairId: number, unused: number, done: boolean): void {
+  const entry = repairLedger.get(repairId);
+  if (!entry) return;
+  repairLedger.delete(repairId);
+  const refund = repairRefund(entry.paid, unused);
+  currentRun.gold = roundGold(currentRun.gold + refund.gold);
+  currentRun.resources.wood += refund.wood;
+  currentRun.resources.stone += refund.stone;
+  const back = refund.gold + refund.wood + refund.stone > 0 ? ` — rendu : ${formatRepairCost(refund)}` : '';
+  waveIndicator.flash(done ? `Réparation terminée${back}` : `Réparation interrompue${back}`);
+  entityInfoSelectionKey = '';
+}
+
+/** Point de ralliement en attente de sa cible (fiche d'un producteur). */
+let rallyTargeting: { buildingId: number } | null = null;
+
+function armRallyTargeting(): void {
+  const e = inspectedPlayerBuilding();
+  if (!e) return;
+  cancelSpellTargeting();
+  rallyTargeting = { buildingId: e.id };
+  buildingRotationHint.setText('Point de ralliement : clic sur le terrain — clic droit ou Échap pour annuler');
+  buildingRotationHint.setVisible(true);
+}
+
+function cancelRallyTargeting(): void {
+  if (!rallyTargeting) return;
+  rallyTargeting = null;
+  buildingRotationHint.setVisible(false);
+}
+
+function useRallyOnClick(event: MouseEvent): void {
+  const point = computeGroundPoint(event);
+  const buildingId = rallyTargeting!.buildingId;
+  cancelRallyTargeting();
+  if (!point) return;
+  world.queueRallyPoint(buildingId, { x: point.x, z: point.z });
+  waveIndicator.flash('Point de ralliement placé');
+  entityInfoSelectionKey = '';
 }
 
 /** Commande de production au batiment inspecte : paye, puis l'unite sort a
  *  la fin de sa duree (sim/systems/buildingProduction.ts). */
+/** Or paye pour chaque commande en file (id -> or), rendu a l'annulation.
+ *  Une file perdue avec son batiment n'est pas remboursee. Vide a chaque
+ *  world.clear() (forgetBattleBuildings). */
+const productionPayments = new Map<number, number>();
+
+/** Batiment dont l'amelioration passe par la file de production (duree) :
+ *  les producteurs ; les autres s'ameliorent tout de suite. */
+function upgradesThroughQueue(buildingId: string): boolean {
+  return getBuilding(buildingId).production !== undefined || getBuilding(buildingId).recruitmentUnlock !== undefined;
+}
+
 function produceAtInspectedBuilding(unitId: string): void {
   const inspected = inspectedOwnedBuilding();
-  if (!inspected || inspected.entity.construction || inspected.entity.productionOrder) return;
+  if (!inspected || inspected.entity.construction) return;
   if (!producibleUnits(inspected.owned.buildingId, ownedBuildingLevel(inspected.owned)).includes(unitId)) return;
   const cost = effectivePlayerUnitCost(unitId, playerProgression().upgrades);
   if (currentRun.gold < cost) return;
-  if (!world.startProduction(inspected.entity.id, unitId, unitProductionSeconds(unitId))) return;
+  const orderId = world.queueProduction(inspected.entity.id, { kind: 'unit', unitId }, unitProductionSeconds(unitId));
+  if (orderId === null) return;
   currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
+  productionPayments.set(orderId, cost);
   entityInfoSelectionKey = '';
+}
+
+/** Annule une commande de la file du batiment inspecte : or rendu. */
+function cancelProductionAtInspectedBuilding(orderId: number): void {
+  const inspected = inspectedOwnedBuilding();
+  if (!inspected || !world.cancelProduction(inspected.entity.id, orderId)) return;
+  currentRun.gold = roundGold(currentRun.gold + (productionPayments.get(orderId) ?? 0));
+  productionPayments.delete(orderId);
+  entityInfoSelectionKey = '';
+}
+
+/** Niveau du batiment possede applique a son entite en jeu (PV max, degats). */
+function applyOwnedLevelToEntity(entity: Entity, owned: OwnedBuilding): void {
+  const level = ownedBuildingLevel(owned);
+  const maxHp = effectiveBuildingMaxHp(owned.buildingId, level);
+  entity.hp += maxHp - entity.stats.maxHp;
+  entity.stats = { ...entity.stats, maxHp };
+  if (entity.buildingAttack) entity.buildingAttack = { ...entity.buildingAttack, damage: effectiveBuildingAttackDamage(owned.buildingId, level) };
+}
+
+/** Souche d'un arbre abattu : decor non bloquant (jamais dans la simulation
+ *  ni dans la carte). PROVISOIRE. */
+const STUMP_MODEL = 'stump_roundDetailed';
+const STUMP_SCALE = 0.55;
+
+/** Arbres abattus (apres chaque pas, World.treeFelledEvents) : l'arbre
+ *  disparait du plateau (decor instancie, ou maillage d'une carte dessinee) et
+ *  une souche decorative le remplace (une par case liberee d'un bosquet).
+ *  Rendu seulement : cases et pathfinding sont deja a jour dans la simulation. */
+function handleFelledTrees(): void {
+  for (const felled of world.treeFelledEvents) {
+    if (!board.decor?.hide(felled.x, felled.z)) {
+      const mesh = board.obstacles.children.find((c) => Math.hypot(c.position.x - felled.x, c.position.z - felled.z) < 0.8 && c.visible);
+      if (mesh) mesh.visible = false;
+    }
+    const spots = felled.cells.length > 1 ? felled.cells.map((c) => ({ x: c.x + 0.5, z: c.z + 0.5 })) : [{ x: felled.x, z: felled.z }];
+    for (const spot of spots) {
+      const stump: ObstacleDef = { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: STUMP_MODEL, scale: STUMP_SCALE, x: spot.x, z: spot.z };
+      const mesh = buildObstacleMesh(stump, environmentAssets);
+      placeObstacleMesh(mesh, stump);
+      mesh.userData['stump'] = felled.nodeId;
+      board.group.add(mesh);
+    }
+  }
+}
+
+/** Ameliorations terminees dans une file de production (apres chaque pas) :
+ *  niveau du batiment possede, deja paye a la mise en file. */
+function handleProductionUpgrades(): void {
+  for (const event of world.productionUpgradeEvents) {
+    productionPayments.delete(event.orderId);
+    const index = ownedBuildingIndexByEntityId.get(event.entityId);
+    const entity = world.getById(event.entityId);
+    if (index === undefined || !entity || !applyOwnedBuildingUpgrade(currentRun, index)) continue;
+    applyOwnedLevelToEntity(entity, currentRun.buildings[index]!);
+    entityInfoSelectionKey = '';
+  }
 }
 
 /** Amelioration, Forge, Eglise depuis la fiche, en temps reel. */
@@ -3186,14 +3467,19 @@ function realtimeBuildingAction(id: 'upgradeBuilding' | 'healArmy' | 'openForge'
   const inspected = inspectedOwnedBuilding();
   if (!inspected || inspected.entity.construction || pauseMenuOpen || buildingPlacementMode) return;
   const { entity, index, owned } = inspected;
-  if (id === 'upgradeBuilding') {
+  if (id === 'upgradeBuilding' && upgradesThroughQueue(owned.buildingId)) {
+    // Producteur (2026-11-02) : l'amelioration prend sa place dans la file,
+    // payee maintenant, appliquee a sa fin (handleProductionUpgrades).
+    if (entity.productionOrders.some((o) => o.kind === 'upgrade') || !canUpgradeOwnedBuilding(currentRun, index)) return;
+    const cost = buildingUpgradeGoldCost(owned.buildingId, ownedBuildingLevel(owned));
+    const orderId = world.queueProduction(entity.id, { kind: 'upgrade' }, BUILDING_UPGRADE_SECONDS);
+    if (orderId === null) return;
+    currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
+    productionPayments.set(orderId, cost);
+  } else if (id === 'upgradeBuilding') {
     if (!upgradeOwnedBuilding(currentRun, index)) return;
     // Niveau applique tout de suite au batiment en jeu (PV max, degats).
-    const level = ownedBuildingLevel(owned);
-    const maxHp = effectiveBuildingMaxHp(owned.buildingId, level);
-    entity.hp += maxHp - entity.stats.maxHp;
-    entity.stats = { ...entity.stats, maxHp };
-    if (entity.buildingAttack) entity.buildingAttack = { ...entity.buildingAttack, damage: effectiveBuildingAttackDamage(owned.buildingId, level) };
+    applyOwnedLevelToEntity(entity, owned);
   } else if (id === 'healArmy') {
     const missing = realtimeArmyMissingHp();
     const cost = churchHealCost(missing, churchHealHpPerGold(owned.buildingId, ownedBuildingLevel(owned)));
@@ -3288,6 +3574,24 @@ function onEntityInfoAction(id: EntityInfoAction['id'], payload?: string): void 
   }
   if (id === 'produceUnit' && payload) {
     produceAtInspectedBuilding(payload);
+    return;
+  }
+  if (id === 'cancelProduction' && payload) {
+    cancelProductionAtInspectedBuilding(Number(payload));
+    return;
+  }
+  if (id === 'setRally') {
+    armRallyTargeting();
+    return;
+  }
+  if (id === 'clearRally') {
+    const e = inspectedPlayerBuilding();
+    if (e) world.queueRallyPoint(e.id, null);
+    entityInfoSelectionKey = '';
+    return;
+  }
+  if (id === 'repairBuilding') {
+    startRepairOfInspected();
     return;
   }
   if (!inPlacementPhase && inBattlePhase() && (id === 'upgradeBuilding' || id === 'healArmy' || id === 'openForge' || id === 'openChurchUpgrades')) {
@@ -5799,11 +6103,6 @@ function isEntityInfoContextActive(): boolean {
 /** Modele de la fiche pour la selection courante, ou null sans selection.
  *  Bataille : lit les entites de simulation (stats deja effectives). Une
  *  unite morte a deja ete retiree de battleSelection par sync(). */
-/** Niveau memorise d'une unite de la bataille en cours (battleUnitLevels). */
-function battleUnitLevelOf(entity: Entity): number | null {
-  return battleUnitLevels.get(entity.id) ?? null;
-}
-
 function currentEntityInfo(): EntityInfoViewModel | null {
   const info = currentEntityInfoBase();
   return info && !inPlacementPhase && !inTestMode && inBattlePhase() ? withRealtimeActions(info) : info;
@@ -5822,10 +6121,10 @@ function currentEntityInfoBase(): EntityInfoViewModel | null {
     const aliveEntities = (ids: number[]): Entity[] => ids.map((id) => world.getById(id)).filter((e): e is Entity => e !== undefined && e.alive);
     // Ennemis inspectes (jamais dans battleSelection, donc jamais commandes) :
     // memes fiches qu'une selection alliee, stats de simulation, niveau
-    // memorise au spawn.
+    // d'unite (Entity.level).
     const enemies = aliveEntities(battleEnemyInspection.ids);
     if (enemies.length > 0) {
-      return enemies.length === 1 ? battleUnitInfo(enemies[0]!, world.time, battleUnitLevelOf(enemies[0]!)) : battleGroupInfo(enemies, battleUnitLevelOf);
+      return enemies.length === 1 ? battleUnitInfo(enemies[0]!, world.time) : battleGroupInfo(enemies);
     }
     const units = aliveEntities(battleSelection.ids);
     if (units.length === 0) return null;
@@ -5833,7 +6132,7 @@ function currentEntityInfoBase(): EntityInfoViewModel | null {
     // ses statistiques sont dans son inventaire (touche I). Dans un groupe,
     // la fiche du groupe reste.
     if (units.length === 1 && units[0]!.hero) return null;
-    return units.length === 1 ? battleUnitInfo(units[0]!, world.time, battleUnitLevelOf(units[0]!)) : battleGroupInfo(units, battleUnitLevelOf);
+    return units.length === 1 ? battleUnitInfo(units[0]!, world.time) : battleGroupInfo(units);
   }
   if (placementBallistaSelected) return placementBallistaInfo(playerProgression());
   if (selectedBuildingIndex !== null) {
@@ -5930,9 +6229,13 @@ function resolveBattleSelectionClick(event: MouseEvent): void {
     const ground = building === null ? computeGroundPoint(event) : null;
     const pile = ground ? resourcePileNear(ground.x, ground.z) : null;
     const pileShown = pile !== null && (!fogActive() || fogOfWar!.isExplored(world.resourcePiles[pile.id]!.x, world.resourcePiles[pile.id]!.z));
+    // Arbre (tronc ou feuillage) ou rocher explore sous le curseur :
+    // selection (anneau jaune, contenu) ; un second clic dessus la retire.
+    const source = building === null && !pileShown ? resourceNodeAtClick(event.clientX, event.clientY, ground) : null;
     setBattleSelection([]);
     battleInspectedEntityId = next;
     selectedPileId = pileShown && pile!.id !== selectedPileId ? pile!.id : null;
+    selectedResourceNodeId = source && source.id !== selectedResourceNodeId ? source.id : null;
     return;
   }
 
@@ -5976,6 +6279,8 @@ function setBattleSelection(entityIds: Iterable<number>): void {
   battleSelection.set(entityIds);
   battleEnemyInspection.clear();
   battleInspectedEntityId = null;
+  // Nouvelle selection d'unites : la source selectionnee est retiree.
+  if (battleSelection.size > 0) selectedResourceNodeId = null;
 }
 
 /** Remplace toute selection et toute inspection de bataille par
@@ -6127,7 +6432,7 @@ function issueRightClickOrder(event: MouseEvent): void {
     }
     const drop = depot || site || chest ? null : itemDropNear(point.x, point.z);
     const pile = depot || site || chest || drop ? null : resourcePileNear(point.x, point.z);
-    const node = depot || site || chest || drop || pile ? null : resourceNodeNear(point.x, point.z);
+    const node = depot || site || chest || drop || pile ? null : resourceNodeAtClick(event.clientX, event.clientY, point);
     const command: PlayerCommand | null = depot
       ? { kind: 'deposit', entityIds: heroIds, targetEntityId: depot.id }
       : site
@@ -6142,11 +6447,22 @@ function issueRightClickOrder(event: MouseEvent): void {
             ? { kind: 'harvest', entityIds: heroIds, nodeId: node.id }
             : null;
     if (command) {
-      // Arbre ou gros rocher sans Scierie / Camp de mineur : refuse avec la
-      // raison, le Heros ne bouge pas.
-      if (node && !(node.resource === 'wood' ? world.harvestPermissions.canHarvestTrees : world.harvestPermissions.canMineDeposits)) {
-        waveIndicator.flash(node.resource === 'wood' ? 'Couper les arbres : il faut une Scierie' : 'Exploiter ce gisement : il faut un Camp de mineur');
-        return;
+      if (node) {
+        // Source visee : selectionnee (anneau jaune), recoltable ou non.
+        selectedResourceNodeId = node.id;
+        selectedPileId = null;
+        // Arbre sans Scierie, gros rocher sans Camp de mineur (2026-11-02,
+        // demande d'Antoine) : interaction reconnue ET deplacement autorise,
+        // jamais « clic consomme » — le Heros va voir la ressource, sans la
+        // recolter ; la raison est rappelee.
+        if (!(node.resource === 'wood' ? world.harvestPermissions.canHarvestTrees : world.harvestPermissions.canMineDeposits)) {
+          waveIndicator.flash(node.resource === 'wood' ? 'Couper les arbres : il faut une Scierie' : 'Exploiter ce gisement : il faut un Camp de mineur');
+          const hero = world.getById(heroIds[0]!);
+          const approach = hero ? resourceApproachPoint(node, hero) : point;
+          world.issueCommand({ kind: 'move', entityIds: heroIds, x: approach.x, z: approach.z });
+          if (others.length > 0) world.issueCommand({ kind: 'move', entityIds: others, x: point.x, z: point.z });
+          return;
+        }
       }
       world.issueCommand(command);
       if (others.length > 0) world.issueCommand({ kind: 'move', entityIds: others, x: point.x, z: point.z });
@@ -6226,10 +6542,51 @@ function resourceNodeNear(x: number, z: number): { id: number; resource: Resourc
   let best: { id: number; resource: ResourceKind } | null = null;
   let bestD = 1.1;
   for (const n of world.resourceNodes.values()) {
+    // Arbre epuise : plus une source.
+    if ((world.resourceNodeAmounts.get(n.id) ?? 1) <= 0) continue;
     const d = Math.hypot(n.x - x, n.z - z);
     if (d < bestD) {
       bestD = d;
       best = n;
+    }
+  }
+  return best;
+}
+
+/** Source de ressource exploree visee par un clic : arbre (tronc ou
+ *  feuillage, a l'ecran), sinon arbre ou rocher au sol (resourceNodeNear). */
+function resourceNodeAtClick(clientX: number, clientY: number, ground: { x: number; z: number } | null): ResourceNode | null {
+  const tree = treeAtScreen(clientX, clientY, ground);
+  if (tree) return tree;
+  const near = ground ? resourceNodeNear(ground.x, ground.z) : null;
+  const node = near ? world.resourceNodes.get(near.id) : undefined;
+  return node && (!fogActive() || fogOfWar!.isExplored(node.x, node.z)) ? node : null;
+}
+
+/** Pointage d'un arbre a l'ecran : tronc, milieu et couronne (hauteurs
+ *  au-dessus du sol), a moins de TREE_PICK_PX du curseur. PROVISOIRE. */
+const TREE_PICK_HEIGHTS = [0.3, 1.2, 2.2];
+const TREE_PICK_PX = 28;
+
+/** Arbre (bois restant > 0) explore le plus proche du curseur a l'ecran,
+ *  parmi ceux a moins de 6 cases du point vise au sol (le feuillage cache le
+ *  sol derriere lui). */
+function treeAtScreen(clientX: number, clientY: number, ground: { x: number; z: number } | null): ResourceNode | null {
+  if (!ground) return null;
+  const rect = canvas.getBoundingClientRect();
+  let best: ResourceNode | null = null;
+  let bestD = TREE_PICK_PX;
+  for (const n of world.resourceNodes.values()) {
+    if (n.resource !== 'wood' || (world.resourceNodeAmounts.get(n.id) ?? 0) <= 0) continue;
+    if (Math.hypot(n.x - ground.x, n.z - ground.z) > 6) continue;
+    if (fogActive() && !fogOfWar!.isExplored(n.x, n.z)) continue;
+    for (const h of TREE_PICK_HEIGHTS) {
+      const v = new THREE.Vector3(n.x, h + surfaceY(n.x, n.z), n.z).project(renderer.camera);
+      const d = Math.hypot(rect.left + (v.x * 0.5 + 0.5) * rect.width - clientX, rect.top + (-v.y * 0.5 + 0.5) * rect.height - clientY);
+      if (d < bestD) {
+        bestD = d;
+        best = n;
+      }
     }
   }
   return best;
@@ -6278,6 +6635,8 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
     } else if (ev.type === 'chestOpened') {
       // Le butin tombe au sol devant le coffre (World.dropItem) : a ramasser.
       waveIndicator.flash(ev.itemId ? `Coffre ouvert : ${EQUIPMENT[ev.itemId]?.name ?? ev.itemId}` : 'Coffre vide');
+    } else if (ev.type === 'repairEnd') {
+      settleRepair(ev.repairId, ev.budgetHp > 0 ? 1 - ev.restoredHp / ev.budgetHp : 0, ev.reason === 'done');
     } else if (ev.type === 'chestLocked') {
       waveIndicator.flash('Camp encore défendu');
     } else if (ev.type === 'carryFull') {
@@ -6353,6 +6712,12 @@ function heroActionProgress(hero: Entity): { progress: number; remaining: number
     // Sac de depart = porte + deja verse (une unite par DEPOSIT_SECONDS_PER_ITEM).
     const total = (carriedResourceTotal(h.inventory) + Math.floor(h.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9)) * DEPOSIT_SECONDS_PER_ITEM;
     return { progress: Math.min(1, h.workTimer / Math.max(total, 1e-6)), remaining: total - h.workTimer };
+  }
+  if (h.working === 'build' && hero.order.type === 'repair' && h.repairJob) {
+    // Reparation : part du budget de PV rendue, au rythme de REPAIR_FULL_SECONDS.
+    const target = world.getById(h.repairJob.targetId);
+    const left = h.repairJob.budgetHp - h.repairJob.restoredHp;
+    if (target) return { progress: h.repairJob.restoredHp / Math.max(h.repairJob.budgetHp, 1e-6), remaining: left / (target.stats.maxHp / REPAIR_FULL_SECONDS) };
   }
   if (h.working === 'build' && hero.order.type === 'build') {
     const site = world.getById(hero.order.targetEntityId)?.construction;
@@ -6834,8 +7199,9 @@ function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: numb
   if (isWaterTile(tileX, tileZ)) return false;
   // Arbre (2026-11-02) : sa case bloque les unites terrestres, donc aussi
   // toute pose (batiment, chantier, muraille, Baliste, unite) — regle unique
-  // des cases d'arbre (config/resourceNodes.ts, treeCellKeys).
-  if (treeCellKeys(currentMap.obstacles).has(cellKey(Math.floor(tileX), Math.floor(tileZ)))) return false;
+  // des cases d'arbre (config/resourceNodes.ts, treeCellKeys). Arbre abattu :
+  // sa case redevient constructible (World.treeCells, arbres debout).
+  if (world.treeCells.has(cellKey(Math.floor(tileX), Math.floor(tileZ)))) return false;
 
   // Batiments (2026-11-02, demande d'Antoine) : plus de limite de
   // territoire, seulement une case de la carte (hors carte refuse).
@@ -6866,6 +7232,61 @@ function isWaterTile(x: number, z: number): boolean {
   const cells = currentMap.surfaceCells;
   if (!waterTilesCache || waterTilesCache.cells !== cells) waterTilesCache = { cells, keys: waterCellKeys(cells) };
   return waterTilesCache.keys.has(cellKey(Math.floor(x), Math.floor(z)));
+}
+
+// --- Sol du village (2026-11-02, demande d'Antoine) ----------------------
+
+/** Terre battue sous les batiments du joueur et chemins entre batiments
+ *  proches (render/settlementGround.ts) : purement visuel, derive des
+ *  batiments poses (chantiers compris), dans leur ordre de pose. Un batiment
+ *  detruit garde sa terre battue jusqu'au plateau suivant ou a la run
+ *  suivante. Plateau de la Survie seulement (ni editeur, ni « Tester le
+ *  scenario »). Verification toutes les SETTLEMENT_CHECK_SECONDS (temps
+ *  reel) ; repeint seulement si un batiment est apparu. */
+const SETTLEMENT_CHECK_SECONDS = 0.2;
+let settlementBoard: typeof board | null = null;
+const settlementSites = new Map<string, SettlementSite>();
+let settlementCheckIn = 0;
+let settlementMapCells: { map: MapDef; keys: Set<string> } | null = null;
+
+function updateSettlementGround(realDt: number): void {
+  if (inEditorMode || inTestMode) return;
+  settlementCheckIn -= realDt;
+  if (settlementCheckIn > 0) return;
+  settlementCheckIn = SETTLEMENT_CHECK_SECONDS;
+  if (settlementBoard !== board) {
+    settlementBoard = board;
+    settlementSites.clear();
+  }
+  let added = false;
+  for (const e of world.entities) {
+    if (!e.isBuilding || e.team !== 'player' || !e.footprintObstacle || !leavesSettlementGround(e.unitId)) continue;
+    const b = obstacleBounds(e.footprintObstacle);
+    const key = `${b.minX},${b.minZ},${b.maxX},${b.maxZ}`;
+    if (settlementSites.has(key)) continue;
+    settlementSites.set(key, b);
+    added = true;
+  }
+  if (added) repaintSettlementGround();
+}
+
+/** Surfaces de la carte + terre battue du village (jamais sur l'eau ni hors
+ *  de la carte), seuls les morceaux de sol touches sont reconstruits. */
+function repaintSettlementGround(): void {
+  if (settlementMapCells?.map !== currentMap) settlementMapCells = { map: currentMap, keys: new Set(resolveMapCells(currentMap).map((c) => cellKey(c.x, c.z))) };
+  const inMap = settlementMapCells.keys;
+  const painted = buildSurfaceIndex(currentMap.surfaceCells);
+  const dirt = settlementGroundCells([...settlementSites.values()], (x, z) => inMap.has(cellKey(x, z)) && !isWaterTile(x + 0.5, z + 0.5));
+  for (const key of dirt) painted.set(key, SETTLEMENT_SURFACE);
+  board.terrain.updateSurfaces(painted);
+}
+
+/** Nouvelle run : plus aucune terre battue des batiments de la precedente
+ *  (le sol est repeint a la verification suivante, Baliste comprise, sur le
+ *  plateau alors en place). */
+function resetSettlementGround(): void {
+  settlementSites.clear();
+  settlementCheckIn = 0;
 }
 
 // --- Achat/placement de batiments (2026-08-17, chantier "batiments
@@ -7684,6 +8105,8 @@ const loop = new Loop(
         const ring = depotRingTarget(world.getById(result.command.targetEntityId));
         if (ring) depotTargetRing.pulse(ring);
       }
+      // Sort accepte : bref flash jaune de l'anneau sous la cible.
+      if (result.command.kind === 'cast' && result.rejection === null) spellTargetFeedback.spawn(result.command.targetEntityId);
       if (result.command.kind === 'cast' && result.rejection !== null) {
         waveIndicator.flash(result.rejection === 'no-mana' ? `Mana insuffisant pour ${getSpell(result.command.spellId).name}` : 'Cible invalide : le Héros ou une unité alliée');
       }
@@ -7917,6 +8340,13 @@ const loop = new Loop(
     // VRAIE Entity (memes stats et ameliorations qu'une unite recrutee).
     handleHeroEvents(world.heroEvents);
     handleCampEvents();
+    // Reparation refusee par la simulation (Heros ou batiment perdu entre le
+    // clic et le pas) : remboursement integral.
+    for (const r of world.commandResults) {
+      if (r.command.kind === 'repair' && r.rejection !== null) settleRepair(r.command.repairId, 1, false);
+    }
+    handleProductionUpgrades();
+    handleFelledTrees();
     for (const event of world.productionSpawnEvents) {
       // Niveau de production lu ICI, au spawn : les unites deja produites
       // gardent le leur (voir rememberPlayerUnitLevel).
@@ -7937,7 +8367,10 @@ const loop = new Loop(
         rememberPlayerUnitLevel(spawned, level);
         // Unite produite du joueur : en Garde des son apparition, comme
         // le reste de l'armee en debut de bataille.
-        holdPlayerUnitsInGuard([spawned.id]);
+        // Point de ralliement du batiment (2026-11-02) : l'unite sort devant
+        // lui puis y marche ; sinon Garde.
+        if (event.rally) world.issueCommand({ kind: 'move', entityIds: [spawned.id], x: event.rally.x, z: event.rally.z });
+        else holdPlayerUnitsInGuard([spawned.id]);
       }
     }
 
@@ -7953,6 +8386,8 @@ const loop = new Loop(
     for (const e of world.entities) {
       if (e.team === 'enemy' && !e.alive && !rewardedEnemyDeaths.has(e.id)) {
         rewardedEnemyDeaths.add(e.id);
+        // Objet destructible (baril) : ni ennemi vaincu ni deblocage.
+        if (e.isBuilding) continue;
         // Or physique (2026-11-02) : plus de prime versee au stock ; l'ennemi
         // lache un tas d'or au sol (World, ENEMY_GOLD_DROPS + talent), a
         // ramasser et deposer.
@@ -7992,7 +8427,9 @@ const loop = new Loop(
       // Mini-vagues : aucun ennemi vivant ne suffit pas, tous les groupes
       // doivent etre apparus. La defaite reste immediate.
       // Heros (choix d'Antoine) : Heros a terre ET Baliste detruite = defaite.
-      const defeated = playerAlive === 0 || world.isHeroDefeat('player');
+      // Baliste detruite = defaite immediate (2026-11-02, coeur de la base) ;
+      // le Heros mort revient tant qu'elle tient.
+      const defeated = playerAlive === 0 || world.isBaseLost('player');
       const waveCleared = enemyAlive === 0 && world.allEnemyGroupsSpawned();
       // Survie en temps reel continu (2026-11-01) : une vague repoussee ne
       // change plus de phase (completeSurvivalWave) ; seule la defaite
@@ -8022,7 +8459,7 @@ const loop = new Loop(
           // n'arrive que dans applyBattleOutcome, plus bas) : c'est bien le
           // numero de la vague qu'on vient de jouer.
           // Heros a terre et Baliste detruite : defaite meme avec des survivants.
-          const heroFell = world.isHeroDefeat('player');
+          const heroFell = world.isBaseLost('player');
           const label = `Vague ${currentRun.waveNumber} — ${playerAlive > 0 && !heroFell ? 'Victoire !' : 'Défaite'}`;
           waveTransition.play(label, async () => {
             // Bonus de fin de vague (si victoire) et armee mise a jour (PV
@@ -8133,7 +8570,7 @@ const loop = new Loop(
               talentPointToast.show(metaProgress.talentPoints - talentPointsBefore);
               waveIndicator.setVisible(false);
               goldHud.setVisible(false);
-              heroHud.setVisible(false);
+              heroHud.setVisible(false); actionProgressBar.setVisible(false);
               buildMenu.setVisible(false);
               populationHud.setVisible(false);
               economyHud.setVisible(false);
@@ -8198,7 +8635,9 @@ const loop = new Loop(
     // evenement") — plus aucun site d'appel a se souvenir d'ajouter apres un
     // achat/une vente.
     goldHud.update(currentRun.gold);
-    heroHud.update(heroHudState());
+    const hudState = heroHudState();
+    heroHud.update(hudState);
+    actionProgressBar.update(hudState.action);
     // Ligne economique : stock utilisable (jamais le sac), population.
     const economyPop = inPlacementPhase ? runPopulation(currentRun) : populationOfEntities(world.entities);
     economyHud.update({ wood: currentRun.resources.wood, stone: currentRun.resources.stone, gold: formatGold(currentRun.gold), popUsed: economyPop.used, popMax: economyPop.max });
@@ -8333,6 +8772,8 @@ const loop = new Loop(
     resourcePileViews.animate(realDt);
     itemDropViews.animate(realDt);
     campViews.animate(realDt);
+    destructibleViews.animate(realDt);
+    rallyMarkers.sync(world.entities, battleInspectedEntityId, !inEditorMode && inBattlePhase());
     updateEdgeScroll(realDt);
     // Depot vise par un ordre de depot du Heros : anneau fixe tant qu'il dure.
     const depositing = inBattlePhase() ? world.entities.find((e) => e.alive && e.hero && e.team === 'player' && e.order.type === 'deposit') : undefined;
@@ -8341,6 +8782,8 @@ const loop = new Loop(
     spellCastVfxView.sync(inBattlePhase() ? world.entities : [], (id) => unitViews.getPosition(id), realDt);
     updateHeroUi();
     attackOrderFeedback.sync(realDt, (id) => world.getById(id), (id) => unitViews.getPosition(id));
+    updateSettlementGround(realDt);
+    spellTargetFeedback.sync(realDt, (id) => world.getById(id), (id) => unitViews.getPosition(id));
     // VFX de Provocation (Sentinelle, 2026-08-14) — voir render/tauntVfx.ts.
     // Meme resolution de position que les cristaux de givre ci-dessus, pour
     // que l'indicateur au-dessus d'une unite provoquee la suive meme si
@@ -8645,7 +9088,7 @@ function quitToMenu(): void {
   board.zones.visible = false;
   waveIndicator.setVisible(false);
   goldHud.setVisible(false);
-  heroHud.setVisible(false);
+  heroHud.setVisible(false); actionProgressBar.setVisible(false);
   buildMenu.setVisible(false);
   populationHud.setVisible(false);
   economyHud.setVisible(false);
@@ -8909,17 +9352,32 @@ const screens = new Screens({
   // routage Echap/"Retour" selon le contexte d'ouverture.
   onOpenSettingsFromMenu: () => {
     settingsReturnTo = 'menu';
-    screens.showSettings(audio.getSettings(), cameraSpeed);
+    screens.showSettings(audio.getSettings(), cameraSpeed, hudLayout.gridEnabled(), hudLayout.isUnlocked());
   },
   onOpenSettingsFromPause: () => {
     settingsReturnTo = 'pause';
-    screens.showSettings(audio.getSettings(), cameraSpeed);
+    screens.showSettings(audio.getSettings(), cameraSpeed, hudLayout.gridEnabled(), hudLayout.isUnlocked());
   },
   onCloseSettings: () => screens.show(settingsReturnTo === 'pause' ? 'pause' : 'menu'),
   onSetMasterVolume: (v) => {
     audio.setMasterVolume(v);
     persistAudioSettings(audio);
   },
+  onResetHudLayout: () => hudLayout.reset(),
+  onCopyHudLayout: () => {
+    const text = hudLayout.exportLayout();
+    void navigator.clipboard?.writeText(text).catch(() => undefined);
+    return text;
+  },
+  onLoadHudLayout: (text) => {
+    try {
+      return `Disposition chargée (${hudLayout.importLayout(text)} blocs)`;
+    } catch (error) {
+      return `Disposition refusée : ${(error as Error).message}`;
+    }
+  },
+  onSetHudGrid: (on) => hudLayout.setGrid(on),
+  onSetHudUnlocked: (on) => hudLayout.setUnlocked(on),
   onSetCameraSpeed: (v) => {
     cameraSpeed = v;
     saveCameraSpeed(v);
@@ -9106,6 +9564,8 @@ window.addEventListener('keydown', (event) => {
         disarmItem();
       } else if (spellTargeting) {
         cancelSpellTargeting();
+      } else if (rallyTargeting) {
+        cancelRallyTargeting();
       } else if (heroInventory.isOpen()) {
         heroInventory.close();
       } else if (buildMenu.isOpen()) {
@@ -9149,7 +9609,9 @@ window.addEventListener('keydown', (event) => {
     case 'X':
       // Vitesse x2 / x1 seulement quand le temps de bataille avance deja :
       // jamais une reprise apres la fin de bataille, en pause ou hors combat.
-      if (isBattleTimeRunning()) loop.timeScale = loop.timeScale === 2 ? 1 : 2;
+      // Outil de debug (2026-11-02) : seulement en mode debug (?debug, F3),
+      // plus dans le HUD joueur.
+      if (document.body.classList.contains('debug-mode') && isBattleTimeRunning()) loop.timeScale = loop.timeScale === 2 ? 1 : 2;
       break;
     case 'q':
     case 'Q':
@@ -9276,6 +9738,7 @@ canvas.addEventListener('mousedown', (event) => {
   const disarmedItem = armedItemIndex !== null || spellTargeting !== null;
   if (armedItemIndex !== null) disarmItem();
   if (spellTargeting) cancelSpellTargeting();
+  if (rallyTargeting) cancelRallyTargeting();
 
   // Prototype RTS : en bataille, avec une unite commandee (selection ou Heros),
   // ce clic droit devient un ordre (attaque ou deplacement) a son relachement
@@ -9439,6 +9902,17 @@ canvas.addEventListener('mousedown', (event) => {
   // Sort de Heros en attente de cible (fiche : Soin).
   if (spellTargeting) {
     useSpellOnClick(event);
+    return;
+  }
+  // Point de ralliement en attente de sa cible (fiche d'un producteur).
+  if (rallyTargeting) {
+    useRallyOnClick(event);
+    return;
+  }
+  // Menu Construire ouvert (2026-11-02, demande d'Antoine) : un clic gauche
+  // sur le terrain le ferme, et rien d'autre (ni selection, ni deselection).
+  if (buildMenu.isOpen()) {
+    buildMenu.close();
     return;
   }
   commandDrag = { startClientX: event.clientX, startClientY: event.clientY, dragging: false };

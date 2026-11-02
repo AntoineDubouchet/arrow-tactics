@@ -6,7 +6,9 @@ import { obstacleBounds, obstacleCenter, type ObstacleBounds, type ObstacleDef }
  * un arbre donne du bois, un rocher de la pierre. Les decors restent
  * purement visuels pour tout le reste (isBlockingMapObstacle), SAUF les
  * arbres, dont les cases bloquent le deplacement depuis le 2026-11-02
- * (treeFootprintCells). Sources inepuisables dans cette passe (PROVISOIRE).
+ * (treeFootprintCells). Arbres : quantite finie (TREE_WOOD_AMOUNT,
+ * data/resources.ts, decomptee par la simulation) ; rochers inepuisables
+ * (PROVISOIRE).
  */
 export type ResourceKind = 'wood' | 'stone';
 export const RESOURCE_KINDS: readonly ResourceKind[] = ['wood', 'stone'];

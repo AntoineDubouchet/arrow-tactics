@@ -225,18 +225,34 @@ export interface BuildingDef {
 }
 
 export const BUILDINGS: Record<string, BuildingDef> = {
+  /** Baril (2026-11-02) : objet NEUTRE destructible, pas une unite ni un
+   *  batiment du joueur. Jamais achete (pas de cout), jamais cible
+   *  automatiquement : seulement sur ordre d'attaque. Peu de PV (le Paladin
+   *  le casse en deux coups) ; butin : data/loot.ts, DESTRUCTIBLE_LOOT.
+   *  Une case bloquante. Valeurs PROVISOIRES. */
+  barrel: {
+    id: 'barrel',
+    displayName: 'Baril',
+    maxHp: 4 * HP_PER_PIP,
+    radius: 0.4,
+    targetable: true,
+    countsForDefeat: false,
+    hpBarHeight: 0.9,
+    footprintTilesX: 1,
+    footprintTilesZ: 1,
+  },
   // "15 HP" (Antoine) -> 150 interne, échelle x10 vérifiée comme partout
   // ailleurs (voir CLAUDE.md, "Échelle des nombres").
   mine: {
     id: 'mine',
     displayName: 'Mine',
     maxHp: 15 * HP_PER_PIP,
-    // Comparable au footprint 2x2 de son ObstacleDef (voir
+    // Comparable au footprint 3x3 de son ObstacleDef (voir
     // ownedBuildingObstacle, main.ts) sans être identique — juste le
     // reach d'attaque adverse, pas la hitbox de collision physique (gérée
     // séparément par l'obstacle). Valeur choisie par Claude, non donnée par
-    // Antoine.
-    radius: 1.0,
+    // Antoine. 1,5 depuis l'emprise 3 x 3 (2026-11-02).
+    radius: 1.5,
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 1.6,
@@ -248,8 +264,10 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     resourceCost: { wood: 5 },
     buildTime: 6,
     buildingModel: 'blue_mine',
-    footprintTilesX: 2,
-    footprintTilesZ: 2,
+    // 3 x 3 cases (2026-11-02, demande d'Antoine : la Mine paraissait trop
+    // petite) ; le modele suit l'emprise (cloneScaledToFootprint).
+    footprintTilesX: 3,
+    footprintTilesZ: 3,
     upgradeGoldCostBase: 25,
   },
   // "25 HP" (Antoine) -> 250 interne.

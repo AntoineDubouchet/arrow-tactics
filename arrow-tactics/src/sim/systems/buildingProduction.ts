@@ -1,6 +1,6 @@
 import { obstacleBounds, type ObstacleDef } from '../../config/constants';
 import { populationOfEntities, unitPopulationCost } from '../../data/population';
-import { forwardDir, type Entity, type Team } from '../entity';
+import type { Entity, Team } from '../entity';
 import { segmentIntersectsBox } from '../geometry';
 
 /**
@@ -24,6 +24,9 @@ export interface ProductionSpawnEvent {
   team: Team;
   x: number;
   z: number;
+  /** Point de ralliement du batiment au moment de la sortie (Entity.rally) :
+   *  l'unite y marche des son apparition. */
+  rally: { x: number; z: number } | null;
 }
 
 /**
@@ -35,24 +38,35 @@ export interface ProductionSpawnEvent {
  * ensemble le maximum ni ne choisissent la meme case (ordre deterministe,
  * celui des entites).
  */
-/** Production temps reel : avance les commandes (Entity.productionOrder) ;
- *  une commande terminee rejoint productionQueue, que buildingProductionSystem
- *  fait apparaitre au meme pas (place de population et case libre requises).
- *  Un chantier ne produit pas ; un batiment mort perd sa commande. */
-export function tickProductionOrders(entities: Entity[], dt: number): void {
+/** Amelioration d'un batiment terminee dans sa file de production
+ *  (World.productionUpgradeEvents) : l'orchestration applique le niveau. */
+export interface ProductionUpgradeEvent {
+  entityId: number;
+  orderId: number;
+}
+
+/** Production temps reel : avance la PREMIERE commande de chaque file
+ *  (Entity.productionOrders, ordre des clics). Une unite terminee rejoint
+ *  productionQueue, que buildingProductionSystem fait apparaitre au meme pas
+ *  (place de population et case libre requises) ; une amelioration terminee
+ *  est renvoyee. Un chantier ne produit pas ; un batiment mort perd sa file. */
+export function tickProductionOrders(entities: Entity[], dt: number): ProductionUpgradeEvent[] {
+  const upgrades: ProductionUpgradeEvent[] = [];
   for (const e of entities) {
-    const order = e.productionOrder;
+    const order = e.productionOrders[0];
     if (!order) continue;
     if (!e.alive) {
-      e.productionOrder = null;
+      e.productionOrders = [];
       continue;
     }
     if (e.construction) continue;
     order.remaining -= dt;
     if (order.remaining > 1e-9) continue;
-    e.productionQueue.push(order.unitId);
-    e.productionOrder = null;
+    e.productionOrders.shift();
+    if (order.kind === 'unit') e.productionQueue.push(order.unitId);
+    else upgrades.push({ entityId: e.id, orderId: order.id });
   }
+  return upgrades;
 }
 
 export function buildingProductionSystem(entities: Entity[], obstacles: ObstacleDef[]): ProductionSpawnEvent[] {
@@ -77,7 +91,7 @@ export function buildingProductionSystem(entities: Entity[], obstacles: Obstacle
       const unitId = e.productionQueue[produced]!;
       const unitCost = costOf(unitId);
       if (unitCost > Math.max(playerRoom, 0)) break;
-      events.push({ entityId: e.id, unitId, team: e.team, x: cell.x, z: cell.z });
+      events.push({ entityId: e.id, unitId, team: e.team, x: cell.x, z: cell.z, rally: e.rally ? { ...e.rally } : null });
       reserved.push(cell);
       playerRoom -= unitCost;
       produced++;
@@ -89,16 +103,19 @@ export function buildingProductionSystem(entities: Entity[], obstacles: Obstacle
 }
 
 /**
- * Anneau de cases entourant l'emprise du batiment (emprise agrandie d'une
- * case dans chaque direction, emprise elle-meme exclue), pour n'importe
- * quelle taille d'emprise. Filtre : aucun obstacle COLLIDABLE dessus
- * (rocher, arbre, autre batiment, case "vide" hors de la map — voir
- * World.setMap), aucune entite VIVANTE sur la case, aucune case deja
- * reservee ce tick. Ordre DETERMINISTE : cases les plus "avancees" vers le
- * champ de bataille d'abord, puis x croissant, puis z croissant.
+ * Cases de sortie autour de l'emprise du batiment (deux anneaux, emprise
+ * exclue), pour n'importe quelle taille d'emprise. Filtre : aucun obstacle
+ * COLLIDABLE dessus (rocher, arbre, autre batiment, case "vide" hors de la
+ * map — voir World.setMap), aucune entite VIVANTE sur la case, aucune case
+ * deja reservee ce tick.
  *
- * Renvoie JUSQU'A `count` cases distinctes, moins si l'anneau manque de
- * place.
+ * Ordre DETERMINISTE (2026-11-02, sortie de production) : DEVANT le
+ * batiment d'abord (face +Z du modele tournee par son `rotationY`), puis
+ * sur les cotes, DERRIERE en dernier recours ; dans chaque groupe, l'anneau
+ * proche avant le second, la case la plus proche du milieu de la facade
+ * avant les autres, puis x et z croissants.
+ *
+ * Renvoie JUSQU'A `count` cases distinctes, moins si la place manque.
  */
 function findFreeAdjacentCells(
   building: Entity,
@@ -111,37 +128,44 @@ function findFreeAdjacentCells(
   if (!footprint) return [];
   const bounds = obstacleBounds(footprint);
 
-  const minTileX = Math.floor(bounds.minX) - 1;
-  const maxTileX = Math.ceil(bounds.maxX);
-  const minTileZ = Math.floor(bounds.minZ) - 1;
-  const maxTileZ = Math.ceil(bounds.maxZ);
+  const minTileX = Math.floor(bounds.minX) - 2;
+  const maxTileX = Math.ceil(bounds.maxX) + 1;
+  const minTileZ = Math.floor(bounds.minZ) - 2;
+  const maxTileZ = Math.ceil(bounds.maxZ) + 1;
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+  // Devant : +Z du modele tourne par rotationY (sans rotation : vers +Z).
+  const yaw = footprint.rotationY ?? 0;
+  const fx = Math.sin(yaw);
+  const fz = Math.cos(yaw);
+  const halfDepth = Math.abs(fx) * (bounds.maxX - bounds.minX) / 2 + Math.abs(fz) * (bounds.maxZ - bounds.minZ) / 2;
+  const doorX = centerX + fx * (halfDepth + 0.5);
+  const doorZ = centerZ + fz * (halfDepth + 0.5);
 
-  const candidates: { x: number; z: number }[] = [];
+  const candidates: { x: number; z: number; side: number; ring: number; door: number }[] = [];
   for (let tz = minTileZ; tz <= maxTileZ; tz++) {
     for (let tx = minTileX; tx <= maxTileX; tx++) {
       const cx = tx + 0.5;
       const cz = tz + 0.5;
       // Exclut les cases a l'INTERIEUR de l'emprise elle-meme.
       if (cx > bounds.minX && cx < bounds.maxX && cz > bounds.minZ && cz < bounds.maxZ) continue;
-      candidates.push({ x: cx, z: cz });
+      const ring = Math.max(cx < bounds.minX ? bounds.minX - cx : cx > bounds.maxX ? cx - bounds.maxX : 0, cz < bounds.minZ ? bounds.minZ - cz : cz > bounds.maxZ ? cz - bounds.maxZ : 0) < 1 ? 1 : 2;
+      const dx = cx - centerX;
+      const dz = cz - centerZ;
+      const along = (dx * fx + dz * fz) / Math.max(Math.hypot(dx, dz), 1e-6);
+      const side = along > 0.35 ? 0 : along < -0.35 ? 2 : 1;
+      candidates.push({ x: cx, z: cz, side, ring, door: Math.hypot(cx - doorX, cz - doorZ) });
     }
   }
 
-  const dir = forwardDir(building.team);
-  candidates.sort((a, b) => {
-    const scoreA = a.z * dir;
-    const scoreB = b.z * dir;
-    if (scoreA !== scoreB) return scoreB - scoreA; // plus "avance" vers le champ de bataille d'abord
-    if (a.x !== b.x) return a.x - b.x;
-    return a.z - b.z;
-  });
+  candidates.sort((a, b) => a.side - b.side || a.ring - b.ring || a.door - b.door || a.x - b.x || a.z - b.z);
 
   const chosen: { x: number; z: number }[] = [];
   for (const c of candidates) {
     if (chosen.length >= count) break;
     if (reserved.some((r) => sameCell(r, c))) continue;
     if (acrossCliff(bounds, c, obstacles)) continue;
-    if (isCellFree(c.x, c.z, entities, obstacles)) chosen.push(c);
+    if (isCellFree(c.x, c.z, entities, obstacles)) chosen.push({ x: c.x, z: c.z });
   }
   return chosen;
 }

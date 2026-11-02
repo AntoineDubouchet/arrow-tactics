@@ -138,6 +138,7 @@ export class EntityInfoPanel {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'entity-info-action';
+      button.dataset['action'] = action.id;
       button.textContent = action.label;
       button.addEventListener('click', () => {
         // Le focus ne doit pas rester sur le bouton : Espace/Entree le

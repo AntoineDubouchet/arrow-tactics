@@ -22,5 +22,10 @@ export const RESOURCE_ITEMS: Readonly<Record<CarriedResource, ResourceItemDef>> 
   gold: { id: 'gold', name: 'Or', maxStack: 5, color: '#f2c94c' },
 };
 
+/** Bois total d'un arbre (2026-11-02, demande d'Antoine) : arbre isole ou
+ *  bosquet, decompte a chaque unite coupee (World.resourceNodeAmounts).
+ *  Les rochers restent inepuisables. PROVISOIRE. */
+export const TREE_WOOD_AMOUNT = 20;
+
 /** Ordre de depot (une unite toutes les DEPOSIT_SECONDS_PER_ITEM s). */
 export const CARRIED_RESOURCES: readonly CarriedResource[] = ['wood', 'stone', 'gold'];

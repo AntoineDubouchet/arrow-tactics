@@ -28,6 +28,12 @@ export type WallVisualRole = { role: 'single' } | { role: 'lead'; partner: numbe
 
 const quarterOf = (rotationY: number): number => (((Math.round(rotationY / (Math.PI / 2)) % 4) + 4) % 4);
 
+/** Vrai pour une rotation a 45 degres pres d'un multiple impair (muraille
+ *  diagonale, 2026-11-02). */
+export function isDiagonalRotation(rotationY: number): boolean {
+  return Math.abs(Math.round(rotationY / (Math.PI / 4)) % 2) === 1;
+}
+
 /** Vrai pour une case de mur appariable (segment droit d'une case). */
 function isWallCell(b: WallPlaced): boolean {
   const def = getBuilding(b.buildingId);
@@ -40,7 +46,8 @@ export function wallVisualRoles(placed: readonly WallPlaced[], alive: (index: nu
   const roles: WallVisualRole[] = placed.map(() => ({ role: 'single' }));
   const lines = new Map<string, { index: number; along: number }[]>();
   placed.forEach((b, index) => {
-    if (!isWallCell(b) || !alive(index)) return;
+    // Case diagonale (45 degres) : jamais appariee, modele allonge seul.
+    if (!isWallCell(b) || !alive(index) || isDiagonalRotation(b.rotationY ?? 0)) return;
     const quarter = quarterOf(b.rotationY ?? 0);
     const alongX = quarter % 2 === 0;
     const key = `${b.team ?? ''}|${quarter}|${alongX ? 'z' + Math.floor(b.z) : 'x' + Math.floor(b.x)}`;

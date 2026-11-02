@@ -18,7 +18,6 @@ import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp } from './buildin
 import { churchHealCost, churchHealHpPerGold } from './churchHeal';
 import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isBuildingAtMaxLevel, isUpgradableBuilding } from './buildingUpgrades';
-import { getUnitUpgradeDef } from '../data/unitUpgrades';
 import { BODY_LAYOUT, EQUIPMENT_SLOTS, EQUIPMENT_TYPES, getEquipment, RARITIES, type EquipmentSlot } from '../data/equipment';
 import { RESOURCE_ITEMS } from '../data/resources';
 import { describeEquipment } from './heroEquipment';
@@ -68,7 +67,7 @@ export interface EntityInfoAction {
    *  Tour, Eglise). `toggleBallistaMode` : bascule la Baliste AUTO / MANUEL
    *  (bataille). `healArmy` : soin de l'armee a l'Eglise selectionnee ;
    *  `openChurchUpgrades` : ameliorations de run accessibles a l'Eglise. */
-  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'openChurchUpgrades' | 'buildStructure' | 'produceUnit';
+  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'openChurchUpgrades' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding';
   /** `buildStructure` : batiment a poser ; `produceUnit` : unite a produire
    *  (fiche d'un batiment), Survie en temps reel. */
   payload?: string;
@@ -127,12 +126,6 @@ function formatNumber(value: number): string {
  *  inchange pour une entite sans amelioration (niveau null). */
 function titleWithLevel(title: string, level: number | null): string {
   return level === null ? title : `${title} — Niv. ${displayedUpgradeLevel(level)}`;
-}
-
-/** Niveau a afficher pour une unite du joueur : son niveau de production
- *  propre, null pour un type sans amelioration. */
-function unitProductionLevelOrNull(unitId: string, productionLevel: number): number | null {
-  return getUnitUpgradeDef(unitId) ? productionLevel : null;
 }
 
 /** Niveau a afficher pour un batiment : seulement dans le camp du joueur
@@ -328,15 +321,17 @@ export function placementUnitInfo(slot: PlacementUnitSource, progress: PlayerPro
     abilityDamageBonus: playerUnitAbilityDamageBonus(slot.unitId, slot.productionLevel),
     tauntShieldBonus: playerUnitTauntShieldBonus(slot.unitId, slot.productionLevel),
     battle: null,
-    upgradeLevel: hero ? heroLevel - 1 : unitProductionLevelOrNull(slot.unitId, slot.productionLevel),
+    // Niveau d'unite (data/unitLevels.ts) : niveau de production propre
+    // (0 = Niv. 1), pour tout type d'unite.
+    upgradeLevel: hero ? heroLevel - 1 : slot.productionLevel,
   });
 }
 
-/** Unite seule en bataille : tout vient de l'entite, deja effective, sauf
- *  le niveau, memorise a son apparition par main.ts (production pour le
- *  joueur, vague pour un ennemi) ; null quand il n'existe pas (Tester le
- *  scenario cote ennemi, type sans amelioration). */
-export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, level: number | null = null): UnitInfo {
+/** Unite seule en bataille : tout vient de l'entite, deja effective, niveau
+ *  compris (Entity.level, data/unitLevels.ts : production pour le joueur,
+ *  vague pour un ennemi, carte pour un garde de camp, progression pour le
+ *  Heros). */
+export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number): UnitInfo {
   return buildUnitInfo({
     unitId: entity.unitId,
     team: entity.team,
@@ -350,8 +345,8 @@ export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, lev
       shield: entity.shield,
       battleElapsedSeconds,
     },
-    // Heros : son niveau propre (titleWithLevel affiche niveau + 1).
-    upgradeLevel: entity.hero ? entity.hero.level - 1 : level,
+    // Niveau d'unite >= 1 (titleWithLevel affiche niveau + 1).
+    upgradeLevel: entity.level - 1,
   });
 }
 
@@ -490,18 +485,18 @@ export function placementGroupInfo(slots: readonly PlacementUnitSource[], progre
       unitId: s.unitId,
       hp: s.hp,
       maxHp: effectivePlayerUnitStats(s.unitId, s.productionLevel, progress).maxHp,
-      level: unitProductionLevelOrNull(s.unitId, s.productionLevel),
+      level: s.productionLevel,
     })),
     'player',
   );
 }
 
 /** `entities` : unites encore vivantes de la selection (les mortes en sont
- *  deja retirees par BattleSelection.sync). `levelOf` : niveau memorise de
- *  chaque unite (voir battleUnitInfo). */
-export function battleGroupInfo(entities: readonly Entity[], levelOf: (entity: Entity) => number | null = () => null): GroupInfo {
+ *  deja retirees par BattleSelection.sync). Niveau : Entity.level (voir
+ *  battleUnitInfo). */
+export function battleGroupInfo(entities: readonly Entity[]): GroupInfo {
   return buildGroupInfo(
-    entities.map((e) => ({ unitId: e.unitId, hp: e.hp, maxHp: e.stats.maxHp, level: levelOf(e) })),
+    entities.map((e) => ({ unitId: e.unitId, hp: e.hp, maxHp: e.stats.maxHp, level: e.level - 1 })),
     entities[0]?.team ?? 'player',
   );
 }

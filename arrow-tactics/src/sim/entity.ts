@@ -115,6 +115,13 @@ export interface HeroEquipmentBonus {
 
 export const NO_EQUIPMENT_BONUS: Readonly<HeroEquipmentBonus> = { maxHp: 0, maxMana: 0, manaRegen: 0, damage: 0, attackSpeed: 0, moveSpeed: 0, fireDamage: 0 };
 
+/** Commande de la file de production temps reel (Entity.productionOrders) :
+ *  une unite ou l'amelioration du batiment. `id` : attribue par
+ *  World.queueProduction, sert a l'annulation. */
+export type ProductionOrder =
+  | { id: number; kind: 'unit'; unitId: string; remaining: number; total: number }
+  | { id: number; kind: 'upgrade'; remaining: number; total: number };
+
 /** Effets « a l'impact » d'une entite (equipement du Heros aujourd'hui),
  *  appliques par combatSystem apres un coup qui touche. */
 export interface OnHitEffects {
@@ -138,6 +145,9 @@ export interface HeroState {
   /** Inventaire unique (sim/inventory.ts, 2026-11-02) : ressources portees
    *  (pas encore deposees), equipements du sac, items equipes. */
   inventory: HeroInventory;
+  /** Reparation en cours (ordre `repair`) : PV payes (budget) et rendus ;
+   *  sa fin (terminee, interrompue, cible perdue) emet `repairEnd`. */
+  repairJob: { repairId: number; targetId: number; budgetHp: number; restoredHp: number } | null;
   /** Heros joue (data/heroes.ts), mana et sorts connus : parametres resolus
    *  copies a l'apparition (heroKit), jamais relus depuis data/. Le mana se
    *  regenere par pas de simulation (sim/systems/hero.ts, heroSpellSystem). */
@@ -169,6 +179,12 @@ export interface Entity {
   id: number;
   team: Team;
   unitId: string;
+  /** Niveau d'unite (data/unitLevels.ts) : entier >= 1, 1 par defaut, pose
+   *  par l'orchestration a l'apparition (carte, amelioration, vague) ; copie
+   *  de HeroState.level pour le Heros. Donnee de difficulte et de
+   *  presentation : aucune stat n'en depend dans la simulation. Batiments :
+   *  toujours 1 (leur niveau d'amelioration vit cote run). */
+  level: number;
 
   /** Position courante dans le plan de simulation. */
   x: number;
@@ -305,8 +321,19 @@ export interface Entity {
   huntZone: { x: number; z: number; radius: number } | null;
   /** Table de butin tiree a la mort (data/loot.ts), une seule fois. */
   lootTableId: string | null;
+  /** Or lache au sol a la mort (data/loot.ts, ENEMY_GOLD_DROPS) : resolu a
+   *  l'apparition (par type d'unite ; vagues : par role, voir main.ts),
+   *  null : aucun. */
+  goldDrop: { min: number; max: number } | null;
   /** Ennemi dont l'or et le butin restent a lacher a sa mort (une fois). */
   lootPending: boolean;
+  /** Point de ralliement d'un batiment producteur (2026-11-02) : chaque
+   *  unite produite sort devant lui puis y marche. null : aucun. */
+  rally: { x: number; z: number } | null;
+  /** Objet neutre destructible (baril : type de BUILDINGS), null sinon :
+   *  jamais cible automatiquement, ni XP ni prime ; butin a sa destruction
+   *  (data/loot.ts, DESTRUCTIBLE_LOOT). */
+  destructible: string | null;
 
   /** Statut ROOT/MOVEMENT LOCK generique (2026-08-14, Nova de glace — voir
    *  sim/world.ts, applyIceNovaRoot) : secondes RESTANTES avant expiration,
@@ -425,11 +452,13 @@ export interface Entity {
    *  retirees a chaque unite produite, jamais renouvelees en cours de
    *  bataille. Vide = rien a produire. */
   productionQueue: string[];
-  /** Production TEMPS REEL (2026-11-01, Survie continue) : unite commandee a
-   *  ce batiment et secondes restantes, null sinon. Une seule entree ; a la
-   *  fin, l'unite rejoint productionQueue (meme apparition que la production
-   *  de debut de manche, legacy). */
-  productionOrder: { unitId: string; remaining: number; total: number } | null;
+  /** File de production TEMPS REEL (2026-11-02, remplace la commande unique
+   *  du 2026-11-01) : commandes dans l'ordre des clics, seule la premiere
+   *  avance. Une unite terminee rejoint productionQueue (meme apparition que
+   *  la production de debut de manche, legacy) ; une amelioration terminee
+   *  emet World.productionUpgradeEvents (le niveau du batiment est applique
+   *  par l'orchestration). Videe a la mort du batiment. */
+  productionOrders: ProductionOrder[];
   /** Vrai tant que le quota restant attend une place de population (voir
    *  buildingProductionSystem) : affiche par la fiche, jamais lu par la
    *  simulation elle-meme. */

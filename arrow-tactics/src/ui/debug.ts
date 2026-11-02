@@ -36,17 +36,9 @@ export class DebugPanel {
     });
     document.body.appendChild(this.el);
     this.render();
-
-    // Reduit au strict minimum (demande d'Antoine, 2026-08-10) : la liste
-    // complete des raccourcis camera/simulation encombrait l'ecran pour un
-    // panneau qui n'est de toute facon que temporaire (voir commentaire de
-    // classe). "Espace — pause" retire en meme temps que le raccourci
-    // lui-meme (voir main.ts) : il faisait doublon avec le vrai menu pause
-    // (Echap) sans jamais l'afficher, ce qui n'avait pas de sens.
-    const help = document.createElement('div');
-    help.className = 'debug-help';
-    help.innerHTML = 'X — Vitesse fois 2';
-    document.body.appendChild(help);
+    // Plus d'aide « X — Vitesse fois 2 » a l'ecran (2026-11-02, demande
+    // d'Antoine) : la touche X reste un outil de debug invisible (mode debug
+    // seulement, voir main.ts) ; la vitesse courante est dans le detail.
   }
 
   update(realDelta: number): void {

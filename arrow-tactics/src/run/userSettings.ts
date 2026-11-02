@@ -66,6 +66,106 @@ export function loadUserSettings(): UserSettings {
   }
 }
 
+/** Disposition du HUD reglee a la main (2026-11-02, ui/hudLayout.ts) :
+ *  position de chaque bloc, preference locale. */
+const HUD_LAYOUT_STORAGE_KEY = 'arrow-tactics.hud-layout.v1';
+
+type SavedHudBlock = { fx: number; fy: number; w: number; h: number; scale?: number; width?: number; height?: number; ax?: 'start' | 'center' | 'end'; ay?: 'start' | 'center' | 'end'; ox?: number; oy?: number };
+
+export function loadHudLayout(): Record<string, SavedHudBlock> {
+  try {
+    const raw = localStorage.getItem(HUD_LAYOUT_STORAGE_KEY);
+    const obj: unknown = raw ? JSON.parse(raw) : null;
+    if (!obj || typeof obj !== 'object') return {};
+    const out: Record<string, SavedHudBlock> = {};
+    const num = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+    for (const [id, v] of Object.entries(obj as Record<string, unknown>)) {
+      const p = v as Record<string, unknown> | null;
+      if (!p || ![p['fx'], p['fy'], p['w'], p['h']].every(num)) continue;
+      const block: SavedHudBlock = { fx: p['fx'] as number, fy: p['fy'] as number, w: p['w'] as number, h: p['h'] as number };
+      for (const k of ['scale', 'width', 'height'] as const) if (num(p[k])) block[k] = p[k] as number;
+      for (const k of ['ox', 'oy'] as const) if (num(p[k])) block[k] = p[k] as number;
+      for (const k of ['ax', 'ay'] as const) if (p[k] === 'start' || p[k] === 'center' || p[k] === 'end') block[k] = p[k];
+      out[id] = block;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Grille de calibration du HUD (Parametres > Interface). */
+const HUD_GRID_STORAGE_KEY = 'arrow-tactics.hud-grid.v1';
+/** Position de la fenetre du personnage / inventaire, deplacee par le joueur
+ *  (2026-11-02, ui/heroInventory.ts) : coin haut gauche en px. */
+const INVENTORY_WINDOW_STORAGE_KEY = 'arrow-tactics.inventory-window.v1';
+
+export function loadInventoryWindowPosition(): { x: number; y: number } | null {
+  try {
+    const raw = localStorage.getItem(INVENTORY_WINDOW_STORAGE_KEY);
+    const v: unknown = raw ? JSON.parse(raw) : null;
+    if (!v || typeof v !== 'object') return null;
+    const { x, y } = v as Record<string, unknown>;
+    return typeof x === 'number' && typeof y === 'number' && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveInventoryWindowPosition(position: { x: number; y: number }): void {
+  try {
+    localStorage.setItem(INVENTORY_WINDOW_STORAGE_KEY, JSON.stringify(position));
+  } catch {
+    // Navigation privee : jamais bloquant.
+  }
+}
+/** Outil de calibration du HUD disponible (Parametres > HUD), verrouille par
+ *  defaut (2026-11-02). */
+const HUD_UNLOCK_STORAGE_KEY = 'arrow-tactics.hud-unlocked.v1';
+
+export function loadHudUnlocked(): boolean {
+  try {
+    return localStorage.getItem(HUD_UNLOCK_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveHudUnlocked(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(HUD_UNLOCK_STORAGE_KEY, '1');
+    else localStorage.removeItem(HUD_UNLOCK_STORAGE_KEY);
+  } catch {
+    // Navigation privee : jamais bloquant.
+  }
+}
+
+export function loadHudGrid(): boolean {
+  try {
+    return localStorage.getItem(HUD_GRID_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveHudGrid(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(HUD_GRID_STORAGE_KEY, '1');
+    else localStorage.removeItem(HUD_GRID_STORAGE_KEY);
+  } catch {
+    // Navigation privee : jamais bloquant.
+  }
+}
+
+export function saveHudLayout(layout: Record<string, SavedHudBlock>): void {
+  try {
+    if (Object.keys(layout).length === 0) localStorage.removeItem(HUD_LAYOUT_STORAGE_KEY);
+    else localStorage.setItem(HUD_LAYOUT_STORAGE_KEY, JSON.stringify(layout));
+  } catch {
+    // Navigation privee, quota plein : jamais bloquant.
+  }
+}
+
 /** Camera (2026-11-02) : vitesse du defilement par les bords (multiplicateur,
  *  0,25 a 2,5). Cle propre : independante des reglages audio. */
 const CAMERA_STORAGE_KEY = 'arrow-tactics.camera-settings.v1';

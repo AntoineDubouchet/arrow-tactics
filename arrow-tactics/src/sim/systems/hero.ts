@@ -7,6 +7,7 @@ import {
   BUILD_CHAIN_RADIUS,
   BUILD_REACH,
   CHEST_OPEN_SECONDS,
+  REPAIR_FULL_SECONDS,
   CHEST_REACH,
   CONSTRUCTION_START_HP_FRACTION,
   DEPOSIT_SECONDS_PER_ITEM,
@@ -66,6 +67,10 @@ export type HeroEvent =
    *  DEPOSIT_SECONDS_PER_ITEM s) ; `remaining` : unites encore portees. */
   | { type: 'deposit'; heroId: number; wood: number; stone: number; gold: number; remaining: number }
   | { type: 'built'; heroId: number; buildingId: number }
+  /** Fin d'une reparation : PV rendus sur le budget paye (remboursement du
+   *  reste par l'orchestration). `reason` : terminee, ou interrompue (autre
+   *  ordre, Heros mort, batiment perdu / deja intact). */
+  | { type: 'repairEnd'; heroId: number; repairId: number; buildingId: number; restoredHp: number; budgetHp: number; reason: 'done' | 'interrupted' }
   /** Incantation commencee (mana retenu). */
   | { type: 'spellStart'; heroId: number; spellId: string; targetId: number }
   /** Incantation annulee avant son effet ; `refunded` : mana rendu. */
@@ -97,6 +102,11 @@ export interface ResourcePile {
  *  petits tas au sol (World). */
 export interface HeroWorkContext {
   nodes: ReadonlyMap<number, ResourceNode>;
+  /** Bois restant de chaque arbre (World.resourceNodeAmounts), decompte ici ;
+   *  source absente : inepuisable (rocher). */
+  nodeAmounts: Map<number, number>;
+  /** Arbres arrives a 0 pendant ce pas (World : abattage, cases debloquees). */
+  depleted: number[];
   piles: readonly ResourcePile[];
   drops: readonly ItemDrop[];
   /** Coffres (World.chests), verrou (camp pas nettoye) et ouverture (tirage
@@ -150,6 +160,8 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
   }
   const target = byId.get(order.targetEntityId);
   if (!target || !target.alive || (order.type === 'build' && !target.construction)) return null;
+  // Reparation : jamais un batiment a 0 PV (detruit au pas en cours, avant deathSystem).
+  if (order.type === 'repair' && (target.construction || target.hp <= 0 || target.hp >= target.stats.maxHp)) return null;
   return { x: target.x, z: target.z, reached: distanceToSite(e, target) <= e.stats.radius + BUILD_REACH, target };
 }
 
@@ -175,7 +187,16 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
   const byId = new Map(entities.map((e) => [e.id, e]));
   for (const e of entities) {
     const h = e.hero;
-    if (!h || !e.alive) continue;
+    if (!h) continue;
+    // Reparation (2026-11-02) : un autre ordre, la mort du Heros ou la perte
+    // de la cible termine le travail ; le budget non utilise est rendu par
+    // l'orchestration (evenement).
+    const job = h.repairJob;
+    if (job && (!e.alive || e.order.type !== 'repair' || e.order.repairId !== job.repairId)) endRepair(e, 'interrupted', events);
+    if (e.alive && e.order.type === 'repair' && h.repairJob === null) {
+      h.repairJob = { repairId: e.order.repairId, targetId: e.order.targetEntityId, budgetHp: e.order.budgetHp, restoredHp: 0 };
+    }
+    if (!e.alive) continue;
     const goal = workGoal(e, work, byId);
     if (isWorkOrder(e.order) && !goal) {
       // Source, tas ou chantier disparu (chantier termine par ailleurs,
@@ -230,10 +251,21 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       const node = work.nodes.get(e.order.nodeId)!;
       h.working = node.resource === 'wood' ? 'chop' : 'mine';
       h.workTimer += dt;
-      while (h.workTimer >= HARVEST_INTERVAL && roomFor(h.inventory, node.resource) > 0) {
+      while (h.workTimer >= HARVEST_INTERVAL && roomFor(h.inventory, node.resource) > 0 && (work.nodeAmounts.get(node.id) ?? 1) > 0) {
         h.workTimer -= HARVEST_INTERVAL;
+        const left = work.nodeAmounts.get(node.id);
+        if (left !== undefined) {
+          work.nodeAmounts.set(node.id, left - 1);
+          if (left - 1 <= 0) work.depleted.push(node.id);
+        }
         h.inventory = addResource(h.inventory, node.resource, 1).inventory;
         events.push({ type: 'harvest', heroId: e.id, resource: node.resource, amount: 1, nodeId: node.id });
+      }
+      // Arbre epuise : le travail s'arrete (le Heros passe en Garde).
+      if ((work.nodeAmounts.get(node.id) ?? 1) <= 0) {
+        e.order = { type: 'guard' };
+        h.working = null;
+        h.workTimer = 0;
       }
       continue;
     }
@@ -290,6 +322,23 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       h.workTimer = 0;
       continue;
     }
+    if (e.order.type === 'repair') {
+      // Geste et marteau du chantier ; PV rendus au rythme de
+      // REPAIR_FULL_SECONDS pour 100 %, dans la limite du budget paye.
+      const target = goal.target!;
+      const rj = h.repairJob!;
+      h.working = 'build';
+      const amount = Math.min((target.stats.maxHp / REPAIR_FULL_SECONDS) * dt, rj.budgetHp - rj.restoredHp, target.stats.maxHp - target.hp);
+      target.hp += amount;
+      rj.restoredHp += amount;
+      if (rj.restoredHp >= rj.budgetHp - 1e-6 || target.hp >= target.stats.maxHp - 1e-6) {
+        if (target.stats.maxHp - target.hp < 1e-6) target.hp = target.stats.maxHp;
+        endRepair(e, 'done', events);
+        e.order = { type: 'guard' };
+        h.working = null;
+      }
+      continue;
+    }
     const site = goal.target!;
     const c = site.construction!;
     h.working = 'build';
@@ -316,6 +365,13 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
     e.order = next ? { type: 'build', targetEntityId: next.id } : { type: 'guard' };
     h.working = null;
   }
+}
+
+/** Fin du travail de reparation du Heros `e` (evenement repairEnd). */
+function endRepair(e: Entity, reason: 'done' | 'interrupted', events: HeroEvent[]): void {
+  const job = e.hero!.repairJob!;
+  e.hero!.repairJob = null;
+  events.push({ type: 'repairEnd', heroId: e.id, repairId: job.repairId, buildingId: job.targetId, restoredHp: job.restoredHp, budgetHp: job.budgetHp, reason });
 }
 
 /** Debut d'incantation a portee : mana retenu, soin porte par Entity.cast
@@ -415,7 +471,8 @@ export function heroDeathSystem(entities: Entity[], aliveBefore: ReadonlySet<num
     }
     if (dead.isBuilding) continue;
     for (const h of heroes) {
-      if (!h.alive || h.team === dead.team || Math.hypot(h.x - dead.x, h.z - dead.z) > HERO_XP_SHARE_RADIUS) continue;
+      // Objet destructible (baril) : pas d'XP.
+      if (dead.destructible !== null || !h.alive || h.team === dead.team || Math.hypot(h.x - dead.x, h.z - dead.z) > HERO_XP_SHARE_RADIUS) continue;
       gainHeroXp(h, heroXpForKill(dead.unitId), events);
     }
   }
@@ -430,6 +487,8 @@ export function gainHeroXp(e: Entity, amount: number, events: HeroEvent[]): void
   const target = heroLevelForXp(h.xp).level;
   while (h.level < target) {
     h.level++;
+    // Niveau d'unite (Entity.level) : copie de la progression du Heros.
+    e.level = h.level;
     refreshHeroStats(e, 'add');
     events.push({ type: 'levelUp', heroId: e.id, level: h.level });
   }

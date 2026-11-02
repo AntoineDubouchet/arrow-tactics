@@ -57,12 +57,18 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-43 | Carte générée : pas d'ombres portées au-delà d'environ 21 cases du centre | Confirmé (observé) |
 | KI-44 | Équipement : casque, épaulières, torse, bras, jambes sans visuel en jeu (modèle du Héros fusionné) | Limite assumée |
 | KI-46 | Camps neutres : état non sauvegardé si le monde était reconstruit en cours de run | Hypothèse (pas de cas aujourd'hui) |
-| KI-47 | Or au sol non ramassé : les tas restent toute la run (aucune disparition) | Limite assumée (à surveiller) |
-| KI-48 | Héros permanent : une unité militaire sélectionnée prend les ordres à sa place ; pas de commande Héros + armée | Limite assumée (à décider) |
+| KI-47 | Or au sol non ramassé : les tas restent toute la run (aucune disparition) | Voulu (Antoine) ; fusion des tas proches à envisager |
+| KI-49 | Murailles (diagonales comprises) absentes du menu Construire du temps réel | Limite assumée |
+| KI-50 | Muraille diagonale : fermeture et reprise d'une extrémité diagonale non gérées ; pas de coin aux virages diagonaux | Limite assumée |
+| KI-51 | Baril : pas encore posable dans l'éditeur de maps (`MapDef.destructibles` prêt) | À faire |
+| KI-52 | Éditeur : ni camps, ni niveaux, ni `survivalRules` modifiables ; seul le niveau des unités est conservé | À faire |
+| KI-53 | Sol du plateau en morceaux : ~35 morceaux (169 meshes) ; repeinte de 25 à 47 ms à la pose d'un bâtiment | Limite assumée (à surveiller) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
-KI-25 et KI-45, butin couché depuis le 2026-11-02).
+KI-25 et KI-45, butin couché depuis le 2026-11-02 ; KI-48, comportement
+voulu par Antoine : une unité militaire sélectionnée reçoit les ordres ;
+KI-54, arbre épuisé : abattu, souche, cases libérées depuis le 2026-11-02).
 
 Retirées lors de la refonte de l'éditeur, résolues côté code :
 
@@ -492,14 +498,45 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   mesurable aux volumes actuels ; à revoir (fusion des tas proches,
   disparition, aimant) si les vagues grossissent.
 
-### KI-48 — Héros permanent et sélection d'armée
+### KI-49 — Murailles absentes du menu Construire
 
-- **Statut** : limite assumée (2026-11-02), décision à prendre.
-- **Constat** : sans unité sélectionnée, le Héros reçoit le clic droit ;
-  une unité militaire sélectionnée le reçoit seule (comportement d'avant
-  conservé) ; il faut vider la sélection (clic au sol, Échap) ou cliquer
-  le portrait pour reprendre le Héros. Groupes, multi-sélection et
-  contrôle mixte restent à concevoir.
+- **Statut** : limite assumée (2026-11-02).
+- **Constat** : le menu Construire du temps réel exclut les murailles
+  (pose par tracé). Les diagonales sont donc posables dans l'éditeur et en
+  préparation, pas encore par le Héros en temps réel.
+
+### KI-50 — Diagonales : fermeture, reprise, virages
+
+- **Statut** : limite assumée (2026-11-02).
+- **Constat** : une enceinte ne se ferme que par une portion droite ; la
+  reprise d'une extrémité diagonale n'est pas vérifiée ; un virage avec une
+  diagonale n'a pas de pièce de coin (la case du sommet est un segment).
+
+### KI-51 — Baril dans l'éditeur
+
+- **Statut** : à faire (2026-11-02).
+- **Constat** : les barils viennent de la carte générée
+  (`MapDef.destructibles`) ; l'éditeur ne les propose pas encore.
+
+### KI-52 — Cartes de survie dans l'éditeur
+
+- **Statut** : à faire (2026-11-02).
+- **Constat** : le format porte les niveaux (`MapUnitPlacement.level`,
+  `MapCampDef.level`, postes) et les règles (`MapDef.survivalRules`),
+  mais l'éditeur ne lit ni n'écrit les camps ni `survivalRules`, et ne
+  permet pas de modifier un niveau (il conserve seulement celui des unités
+  au chargement et à la sauvegarde). Une carte de survie dessinée passe
+  aujourd'hui par le JSON.
+
+### KI-53 — Sol du plateau en morceaux
+
+- **Statut** : limite assumée (2026-11-02), à surveiller.
+- **Constat** : pour repeindre la terre battue à chaud, le sol du plateau
+  est découpé en morceaux de 16 × 16 (comme l'éditeur) : environ 35
+  morceaux et 169 meshes sur la carte générée, au lieu d'un sol d'un seul
+  tenant. Une pose de bâtiment reconstruit 2 à 4 morceaux, 25 à 47 ms
+  mesurés (Edge, machine de test). Ni la fréquence d'images en partie ni
+  l'à-coup ressenti n'ont été mesurés sur la machine d'Antoine.
 
 ### KI-46 — État des camps non sauvegardé
 

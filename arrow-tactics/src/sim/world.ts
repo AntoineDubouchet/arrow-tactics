@@ -1,20 +1,23 @@
 import { BOARD_H, BOARD_W, isBlockingMapObstacle, obstacleBounds, OBSTACLES, TILE, type ObstacleDef } from '../config/constants';
 import { buildCellIndex, cellKey, computeMapCellBounds, resolveMapCells, type MapBounds, type MapDef } from '../config/mapDef';
 import { waterCellKeys } from '../config/groundSurfaces';
-import { resourceNodesOf, treeCellKeys, type ResourceNode } from '../config/resourceNodes';
+import { resourceNodesOf, treeCellKeys, treeFootprintCells, type ResourceNode } from '../config/resourceNodes';
 import { computeCliffObstacles, resolveMapHeightField } from '../config/terrainElevation';
 import { dist } from '../core/math';
 import { Rng, randomSeed } from '../core/rng';
 import { getBuilding, type BuildingDef } from '../data/buildings';
 import { getUnit, type UnitStats } from '../data/units';
-import { NO_EQUIPMENT_BONUS, type ConstructionState, type Entity, type HeroEquipmentBonus, type Team } from './entity';
+import { NO_EQUIPMENT_BONUS, type ConstructionState, type Entity, type HeroEquipmentBonus, type ProductionOrder, type Team } from './entity';
 import { heroStatsForLevel } from '../data/hero';
 import { ENEMY_LOOT_TABLES, LOOT_TABLES, rollLoot } from '../data/loot';
 import { applyInventoryAction, createHeroInventory, resolveEquipmentBonus, type HeroInventory, type InventoryAction } from './inventory';
-import { ENEMY_GOLD_DROPS } from '../data/loot';
+import { DESTRUCTIBLE_LOOT, ENEMY_GOLD_DROPS } from '../data/loot';
+import type { CarriedResource } from '../data/resources';
 import { campClearSystem, campSystem, isChestLocked, type CampEvent, type CampSpec, type CampState, type Chest, type LootDropEvent } from './systems/camps';
 import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
 import { DEFAULT_HERO_ID, heroKit, type HeroKit } from '../data/heroes';
+import { DEFAULT_UNIT_LEVEL, normalizeUnitLevel } from '../data/unitLevels';
+import { TREE_WOOD_AMOUNT } from '../data/resources';
 import { applyCommands, resolveOrders, type CommandResult, type OrderEndEvent, type PlayerCommand } from './orders';
 import {
   createPlayerArrowState,
@@ -25,7 +28,8 @@ import {
   type PlayerArrowState,
 } from './playerArrow';
 import { abilitySystem, type AbilityEvent, type BlastProjectile } from './systems/abilities';
-import { buildingProductionSystem, tickProductionOrders, type ProductionSpawnEvent } from './systems/buildingProduction';
+import { buildingProductionSystem, tickProductionOrders, type ProductionSpawnEvent, type ProductionUpgradeEvent } from './systems/buildingProduction';
+import { PRODUCTION_QUEUE_MAX } from '../data/production';
 import { buildingAttackSystem, type BuildingAttackEvent, type BuildingProjectile } from './systems/buildingAttack';
 import { combatSystem, type CombatEvent } from './systems/combat';
 import { deathSystem } from './systems/death';
@@ -177,12 +181,35 @@ export class World {
    *  appeler le vrai World.spawn avec les stats effectives (sim/ ne les
    *  connait pas). */
   productionSpawnEvents: ProductionSpawnEvent[] = [];
+  /** Ameliorations terminees dans une file de production pendant ce pas
+   *  (sim/systems/buildingProduction.ts) : le niveau est applique par
+   *  l'orchestration. */
+  productionUpgradeEvents: ProductionUpgradeEvent[] = [];
+  /** Prochain id de commande de production (World.queueProduction). */
+  private nextProductionOrderId = 1;
   /** Evenements du Heros du dernier step (XP, niveau, mort, resurrection,
    *  recolte, chantier termine), voir sim/systems/hero.ts. */
   heroEvents: HeroEvent[] = [];
   /** Sources de ressources de la carte (decors exploitables par le Heros,
    *  config/resourceNodes.ts), par id. */
   resourceNodes: ReadonlyMap<number, ResourceNode> = new Map();
+  /** Bois restant de chaque arbre (id de source -> quantite), TREE_WOOD_AMOUNT
+   *  au chargement de la carte, decompte par la recolte (2026-11-02). Les
+   *  rochers n'y figurent pas : inepuisables. */
+  readonly resourceNodeAmounts = new Map<number, number>();
+  /** Arbres abattus (2026-11-02, id de source) : 0 bois, plus d'obstacle,
+   *  cases constructibles ; vide au chargement d'une carte. */
+  readonly felledTrees = new Set<number>();
+  /** Cases encore occupees par un arbre debout (cles cellKey) : deplacement
+   *  (obstacles `terrainTree`) et construction (main.ts). */
+  treeCells: ReadonlySet<string> = new Set();
+  /** Arbres abattus pendant ce pas : position et cases liberees (rendu :
+   *  souche a la place de l'arbre). */
+  treeFelledEvents: { nodeId: number; x: number; z: number; cells: { x: number; z: number }[] }[] = [];
+  /** Donnees de la carte pour recalculer les obstacles d'arbre a l'abattage. */
+  private treeContext: { obstacles: readonly ObstacleDef[]; water: ReadonlySet<string>; cellIndex: Map<string, unknown>; bounds: MapBounds } | null = null;
+  /** Arbres arrives a 0 pendant le pas en cours (heroWorkSystem). */
+  private depletedTrees: number[] = [];
   /** Petits tas au sol de la carte (MapDef.resourcePiles), indice = id ;
    *  `amount` baisse au ramassage. Remis a plein par setMap ; la run
    *  reapplique ses quantites (applyResourcePileAmounts). */
@@ -271,6 +298,7 @@ export class World {
   /** Changements d'equipement des Heros, appliques au debut du prochain pas. */
   private equipmentQueue: { entityId: number; bonus: HeroEquipmentBonus }[] = [];
   private inventoryQueue: { entityId: number; action: InventoryAction }[] = [];
+  private rallyQueue: { entityId: number; point: { x: number; z: number } | null }[] = [];
   /** Or en plus sur chaque tas lache par un ennemi (talent, resolu par
    *  l'orchestration). */
   goldDropBonus = 0;
@@ -329,6 +357,8 @@ export class World {
     // Eau (2026-11-01) : infranchissable a pied, transparente aux tirs.
     // Arbres (2026-11-02) : leurs cases aussi (computeTreeObstacles).
     this.resourceNodes = new Map(resourceNodesOf(map.obstacles).map((n) => [n.id, n]));
+    this.resourceNodeAmounts.clear();
+    for (const n of this.resourceNodes.values()) if (n.resource === 'wood') this.resourceNodeAmounts.set(n.id, TREE_WOOD_AMOUNT);
     this.resourcePiles = (map.resourcePiles ?? []).map((p, id) => ({ id, x: p.x, z: p.z, resource: p.resource, amount: p.amount }));
     this.itemDrops = [];
     this.camps = [];
@@ -337,6 +367,33 @@ export class World {
     const water = computeWaterObstacles(this.waterCells, cellIndex, paddedBounds);
     const trees = computeTreeObstacles(map.obstacles, this.waterCells, cellIndex, paddedBounds);
     this.obstacles = [...map.obstacles.filter(isBlockingMapObstacle), ...computeVoidObstacles(cellIndex, paddedBounds), ...cliffs, ...water, ...trees];
+    this.felledTrees.clear();
+    this.treeContext = { obstacles: map.obstacles, water: this.waterCells, cellIndex, bounds: paddedBounds };
+    this.treeCells = treeCellKeys(map.obstacles);
+  }
+
+  /**
+   * Abat l'arbre `nodeId` (2026-11-02, demande d'Antoine) : plus de bois, ses
+   * cases ne bloquent plus (sauf celles d'un autre arbre debout) et
+   * redeviennent constructibles. Les obstacles d'arbre sont recalcules et
+   * `this.obstacles` remplace : grille de pathfinding, collisions et cases
+   * reliees au camp suivent des le pas suivant (caches par tableau).
+   * Volontaire : abattre une foret peut ouvrir un chemin, aux vagues aussi.
+   */
+  fellTree(nodeId: number): void {
+    const ctx = this.treeContext;
+    const tree = ctx?.obstacles[nodeId];
+    if (!ctx || !tree || this.felledTrees.has(nodeId) || this.resourceNodes.get(nodeId)?.resource !== 'wood') return;
+    this.felledTrees.add(nodeId);
+    this.resourceNodeAmounts.set(nodeId, 0);
+    const standing = ctx.obstacles.filter((_, i) => !this.felledTrees.has(i));
+    const trees = computeTreeObstacles(standing, ctx.water, ctx.cellIndex, ctx.bounds);
+    this.obstacles = [...this.obstacles.filter((o) => !o.terrainTree), ...trees];
+    const before = this.treeCells;
+    this.treeCells = treeCellKeys(standing);
+    const cells = treeFootprintCells(tree).filter((c) => before.has(cellKey(c.x, c.z)) && !this.treeCells.has(cellKey(c.x, c.z)));
+    const node = this.resourceNodes.get(nodeId)!;
+    this.treeFelledEvents.push({ nodeId, x: node.x, z: node.z, cells });
   }
 
   /** Vrai si le point (x, z) est sur une case d'eau de la carte chargee. */
@@ -377,6 +434,9 @@ export class World {
       id: this.nextId++,
       team,
       unitId,
+      // Niveau 1 par defaut ; l'appelant pose le niveau resolu (carte,
+      // amelioration, vague) juste apres, voir data/unitLevels.ts.
+      level: DEFAULT_UNIT_LEVEL,
       x,
       z,
       prevX: x,
@@ -424,7 +484,10 @@ export class World {
       huntZone: null,
       // Butin a la mort (data/loot.ts) : par type d'ennemi.
       lootTableId: team === 'enemy' ? ENEMY_LOOT_TABLES[unitId] ?? null : null,
+      goldDrop: team === 'enemy' ? ENEMY_GOLD_DROPS[unitId] ?? null : null,
       lootPending: team === 'enemy',
+      destructible: null,
+      rally: null,
       abilityDamageBonus,
       rootTimer: 0,
       tauntTimer: 0,
@@ -446,7 +509,7 @@ export class World {
       // Une unite normale ne produit jamais rien (voir
       // Entity.productionQueue).
       productionQueue: [],
-      productionOrder: null,
+      productionOrders: [],
       productionWaitingForPopulation: false,
       buildingAttack: null,
       gate: null,
@@ -516,6 +579,7 @@ export class World {
       id: this.nextId++,
       team,
       unitId: def.id,
+      level: DEFAULT_UNIT_LEVEL,
       x,
       z,
       prevX: x,
@@ -572,7 +636,10 @@ export class World {
       campGuard: null,
       huntZone: null,
       lootTableId: null,
+      goldDrop: null,
       lootPending: false,
+      destructible: null,
+      rally: null,
       abilityDamageBonus: 0,
       rootTimer: 0,
       tauntTimer: 0,
@@ -595,7 +662,7 @@ export class World {
       // Production de la manche (Caserne, Camp d'archerie) — voir
       // Entity.productionQueue : consommee des le premier tick.
       productionQueue: [...productionQueue],
-      productionOrder: null,
+      productionOrders: [],
       productionWaitingForPopulation: false,
       // Batiment defensif (Tour) : degats EFFECTIFS du niveau propre du
       // batiment (attackDamageOverride), base sinon. Premier tir des qu'une
@@ -698,6 +765,7 @@ export class World {
     // Bonus des items portes (sim/inventory.ts), sauf bonus impose (essais).
     equipment ??= progress.inventory ? resolveEquipmentBonus(inventory) : NO_EQUIPMENT_BONUS;
     const e = this.spawn('hero', team, x, z, hp, heroStatsForLevel(progress.level));
+    e.level = normalizeUnitLevel(progress.level);
     e.hero = {
       xp: progress.xp,
       level: progress.level,
@@ -706,6 +774,7 @@ export class World {
       working: null,
       workTimer: 0,
       inventory,
+      repairJob: null,
       heroId: kit.heroId,
       mana: Math.min(kit.maxMana, progress.mana ?? kit.maxMana),
       maxMana: kit.maxMana,
@@ -748,6 +817,7 @@ export class World {
     };
     for (const g of spec.guards) {
       const e = this.spawn(g.unitId, 'enemy', g.x, g.z);
+      e.level = normalizeUnitLevel(g.level);
       e.order = { type: 'guard' };
       e.countsForDefeat = false;
       e.campGuard = { campId: camp.id, postX: g.x, postZ: g.z, returning: false, lastHp: e.hp, calm: true };
@@ -777,7 +847,18 @@ export class World {
     for (const e of this.entities) {
       if (e.alive || !e.lootPending) continue;
       e.lootPending = false;
-      const gold = ENEMY_GOLD_DROPS[e.unitId];
+      if (e.destructible) {
+        // Objet destructible : `chance` d'une ressource (1..2) au sol, sinon rien.
+        const loot = DESTRUCTIBLE_LOOT[e.destructible];
+        if (loot && this.rng.next() < loot.chance && loot.entries.length > 0) {
+          const entry = loot.entries[Math.min(loot.entries.length - 1, Math.floor(this.rng.next() * loot.entries.length))]!;
+          const amount = entry.min + Math.floor(this.rng.next() * (entry.max - entry.min + 1));
+          const dropId = this.dropResource(entry.resource, e.x, e.z, amount);
+          this.lootEvents.push({ source: 'destructible', sourceId: e.id, itemId: entry.resource, dropId, amount });
+        }
+        continue;
+      }
+      const gold = e.goldDrop;
       if (gold) {
         const amount = gold.min + Math.floor(this.rng.next() * (gold.max - gold.min + 1)) + this.goldDropBonus;
         if (amount > 0) this.dropGold(e.x + 0.25, e.z - 0.2, amount);
@@ -809,12 +890,39 @@ export class World {
     this.inventoryQueue.push({ entityId, action: { ...action } });
   }
 
+  /** Point de ralliement d'un batiment allie producteur (null : retire),
+   *  applique au debut du prochain pas fixe, dans l'ordre d'appel. */
+  queueRallyPoint(entityId: number, point: { x: number; z: number } | null): void {
+    this.rallyQueue.push({ entityId, point: point ? { x: point.x, z: point.z } : null });
+  }
+
   /** Tas d'or au sol (ennemi abattu, camp nettoye), ramasse comme un tas de
    *  la carte. Renvoie son id. */
   dropGold(x: number, z: number, amount: number): number {
+    return this.dropResource('gold', x, z, amount);
+  }
+
+  /** Tas de ressource au sol (butin : or, bois, pierre), jamais retire avant
+   *  d'etre ramasse. Renvoie son id. */
+  dropResource(resource: CarriedResource, x: number, z: number, amount: number): number {
     const id = this.resourcePiles.length;
-    this.resourcePiles.push({ id, x, z, resource: 'gold', amount });
+    this.resourcePiles.push({ id, x, z, resource, amount });
     return id;
+  }
+
+  /** Objet neutre destructible (baril) sur la case de (x, z) : une case
+   *  bloquante, aucune attaque, jamais cible automatiquement, hors du compte
+   *  de fin de vague. Deterministe : ordre d'appel. */
+  addDestructible(kind: string, x: number, z: number): Entity {
+    const def = getBuilding(kind);
+    const cx = Math.floor(x) + 0.5;
+    const cz = Math.floor(z) + 0.5;
+    const footprint: ObstacleDef = { kind: 'building', tilesX: def.footprintTilesX ?? 1, tilesZ: def.footprintTilesZ ?? 1, x: cx, z: cz };
+    const e = this.spawnBuilding(def, 'enemy', cx, cz, footprint);
+    e.destructible = kind;
+    e.countsForDefeat = false;
+    e.lootPending = true;
+    return e;
   }
 
   /** Equipement d'un Heros change (bonus deja resolus) : applique au debut
@@ -823,15 +931,27 @@ export class World {
     this.equipmentQueue.push({ entityId, bonus: { ...bonus } });
   }
 
-  /** Commande de production temps reel : `unitId` sortira du batiment
-   *  `entityId` dans `seconds` s de simulation. Refusee (faux) si le batiment
-   *  n'est pas un batiment vivant et bati du joueur, ou s'il produit deja.
-   *  Le cout et le choix des unites autorisees restent a l'orchestration. */
-  startProduction(entityId: number, unitId: string, seconds: number): boolean {
+  /** File de production temps reel (2026-11-02) : ajoute en fin de file du
+   *  batiment `entityId` une unite ou son amelioration, `seconds` s de
+   *  simulation, apres les commandes deja en file. Renvoie l'id de la
+   *  commande, ou null si refusee : pas un batiment vivant et bati du joueur,
+   *  ou file pleine (PRODUCTION_QUEUE_MAX). Cout, unites autorisees et
+   *  amelioration unique restent a l'orchestration. */
+  queueProduction(entityId: number, order: { kind: 'unit'; unitId: string } | { kind: 'upgrade' }, seconds: number): number | null {
     const e = this.entityById.get(entityId);
-    if (!e || !e.alive || !e.isBuilding || e.construction || e.team !== 'player' || e.productionOrder) return false;
-    e.productionOrder = { unitId, remaining: seconds, total: seconds };
-    return true;
+    if (!e || !e.alive || !e.isBuilding || e.construction || e.team !== 'player' || e.productionOrders.length >= PRODUCTION_QUEUE_MAX) return null;
+    const id = this.nextProductionOrderId++;
+    e.productionOrders.push(order.kind === 'unit' ? { id, kind: 'unit', unitId: order.unitId, remaining: seconds, total: seconds } : { id, kind: 'upgrade', remaining: seconds, total: seconds });
+    return id;
+  }
+
+  /** Annule la commande `orderId` de la file du batiment `entityId` (la
+   *  suivante prend sa place) ; la renvoie, ou null si elle n'y est plus. */
+  cancelProduction(entityId: number, orderId: number): ProductionOrder | null {
+    const e = this.entityById.get(entityId);
+    const index = e ? e.productionOrders.findIndex((o) => o.id === orderId) : -1;
+    if (!e || index < 0) return null;
+    return e.productionOrders.splice(index, 1)[0]!;
   }
 
   /** Quantites restantes des tas deja entames (run : id -> quantite). */
@@ -846,6 +966,8 @@ export class World {
   private heroWork(): HeroWorkContext {
     return {
       nodes: this.resourceNodes,
+      nodeAmounts: this.resourceNodeAmounts,
+      depleted: this.depletedTrees,
       piles: this.resourcePiles,
       drops: this.itemDrops,
       chests: this.chests,
@@ -879,12 +1001,17 @@ export class World {
     return { x: ballista.x, z: ballista.z + d };
   }
 
-  /** Defaite par le Heros (choix d'Antoine) : le camp a un Heros, il est
-   *  mort (en attente de resurrection ou non) ET sa Baliste est detruite. */
-  isHeroDefeat(team: Team): boolean {
-    const hero = this.entities.find((e) => e.hero && e.team === team);
-    if (!hero || hero.alive) return false;
-    return !this.entities.some((e) => e.alive && e.team === team && e.unitId === 'ballista');
+  /** Defaite (2026-11-02, decision d'Antoine) : la Baliste du camp, coeur de
+   *  la base, est detruite — que le Heros soit vivant ou mort (il ne revient
+   *  que tant qu'elle tient, heroSpawnPoint). Faux pour un camp sans Baliste. */
+  isBaseLost(team: Team): boolean {
+    let had = false;
+    for (const e of this.entities) {
+      if (e.team !== team || e.unitId !== 'ballista') continue;
+      if (e.alive) return false;
+      had = true;
+    }
+    return had;
   }
 
   countCombatants(team: Team): number {
@@ -931,6 +1058,8 @@ export class World {
     this.shadowProjectiles = [];
     this.shadowProjectileEvents = [];
     this.productionSpawnEvents = [];
+    this.productionUpgradeEvents = [];
+    this.treeFelledEvents = [];
     this.enemyReinforcements = null;
     this.enemyReinforcementSpawns = [];
     this.assaultGoal = null;
@@ -938,6 +1067,7 @@ export class World {
     this.blockedReinforcementGroup = null;
     this.equipmentQueue = [];
     this.inventoryQueue = [];
+    this.rallyQueue = [];
     this.goldDropBonus = 0;
     this.camps = [];
     this.chests = [];
@@ -1034,6 +1164,7 @@ export class World {
     const hasHero = this.entities.some((e) => e.hero);
     const aliveBefore = hasHero ? new Set(this.entities.filter((e) => e.alive).map((e) => e.id)) : null;
     this.heroEvents = [];
+    this.treeFelledEvents = [];
 
     // Ordres manuels (sim/orders.ts) : appliques a une frontiere de pas fixe,
     // jamais au moment de l'evenement d'entree. Une unite sans ordre manuel
@@ -1050,7 +1181,8 @@ export class World {
       {
         node: (id) => {
           const node = this.resourceNodes.get(id);
-          if (!node) return 'missing';
+          // Arbre epuise : plus rien a couper.
+          if (!node || (this.resourceNodeAmounts.get(id) ?? 1) <= 0) return 'missing';
           const allowed = node.resource === 'wood' ? this.harvestPermissions.canHarvestTrees : this.harvestPermissions.canMineDeposits;
           return allowed ? 'ok' : 'locked';
         },
@@ -1091,6 +1223,12 @@ export class World {
       }
     }
     this.inventoryQueue = [];
+    // Points de ralliement : batiment vivant du joueur qui produit des unites.
+    for (const r of this.rallyQueue) {
+      const b = this.entityById.get(r.entityId);
+      if (b?.alive && b.isBuilding && b.team === 'player' && getBuilding(b.unitId).production) b.rally = r.point;
+    }
+    this.rallyQueue = [];
     // Sorts des Heros : un nouvel ordre (ou la mort, une Provocation) annule
     // l'incantation AVANT qu'abilitySystem ne puisse donner son effet.
     if (hasHero) interruptHeroSpells(this.entities, this.heroEvents);
@@ -1113,12 +1251,17 @@ export class World {
     this.pathFailures = [];
     movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents, this.heroWork(), this.assaultGoal ? { goal: this.assaultGoal, failures: this.pathFailures } : null);
     if (hasHero) heroWorkSystem(this.entities, this.heroWork(), dt, this.heroEvents);
+    // Arbres epuises pendant ce pas : abattus (passage ouvert des le pas suivant).
+    if (this.depletedTrees.length > 0) {
+      for (const id of this.depletedTrees) this.fellTree(id);
+      this.depletedTrees.length = 0;
+    }
     this.combatEvents = combatSystem(this.entities, dt, this.rng, this.obstacles);
     this.buildingAttackEvents = buildingAttackSystem(this.entities, lookup, this.buildingProjectiles, dt, () => this.nextBuildingProjectileId++);
     this.areaEffectEvents = tickPersistentAreaEffects(this.iceNovaZones, dt, this.entities);
     this.playerArrowEvents = stepPlayerArrow(this.playerArrow, dt, this.entities);
     this.shadowProjectileEvents = advanceShadowProjectiles(this.shadowProjectiles, dt, this.entities, this.rng);
-    tickProductionOrders(this.entities, dt);
+    this.productionUpgradeEvents = tickProductionOrders(this.entities, dt);
     this.productionSpawnEvents = buildingProductionSystem(this.entities, this.obstacles);
     deathSystem(this.entities);
     campClearSystem(this.camps, this.entityById, this.campEvents);

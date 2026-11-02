@@ -23,11 +23,12 @@ function sameRelief(a: TerrainHeightField, b: TerrainHeightField, x: number, z: 
 }
 
 /**
- * Sol de l'EDITEUR decoupe en morceaux carres (organisation du rendu
- * seulement : aucune incidence sur la carte, le relief ou le jeu). Chaque
- * morceau est construit par buildTerrainChunk avec le contexte de la carte
- * entiere : memes sommets que le plateau d'un seul tenant (jeu, board.ts),
- * aucune couture. Un coup de pinceau Surface ne reconstruit que les morceaux
+ * Sol de l'EDITEUR, et du plateau de jeu depuis le 2026-11-02 (board.ts :
+ * terre battue du village repeinte a chaud), decoupe en morceaux carres
+ * (organisation du rendu seulement : aucune incidence sur la carte, le relief
+ * ou le jeu). Chaque morceau est construit par buildTerrainChunk avec le
+ * contexte de la carte entiere : memes sommets qu'un sol d'un seul tenant
+ * (buildTerrainCellsView), aucune couture. Un coup de pinceau Surface ne reconstruit que les morceaux
  * qui contiennent une case repeinte ou une voisine (rayon 1 : ce que lit une
  * transition, 2 en `?surfaceBlend=lisiere`, `melange` et `organic`, voir
  * surfaceBlendReach ; 2 en `?groundLook=living`, voir

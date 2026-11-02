@@ -326,6 +326,14 @@ export interface ScreenHandlers {
   onSetMasterVolume: (value: number) => void;
   /** Vitesse de la camera (multiplicateur, 0,25 a 2,5). */
   onSetCameraSpeed: (value: number) => void;
+  /** Disposition du HUD (ui/hudLayout.ts) : layout officiel, export (texte
+   *  copie), import (message de resultat), grille de calibration, outil de
+   *  calibration deverrouille. */
+  onResetHudLayout: () => void;
+  onCopyHudLayout: () => string;
+  onLoadHudLayout: (text: string) => string;
+  onSetHudGrid: (on: boolean) => void;
+  onSetHudUnlocked: (on: boolean) => void;
   onSetMusicVolume: (value: number) => void;
   onSetSfxVolume: (value: number) => void;
   onSetMuted: (muted: boolean) => void;
@@ -515,6 +523,8 @@ export class Screens {
   private readonly settings: HTMLElement;
   private readonly settingsMaster: SliderControl;
   private readonly settingsCameraSpeed: SliderControl;
+  private readonly settingsHudGrid: { row: HTMLElement; input: HTMLInputElement };
+  private readonly settingsHudUnlocked: { row: HTMLElement; input: HTMLInputElement };
   private readonly settingsMusic: SliderControl;
   private readonly settingsSfx: SliderControl;
   private readonly settingsMuted: { row: HTMLElement; input: HTMLInputElement };
@@ -900,10 +910,46 @@ export class Screens {
       this.settingsMuted.row,
     ]);
     const cameraTabPanel = this.shopTabPanel([this.settingsCameraSpeed.row]);
-    const settingsTabPanels = [soundTabPanel, cameraTabPanel];
+    // HUD (2026-11-02) : disposition du HUD ; outil de calibration (MAJ)
+    // verrouille par defaut.
+    const hudTitle = document.createElement('div');
+    hudTitle.className = 'settings-section-title';
+    hudTitle.textContent = 'Disposition du HUD';
+    this.settingsHudUnlocked = this.checkboxControl('Déverrouiller la disposition du HUD', handlers.onSetHudUnlocked);
+    const hudHint = document.createElement('p');
+    hudHint.className = 'settings-hint';
+    hudHint.textContent = 'Déverrouillée : en jeu, maintenir MAJ, glisser le fond d\'un bloc pour le déplacer, sa poignée (coin) pour sa taille. ALT pendant le glisser : sans aimantation.';
+    this.settingsHudGrid = this.checkboxControl('Afficher la grille de calibration', handlers.onSetHudGrid);
+    const hudText = document.createElement('textarea');
+    hudText.className = 'settings-hud-text';
+    hudText.dataset['name'] = 'hud-layout';
+    hudText.placeholder = 'Disposition (JSON) : copiée ici, ou à coller puis « Charger une disposition »';
+    const hudStatus = document.createElement('div');
+    hudStatus.className = 'settings-hint';
+    const interfaceTabPanel = this.shopTabPanel([
+      hudTitle,
+      this.settingsHudUnlocked.row,
+      hudHint,
+      this.settingsHudGrid.row,
+      this.button('Réinitialiser la disposition du HUD', () => {
+        handlers.onResetHudLayout();
+        hudStatus.textContent = 'HUD réinitialisé';
+      }),
+      this.button('Copier la disposition du HUD', () => {
+        hudText.value = handlers.onCopyHudLayout();
+        hudStatus.textContent = 'Disposition copiée';
+      }),
+      hudText,
+      this.button('Charger une disposition', () => {
+        hudStatus.textContent = handlers.onLoadHudLayout(hudText.value);
+      }),
+      hudStatus,
+    ]);
+    const settingsTabPanels = [soundTabPanel, cameraTabPanel, interfaceTabPanel];
     const soundTabButton = this.tabButton('Son', () => selectSettingsTab(0));
     const cameraTabButton = this.tabButton('Caméra', () => selectSettingsTab(1));
-    const settingsTabButtons = [soundTabButton, cameraTabButton];
+    const interfaceTabButton = this.tabButton('HUD', () => selectSettingsTab(2));
+    const settingsTabButtons = [soundTabButton, cameraTabButton, interfaceTabButton];
     const selectSettingsTab = (index: number): void => {
       settingsTabButtons.forEach((b, i) => b.classList.toggle('shop-tab--active', i === index));
       settingsTabPanels.forEach((p, i) => p.classList.toggle('shop-tab-content--active', i === index));
@@ -911,13 +957,14 @@ export class Screens {
     selectSettingsTab(0);
     const settingsTabs = document.createElement('div');
     settingsTabs.className = 'shop-tabs';
-    settingsTabs.append(soundTabButton, cameraTabButton);
+    settingsTabs.append(soundTabButton, cameraTabButton, interfaceTabButton);
 
     this.settings = this.overlay('settings', [
       this.title('Paramètres'),
       settingsTabs,
       soundTabPanel,
       cameraTabPanel,
+      interfaceTabPanel,
       this.button('Retour', handlers.onCloseSettings),
     ]);
 
@@ -1792,9 +1839,11 @@ export class Screens {
 
   /** Affiche l'ecran Parametres a jour — toujours appeler ceci plutot que
    *  show('settings') directement (meme motif que showShop/showTalents). */
-  showSettings(audio: AudioSettings, cameraSpeed = 1): void {
+  showSettings(audio: AudioSettings, cameraSpeed = 1, hudGrid = false, hudUnlocked = false): void {
     this.refreshSettings(audio);
     this.setSliderValue(this.settingsCameraSpeed, cameraSpeed);
+    this.settingsHudGrid.input.checked = hudGrid;
+    this.settingsHudUnlocked.input.checked = hudUnlocked;
     this.show('settings');
   }
 

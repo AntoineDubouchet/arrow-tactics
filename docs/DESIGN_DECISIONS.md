@@ -1360,7 +1360,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Choix provisoires** (non validés) : 30 PV, 2,5 dégâts, vitesse 2,6
   (portée à 4,16 le 2026-11-02, +60 %, demande d'Antoine ; bonus de niveau
   0,24 / 0,48) ;
-  niveaux 2 et 3 à 50 et 150 XP ; XP = max(4, coût × 4) dans un rayon de
+  niveaux 2 et 3 à 50 et 150 XP (2026-11-02 : niveau 100 maximum, 50 × niveau
+  jusqu'au 10 puis +100 XP par niveau ; PV et dégâts par tranches de
+  niveaux, dégressifs : 2-10, 11-25, 26-50, 51-100 ; vitesse figée après le 3 ;
+  demandes d'Antoine) ; XP = max(4, coût × 4) dans un rayon de
   6 cases, **plafonnée à 30 par mort** (demande d'Antoine, 2026-11-01) ; morts comptées **sur la run** (pas par bataille) ; Héros hors
   population, gratuit, invendable ; visuel Toon (tête E, corps D,
   épaulières B, marteau B ×1,6, échelle 1,3).
@@ -1569,6 +1572,145 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   plus 100 unités de ressources (20 piles de 5).
 - **Sources** : `sim/inventory.ts`, `data/resources.ts`, `sim/systems/hero.ts`,
   `sim/world.ts`, `ui/heroInventory.ts`, `ui/economyHud.ts`, `main.ts`.
+- **Validations d'Antoine** (2026-11-02) : le bonus de vague reste versé au
+  stock (récompense système, comme la Mine) ; or des ennemis, des camps et
+  des destructibles physique ; une unité militaire sélectionnée reçoit les
+  ordres (voulu) ; les tas d'or restent au sol jusqu'au ramassage.
+
+### G16 — Briques RTS : destructibles, production, réparation, défaite
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-02) : barils destructibles à butin, Mine
+  3 × 3, sortie devant les producteurs, point de ralliement, murailles
+  diagonales étanches, réparation payante par le Héros, Baliste détruite =
+  défaite, HUD final (économie haut droit, Héros bas gauche, barre d'action
+  centrée).
+- **Choix de la passe** :
+  - baril = entité bâtiment neutre (équipe adverse, hors fin de vague,
+    jamais ciblé automatiquement), 4 PV, butin 30 % (1-2 ressources) ;
+  - devant d'un bâtiment = face +Z du modèle tournée par `rotationY` ;
+  - ralliement stocké dans le bâtiment (simulation), ordre de marche donné à
+    l'apparition ;
+  - diagonale = cases 1 × 1 qui se touchent par un coin (étanche), modèle
+    étiré ; pas de coin KayKit aux virages diagonaux ;
+  - réparation : paiement d'avance, remboursement de la part non utilisée
+    (arrondi inférieur), 10 s pour 100 % ; Baliste : base de coût propre ;
+  - défaite : la seule Baliste (`World.isBaseLost`).
+- **Effets d'équilibrage** : réparer coûte ; la Baliste devient la cible
+  décisive ; les barils ajoutent un peu de ressources dans les camps.
+- **Sources** : `data/buildings.ts`, `data/loot.ts`, `sim/world.ts`,
+  `sim/systems/buildingProduction.ts`, `sim/systems/hero.ts`,
+  `core/wallTrace.ts`, `run/buildingRepair.ts`, `render/destructibleViews.ts`,
+  `render/rallyMarkers.ts`, `ui/actionProgress.ts`, `main.ts`.
+
+### G17 — HUD officiel verrouillé, outil de calibration conservé
+
+- **Statut** : Active ; positions **provisoires**.
+- **Demande d'Antoine** (2026-11-02) : la disposition réalisée à la main
+  devient le layout officiel (Héros bas gauche ; Inventaire, sorts,
+  Construire en bas ; XP pleine largeur ; Vague haut centre ; Économie haut
+  droite) ; l'outil de calibration est gardé mais désactivé par défaut ;
+  « Réinitialiser » revient au nouveau layout ; X2 retiré du HUD joueur.
+- **Choix de la passe** :
+  - layout officiel écrit dans le **format de l'export**
+    (`ui/hudDefaultLayout.ts`) : un export de la disposition d'Antoine
+    peut le remplacer tel quel. Sa disposition locale exacte n'a pas pu être
+    lue (stockage du navigateur) : les valeurs suivent la direction écrite,
+    mesurées à 1600 × 900 ;
+  - variante compacte sous 1 200 px (le groupe centré toucherait l'encart du
+    Héros) ;
+  - panneau Construire ouvert au-dessus du bouton (signalé par Antoine : il
+    recouvrait la barre des sorts) ;
+  - touche X gardée comme outil de debug invisible (mode debug seulement) ;
+  - fenêtre d'inventaire déplaçable par le joueur (clic maintenu sur le
+    fond), indépendante de l'outil de calibration.
+- **Sources** : `ui/hudDefaultLayout.ts`, `ui/hudLayout.ts`,
+  `ui/heroInventory.ts`, `ui/buildMenu.ts`, `ui/screens.ts`, `main.ts`.
+
+### G18 — Niveau d'unité générique, scaling plus tard
+
+- **Statut** : Active.
+- **Demande d'Antoine** (2026-11-02) : toute unité de combat a un niveau
+  valide (1 par défaut), affiché dans sa fiche ; le niveau des unités non
+  Héros est une donnée de difficulté et de présentation ; pas de
+  multiplicateur de stats dans cette passe.
+- **Choix de la passe** :
+  - `Entity.level` porté par toute entité, résolu hors de la simulation ;
+  - les niveaux d'amélioration existants deviennent ce niveau (production du
+    joueur, renfort de vague ennemi : niveau = amélioration + 1), sans
+    changer leurs stats : un seul niveau affiché, jamais deux vérités ;
+  - le Héros garde sa progression ; son niveau d'entité en est une copie ;
+  - priorité : valeur explicite de la carte > règle (future difficulté
+    procédurale) > 1 ; jamais un niveau déduit de la seule distance au
+    centre.
+- **À ne pas faire** : multiplier les stats par le niveau sans formule
+  décidée (parking : ROADMAP §6 octies).
+- **Sources** : `data/unitLevels.ts`, `sim/entity.ts`, `sim/world.ts`,
+  `run/camps.ts`, `run/entityInfo.ts`, `main.ts`.
+
+### G19 — Survie : cartes dessinées et cartes générées
+
+- **Statut** : Active (direction) ; seule la carte générée existe.
+- **Demande d'Antoine** (2026-11-02) : pouvoir dessiner ses cartes de Survie
+  (camps, zones, niveaux, butin) et garder la génération procédurale ; même
+  format de sortie ; le gameplay ignore l'origine de la carte ; plusieurs
+  cartes de survie possibles plus tard.
+- **Choix de la passe** :
+  - `MapDef` reste le seul format : le générateur écrit les niveaux des camps
+    et `survivalRules` comme le ferait une carte dessinée ;
+  - règles de la Survie Hero RTS lues dans `MapDef.survivalRules`, plus dans
+    `MapDef.generator` ;
+  - pas d'éditeur de zones ni de sélection de carte dans cette passe.
+- **Sources** : `config/mapDef.ts`, `config/maps/proceduralSurvival.ts`,
+  `main.ts`.
+
+### G20 — Sol du village : terre battue et chemins
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-02) : à la pose d'un bâtiment, terre battue
+  dessous et sur une case autour ; chemin d'une case de terre battue entre
+  deux bâtiments à 20 cases ou moins.
+- **Choix de la passe** (validés par Antoine le 2026-11-02, terre conservée après
+  destruction, Survie seulement) :
+  - chaque nouveau bâtiment est relié au **plus proche** des bâtiments déjà
+    posés (à 20 cases ou moins), pas à tous : un réseau en arbre plutôt
+    qu'une toile de chemins ;
+  - Baliste comprise ; murailles et portes exclues ;
+  - chemin en ligne droite de cases reliées par un côté, qui saute l'eau ;
+  - anneau aux coins arrondis ; terre battue gardée après une destruction,
+    jusqu'à la run suivante ; purement visuel.
+- **Sources** : `render/settlementGround.ts`, `render/board.ts`,
+  `render/terrainChunks.ts`, `main.ts`.
+
+### G21 — Arbres à 20 bois, vagues barbares, file de production
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demandes d'Antoine** (2026-11-02) : sélectionner un arbre (anneau jaune),
+  un arbre vaut 20 bois ; vagues jouées par les barbares ; Archer du Camp
+  d'archerie en nouveau modèle ; menu Construire fermé par un clic sur le
+  terrain ; file de production de plusieurs unités, amélioration comprise,
+  dans l'ordre des clics.
+- **Choix de la passe** :
+  - quantité décomptée par la simulation ; arbre à 0 **abattu** (décision
+    d'Antoine) : souche décorative, cases non bloquantes et constructibles,
+    pathfinding mis à jour aussitôt — abattre une forêt peut ouvrir un
+    chemin aux vagues ;
+  - vagues (validé) : barbare du même rôle ; stats, renfort, or et butin du
+    rôle de vague ; camps et vagues restent deux systèmes distincts ;
+  - roster humain Toon RTS par défaut (Homme d'armes, Archer, Mage,
+    Sentinelle), anciens modèles en repli ;
+  - file (validé) : 5 commandes, paiement au clic, annulation avec or rendu,
+    file perdue sans remboursement à la destruction ; amélioration en file
+    (20 s, provisoire) pour les producteurs seulement, une à la fois ; Mine et
+    Tour : amélioration immédiate ;
+  - **ressource verrouillée** (arbre sans Scierie, gros gisement sans Camp de
+    mineur), règle d'Antoine : clic droit = interaction reconnue + déplacement
+    autorisé (sélection, raison rappelée, le Héros va au pied de la
+    ressource, aucune récolte) ; jamais « interaction impossible = clic
+    consommé » pour une ressource.
+- **Sources** : `data/resources.ts`, `data/units.ts`, `data/production.ts`,
+  `sim/world.ts`, `sim/systems/hero.ts`, `sim/systems/buildingProduction.ts`,
+  `run/buildingUpgrades.ts`, `render/toonUnitRig.ts`, `main.ts`.
 
 ---
 
@@ -1672,7 +1814,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     portrait, modèle, stats, mana, sorts, équipement de départ) ;
   - **mana** pour les héros seulement : Paladin 100 max, 100 au départ,
     +2 / s, dans la simulation déterministe, figé en pause ;
-  - sort **Soin** : 2 s d'incantation, +5 PV, portée environ 5 cases, sur
+  - sort **Soin** : 2 s d'incantation, +5 PV (15 PV depuis le 2026-11-02,
+    demande d'Antoine), portée environ 5 cases, sur
     soi ou un allié ; un ordre de déplacement pendant l'incantation
     l'annule sans effet ; préférence : mana rendu ;
   - **HUD** permanent en haut à droite (portrait rond gris, PV vert, mana

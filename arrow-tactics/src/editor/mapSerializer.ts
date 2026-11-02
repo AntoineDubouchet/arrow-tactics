@@ -35,8 +35,10 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
     // Positions CONTINUES conservees telles quelles (Part S : "ne convertis
     // pas en cellX/cellZ") — playerUnits/enemyUnits utilisaient deja x/z
     // continus avant ce chantier, aucun changement necessaire ici.
-    playerUnits: state.units.filter((u) => u.team === 'player').map(({ unitId, x, z }) => ({ unitId, x, z })),
-    enemyUnits: state.units.filter((u) => u.team === 'enemy').map(({ unitId, x, z }) => ({ unitId, x, z })),
+    // Niveau d'unite explicite (MapUnitPlacement.level) : ecrit seulement
+    // s'il existe (cartes sans niveau inchangees).
+    playerUnits: state.units.filter((u) => u.team === 'player').map(({ unitId, x, z, level }) => ({ unitId, x, z, ...(level !== undefined ? { level } : {}) })),
+    enemyUnits: state.units.filter((u) => u.team === 'enemy').map(({ unitId, x, z, level }) => ({ unitId, x, z, ...(level !== undefined ? { level } : {}) })),
     // Position de la Baliste ecrite SEULEMENT si elle a ete posee/deplacee
     // (voir EditorState.ballistaExplicit) : une map qui n'en avait pas reste
     // sans champ, et garde le repli historique au chargement.

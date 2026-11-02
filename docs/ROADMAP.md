@@ -425,14 +425,46 @@ La Survie n'emprunte plus la préparation (`DESIGN_DECISIONS.md` G10). Reste
 - trajets selon la taille du corps (les rampes d'une case restent possibles
   dans l'éditeur).
 
+## 6 septies. Briques RTS — suites
+
+Construit le 2026-11-02 (`DESIGN_DECISIONS.md` G16). À faire :
+
+- murailles dans le menu Construire du temps réel (KI-49), virages et
+  fermetures diagonales (KI-50) ;
+- barils dans l'éditeur, ruines et autres destructibles (KI-51) ;
+- ralliement sur une cible (ressource, unité), plusieurs points ;
+- réparation par d'autres unités (ouvriers) ;
+- fusion des tas d'or proches (KI-47).
+
+## 6 octies. Niveaux, cartes de survie, village — suites
+
+Construit le 2026-11-02 (`DESIGN_DECISIONS.md` G17 à G20). Parking :
+
+- **scaling par niveau** (rien n'est appliqué aujourd'hui) : PV, dégâts,
+  éventuellement précision, vitesse ou cadence (avec beaucoup de prudence),
+  XP donnée, butin, rareté des tables. À décider : formule, unités
+  concernées, lien avec les renforts de vague existants ;
+- **difficulté procédurale** : le générateur proposerait un niveau par
+  tier, distance ou type de zone (exemple d'Antoine : tier 1 → niveaux 1-2,
+  tier 2 → 2-4, tier 3 → 4-6), point d'entrée `generatedCampLevel` ; une
+  valeur explicite de la carte reste prioritaire ;
+- **cartes de survie dessinées** : camps, zones, niveaux et
+  `survivalRules` dans l'éditeur (KI-52) ; plusieurs cartes (Survie 1,
+  Survie 2, presets de génération) et leur sélection ;
+- **niveau modifié en jeu** : améliorations, bâtiments, technologies,
+  vétérans ;
+- **village** : chemins qui contournent l'eau et le relief, réseau plus
+  riche (plusieurs voisins), terre battue des camps neutres ;
+- HUD : remplacer le layout officiel par l'export exact d'Antoine
+  (`ui/hudDefaultLayout.ts`).
+
 ## 6 sexies. Économie et contrôles — suites
 
 Inventaire unique, or physique et Héros permanent construits le 2026-11-02
 (`DESIGN_DECISIONS.md` G15). À faire :
 
-- trancher le bonus de vague (stock direct ou or au sol) ;
 - tas d'or : fusion / disparition / aimant si accumulation (KI-47) ;
-- contrôle Héros + armée, groupes (KI-48) ;
+- contrôle Héros + armée, groupes (une unité sélectionnée reçoit les ordres : voulu) ;
 - consommables dans l'inventaire (cases déjà génériques) ;
 - vitesse caméra : autres déplacements au clavier s'ils sont ajoutés.
 

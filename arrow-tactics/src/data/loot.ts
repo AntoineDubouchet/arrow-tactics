@@ -85,6 +85,21 @@ export const ENEMY_GOLD_DROPS: Readonly<Record<string, { min: number; max: numbe
   razzieur: { min: 2, max: 3 },
 };
 
+/** Butin des objets destructibles (2026-11-02), par type (BUILDINGS) :
+ *  `chance` d'un butin ; sinon rien. Un butin : une ressource tiree au sort
+ *  (meme poids), quantite min..max, posee au sol (ramassee, portee,
+ *  deposee). RNG du monde. PROVISOIRE. */
+export const DESTRUCTIBLE_LOOT: Readonly<Record<string, { chance: number; entries: readonly { resource: 'wood' | 'stone' | 'gold'; min: number; max: number }[] }>> = {
+  barrel: {
+    chance: 0.3,
+    entries: [
+      { resource: 'wood', min: 1, max: 2 },
+      { resource: 'stone', min: 1, max: 2 },
+      { resource: 'gold', min: 1, max: 2 },
+    ],
+  },
+};
+
 /** Table de butin lachee a la mort d'un ennemi, par type d'unite (UNITS). */
 export const ENEMY_LOOT_TABLES: Readonly<Record<string, string>> = {
   maraudeur: 'maraudeur',
