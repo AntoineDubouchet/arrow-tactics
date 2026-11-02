@@ -5,6 +5,7 @@ import {
   BUILD_CHAIN_RADIUS,
   BUILD_REACH,
   CONSTRUCTION_START_HP_FRACTION,
+  DEPOSIT_SECONDS_PER_ITEM,
   HARVEST_INTERVAL,
   HARVEST_REACH,
   HERO_CARRY_CAPACITY,
@@ -17,7 +18,8 @@ import {
   PICKUP_SECONDS,
 } from '../../data/hero';
 import type { Entity } from '../entity';
-import { isWorkOrder } from '../orders';
+import { isWorkOrder, type UnitOrder } from '../orders';
+import type { AbilityEvent } from './abilities';
 
 /**
  * Heros (2026-11-01, direction Hero RTS, data/hero.ts) : progression (XP en
@@ -25,7 +27,18 @@ import { isWorkOrder } from '../orders';
  * (recolte, ramassage, depot, construction des chantiers). Deterministe : aucun hasard, ordre
  * des entites. Le deplacement vers une source ou un chantier est fait par
  * movementSystem (workGoal) ; ce module decide quand le Heros travaille.
+ *
+ * Sorts (2026-11-02, data/spells.ts) : ordre `cast` ; le Heros s'approche a
+ * portee, retient le mana et incante sur place (Entity.cast, avance par
+ * abilitySystem, qui donne le soin). Tout autre ordre, la mort, une
+ * Provocation ou la mort de la cible annulent l'incantation avant son effet :
+ * aucun soin, mana rendu (interruptHeroSpells, AVANT abilitySystem). Une
+ * cible sortie de portee a la fin : soin perdu, mana rendu.
  */
+/** Raison de l'annulation d'un sort : nouvel ordre, mort du Heros,
+ *  Provocation, cible morte ou disparue, cible hors de portee a la fin,
+ *  mana insuffisant au moment d'incanter. */
+export type SpellCancelReason = 'order' | 'death' | 'taunt' | 'target' | 'out-of-range' | 'no-mana';
 export type HeroEvent =
   | { type: 'xp'; heroId: number; amount: number; xp: number }
   | { type: 'levelUp'; heroId: number; level: number }
@@ -37,9 +50,16 @@ export type HeroEvent =
   | { type: 'pickup'; heroId: number; resource: ResourceKind; amount: number; pileId: number; remaining: number }
   /** Sac plein : le travail s'arrete (le Heros passe en Garde). */
   | { type: 'carryFull'; heroId: number }
-  /** Sac vide au depot : quantites versees au stock de la run. */
-  | { type: 'deposit'; heroId: number; wood: number; stone: number }
-  | { type: 'built'; heroId: number; buildingId: number };
+  /** Unite versee au stock de la run (depot, une toutes les
+   *  DEPOSIT_SECONDS_PER_ITEM s) ; `remaining` : unites encore portees. */
+  | { type: 'deposit'; heroId: number; wood: number; stone: number; remaining: number }
+  | { type: 'built'; heroId: number; buildingId: number }
+  /** Incantation commencee (mana retenu). */
+  | { type: 'spellStart'; heroId: number; spellId: string; targetId: number }
+  /** Incantation annulee avant son effet ; `refunded` : mana rendu. */
+  | { type: 'spellCancel'; heroId: number; spellId: string; reason: SpellCancelReason; refunded: number }
+  /** Sort abouti (`healed` : PV internes reellement rendus). */
+  | { type: 'spellEnd'; heroId: number; spellId: string; targetId: number; healed: number };
 
 /** Petit tas au sol de la carte (MapDef.resourcePiles), etat de simulation :
  *  `amount` baisse a chaque ramassage, 0 = disparu. */
@@ -69,10 +89,21 @@ export function carriedAmount(h: { carry: { wood: number; stone: number } }): nu
 export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<number, Entity>): { x: number; z: number; reached: boolean; target: Entity | null } | null {
   const order = e.order;
   if (!isWorkOrder(order)) return null;
+  if (order.type === 'cast') {
+    const target = byId.get(order.targetEntityId);
+    const spell = e.hero?.spells.find((s) => s.id === order.spellId);
+    if (!target || !target.alive || !spell) return null;
+    // Incantation commencee : sur place, la cible peut bouger.
+    if (e.hero!.spellCast || target === e) return { x: e.x, z: e.z, reached: true, target: null };
+    return { x: target.x, z: target.z, reached: Math.hypot(target.x - e.x, target.z - e.z) <= spell.rangeTiles, target };
+  }
   if (order.type === 'harvest') {
     const node = work.nodes.get(order.nodeId);
     if (!node) return null;
-    return { x: node.x, z: node.z, reached: Math.hypot(node.x - e.x, node.z - e.z) <= e.stats.radius + HARVEST_REACH, target: null };
+    // Arbre (cases bloquantes, 2026-11-02) : portee mesuree jusqu'a ses cases,
+    // le Heros ne pouvant plus en approcher le centre.
+    const reach = node.block ? distanceToBox(e, node.block) : Math.hypot(node.x - e.x, node.z - e.z);
+    return { x: node.x, z: node.z, reached: reach <= e.stats.radius + HARVEST_REACH, target: null };
   }
   if (order.type === 'pickup') {
     const pile = work.piles[order.pileId];
@@ -88,7 +119,11 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
 function distanceToSite(e: Entity, site: Entity): number {
   const f = site.footprintObstacle;
   if (!f) return Math.max(0, Math.hypot(site.x - e.x, site.z - e.z) - site.stats.radius);
-  const b: ObstacleBounds = { minX: site.x - (f.tilesX / 2), maxX: site.x + (f.tilesX / 2), minZ: site.z - (f.tilesZ / 2), maxZ: site.z + (f.tilesZ / 2) };
+  return distanceToBox(e, { minX: site.x - (f.tilesX / 2), maxX: site.x + (f.tilesX / 2), minZ: site.z - (f.tilesZ / 2), maxZ: site.z + (f.tilesZ / 2) });
+}
+
+/** Distance du centre de `e` a un rectangle (0 a l'interieur). */
+function distanceToBox(e: Entity, b: ObstacleBounds): number {
   const dx = Math.max(b.minX - e.x, 0, e.x - b.maxX);
   const dz = Math.max(b.minZ - e.z, 0, e.z - b.maxZ);
   return Math.hypot(dx, dz);
@@ -114,13 +149,32 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       h.workTimer = 0;
       continue;
     }
-    if (e.order.type === 'deposit') {
-      // Depot : tout le sac, d'un coup, au contact du depot.
-      if (carriedAmount(h) > 0) events.push({ type: 'deposit', heroId: e.id, wood: h.carry.wood, stone: h.carry.stone });
-      h.carry = { wood: 0, stone: 0 };
-      e.order = { type: 'guard' };
+    if (e.order.type === 'cast') {
       h.working = null;
       h.workTimer = 0;
+      if (!h.spellCast) startSpell(e, e.order, byId, events);
+      continue;
+    }
+    if (e.order.type === 'deposit') {
+      // Depot (2026-11-02) : une unite (bois, puis pierre) toutes les
+      // DEPOSIT_SECONDS_PER_ITEM s au contact ; un autre ordre interrompt et
+      // garde ce qui est deja verse. Garde quand le sac est vide.
+      if (carriedAmount(h) > 0) {
+        h.working = 'deposit';
+        const before = Math.floor(h.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9);
+        h.workTimer += dt;
+        let due = Math.floor(h.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9) - before;
+        while (due-- > 0 && carriedAmount(h) > 0) {
+          const kind = h.carry.wood > 0 ? 'wood' : 'stone';
+          h.carry[kind]--;
+          events.push({ type: 'deposit', heroId: e.id, wood: kind === 'wood' ? 1 : 0, stone: kind === 'stone' ? 1 : 0, remaining: carriedAmount(h) });
+        }
+      }
+      if (carriedAmount(h) === 0) {
+        e.order = { type: 'guard' };
+        h.working = null;
+        h.workTimer = 0;
+      }
       continue;
     }
     if (e.order.type === 'harvest' || e.order.type === 'pickup') {
@@ -186,6 +240,86 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
   }
 }
 
+/** Debut d'incantation a portee : mana retenu, soin porte par Entity.cast
+ *  (abilitySystem l'avance et le donne a la fin, cible verifiee). */
+function startSpell(e: Entity, order: Extract<UnitOrder, { type: 'cast' }>, byId: ReadonlyMap<number, Entity>, events: HeroEvent[]): void {
+  const h = e.hero!;
+  const spell = h.spells.find((s) => s.id === order.spellId)!;
+  const target = byId.get(order.targetEntityId)!;
+  if (h.mana < spell.manaCost) {
+    events.push({ type: 'spellCancel', heroId: e.id, spellId: spell.id, reason: 'no-mana', refunded: 0 });
+    e.order = { type: 'guard' };
+    return;
+  }
+  h.mana -= spell.manaCost;
+  h.spellCast = { spellId: spell.id, targetId: target.id, manaSpent: spell.manaCost, order };
+  e.cast = {
+    targetX: target.x,
+    targetZ: target.z,
+    elapsed: 0,
+    duration: spell.castSeconds,
+    projectileSpeed: 0,
+    damage: 0,
+    radiusTiles: 0,
+    heal: { targetId: target.id, amount: spell.healAmount, endRangeTiles: spell.rangeTiles + spell.endRangeMarginTiles },
+  };
+  events.push({ type: 'spellStart', heroId: e.id, spellId: spell.id, targetId: target.id });
+}
+
+/** Annule l'incantation en cours : aucun effet, mana retenu rendu. */
+function cancelSpell(e: Entity, reason: SpellCancelReason, events: HeroEvent[]): void {
+  const h = e.hero!;
+  const c = h.spellCast!;
+  h.mana = Math.min(h.maxMana, h.mana + c.manaSpent);
+  h.spellCast = null;
+  e.cast = null;
+  events.push({ type: 'spellCancel', heroId: e.id, spellId: c.spellId, reason, refunded: c.manaSpent });
+}
+
+/** Juste apres les commandes, AVANT abilitySystem (qui donnerait le soin) :
+ *  une incantation dont l'ordre a change (tout ordre accepte en cree un
+ *  nouveau, meme identique), dont le Heros est mort ou provoque, ou dont la
+ *  cible est morte, est annulee. Provocation : l'ordre `cast` reste suspendu
+ *  et l'incantation repart de zero a sa fin. */
+export function interruptHeroSpells(entities: Entity[], events: HeroEvent[]): void {
+  let byId: Map<number, Entity> | null = null;
+  for (const e of entities) {
+    const c = e.hero?.spellCast;
+    if (!c) continue;
+    let reason: SpellCancelReason | null = null;
+    if (!e.alive) reason = 'death';
+    else if (e.order !== c.order) reason = 'order';
+    else if (e.tauntSourceId !== null) reason = 'taunt';
+    else {
+      byId ??= new Map(entities.map((o) => [o.id, o]));
+      if (!byId.get(c.targetId)?.alive) reason = 'target';
+    }
+    if (reason) cancelSpell(e, reason, events);
+  }
+}
+
+/** Apres abilitySystem : fin des incantations du pas (soin donne, ou perdu
+ *  hors de portee : mana rendu ; le Heros passe en Garde), puis regeneration
+ *  du mana des Heros vivants (temps de simulation : figee en pause). */
+export function heroSpellSystem(entities: Entity[], abilityEvents: readonly AbilityEvent[], dt: number, events: HeroEvent[]): void {
+  for (const e of entities) {
+    const h = e.hero;
+    if (!h || !e.alive) continue;
+    const c = h.spellCast;
+    if (c && e.cast === null) {
+      const lost = abilityEvents.some((a) => a.type === 'heal-lost' && a.entityId === e.id);
+      if (lost) cancelSpell(e, 'out-of-range', events);
+      else {
+        const done = abilityEvents.find((a) => a.type === 'heal' && a.entityId === e.id);
+        h.spellCast = null;
+        events.push({ type: 'spellEnd', heroId: e.id, spellId: c.spellId, targetId: c.targetId, healed: done?.type === 'heal' ? done.healed : 0 });
+      }
+      e.order = { type: 'guard' };
+    }
+    h.mana = Math.min(h.maxMana, h.mana + h.manaRegen * dt);
+  }
+}
+
 /** Morts du pas (apres deathSystem) : XP partagee des unites adverses tombees
  *  pres d'un Heros vivant, mort du Heros (delai de resurrection). */
 export function heroDeathSystem(entities: Entity[], aliveBefore: ReadonlySet<number>, events: HeroEvent[]): void {
@@ -239,6 +373,9 @@ export function heroRespawnSystem(entities: Entity[], dt: number, spawnPoint: (h
     if (!at) continue;
     e.alive = true;
     e.hp = e.stats.maxHp;
+    // Mana plein au retour, comme les PV. PROVISOIRE.
+    h.mana = h.maxMana;
+    h.spellCast = null;
     e.x = e.prevX = at.x;
     e.z = e.prevZ = at.z;
     e.order = { type: 'guard' };

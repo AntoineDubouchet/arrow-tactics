@@ -90,7 +90,11 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   );
   group.add(gridLines);
 
-  const zones = createZonesGroup(territory, field);
+  // Zones de camp colorees (bleu / rouge) RETIREES du plateau de jeu le
+  // 2026-11-02 (demande d'Antoine) : groupe vide garde pour les appelants.
+  // Le territoire reste une donnee (placement des unites en preparation) et
+  // l'editeur garde son propre affichage (createZonesGroup).
+  const zones = new THREE.Group();
   group.add(zones);
 
   // Obstacles : rochers et arbres bloquent la ligne de tir ET les pas en

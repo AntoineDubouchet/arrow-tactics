@@ -16,7 +16,7 @@ import {
 import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp } from './buildingUpgradeEffects';
 import { churchHealCost, churchHealHpPerGold } from './churchHeal';
-import { mineGoldRange, mineMaxProductionsPerWave, mineProductionIntervalSeconds } from './mineUpgradeEffects';
+import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isBuildingAtMaxLevel, isUpgradableBuilding } from './buildingUpgrades';
 import { getUnitUpgradeDef } from '../data/unitUpgrades';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
@@ -65,8 +65,8 @@ export interface EntityInfoAction {
    *  (bataille). `healArmy` : soin de l'armee a l'Eglise selectionnee ;
    *  `openChurchUpgrades` : ameliorations de run accessibles a l'Eglise. */
   id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'openChurchUpgrades' | 'buildStructure' | 'produceUnit';
-  /** `buildStructure` : batiment a poser (fiche du Heros) ; `produceUnit` :
-   *  unite a produire (fiche d'un batiment), Survie en temps reel. */
+  /** `buildStructure` : batiment a poser ; `produceUnit` : unite a produire
+   *  (fiche d'un batiment), Survie en temps reel. */
   payload?: string;
   label: string;
   enabled: boolean;
@@ -351,6 +351,48 @@ export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number, lev
   });
 }
 
+// --- Feuille du Heros (inventaire) -----------------------------------------
+
+/** Feuille du Heros (2026-11-02, inventaire, touche I) : remplace sa fiche,
+ *  qui ne s'affiche plus a sa selection. Statistiques EFFECTIVES de son
+ *  entite (niveau compris), sorts connus, equipement porte. */
+export interface HeroSheetInfo {
+  title: string;
+  hp: EntityInfoHp;
+  rows: EntityInfoRow[];
+  spells: { name: string; detail: string; description: string }[];
+  /** Equipement recupere pendant la run : vide tant qu'aucun objet n'existe. */
+  equipment: string[];
+}
+
+export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: number | null, carryCapacity: number): HeroSheetInfo {
+  const h = entity.hero!;
+  const s = entity.stats;
+  const rows: EntityInfoRow[] = [
+    { label: 'Mana', value: `${Math.floor(h.mana)} / ${h.maxMana} (+${formatNumber(h.manaRegen)} / s)` },
+    { label: 'Dégâts', value: formatPoints(s.damage) },
+    { label: 'Portée', value: formatRange(s.attackRange) },
+    { label: 'Cadence', value: `1 coup / ${formatSeconds(s.attackCooldown)}` },
+    { label: 'Vitesse', value: `${formatNumber(s.moveSpeed)} cases/s` },
+  ];
+  if (s.dodgeChance > 0) rows.push({ label: 'Esquive', value: `${Math.round(s.dodgeChance * 100)} %` });
+  rows.push(
+    { label: 'Expérience', value: nextLevelXp === null ? `${h.xp} XP (niveau max)` : `${h.xp} / ${nextLevelXp} XP` },
+    { label: 'Sac', value: `${h.carry.wood + h.carry.stone} / ${carryCapacity} (bois ${h.carry.wood}, pierre ${h.carry.stone})` },
+  );
+  return {
+    title: `${heroName} — Niv. ${h.level}`,
+    hp: hpOf(entity.alive ? entity.hp : 0, s.maxHp, entity.shield),
+    rows,
+    spells: h.spells.map((spell) => ({
+      name: spell.name,
+      detail: `${spell.manaCost} mana · ${formatSeconds(spell.castSeconds)} · portée ${formatNumber(spell.rangeTiles)} cases`,
+      description: spell.description,
+    })),
+    equipment: [],
+  };
+}
+
 // --- Groupes ---------------------------------------------------------------
 
 interface GroupMember {
@@ -420,16 +462,16 @@ export function battleGroupInfo(entities: readonly Entity[], levelOf: (entity: E
 
 // --- Mine, Caserne et Camp d'archerie --------------------------------------
 
-/** Niveau interne propre au batiment (Mine, Caserne). `produced` :
- *  productions deja faites dans la bataille en cours, null hors bataille. */
-function mineRows(level: number, produced: number | null = null): EntityInfoRow[] {
+/** Niveau interne propre au batiment (Mine, Caserne). `nextIn` : secondes
+ *  avant la prochaine tranche d'une Mine en jeu, null hors jeu. */
+function mineRows(level: number, nextIn: number | null = null): EntityInfoRow[] {
   const { min, max } = mineGoldRange(level);
-  const cap = mineMaxProductionsPerWave();
-  return [
+  const rows: EntityInfoRow[] = [
     { label: 'Production', value: `${min} à ${max} or` },
     { label: 'Fréquence', value: `toutes les ${formatSeconds(mineProductionIntervalSeconds())}` },
-    produced === null ? { label: 'Par manche', value: `${cap} productions au plus` } : { label: 'Productions', value: `${produced} / ${cap}` },
   ];
+  if (nextIn !== null) rows.push({ label: 'Prochaine tranche', value: `dans ${formatSeconds(Math.ceil(nextIn))}` });
+  return rows;
 }
 
 /** "1 Fantassin par manche", "2 Archers par manche". */
@@ -593,11 +635,11 @@ function chantierInfo(buildingId: string, hp: number, maxHp: number, progress: n
  *  niveau propre d'une Mine ou d'une Caserne possedee (null sinon) ; le
  *  revenu de la Mine n'est pas une donnee de simulation (verse par main.ts
  *  tant que la Mine est vivante), il se deduit de ce niveau. */
-export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, ownedLevel: number | null = null, mineProductions: number | null = null): BuildingInfo {
+export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, ownedLevel: number | null = null, mineNextIn: number | null = null): BuildingInfo {
   const def = getBuilding(entity.unitId);
   if (entity.construction) return chantierInfo(def.id, entity.hp, entity.stats.maxHp, entity.construction.progress, entity.team);
   let rows: EntityInfoRow[] = [];
-  if (def.id === 'mine') rows = mineRows(ownedLevel ?? 0, mineProductions);
+  if (def.id === 'mine') rows = mineRows(ownedLevel ?? 0, mineNextIn);
   else if (def.production) {
     rows = productionRows(def.id, ownedLevel ?? 0);
     // Quota de la manche pas encore produit : il attend une place de

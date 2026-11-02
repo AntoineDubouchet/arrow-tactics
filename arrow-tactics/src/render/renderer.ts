@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FogOfWarPass, type FogOfWar } from './fogOfWar';
-import { BOARD_H, BOARD_W, CAMERA, COLORS } from '../config/constants';
+import { BOARD_H, BOARD_W, CAMERA } from '../config/constants';
 import { clamp, degToRad } from '../core/math';
 import { createBackgroundVeil, type LookSettings } from './look';
 
@@ -80,29 +80,24 @@ export class Renderer {
   /** Limite du point vise appliquee au deplacement (pan), voir setTargetConstraint. */
   private targetConstraint: CameraTargetConstraint | null = null;
 
+  /** Niveau global des lumieres de la scene (2026-11-02, demande d'Antoine :
+   *  « petite baisse de luminosite globale, subtile ») : multiplie les trois
+   *  intensites (ambiance, remplissage, soleil), preset de look compris.
+   *  1 avant cette date. Couleurs, ombres et materiaux inchanges. PROVISOIRE. */
+  static readonly LIGHT_LEVEL = 0.92;
+
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Couleur unie immediate, remplacee des que l'image charge (voir plus
-    // bas) : jamais d'ecran noir/vide le temps du chargement reseau.
-    this.scene.background = new THREE.Color(COLORS.sky);
-
-    // Fond en TEST (demande d'Antoine, 2026-08-10, image fournie par ses
-    // soins) — premiere exception "arriere-plan" a la regle "aucun asset
-    // graphique" du projet (deja fait pour rochers/arbres/baliste, jamais
-    // pour un element aussi visible que le ciel). LIMITE CONNUE, a confirmer
-    // avec Antoine : ceci est une simple image plaquee en fond (scene.background
-    // = Texture), pas un vrai skybox — elle reste FIXE a l'ecran quelle que
-    // soit la rotation de la camera (yaw/pitch), elle ne "tourne" pas avec le
-    // plateau. Suffisant pour un premier test visuel, pas pour un rendu
-    // definitif si la camera pivote souvent en jeu reel.
-    new THREE.TextureLoader().load('/textures/sky_background.png', (texture) => {
-      texture.colorSpace = THREE.SRGBColorSpace;
-      this.scene.background = texture;
-    });
+    // Fond NOIR uni (2026-11-02, demande d'Antoine) : plus d'image de ciel
+    // (montagnes, foret, horizon) derriere la carte ronde ; lecture plus
+    // nette du brouillard et du bord de la carte. L'ancienne image
+    // (public/textures/sky_background.png, 2026-08-10) reste dans le depot,
+    // simplement plus chargee. Jeu et editeur partagent ce rendu.
+    this.scene.background = new THREE.Color(0x000000);
 
     // Lumiere d'ambiance froide par le haut, chaude par le sol : les cubes
     // gardent du volume meme sans texture. Etait descendue a 0.6 pour forcer
@@ -111,7 +106,7 @@ export class Renderer {
     // rochers/arbres sont maintenant de vrais modeles .glb (voir
     // render/assetLibrary.ts) avec leur propre relief et leurs propres
     // materiaux : ils n'ont pas besoin d'un ambiant faible pour se lire.
-    this.hemisphere = new THREE.HemisphereLight(0xbcd4ff, 0x4a5236, 1.0);
+    this.hemisphere = new THREE.HemisphereLight(0xbcd4ff, 0x4a5236, 1.0 * Renderer.LIGHT_LEVEL);
     this.scene.add(this.hemisphere);
 
     // Lumiere de remplissage, opposee au soleil et sans ombre : sans elle,
@@ -121,11 +116,11 @@ export class Renderer {
     // (l'inverse du soleil chaud) pour rester une "lumiere de ciel" discrete,
     // pas une deuxieme source dramatique : les faces a l'ombre doivent rester
     // plus sombres que les faces eclairees, juste jamais illisibles.
-    this.fill = new THREE.DirectionalLight(0xbcd4ff, 0.45);
+    this.fill = new THREE.DirectionalLight(0xbcd4ff, 0.45 * Renderer.LIGHT_LEVEL);
     this.fill.position.set(10, 10, -8);
     this.scene.add(this.fill);
 
-    this.sun = new THREE.DirectionalLight(0xfff2d6, 1.7);
+    this.sun = new THREE.DirectionalLight(0xfff2d6, 1.7 * Renderer.LIGHT_LEVEL);
     this.sun.position.set(-12, 20, 10);
     this.sun.castShadow = true;
     // Resolution doublee (1024 -> 2048) : des ombres de contact plus nettes
@@ -151,9 +146,9 @@ export class Renderer {
   /** Preset de lookdev (render/look.ts, `?look=`), une fois au demarrage :
    *  seuls les reglages presents changent (baseline : aucun). */
   applyLook(look: LookSettings): void {
-    if (look.hemisphereIntensity !== undefined) this.hemisphere.intensity = look.hemisphereIntensity;
-    if (look.sunIntensity !== undefined) this.sun.intensity = look.sunIntensity;
-    if (look.fillIntensity !== undefined) this.fill.intensity = look.fillIntensity;
+    if (look.hemisphereIntensity !== undefined) this.hemisphere.intensity = look.hemisphereIntensity * Renderer.LIGHT_LEVEL;
+    if (look.sunIntensity !== undefined) this.sun.intensity = look.sunIntensity * Renderer.LIGHT_LEVEL;
+    if (look.fillIntensity !== undefined) this.fill.intensity = look.fillIntensity * Renderer.LIGHT_LEVEL;
     if (look.backgroundIntensity !== undefined) this.scene.backgroundIntensity = look.backgroundIntensity;
     if (look.backgroundVeil) this.scene.add(createBackgroundVeil(look.backgroundVeil));
   }

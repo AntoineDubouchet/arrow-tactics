@@ -38,7 +38,11 @@ export type UnitOrder =
   /** Heros : ramasser le petit tas au sol `pileId` (World.resourcePiles). */
   | { type: 'pickup'; pileId: number }
   /** Heros : deposer ce qu'il porte au depot `targetEntityId` (Baliste). */
-  | { type: 'deposit'; targetEntityId: number };
+  | { type: 'deposit'; targetEntityId: number }
+  /** Heros : lancer le sort `spellId` (Entity.hero.spells) sur
+   *  `targetEntityId` (lui-meme ou un allie) ; il s'approche a portee, puis
+   *  incante sur place (sim/systems/hero.ts). */
+  | { type: 'cast'; spellId: string; targetEntityId: number };
 
 /** Commande envoyee par l'orchestration (voir World.issueCommand), appliquee
  *  au debut du prochain pas fixe. `stop` place les unites en Garde. */
@@ -51,17 +55,20 @@ export type PlayerCommand =
   | { kind: 'harvest'; entityIds: readonly number[]; nodeId: number }
   | { kind: 'build'; entityIds: readonly number[]; targetEntityId: number }
   | { kind: 'pickup'; entityIds: readonly number[]; pileId: number }
-  | { kind: 'deposit'; entityIds: readonly number[]; targetEntityId: number };
+  | { kind: 'deposit'; entityIds: readonly number[]; targetEntityId: number }
+  | { kind: 'cast'; entityIds: readonly number[]; spellId: string; targetEntityId: number };
 
 /** `locked` : source (arbre, gros gisement) que le joueur n'a pas encore le
  *  droit d'exploiter (World.harvestPermissions). */
-export type CommandRejectionReason = 'no-commandable-entity' | 'invalid-destination' | 'invalid-target' | 'locked';
+/** `no-mana` : sort connu, mana insuffisant. */
+export type CommandRejectionReason = 'no-commandable-entity' | 'invalid-destination' | 'invalid-target' | 'locked' | 'no-mana';
 
-/** Ordres de TRAVAIL du Heros (recolte, construction, ramassage, depot) :
- *  comme un deplacement, ils suspendent le ciblage et l'attaque de base. */
-export type WorkOrder = Extract<UnitOrder, { type: 'harvest' | 'build' | 'pickup' | 'deposit' }>;
+/** Ordres de TRAVAIL du Heros (recolte, construction, ramassage, depot,
+ *  sort) : comme un deplacement, ils suspendent le ciblage et l'attaque de
+ *  base. */
+export type WorkOrder = Extract<UnitOrder, { type: 'harvest' | 'build' | 'pickup' | 'deposit' | 'cast' }>;
 export function isWorkOrder(order: UnitOrder): order is WorkOrder {
-  return order.type === 'harvest' || order.type === 'build' || order.type === 'pickup' || order.type === 'deposit';
+  return order.type === 'harvest' || order.type === 'build' || order.type === 'pickup' || order.type === 'deposit' || order.type === 'cast';
 }
 
 /** Ce que la validation des ordres de travail lit du monde (World). */
@@ -398,6 +405,25 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
           : command.kind === 'build' ? { type: 'build', targetEntityId: command.targetEntityId }
           : command.kind === 'pickup' ? { type: 'pickup', pileId: command.pileId }
           : { type: 'deposit', targetEntityId: command.targetEntityId };
+        break;
+      }
+      case 'cast': {
+        // Sort : Heros connaissant le sort, mana suffisant ; cible : lui-meme
+        // ou une unite alliee vivante (jamais un batiment).
+        const target = lookup(command.targetEntityId);
+        const knows = (e: Entity): boolean => e.hero !== null && e.hero.spells.some((s) => s.id === command.spellId);
+        // Mana disponible : celui du Heros, plus celui d'une incantation en
+        // cours, rendu quand ce nouvel ordre l'annulera (sim/systems/hero.ts).
+        const affords = (e: Entity): boolean => e.hero!.mana + (e.hero!.spellCast?.manaSpent ?? 0) >= e.hero!.spells.find((s) => s.id === command.spellId)!.manaCost;
+        const casters = accepted.filter((e) => knows(e) && affords(e) && target !== undefined && target.alive && !target.isBuilding && target.team === e.team);
+        for (const e of accepted) if (!casters.includes(e)) result.rejectedEntityIds.push(e.id);
+        const lacksMana = accepted.some((e) => knows(e) && !affords(e));
+        accepted.splice(0, accepted.length, ...casters);
+        if (accepted.length === 0) {
+          result.rejection = lacksMana ? 'no-mana' : 'invalid-target';
+          continue;
+        }
+        order = { type: 'cast', spellId: command.spellId, targetEntityId: command.targetEntityId };
         break;
       }
     }

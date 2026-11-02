@@ -381,8 +381,14 @@ construire avant une décision explicite d'Antoine :
   par morceau, plateau de jeu en morceaux de 16 cases, puis chargement par
   zones si la carte grandit encore ;
 
-- les **capacités du Héros** (compétences, sorts, objets) et des niveaux
-  au-delà du 3 ;
+- les **capacités du Héros** au-delà du Soin (autres sorts, objets,
+  équipement de départ), **d'autres héros** à l'écran de choix (structure
+  prête : `data/heroes.ts`), et des niveaux au-delà du 3 ;
+- un **vrai inventaire** du Héros (les 6 emplacements legacy sont masqués
+  en Survie) ; des **icônes** de bâtiments pour le panneau Construire ;
+- **cycle jour / nuit et lumières locales** (torches, braseros, Baliste) :
+  voir l'audit d'éclairage de la passe du 2026-11-02 (rapport) ; à
+  construire sur `Renderer` (lumières centralisées, `LIGHT_LEVEL`) ;
 - une **économie de ressources physiques** au-delà du sac du Héros :
   porteurs, ouvriers, récolte hors bataille, or récolté, réapparition des
   tas ;
@@ -408,33 +414,35 @@ La Survie n'emprunte plus la préparation (`DESIGN_DECISIONS.md` G10). Reste
 - améliorations de la **Baliste** et des unités déjà en jeu (appliquées à
   l'apparition seulement), production de la Caserne par niveau (legacy
   `unitsProducedPerWave`) ;
-- **Mine** : quota de productions par vague (remis à zéro à chaque vague) ;
 - code de préparation (`startPlacement`, emplacements, aperçus, panneau
   « Prêt pour la bataille », écran de fin de manche, `applyBattleOutcome`
   hors défaite) et agrandissement E4 : conservés, plus utilisés par la
   Survie ;
-- acquisition des **unités** selon la vision (aujourd'hui : portée d'aggro).
+- acquisition des **unités** selon la vision (aujourd'hui : portée d'aggro) ;
+- **unités spéciales** capables de traverser les forêts (arbres bloquants
+  depuis G11 ; même principe que `canTraverseWater`) ;
+- couper un arbre pour libérer sa case (passage et construction) ;
+- trajets selon la taille du corps (les rampes d'une case restent possibles
+  dans l'éditeur).
 
-## 6 ter. Parking — outils internes de conception (documentation seulement)
+## 6 ter. Outils internes de conception
 
-Rien n'est construit. À reprendre sur décision d'Antoine.
+**Atelier de personnage** : **construit** (2026-11-01, CURRENT_STATE.md
+§16 bis, DESIGN_DECISIONS.md H1). Pistes restantes, sans décision :
 
-**Atelier de personnage** (accessible à terme depuis le menu) : composer
-visuellement une unité et en exporter la configuration exacte pour
-`tools/toon-units/units.json`.
+- plusieurs zones de couleur (KI-37) ;
+- cavalerie décomposable, une fois le FBX modulaire importable (KI-36) ;
+- pose des objets en miroir dans la main gauche (KI-38) ;
+- construction directe depuis l'Atelier (aujourd'hui : copier l'entrée
+  dans `units.json`, puis lancer le pipeline) ;
+- unités mixtes **en jeu** : `render/toonUnitRig.ts` n'applique qu'un atlas
+  par unité. Il faudrait reconnaître les matériaux `<unité>__<préfixe>` du
+  pipeline et leur donner l'atlas et le masque de leur source ;
+- allongement réel d'un membre (échelle des os) : non fait, car il
+  changerait les clips et toutes les pièces portées par ces os.
 
-- choix de la source / faction, puis des pièces : tête, corps, bras, jambes,
-  épaulières, casque, cape, arme main droite, arme main gauche, bouclier,
-  accessoires ; n'importe quelle pièce compatible dans chaque main ;
-- échelle propre à un équipement (comme `tool_scale`) ;
-- palettes et couleurs, mélange de couleurs si c'est raisonnable
-  techniquement (masque d'équipe actuel : une teinte) ;
-- animation de prévisualisation (clips du dossier choisi) ;
-- export d'une entrée `units.json` prête à construire ;
-- **préalable** : un aperçu des pièces dans le navigateur demande soit le
-  FBX modulaire converti (catalogue `--catalogue` du pipeline), soit un
-  export par pièce ; le FBX modulaire de **cavalerie** ne s'importe pas
-  aujourd'hui dans Blender (KI-36).
+**Parking** (documentation seulement, rien n'est construit, à reprendre sur
+décision d'Antoine) :
 
 **Éditeur d'items** (équipements du Héros) : un item définit un
 identifiant, un nom, un type (épée, marteau, casque, bouclier, cape…), une
@@ -442,7 +450,11 @@ rareté, un modèle / une pièce visuelle, un emplacement d'équipement, des
 stats, une valeur de vente et un éventuel effet spécial. Exemple :
 « Épée du débutant », épée, commune, +3 dégâts de mêlée, valeur de vente X ;
 plus tard « +3 dégâts de feu à chaque coup ». Changer d'item change le
-modèle porté. Pas de système de loot dans cette étape.
+modèle porté. Pas de système de loot dans cette étape. Les emplacements de
+l'Atelier préparent cette suite : main droite (arme principale), main
+gauche (seconde arme / bouclier), tête (casques du pack), épaulières, cape.
+`pieces.hands` décrit déjà une pièce visuelle par main, avec son
+ajustement.
 
 **Ne pas figer le Héros** : aujourd'hui `human_hero.glb` fusionne tête, corps,
 bras, jambes et épaulières en un maillage, et seuls les outils (marteau,

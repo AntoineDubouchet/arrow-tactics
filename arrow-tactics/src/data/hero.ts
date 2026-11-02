@@ -8,7 +8,9 @@ import { getUnit } from './units';
 export const HERO_UNIT_ID = 'hero';
 
 /** Paliers de niveau : XP totale requise et bonus CUMULES par rapport a la
- *  fiche de base (data/units.ts). Niveau 1 a 3. PROVISOIRE. */
+ *  fiche de base (data/units.ts). Niveau 1 a 3. PROVISOIRE. Bonus de vitesse
+ *  augmentes de 60 % avec la vitesse de base (2026-11-02 : 0,15 et 0,3
+ *  avant), pour garder +60 % a chaque niveau. */
 export interface HeroLevel {
   level: number;
   xp: number;
@@ -18,8 +20,8 @@ export interface HeroLevel {
 }
 export const HERO_LEVELS: readonly HeroLevel[] = [
   { level: 1, xp: 0, maxHpBonus: 0, damageBonus: 0, moveSpeedBonus: 0 },
-  { level: 2, xp: 50, maxHpBonus: 75, damageBonus: 6, moveSpeedBonus: 0.15 },
-  { level: 3, xp: 150, maxHpBonus: 150, damageBonus: 12, moveSpeedBonus: 0.3 },
+  { level: 2, xp: 50, maxHpBonus: 75, damageBonus: 6, moveSpeedBonus: 0.24 },
+  { level: 3, xp: 150, maxHpBonus: 150, damageBonus: 12, moveSpeedBonus: 0.48 },
 ];
 export const HERO_MAX_LEVEL = HERO_LEVELS[HERO_LEVELS.length - 1]!.level;
 
@@ -87,5 +89,9 @@ export const BUILD_CHAIN_RADIUS = 3;
  *  prend PICKUP_SECONDS au contact (rayon du Heros + PICKUP_REACH) ; le
  *  depot se fait au contact de l'emprise (BUILD_REACH). PROVISOIRE. */
 export const HERO_CARRY_CAPACITY = 6;
+/** Depot (2026-11-02, demande d'Antoine) : une unite du sac versee au stock
+ *  toutes les DEPOSIT_SECONDS_PER_ITEM s au contact du depot (3 s pour un sac
+ *  de 6). PROVISOIRE. */
+export const DEPOSIT_SECONDS_PER_ITEM = 0.5;
 export const PICKUP_SECONDS = 0.6;
 export const PICKUP_REACH = 0.5;

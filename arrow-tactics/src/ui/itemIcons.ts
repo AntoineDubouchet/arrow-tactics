@@ -44,6 +44,58 @@ function createImageIcon(src: string, size: number): HTMLImageElement {
   return img;
 }
 
+let svgUid = 0;
+
+/** Soin du Paladin (2026-11-02, cree pour le sort, demande d'Antoine) :
+ *  bouclier argente frappe d'une croix doree, rayons de lumiere sacree, sur
+ *  fond bleu nuit borde d'or. Genere par code, lisible des 28 px. */
+function createPaladinHealIcon(size: number): SVGSVGElement {
+  const id = `paladin-heal-${++svgUid}`;
+  const svg = svgEl('svg', { viewBox: '0 0 64 64', width: String(size), height: String(size) });
+  const defs = svgEl('defs', {});
+  const gradient = (tag: 'radialGradient' | 'linearGradient', gid: string, attrs: Record<string, string>, stops: [string, string, string?][]): void => {
+    const g = svgEl(tag, { id: `${id}-${gid}`, ...attrs });
+    for (const [offset, color, opacity] of stops) g.appendChild(svgEl('stop', { offset, 'stop-color': color, ...(opacity ? { 'stop-opacity': opacity } : {}) }));
+    defs.appendChild(g);
+  };
+  gradient('radialGradient', 'bg', { cx: '50%', cy: '42%', r: '65%' }, [['0', '#3d5fbf'], ['1', '#0c1636']]);
+  gradient('radialGradient', 'glow', { cx: '50%', cy: '50%', r: '50%' }, [['0', '#fff8d2', '1'], ['0.45', '#ffd66a', '0.6'], ['1', '#ffd66a', '0']]);
+  gradient('linearGradient', 'shield', { x1: '0', y1: '0', x2: '0', y2: '1' }, [['0', '#f2f5fb'], ['1', '#97a3bb']]);
+  gradient('linearGradient', 'gold', { x1: '0', y1: '0', x2: '0', y2: '1' }, [['0', '#fff3ad'], ['1', '#d8951c']]);
+  const clip = svgEl('clipPath', { id: `${id}-clip` });
+  clip.appendChild(svgEl('rect', { x: '3', y: '3', width: '58', height: '58', rx: '9' }));
+  defs.appendChild(clip);
+  svg.appendChild(defs);
+
+  svg.appendChild(svgEl('rect', { x: '3', y: '3', width: '58', height: '58', rx: '9', fill: `url(#${id}-bg)` }));
+  // Rayons de lumiere autour du bouclier.
+  const rays = svgEl('g', { fill: '#ffe08a', opacity: '0.5', 'clip-path': `url(#${id}-clip)` });
+  const cx = 32, cy = 31, r = 34, half = (4.5 * Math.PI) / 180;
+  for (let k = 0; k < 12; k++) {
+    const a = (k * Math.PI) / 6 + Math.PI / 12;
+    const p = (t: number): string => `${(cx + r * Math.cos(t)).toFixed(1)},${(cy + r * Math.sin(t)).toFixed(1)}`;
+    rays.appendChild(svgEl('polygon', { points: `${cx},${cy} ${p(a - half)} ${p(a + half)}` }));
+  }
+  svg.appendChild(rays);
+  svg.appendChild(svgEl('circle', { cx: String(cx), cy: String(cy), r: '24', fill: `url(#${id}-glow)` }));
+  // Bouclier (ecu) et croix doree.
+  svg.appendChild(svgEl('path', { d: 'M32 11 L48 16 V30 C48 40.5 41.5 47.5 32 53 C22.5 47.5 16 40.5 16 30 V16 Z', fill: `url(#${id}-shield)`, stroke: '#4d5a78', 'stroke-width': '2', 'stroke-linejoin': 'round' }));
+  svg.appendChild(svgEl('path', { d: 'M29 17 H35 V26 H43 V32 H35 V46 H29 V32 H21 V26 H29 Z', fill: `url(#${id}-gold)`, stroke: '#7d520c', 'stroke-width': '1.3', 'stroke-linejoin': 'round' }));
+  // Etincelles.
+  const star = (x: number, y: number, s: number): void => {
+    svg.appendChild(svgEl('path', { d: `M${x} ${y - s} L${x + s * 0.3} ${y - s * 0.3} L${x + s} ${y} L${x + s * 0.3} ${y + s * 0.3} L${x} ${y + s} L${x - s * 0.3} ${y + s * 0.3} L${x - s} ${y} L${x - s * 0.3} ${y - s * 0.3} Z`, fill: '#fffbe6' }));
+  };
+  star(50, 13, 5);
+  star(13, 49, 3.5);
+  svg.appendChild(svgEl('rect', { x: '3', y: '3', width: '58', height: '58', rx: '9', fill: 'none', stroke: '#e8c15c', 'stroke-width': '3' }));
+  return svg;
+}
+
+/** Icones dessinees par code (aucun fichier image). */
+const SVG_ICON_BUILDERS: Record<string, (size: number) => SVGSVGElement> = {
+  paladin_heal: createPaladinHealIcon,
+};
+
 /** Rectangle neutre en repli — un futur objet sans icone dediee (ni image,
  *  ni generateur SVG specifique) atterrit ici plutot que de casser le rendu. */
 function createFallbackIcon(size: number): SVGSVGElement {
@@ -59,6 +111,8 @@ function createFallbackIcon(size: number): SVGSVGElement {
 export function createItemIcon(itemId: string, size = 28): Element {
   const imageSrc = IMAGE_ICON_SOURCES[itemId];
   if (imageSrc) return createImageIcon(imageSrc, size);
+  const builder = SVG_ICON_BUILDERS[itemId];
+  if (builder) return builder(size);
 
   return createFallbackIcon(size);
 }

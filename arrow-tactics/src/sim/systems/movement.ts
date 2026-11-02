@@ -15,11 +15,11 @@ import {
   type ObstacleDef,
 } from '../../config/constants';
 import { clamp } from '../../core/math';
-import { bodyPathNearTerrainCliff, crossesTerrainCliff, findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, isMeleeAttack, obstaclesBlockingTeam, obstaclesCollidingTeam, segmentIntersectsBox } from '../geometry';
+import { bodyPathNearTerrainCliff, crossesTerrainCliff, findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, isMeleeAttack, obstaclesBlockingTeam, obstaclesCollidingTeam, segmentIntersectsBox, terrainObstacles } from '../geometry';
 import { forwardDir, type Entity } from '../entity';
 import { finishOrder, isWorkOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
 import { workGoal, type HeroWorkContext } from './hero';
-import { buildPathGrid, findPath, type PathGrid } from '../pathfinding';
+import { cachedPathGrid, findPath, isTileBlockedAt, type PathGrid } from '../pathfinding';
 import { SpatialGrid } from '../spatialGrid';
 
 /** Distance (cases) sous laquelle un point de cheminement est considere
@@ -28,6 +28,15 @@ import { SpatialGrid } from '../spatialGrid';
  *  precision irrealiste (separation/collision bougent l'unite un peu a
  *  chaque sous-passe). */
 const PATH_WAYPOINT_REACHED_DIST = 0.2;
+
+/** Tolerance d'un point de cheminement pour l'unite `e` (2026-11-02) : un
+ *  corps de rayon r > 0,5 ne peut pas approcher a moins de r - 0,5 du centre
+ *  d'une case collee a un mur (arbre, falaise) ; sans cette marge, un
+ *  Cavalier (0,7) restait bloque devant un point inatteignable. Inchangee
+ *  (PATH_WAYPOINT_REACHED_DIST) pour un rayon <= 0,5. */
+function waypointReachDist(e: Entity): number {
+  return PATH_WAYPOINT_REACHED_DIST + Math.max(0, e.stats.radius - 0.5);
+}
 
 /** En dessous de ce nombre d'unites vivantes, la boucle O(n^2) directe reste
  *  plus rapide en pratique que la grille (cout d'allocation de la Map/des
@@ -41,6 +50,43 @@ const PATH_WAYPOINT_REACHED_DIST = 0.2;
  *  une (voir CLAUDE.md, "Problemes connus" — vague 7 = 112 ennemis a elle
  *  seule avec la courbe de difficulte actuelle). */
 const SEPARATION_GRID_THRESHOLD = 120;
+
+/** Marche vers le camp (2026-11-02, Survie sur carte generee) : but des
+ *  unites ennemies en assaut sans cible (la Baliste), au lieu de l'ancienne
+ *  marche neutre vers +z, heritee du jeu en couloirs, qui envoyait une vague
+ *  apparue au nord vers le bord de la carte. `failures` recoit les unites
+ *  sans aucun chemin vers le but (diagnostic, une fois par unite). */
+export interface MarchContext {
+  goal: { x: number; z: number };
+  failures: PathFailure[];
+}
+
+export interface PathFailure {
+  entityId: number;
+  unitId: string;
+  x: number;
+  z: number;
+}
+
+/** Secondes avant de retenter A* apres un echec de la marche (evite un
+ *  calcul complet par sous-passe pour une unite reellement enfermee). */
+const MARCH_RETRY_SECONDS = 1;
+const marchRetry = new WeakMap<Entity, number>();
+const marchFailureReported = new WeakSet<Entity>();
+
+/** Unite qui marche vers le camp quand elle n'a pas de cible. */
+function marchesToGoal(e: Entity, march: MarchContext | null): march is MarchContext {
+  return march !== null && e.team === 'enemy' && e.order.type === 'assault' && e.tauntSourceId === null;
+}
+
+/** Vrai si un point restant du chemin en cache est devenu une case bloquee
+ *  (batiment pose, porte fermee...) : la route n'est plus valide, elle est
+ *  recalculee aussitot (quelques dizaines de cases au plus a tester). */
+function cachedPathBlocked(e: Entity, grid: PathGrid): boolean {
+  if (e.path === null) return false;
+  for (const p of e.path) if (isTileBlockedAt(grid, p.x, p.z)) return true;
+  return false;
+}
 
 /**
  * Comportement valide en pre-production :
@@ -96,6 +142,8 @@ export function movementSystem(
   orderEvents: OrderEndEvent[] = [],
   /** Sources de ressources (ordres de recolte du Heros). */
   heroWork: HeroWorkContext = { nodes: new Map(), piles: [] },
+  /** Marche des vagues vers le camp (null : marche neutre historique). */
+  march: MarchContext | null = null,
 ): void {
   const alive = entities.filter((e) => e.alive);
   const byId = new Map(alive.map((e) => [e.id, e]));
@@ -132,20 +180,15 @@ export function movementSystem(
   // deux camps partagent la meme liste et la meme grille.
   // Eau : retiree des trajets et de la collision des seules unites qui la
   // franchissent (UnitStats.canTraverseWater, aucune unite actuelle).
+  // Grilles en cache par reference de liste (cachedPathGrid) : reconstruites
+  // seulement quand World.obstacles change (2026-11-02).
   const teamObstacles = (e: Entity): ObstacleDef[] => obstaclesBlockingTeam(obstacles, e.team, e.stats.canTraverseWater === true);
-  const sharedGrid = buildPathGrid(obstacles, boardWidth, boardHeight);
-  const teamGrids = new Map<ObstacleDef[], PathGrid>([[obstacles, sharedGrid]]);
-  const teamGrid = (e: Entity): PathGrid => {
-    const list = teamObstacles(e);
-    let grid = teamGrids.get(list);
-    if (!grid) {
-      grid = buildPathGrid(list, boardWidth, boardHeight);
-      teamGrids.set(list, grid);
-    }
-    return grid;
-  };
+  const teamGrid = (e: Entity): PathGrid => cachedPathGrid(teamObstacles(e), boardWidth, boardHeight);
+  // Marche vers le camp : terrain seul (sans emprises de batiments).
+  const terrain = march ? terrainObstacles(obstacles, entities) : obstacles;
+  const terrainGrid = (): PathGrid => cachedPathGrid(terrain, boardWidth, boardHeight);
 
-  updateStuckState(movable, byId, dt, teamObstacles, teamGrid, orderEvents);
+  updateStuckState(movable, byId, dt, teamObstacles, teamGrid, orderEvents, march);
 
   // Rayon max une seule fois (les rayons ne changent pas pendant la
   // resolution) : taille de cellule de la grille de separation — voir
@@ -257,6 +300,10 @@ export function movementSystem(
           e.path = null;
           e.steerX = null;
           e.steerZ = null;
+          continue;
+        }
+        if (marchesToGoal(e, march)) {
+          marchToGoal(e, march, terrain, terrainGrid(), subDt);
           continue;
         }
         pursueNeutralWithPathfinding(e, teamObstacles(e), subDt);
@@ -448,6 +495,7 @@ function updateStuckState(
   obstaclesFor: (e: Entity) => ObstacleDef[],
   gridFor: (e: Entity) => PathGrid,
   orderEvents: OrderEndEvent[],
+  march: MarchContext | null,
 ): void {
   for (const e of movable) {
     const obstacles = obstaclesFor(e);
@@ -508,6 +556,26 @@ function updateStuckState(
       e.orbitCheckTargetId = null;
       e.neutralStuckTimer = 0;
       e.neutralProgressZ = e.z;
+      continue;
+    }
+
+    if (target === null && marchesToGoal(e, march)) {
+      // Marche vers le camp : progres = distance au but qui diminue (champ
+      // neutralProgressZ reutilise pour cette distance). Sans progres sur la
+      // fenetre, le chemin est recalcule depuis la position actuelle (route
+      // devenue invalide, unite deportee par une foule ou un degagement).
+      e.stuckTimer = 0;
+      e.stuckCheckX = e.x;
+      e.stuckCheckZ = e.z;
+      e.orbitTimer = 0;
+      e.orbitCheckTargetId = null;
+      e.neutralStuckTimer += dt;
+      if (e.neutralStuckTimer >= NEUTRAL_STUCK_CHECK_DURATION) {
+        const remaining = Math.hypot(march.goal.x - e.x, march.goal.z - e.z);
+        if (e.neutralProgressZ - remaining < NEUTRAL_STUCK_PROGRESS_THRESHOLD) e.path = null;
+        e.neutralStuckTimer = 0;
+        e.neutralProgressZ = remaining;
+      }
       continue;
     }
 
@@ -779,7 +847,7 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
   const goalTileZ = Math.floor(target.z + grid.halfH);
   const stale = e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ;
 
-  if (!e.path || e.path.length === 0 || stale) {
+  if (!e.path || e.path.length === 0 || stale || cachedPathBlocked(e, grid)) {
     e.path = findPath(grid, e.x, e.z, target.x, target.z);
     e.pathGoalTileX = goalTileX;
     e.pathGoalTileZ = goalTileZ;
@@ -796,7 +864,7 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
   }
 
   let next = e.path[0]!;
-  if (Math.hypot(next.x - e.x, next.z - e.z) < PATH_WAYPOINT_REACHED_DIST) {
+  if (Math.hypot(next.x - e.x, next.z - e.z) < waypointReachDist(e)) {
     e.path.shift();
     if (e.path.length === 0) {
       moveStraightTowards(e, target.x, target.z, subDt);
@@ -850,7 +918,7 @@ function followMoveOrder(
 
   const goalTileX = Math.floor(order.x + grid.halfW);
   const goalTileZ = Math.floor(order.z + grid.halfH);
-  if (e.path === null || e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ) {
+  if (e.path === null || e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ || cachedPathBlocked(e, grid)) {
     e.path = findPath(grid, e.x, e.z, order.x, order.z);
     e.pathGoalTileX = goalTileX;
     e.pathGoalTileZ = goalTileZ;
@@ -868,7 +936,7 @@ function followMoveOrder(
   }
 
   let next = e.path[0]!;
-  if (Math.hypot(next.x - e.x, next.z - e.z) < PATH_WAYPOINT_REACHED_DIST) {
+  if (Math.hypot(next.x - e.x, next.z - e.z) < waypointReachDist(e)) {
     e.path.shift();
     if (e.path.length === 0) {
       moveStraightTowards(e, order.x, order.z, subDt);
@@ -894,6 +962,59 @@ function computeNeutralFallbackPath(e: Entity, grid: PathGrid): { x: number; z: 
 }
 
 /**
+ * Marche vers le camp (2026-11-02) : ligne droite si elle est degagee sur le
+ * TERRAIN (les batiments ne comptent pas : l'unite attaque ce qu'elle trouve
+ * en arrivant), sinon chemin A* vers le but, calcule une fois et suivi point
+ * par point ; recalcule s'il est absent, si le but a change de case ou si
+ * son prochain point est devenu bloque. Aucun chemin : diagnostic (une fois
+ * par unite), evitement local en attendant, nouvel essai apres
+ * MARCH_RETRY_SECONDS.
+ */
+function marchToGoal(e: Entity, march: MarchContext, obstacles: ObstacleDef[], grid: PathGrid, subDt: number): void {
+  const goal = march.goal;
+  if (findBlockingObstacle(e.x, e.z, goal.x, goal.z, obstacles) === null && !bodyPathNearTerrainCliff(e.x, e.z, goal.x, goal.z, e.stats.radius, obstacles)) {
+    e.path = null;
+    moveStraightTowards(e, goal.x, goal.z, subDt);
+    return;
+  }
+  const goalTileX = Math.floor(goal.x + grid.halfW);
+  const goalTileZ = Math.floor(goal.z + grid.halfH);
+  const retry = marchRetry.get(e) ?? 0;
+  const needed = e.path === null || e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ || cachedPathBlocked(e, grid);
+  if (needed && retry <= 0) {
+    e.path = findPath(grid, e.x, e.z, goal.x, goal.z);
+    e.pathGoalTileX = goalTileX;
+    e.pathGoalTileZ = goalTileZ;
+    if (e.path === null) {
+      marchRetry.set(e, MARCH_RETRY_SECONDS);
+      if (!marchFailureReported.has(e)) {
+        marchFailureReported.add(e);
+        march.failures.push({ entityId: e.id, unitId: e.unitId, x: e.x, z: e.z });
+      }
+    } else marchFailureReported.delete(e);
+  } else if (retry > 0) marchRetry.set(e, retry - subDt);
+
+  if (e.path === null) {
+    pursueTowards(e, goal.x, goal.z, obstacles, subDt);
+    return;
+  }
+  if (e.path.length === 0) {
+    moveStraightTowards(e, goal.x, goal.z, subDt);
+    return;
+  }
+  let next = e.path[0]!;
+  if (Math.hypot(next.x - e.x, next.z - e.z) < waypointReachDist(e)) {
+    e.path.shift();
+    if (e.path.length === 0) {
+      moveStraightTowards(e, goal.x, goal.z, subDt);
+      return;
+    }
+    next = e.path[0]!;
+  }
+  moveStraightTowards(e, next.x, next.z, subDt);
+}
+
+/**
  * Marche neutre (aucune cible verrouillee) : par defaut, evitement reactif
  * local INCHANGE (sonde quelques cases devant, voir pursueTowards juste
  * en dessous) — cas majoritaire (decor clairseme), cout identique a avant.
@@ -909,7 +1030,7 @@ function computeNeutralFallbackPath(e: Entity, grid: PathGrid): { x: number; z: 
 function pursueNeutralWithPathfinding(e: Entity, obstacles: ObstacleDef[], subDt: number): void {
   if (e.path && e.path.length > 0) {
     let next = e.path[0]!;
-    if (Math.hypot(next.x - e.x, next.z - e.z) < PATH_WAYPOINT_REACHED_DIST) {
+    if (Math.hypot(next.x - e.x, next.z - e.z) < waypointReachDist(e)) {
       e.path.shift();
       if (e.path.length === 0) {
         const probeZ = e.z + forwardDir(e.team) * OBSTACLE_LOOKAHEAD;

@@ -33,6 +33,9 @@ export interface EnemyReinforcementPlan {
    *  arrive sans attendre `delayTicks`. */
   emptyFieldTicks: number;
   zone: EnemySpawnZone;
+  /** Zones de repli, dans l'ordre de preference (2026-11-02) : essayees si
+   *  `zone` n'a pas assez de cases libres RELIEES au camp. */
+  alternateZones?: EnemySpawnZone[];
 }
 
 /** Etat explicite des renforts de la vague en cours. */
@@ -45,6 +48,9 @@ export interface EnemyReinforcementState {
   /** Premier tick sans ennemi vivant alors que des groupes restent, null
    *  si des ennemis sont en vie. */
   emptySinceTick: number | null;
+  /** Groupe du attendu faute de cases reliees au camp dans toutes les zones
+   *  (diagnostic, 2026-11-02), null sinon. */
+  blockedGroupIndex: number | null;
 }
 
 export interface EnemyReinforcementSpawn {
@@ -55,7 +61,7 @@ export interface EnemyReinforcementSpawn {
 }
 
 export function createEnemyReinforcementState(plan: EnemyReinforcementPlan, tick: number): EnemyReinforcementState {
-  return { plan, nextGroupIndex: 0, nextSpawnTick: tick, emptySinceTick: null };
+  return { plan, nextGroupIndex: 0, nextSpawnTick: tick, emptySinceTick: null, blockedGroupIndex: null };
 }
 
 export function pendingEnemyGroupCount(state: EnemyReinforcementState): number {
@@ -64,11 +70,13 @@ export function pendingEnemyGroupCount(state: EnemyReinforcementState): number {
 
 /**
  * Fait apparaitre le prochain groupe s'il est du : delai normal atteint OU
- * `emptyFieldTicks` sans aucun ennemi vivant. Si la zone n'a pas assez de
- * cases libres pour tout le groupe, rien n'apparait et le groupe retente au
- * tick suivant. Renvoie les apparitions de ce tick (vide sinon).
+ * `emptyFieldTicks` sans aucun ennemi vivant. `reachable` (2026-11-02) :
+ * seules les cases RELIEES au camp a pied comptent ; la zone du plan, puis
+ * ses zones de repli dans l'ordre. Si aucune n'a assez de cases pour tout le
+ * groupe, rien n'apparait et le groupe retente au tick suivant. Renvoie les
+ * apparitions de ce tick (vide sinon).
  */
-export function stepEnemyReinforcements(state: EnemyReinforcementState, tick: number, entities: Entity[], obstacles: ObstacleDef[]): EnemyReinforcementSpawn[] {
+export function stepEnemyReinforcements(state: EnemyReinforcementState, tick: number, entities: Entity[], obstacles: ObstacleDef[], reachable: (x: number, z: number) => boolean = () => true): EnemyReinforcementSpawn[] {
   if (pendingEnemyGroupCount(state) <= 0) return [];
 
   const enemyAlive = entities.some((e) => e.alive && e.team === 'enemy' && e.countsForDefeat);
@@ -79,8 +87,19 @@ export function stepEnemyReinforcements(state: EnemyReinforcementState, tick: nu
   if (!due) return [];
 
   const group = state.plan.groups[state.nextGroupIndex]!;
-  const cells = findGroupCells(group, state.plan.zone, entities, obstacles);
-  if (!cells) return [];
+  let cells: { x: number; z: number }[] | null = null;
+  for (const zone of [state.plan.zone, ...(state.plan.alternateZones ?? [])]) {
+    // Zone de repli : le groupe garde sa formation, decalee sur son centre.
+    const dx = (zone.minX + zone.maxX - state.plan.zone.minX - state.plan.zone.maxX) / 2;
+    const dz = (zone.minZ + zone.maxZ - state.plan.zone.minZ - state.plan.zone.maxZ) / 2;
+    cells = findGroupCells(group.map((u) => ({ ...u, x: u.x + dx, z: u.z + dz })), zone, entities, obstacles, reachable);
+    if (cells) break;
+  }
+  if (!cells) {
+    state.blockedGroupIndex = state.nextGroupIndex;
+    return [];
+  }
+  state.blockedGroupIndex = null;
 
   const groupIndex = state.nextGroupIndex;
   state.nextGroupIndex++;
@@ -92,12 +111,13 @@ export function stepEnemyReinforcements(state: EnemyReinforcementState, tick: nu
 /**
  * Une case libre par unite du groupe, la plus proche de sa position de
  * formation : case de la zone, sans obstacle collidable (les trous et le
- * hors-carte sont des obstacles "vides", voir World.setMap), sans entite
- * vivante, et pas deja prise par une unite du meme groupe. Ordre stable :
+ * hors-carte sont des obstacles "vides", voir World.setMap), reliee au camp
+ * (`reachable`), sans entite vivante, et pas deja prise par une unite du
+ * meme groupe. Ordre stable :
  * distance a la position souhaitee, puis z, puis x. Null si la zone manque
  * de place pour tout le groupe.
  */
-function findGroupCells(group: EnemyReinforcementUnit[], zone: EnemySpawnZone, entities: Entity[], obstacles: ObstacleDef[]): { x: number; z: number }[] | null {
+function findGroupCells(group: EnemyReinforcementUnit[], zone: EnemySpawnZone, entities: Entity[], obstacles: ObstacleDef[], reachable: (x: number, z: number) => boolean): { x: number; z: number }[] | null {
   const minTileX = Math.ceil(zone.minX);
   const maxTileX = Math.floor(zone.maxX) - 1;
   const minTileZ = Math.ceil(zone.minZ);
@@ -121,7 +141,7 @@ function findGroupCells(group: EnemyReinforcementUnit[], zone: EnemySpawnZone, e
 
   const free: { tx: number; tz: number }[] = [];
   for (let tz = minTileZ; tz <= maxTileZ; tz++) {
-    for (let tx = minTileX; tx <= maxTileX; tx++) if (!blocked.has(key(tx, tz))) free.push({ tx, tz });
+    for (let tx = minTileX; tx <= maxTileX; tx++) if (!blocked.has(key(tx, tz)) && reachable(tx + 0.5, tz + 0.5)) free.push({ tx, tz });
   }
 
   const cells: { x: number; z: number }[] = [];

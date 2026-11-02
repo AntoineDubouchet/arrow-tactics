@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { ResourceKind } from '../config/resourceNodes';
 import { surfaceY } from './terrainSurface';
+import { loadVfxTexture } from './vfxTextures';
 
 /**
  * Petits tas de ressources au sol (2026-11-01, Hero RTS) : fagot de planches
@@ -81,14 +82,82 @@ interface PileSource {
   amount: number;
 }
 
+/** Taille AFFICHEE des tas au sol (2026-11-02, demande d'Antoine) : bois
+ *  +40 %, pierre +60 %. Visuel seulement : quantite, case, ramassage et
+ *  collision inchanges ; le contenu du sac du Heros garde sa taille. */
+const PILE_SCALE: Readonly<Record<ResourceKind, number>> = { wood: 1.4, stone: 1.6 };
+
+/** Eclats d'un tas (2026-11-02, refaits puis renforces a la demande
+ *  d'Antoine) : toutes les 0,9 a 2,2 s (tirage cosmetique), 2 ou 3 etoiles
+ *  apparaissent vite a des ENDROITS DIFFERENTS du tas (repartis autour de
+ *  son centre, hauteurs variees), grossissent, derivent un peu vers le haut
+ *  en tournant, puis s'eteignent. Etoile blanche en melange normal (lisible
+ *  sur l'herbe claire), halo additif chaud dessous. Jamais hors de la vision
+ *  actuelle ; jamais intercepte par les clics. */
+const GLINT_LIFE = 0.55;
+const GLINT_FADE_IN = 0.09;
+const GLINT_DELAY_MIN = 0.9;
+const GLINT_DELAY_MAX = 2.2;
+const GLINT_HALO: Readonly<Record<ResourceKind, number>> = { wood: 0xffc65a, stone: 0xcfe8ff };
+/** Texture d'etoile en niveaux de gris : teinte au-dela de 1 pour un blanc
+ *  franc (plafonne a l'affichage). */
+const GLINT_STAR = new THREE.Color(1.7, 1.65, 1.4);
+
+/** Anneau JAUNE d'un tas selectionne ou vise par un ordre de ramassage ;
+ *  bref pulse a l'ordre (pas de clignotement permanent). Meme anneau sur le
+ *  depot vise par un ordre de depot (DepotTargetRing). */
+const RING_COLOR = 0xffd23f;
+const RING_OPACITY = 0.85;
+const PULSE_SECONDS = 0.45;
+const ringGeometry = new THREE.RingGeometry(0.56, 0.68, 40);
+ringGeometry.rotateX(-Math.PI / 2);
+
+interface Glint {
+  star: THREE.Sprite;
+  halo: THREE.Sprite;
+  /** Age (s) ; negatif = depart differe. */
+  age: number;
+  x: number;
+  y: number;
+  z: number;
+  spin: number;
+}
+
+function glintSprite(texture: THREE.Texture, color: THREE.ColorRepresentation, additive: boolean): THREE.Sprite {
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, color, transparent: true, opacity: 0, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending }));
+  sprite.raycast = () => {};
+  sprite.visible = false;
+  return sprite;
+}
+
+interface PileView {
+  object: THREE.Group;
+  resource: ResourceKind;
+  pieces: number;
+  x: number;
+  z: number;
+  /** Eclats (3 au plus) et prochain declenchement (temps de la vue). */
+  sparkles: THREE.Group;
+  glints: Glint[];
+  nextGlint: number;
+  ring: THREE.Mesh;
+  /** Temps restant du pulse de l'anneau. */
+  pulse: number;
+}
+
 /** Vues des tas d'une carte : creees a la demande, retirees quand le tas est
- *  vide ou absent de la liste (autre carte : « Tester le scenario ») ;
- *  `visibleAt` (brouillard) masque un tas jamais explore. */
+ *  vide ou absent de la liste (autre carte : « Tester le scenario »).
+ *  Brouillard : `exploredAt` masque un tas jamais explore ; `visibleAt`
+ *  (vision actuelle) n'autorise ses eclats que sous les yeux du joueur. Un
+ *  tas selectionne ou vise par un ordre de ramassage porte un anneau jaune. */
 export class ResourcePileViews {
   readonly group = new THREE.Group();
-  private readonly views = new Map<number, { object: THREE.Group; pieces: number; x: number; z: number }>();
+  private readonly views = new Map<number, PileView>();
+  private targets: ReadonlySet<number> = new Set();
+  private selected: number | null = null;
+  private time = 0;
 
-  sync(piles: readonly PileSource[], visibleAt: (x: number, z: number) => boolean = () => true): void {
+  sync(piles: readonly PileSource[], exploredAt: (x: number, z: number) => boolean = () => true, visibleAt: (x: number, z: number) => boolean = () => true): void {
     const present = new Set<number>();
     for (const pile of piles) {
       present.add(pile.id);
@@ -103,14 +172,29 @@ export class ResourcePileViews {
       const pieces = piecesFor(pile.resource, pile.amount);
       if (!view || view.pieces !== pieces || view.x !== pile.x || view.z !== pile.z) {
         if (view) this.group.remove(view.object);
-        const object = buildResourcePileModel(pile.resource, pieces, pile.id + 1);
+        const object = new THREE.Group();
         object.position.set(pile.x, surfaceY(pile.x, pile.z), pile.z);
         object.userData['resourcePileId'] = pile.id;
+        const model = buildResourcePileModel(pile.resource, pieces, pile.id + 1);
+        model.scale.setScalar(PILE_SCALE[pile.resource]);
+        const sparkles = new THREE.Group();
+        const glints = [0, 1, 2].map(() => {
+          const halo = glintSprite(loadVfxTexture('light_01.png'), GLINT_HALO[pile.resource], true);
+          const star = glintSprite(loadVfxTexture('star_04.png'), GLINT_STAR, false);
+          sparkles.add(halo, star);
+          return { star, halo, age: GLINT_LIFE, x: 0, y: 0, z: 0, spin: 0 };
+        });
+        const ring = new THREE.Mesh(ringGeometry, new THREE.MeshBasicMaterial({ color: RING_COLOR, transparent: true, opacity: RING_OPACITY, depthWrite: false, side: THREE.DoubleSide }));
+        ring.position.y = 0.03;
+        ring.raycast = () => {};
+        object.add(model, sparkles, ring);
         this.group.add(object);
-        view = { object, pieces, x: pile.x, z: pile.z };
+        view = { object, resource: pile.resource, pieces, x: pile.x, z: pile.z, sparkles, glints, nextGlint: this.time + 0.3 + Math.random() * GLINT_DELAY_MAX, ring, pulse: view?.pulse ?? 0 };
         this.views.set(pile.id, view);
       }
-      view.object.visible = visibleAt(pile.x, pile.z);
+      view.object.visible = exploredAt(pile.x, pile.z);
+      view.sparkles.visible = view.object.visible && visibleAt(pile.x, pile.z);
+      view.ring.visible = this.selected === pile.id || this.targets.has(pile.id) || view.pulse > 0;
     }
     for (const [id, view] of this.views) {
       if (present.has(id)) continue;
@@ -119,38 +203,244 @@ export class ResourcePileViews {
     }
   }
 
+  /** Tas vises par un ordre de ramassage du Heros (anneau jusqu'au
+   *  changement d'ordre ou au ramassage). */
+  setTargets(pileIds: ReadonlySet<number>): void {
+    this.targets = pileIds;
+  }
+
+  /** Tas selectionne (clic gauche), null sinon. */
+  setSelected(pileId: number | null): void {
+    this.selected = pileId;
+  }
+
+  /** Bref pulse de l'anneau jaune (ordre de ramassage accepte). */
+  pulse(pileId: number): void {
+    const view = this.views.get(pileId);
+    if (view) {
+      view.pulse = PULSE_SECONDS;
+      view.ring.visible = true;
+    }
+  }
+
+  /** Animation (temps reel du rendu) : eclats, pulse de l'anneau. */
+  animate(realDt: number): void {
+    this.time += realDt;
+    for (const view of this.views.values()) {
+      if (view.pulse > 0) {
+        view.pulse = Math.max(0, view.pulse - realDt);
+        const u = 1 - view.pulse / PULSE_SECONDS;
+        const bump = Math.sin(u * Math.PI);
+        view.ring.scale.setScalar(1 + 0.4 * bump);
+        (view.ring.material as THREE.MeshBasicMaterial).opacity = Math.min(1, RING_OPACITY + 0.15 * bump);
+      } else if (view.ring.scale.x !== 1) {
+        view.ring.scale.setScalar(1);
+        (view.ring.material as THREE.MeshBasicMaterial).opacity = RING_OPACITY;
+      }
+      if (!view.sparkles.visible) continue;
+      if (this.time >= view.nextGlint) {
+        view.nextGlint = this.time + GLINT_DELAY_MIN + Math.random() * (GLINT_DELAY_MAX - GLINT_DELAY_MIN);
+        const count = 2 + Math.floor(Math.random() * 2);
+        const scale = PILE_SCALE[view.resource];
+        // Endroits repartis : un secteur d'angle par etoile, distance variee.
+        const turn = Math.random() * Math.PI * 2;
+        for (let k = 0; k < count; k++) {
+          const g = view.glints[k]!;
+          const a = turn + (k / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.9;
+          const r = (0.12 + Math.random() * 0.2) * scale;
+          g.age = -k * (0.07 + Math.random() * 0.12);
+          g.x = Math.cos(a) * r;
+          g.z = Math.sin(a) * r;
+          g.y = (view.resource === 'wood' ? 0.16 : 0.2) * scale + Math.random() * 0.12;
+          g.spin = Math.random() * Math.PI;
+        }
+      }
+      for (const g of view.glints) {
+        if (g.age >= GLINT_LIFE) continue;
+        g.age += realDt;
+        const live = g.age >= 0 && g.age < GLINT_LIFE;
+        g.star.visible = g.halo.visible = live;
+        if (!live) continue;
+        const fade = g.age < GLINT_FADE_IN ? g.age / GLINT_FADE_IN : 1 - (g.age - GLINT_FADE_IN) / (GLINT_LIFE - GLINT_FADE_IN);
+        const size = 0.3 + 0.32 * Math.sin(Math.min(1, g.age / GLINT_LIFE) * Math.PI);
+        const rise = 0.1 * (g.age / GLINT_LIFE);
+        g.star.position.set(g.x, g.y + rise, g.z);
+        g.halo.position.copy(g.star.position);
+        g.star.scale.setScalar(size);
+        g.halo.scale.setScalar(size * 1.8);
+        g.star.material.opacity = Math.max(0, fade);
+        g.halo.material.opacity = 0.45 * Math.max(0, fade);
+        g.star.material.rotation = g.spin + g.age * 2.2;
+      }
+    }
+  }
+
   clear(): void {
     this.group.clear();
     this.views.clear();
+    this.selected = null;
   }
 }
 
-/** Ballot porte par le Heros (sac non vide) : quelques planches et cailloux
- *  sur le dos, rendu seulement. Ajoute / mis a jour sur la vue du Heros. */
+/** Depot vise (centre au sol, rayon de l'anneau). */
+export interface DepotRingTarget {
+  x: number;
+  z: number;
+  radius: number;
+}
+
+/** Anneau JAUNE du depot (Baliste) vise par un ordre de depot du Heros
+ *  (2026-11-02, demande d'Antoine) : meme couleur et meme bref pulse que
+ *  l'anneau d'un tas, a la taille de l'emprise ; fixe tant que l'ordre dure.
+ *  Le pulse reste visible meme si le depot se fait aussitot (Heros deja au
+ *  contact). */
+export class DepotTargetRing {
+  readonly mesh: THREE.Mesh;
+  private ordered: DepotRingTarget | null = null;
+  private pulsed: DepotRingTarget | null = null;
+  private pulseLeft = 0;
+
+  constructor() {
+    const geometry = new THREE.RingGeometry(0.88, 1, 48);
+    geometry.rotateX(-Math.PI / 2);
+    this.mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: RING_COLOR, transparent: true, opacity: RING_OPACITY, depthWrite: false, side: THREE.DoubleSide }));
+    this.mesh.raycast = () => {};
+    this.mesh.visible = false;
+  }
+
+  /** Depot vise par un ordre en cours, null sinon. */
+  setTarget(target: DepotRingTarget | null): void {
+    this.ordered = target;
+  }
+
+  /** Bref pulse (ordre de depot accepte). */
+  pulse(target: DepotRingTarget): void {
+    this.pulsed = target;
+    this.pulseLeft = PULSE_SECONDS;
+  }
+
+  animate(realDt: number): void {
+    if (this.pulseLeft > 0) this.pulseLeft = Math.max(0, this.pulseLeft - realDt);
+    const target = this.pulseLeft > 0 ? this.pulsed : this.ordered;
+    this.mesh.visible = target !== null;
+    if (!target) return;
+    const bump = this.pulseLeft > 0 ? Math.sin((1 - this.pulseLeft / PULSE_SECONDS) * Math.PI) : 0;
+    this.mesh.position.set(target.x, 0.04 + surfaceY(target.x, target.z), target.z);
+    this.mesh.scale.setScalar(target.radius * (1 + 0.4 * bump));
+    (this.mesh.material as THREE.MeshBasicMaterial).opacity = Math.min(1, RING_OPACITY + 0.15 * bump);
+  }
+}
+
+/**
+ * Sac du Heros (2026-11-02, remplace le ballot pose sur la racine de la vue,
+ * qui flottait derriere lui) : sac de toile ATTACHE a l'os du dos du modele
+ * riggé, donc entraine par toutes les animations (repos, course, attaque,
+ * travail, mort) ; planches et cailloux depassent de son ouverture selon le
+ * contenu ; le sac grossit un peu avec la charge. Masque quand le sac est
+ * vide. Place une fois, dans l'espace du modele au repos (dos = -Z glTF,
+ * convention des modeles Toon), puis rigide sur l'os. Rendu seulement.
+ */
+const BAG_BONES = ['Bip001_Spine2', 'Bip001_Spine1', 'Bip001_Spine', 'mixamorigSpine2', 'mixamorigSpine1', 'mixamorigSpine'];
+const BAG_COLOR = 0x8a6a45;
+/** Sac porte (non vide) : 25 % plus gros que la taille de 2026-11-02 matin. */
+const BAG_CARRY_SCALE = 1.25;
+const BAG_TIE_COLOR = 0x5b4128;
+const bagGeometry = new THREE.IcosahedronGeometry(1, 1);
+const tieGeometry = new THREE.CylinderGeometry(0.42, 0.55, 0.35, 7);
+
+interface HeroBag {
+  /** Rigide sur l'os (matrice locale fixe), mis a l'echelle de la charge. */
+  root: THREE.Group;
+  sack: THREE.Group;
+  contents: THREE.Group;
+  /** Taille du sac vide (proportionnelle au personnage). */
+  base: number;
+  key: string;
+}
+
+/** Os du dos et matrice locale qui pose le sac au repos (null : modele sans
+ *  squelette connu, le sac reste alors sur la racine de la vue). */
+function bagMount(view: THREE.Object3D): { bone: THREE.Object3D; local: THREE.Matrix4; size: number } | null {
+  let skinned: THREE.SkinnedMesh | null = null;
+  view.traverse((o) => {
+    if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh;
+  });
+  const mesh = skinned as THREE.SkinnedMesh | null;
+  if (!mesh) return null;
+  const index = BAG_BONES.map((name) => mesh.skeleton.bones.findIndex((b) => b.name === name)).find((i) => i >= 0);
+  if (index === undefined) return null;
+  const bone = mesh.skeleton.bones[index]!;
+  // Espace du modele (geometrie) : position de l'os au repos, taille du personnage.
+  const toGeometry = mesh.bindMatrix.clone().invert();
+  const restBone = mesh.skeleton.boneInverses[index]!.clone().invert();
+  const spine = new THREE.Vector3().setFromMatrixPosition(restBone).applyMatrix4(toGeometry);
+  mesh.geometry.computeBoundingBox();
+  const height = mesh.geometry.boundingBox!.max.y - mesh.geometry.boundingBox!.min.y;
+  const size = height * 0.11;
+  const place = new THREE.Matrix4().makeTranslation(spine.x, spine.y + size * 0.15, spine.z - height * 0.12);
+  const local = mesh.skeleton.boneInverses[index]!.clone().multiply(mesh.bindMatrix).multiply(place);
+  return { bone, local, size };
+}
+
+function buildHeroBag(view: THREE.Object3D): HeroBag {
+  const mount = bagMount(view);
+  const size = mount?.size ?? 0.17;
+  const root = new THREE.Group();
+  if (mount) {
+    root.matrixAutoUpdate = false;
+    root.matrix.copy(mount.local);
+    mount.bone.add(root);
+  } else {
+    root.position.set(0, 0.85, -0.25);
+    view.add(root);
+  }
+  const sack = new THREE.Group();
+  sack.scale.setScalar(size);
+  const body = new THREE.Mesh(bagGeometry, material(BAG_COLOR));
+  body.scale.set(1, 1.15, 0.72);
+  body.castShadow = true;
+  const tie = new THREE.Mesh(tieGeometry, material(BAG_TIE_COLOR));
+  tie.position.y = 1.12;
+  const contents = new THREE.Group();
+  contents.position.y = 1.2;
+  sack.add(body, tie, contents);
+  root.add(sack);
+  root.visible = false;
+  return { root, sack, contents, base: size, key: '' };
+}
+
+/** Sac du Heros selon son contenu (sim : hero.carry). */
 export function updateCarryBundle(view: THREE.Object3D, carry: { wood: number; stone: number } | undefined): void {
-  let bundle = view.userData['carryBundle'] as THREE.Group | undefined;
+  let bag = view.userData['heroBag'] as HeroBag | undefined;
   const wood = carry?.wood ?? 0;
   const stone = carry?.stone ?? 0;
+  if (wood + stone === 0) {
+    if (bag) bag.root.visible = false;
+    return;
+  }
+  if (!bag) {
+    bag = buildHeroBag(view);
+    view.userData['heroBag'] = bag;
+  }
+  bag.root.visible = true;
   const key = `${Math.min(wood, 3)},${Math.min(stone, 3)}`;
-  if (bundle && bundle.userData['key'] === key) return;
-  if (bundle) view.remove(bundle);
-  view.userData['carryBundle'] = undefined;
-  if (wood + stone === 0) return;
-  bundle = new THREE.Group();
-  bundle.userData['key'] = key;
+  if (bag.key === key) return;
+  bag.key = key;
+  // Plus le sac est plein, plus il est gros (capacite 6) ; +25 % des qu'il
+  // porte quelque chose (2026-11-02, demande d'Antoine : BAG_CARRY_SCALE).
+  bag.sack.scale.setScalar(bag.base * BAG_CARRY_SCALE * (0.85 + 0.05 * Math.min(6, wood + stone)));
+  bag.contents.clear();
   if (wood > 0) {
     const planks = buildResourcePileModel('wood', Math.min(wood, 3) + 1, 7);
-    planks.scale.setScalar(0.55);
-    planks.rotation.z = Math.PI / 2.4;
-    planks.position.set(0, 0.95, 0.28);
-    bundle.add(planks);
+    planks.scale.setScalar(1.9);
+    planks.rotation.set(0.25, 0.4, Math.PI / 2.3);
+    planks.position.set(-0.2, 0.2, 0);
+    bag.contents.add(planks);
   }
   if (stone > 0) {
     const stones = buildResourcePileModel('stone', Math.min(stone, 3) + 1, 11);
-    stones.scale.setScalar(0.6);
-    stones.position.set(0, 0.8, 0.3);
-    bundle.add(stones);
+    stones.scale.setScalar(1.6);
+    stones.position.set(0.25, -0.05, 0);
+    bag.contents.add(stones);
   }
-  view.add(bundle);
-  view.userData['carryBundle'] = bundle;
 }

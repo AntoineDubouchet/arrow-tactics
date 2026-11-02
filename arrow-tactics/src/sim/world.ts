@@ -1,7 +1,7 @@
 import { BOARD_H, BOARD_W, isBlockingMapObstacle, obstacleBounds, OBSTACLES, TILE, type ObstacleDef } from '../config/constants';
 import { buildCellIndex, cellKey, computeMapCellBounds, resolveMapCells, type MapBounds, type MapDef } from '../config/mapDef';
 import { waterCellKeys } from '../config/groundSurfaces';
-import { resourceNodesOf, type ResourceNode } from '../config/resourceNodes';
+import { resourceNodesOf, treeCellKeys, type ResourceNode } from '../config/resourceNodes';
 import { computeCliffObstacles, resolveMapHeightField } from '../config/terrainElevation';
 import { dist } from '../core/math';
 import { Rng, randomSeed } from '../core/rng';
@@ -9,7 +9,8 @@ import { getBuilding, type BuildingDef } from '../data/buildings';
 import { getUnit, type UnitStats } from '../data/units';
 import type { ConstructionState, Entity, Team } from './entity';
 import { heroStatsForLevel } from '../data/hero';
-import { heroDeathSystem, heroRespawnSystem, heroWorkSystem, type HeroEvent, type HeroWorkContext, type ResourcePile } from './systems/hero';
+import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWorkSystem, interruptHeroSpells, type HeroEvent, type HeroWorkContext, type ResourcePile } from './systems/hero';
+import { DEFAULT_HERO_ID, heroKit, type HeroKit } from '../data/heroes';
 import { applyCommands, resolveOrders, type CommandResult, type OrderEndEvent, type PlayerCommand } from './orders';
 import {
   createPlayerArrowState,
@@ -33,54 +34,82 @@ import {
   type EnemyReinforcementSpawn,
   type EnemyReinforcementState,
 } from './systems/enemyReinforcements';
-import { movementSystem } from './systems/movement';
+import { movementSystem, type PathFailure } from './systems/movement';
+import { cachedPathGrid, isReachable, reachableTiles } from './pathfinding';
+import { terrainObstacles } from './geometry';
 import { tickPersistentAreaEffects, type AreaEffectTickEvent, type PersistentAreaEffect } from './systems/persistentAreaEffects';
 import { advanceShadowProjectiles, pickShadowTargets, type ShadowProjectile, type ShadowProjectileEvent } from './systems/shadowProjectiles';
 import { targetingSystem } from './systems/targeting';
 
 /**
+ * Cases d'une grille en obstacles synthetiques FUSIONNES par rangee
+ * (2026-11-02, KI-40) : les cases contigues d'une meme rangee (z) satisfaisant
+ * `isCell` deviennent un seul rectangle (meme union, donc memes cases
+ * bloquees et memes trajets, mais bien moins d'obstacles a parcourir par la
+ * collision et la ligne droite). Ordre deterministe : rangees par z croissant,
+ * puis x croissant. Regle UNIQUE du vide, de l'eau et des arbres.
+ */
+function rowSpanObstacles(bounds: MapBounds, isCell: (x: number, z: number) => boolean, make: (cornerX: number, cornerZ: number, tilesX: number) => ObstacleDef): ObstacleDef[] {
+  const out: ObstacleDef[] = [];
+  for (let z = bounds.minZ; z < bounds.maxZ; z++) {
+    for (let x = bounds.minX; x < bounds.maxX; x++) {
+      if (!isCell(x, z)) continue;
+      let end = x + 1;
+      while (end < bounds.maxX && isCell(end, z)) end++;
+      out.push(make(x, z, end - x));
+      x = end - 1;
+    }
+  }
+  return out;
+}
+
+/**
  * Cellules "vides" (absentes de la map) a l'interieur d'une emprise donnee —
- * synthetisees comme des obstacles COLLIDABLES 1x1 factices (jamais rendus,
+ * synthetisees comme des obstacles COLLIDABLES factices (jamais rendus,
  * jamais presents dans `map.obstacles` — uniquement injectes dans
  * `World.obstacles`, voir World.setMap) : reutilise ainsi TEL QUEL tout le
  * pipeline de collision/ligne de tir/pathfinding deja existant sans lui
  * apprendre la notion de "cellule" — un trou dans la map bloque exactement
  * comme un rocher, gratuitement. `kind: 'rock'` choisi arbitrairement (valeur
  * jamais lue pour le rendu, ces obstacles ne sortent jamais de
- * World.obstacles, qui n'est lu que par la simulation).
+ * World.obstacles, qui n'est lu que par la simulation). Fusionnees par
+ * rangee depuis le 2026-11-02 (rowSpanObstacles) : ~2 050 cases 1 x 1 de la
+ * carte generee -> 174 rectangles.
  */
-function computeVoidObstacles(cellIndex: Map<string, unknown>, bounds: { minX: number; maxX: number; minZ: number; maxZ: number }): ObstacleDef[] {
-  const voids: ObstacleDef[] = [];
-  for (let z = bounds.minZ; z < bounds.maxZ; z++) {
-    for (let x = bounds.minX; x < bounds.maxX; x++) {
-      if (cellIndex.has(cellKey(x, z))) continue;
-      voids.push({ kind: 'rock', cornerX: x, cornerZ: z, tilesX: 1, tilesZ: 1 });
-    }
-  }
-  return voids;
+function computeVoidObstacles(cellIndex: Map<string, unknown>, bounds: MapBounds): ObstacleDef[] {
+  return rowSpanObstacles(bounds, (x, z) => !cellIndex.has(cellKey(x, z)), (cornerX, cornerZ, tilesX) => ({ kind: 'rock', cornerX, cornerZ, tilesX, tilesZ: 1 }));
 }
 
 /**
  * Cases d'eau (MapDef.surfaceCells, voir isWaterSurface) en obstacles
  * synthetiques `terrainWater`, transparents aux tirs : meme principe que
- * computeVoidObstacles. Les cases contigues d'une meme rangee (z) sont
- * fusionnees en un seul rectangle (meme union, moins d'obstacles a tester).
- * Ordre deterministe : rangees par z croissant, puis x croissant.
+ * computeVoidObstacles, meme fusion par rangee.
  */
 function computeWaterObstacles(water: ReadonlySet<string>, cellIndex: Map<string, unknown>, bounds: MapBounds): ObstacleDef[] {
-  const out: ObstacleDef[] = [];
-  if (water.size === 0) return out;
-  const isWater = (x: number, z: number) => water.has(cellKey(x, z)) && cellIndex.has(cellKey(x, z));
-  for (let z = bounds.minZ; z < bounds.maxZ; z++) {
-    for (let x = bounds.minX; x < bounds.maxX; x++) {
-      if (!isWater(x, z)) continue;
-      let end = x + 1;
-      while (end < bounds.maxX && isWater(end, z)) end++;
-      out.push({ kind: 'rock', cornerX: x, cornerZ: z, tilesX: end - x, tilesZ: 1, terrainWater: true, blocksShots: false });
-      x = end - 1;
-    }
-  }
-  return out;
+  if (water.size === 0) return [];
+  return rowSpanObstacles(
+    bounds,
+    (x, z) => water.has(cellKey(x, z)) && cellIndex.has(cellKey(x, z)),
+    (cornerX, cornerZ, tilesX) => ({ kind: 'rock', cornerX, cornerZ, tilesX, tilesZ: 1, terrainWater: true, blocksShots: false }),
+  );
+}
+
+/**
+ * Arbres de la carte (decors de bois : arbres, arbres isoles KayKit,
+ * bosquets) en obstacles synthetiques `terrainTree` (2026-11-02, demande
+ * d'Antoine) : chaque case d'un arbre (treeCellKeys) bloque le deplacement et
+ * les trajets des unites terrestres, jamais les tirs. Le decor reste rendu
+ * tel quel (map.obstacles). Cases hors carte ou d'eau ignorees (deja
+ * bloquees). Meme fusion par rangee.
+ */
+function computeTreeObstacles(obstacles: readonly ObstacleDef[], water: ReadonlySet<string>, cellIndex: Map<string, unknown>, bounds: MapBounds): ObstacleDef[] {
+  const trees = treeCellKeys(obstacles);
+  if (trees.size === 0) return [];
+  return rowSpanObstacles(
+    bounds,
+    (x, z) => trees.has(cellKey(x, z)) && cellIndex.has(cellKey(x, z)) && !water.has(cellKey(x, z)),
+    (cornerX, cornerZ, tilesX) => ({ kind: 'tree', cornerX, cornerZ, tilesX, tilesZ: 1, terrainTree: true, blocksShots: false }),
+  );
 }
 
 /**
@@ -170,6 +199,18 @@ export class World {
    *  issueCommand, sim/orders.ts). Vide et repeuple a chaque tick, comme
    *  combatEvents. */
   commandResults: CommandResult[] = [];
+  /** But de marche des vagues (2026-11-02, Survie sur carte generee : la
+   *  Baliste) : une unite ennemie en assaut sans cible s'y rend par le
+   *  terrain (sim/systems/movement.ts, marchToGoal) ; ses apparitions
+   *  n'utilisent que des cases reliees a ce point. null : marche neutre
+   *  historique. Pose par l'appelant, remis a null par clear(). */
+  assaultGoal: { x: number; z: number } | null = null;
+  /** Diagnostics du pas (developpement) : unites de vague sans aucun chemin
+   *  vers le camp, groupe de renfort sans case reliee au camp. */
+  pathFailures: PathFailure[] = [];
+  blockedReinforcementGroup: number | null = null;
+  /** Cases reliees au but (en cache par liste d'obstacles et but). */
+  private reachCache: { obstacles: ObstacleDef[]; goal: string; test: (x: number, z: number) => boolean } | null = null;
   /** Ordres manuels termines pendant le dernier step (arrivee, cible perdue,
    *  inaccessible, aucun progres) — voir sim/orders.ts, OrderEndEvent. Vide
    *  et repeuple a chaque tick. Permet a l'interface de signaler un echec. */
@@ -266,11 +307,13 @@ export class World {
     // Decors exclus (isBlockingMapObstacle) : purement visuels, ignores par
     // toute la simulation ; seuls les « Obstacles / structures » restent.
     // Eau (2026-11-01) : infranchissable a pied, transparente aux tirs.
+    // Arbres (2026-11-02) : leurs cases aussi (computeTreeObstacles).
     this.resourceNodes = new Map(resourceNodesOf(map.obstacles).map((n) => [n.id, n]));
     this.resourcePiles = (map.resourcePiles ?? []).map((p, id) => ({ id, x: p.x, z: p.z, resource: p.resource, amount: p.amount }));
     this.waterCells = waterCellKeys(map.surfaceCells);
     const water = computeWaterObstacles(this.waterCells, cellIndex, paddedBounds);
-    this.obstacles = [...map.obstacles.filter(isBlockingMapObstacle), ...computeVoidObstacles(cellIndex, paddedBounds), ...cliffs, ...water];
+    const trees = computeTreeObstacles(map.obstacles, this.waterCells, cellIndex, paddedBounds);
+    this.obstacles = [...map.obstacles.filter(isBlockingMapObstacle), ...computeVoidObstacles(cellIndex, paddedBounds), ...cliffs, ...water, ...trees];
   }
 
   /** Vrai si le point (x, z) est sur une case d'eau de la carte chargee. */
@@ -613,10 +656,26 @@ export class World {
    *  panneau de debug — y voir un batiment gameplay est deja l'info utile
    *  la, pas besoin d'y filtrer). */
   /** Heros (data/hero.ts) du camp `team` : fiche du niveau, progression de
-   *  la run (XP, niveau, morts). `hp` : PV actuels, pleins par defaut. */
-  spawnHero(team: Team, x: number, z: number, progress: { xp: number; level: number; deaths: number; carry?: { wood: number; stone: number } }, hp?: number): Entity {
+   *  la run (XP, niveau, morts, sac, mana). `hp` : PV actuels, pleins par
+   *  defaut. `kit` : mana et sorts deja resolus (data/heroes.ts, heroKit) ;
+   *  mana plein par defaut. */
+  spawnHero(team: Team, x: number, z: number, progress: { xp: number; level: number; deaths: number; carry?: { wood: number; stone: number }; mana?: number }, hp?: number, kit: HeroKit = heroKit(DEFAULT_HERO_ID)): Entity {
     const e = this.spawn('hero', team, x, z, hp, heroStatsForLevel(progress.level));
-    e.hero = { xp: progress.xp, level: progress.level, deaths: progress.deaths, respawnTimer: 0, working: null, workTimer: 0, carry: { wood: progress.carry?.wood ?? 0, stone: progress.carry?.stone ?? 0 } };
+    e.hero = {
+      xp: progress.xp,
+      level: progress.level,
+      deaths: progress.deaths,
+      respawnTimer: 0,
+      working: null,
+      workTimer: 0,
+      carry: { wood: progress.carry?.wood ?? 0, stone: progress.carry?.stone ?? 0 },
+      heroId: kit.heroId,
+      mana: Math.min(kit.maxMana, progress.mana ?? kit.maxMana),
+      maxMana: kit.maxMana,
+      manaRegen: kit.manaRegen,
+      spells: kit.spells,
+      spellCast: null,
+    };
     return e;
   }
 
@@ -689,7 +748,7 @@ export class World {
    *  steps (enemyReinforcementSpawns). */
   startEnemyReinforcements(plan: EnemyReinforcementPlan): EnemyReinforcementSpawn[] {
     this.enemyReinforcements = createEnemyReinforcementState(plan, this.tick);
-    return stepEnemyReinforcements(this.enemyReinforcements, this.tick, this.entities, this.obstacles);
+    return stepEnemyReinforcements(this.enemyReinforcements, this.tick, this.entities, this.obstacles, this.reachableFromGoal());
   }
 
   /** Groupes ennemis pas encore apparus (0 sans renforts). */
@@ -723,6 +782,10 @@ export class World {
     this.productionSpawnEvents = [];
     this.enemyReinforcements = null;
     this.enemyReinforcementSpawns = [];
+    this.assaultGoal = null;
+    this.pathFailures = [];
+    this.blockedReinforcementGroup = null;
+    this.reachCache = null;
     this.commandQueue = [];
     this.commandResults = [];
     this.orderEvents = [];
@@ -840,6 +903,9 @@ export class World {
     this.commandQueue = [];
     this.orderEvents = [];
     resolveOrders(this.entities, lookup, this.orderEvents);
+    // Sorts des Heros : un nouvel ordre (ou la mort, une Provocation) annule
+    // l'incantation AVANT qu'abilitySystem ne puisse donner son effet.
+    if (hasHero) interruptHeroSpells(this.entities, this.heroEvents);
 
     targetingSystem(this.entities, dt);
     // Portes de muraille : etat d'ouverture du pas, avant tout deplacement.
@@ -851,7 +917,9 @@ export class World {
     // de step(), voir plus bas) — sert de "battleElapsedTime" au verrou
     // initial de Provocation (2026-08-14, voir sim/systems/abilities.ts).
     this.abilityEvents = abilitySystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.blasts, this.time);
-    movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents, this.heroWork());
+    if (hasHero) heroSpellSystem(this.entities, this.abilityEvents, dt, this.heroEvents);
+    this.pathFailures = [];
+    movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents, this.heroWork(), this.assaultGoal ? { goal: this.assaultGoal, failures: this.pathFailures } : null);
     if (hasHero) heroWorkSystem(this.entities, this.heroWork(), dt, this.heroEvents);
     this.combatEvents = combatSystem(this.entities, dt, this.rng, this.obstacles);
     this.buildingAttackEvents = buildingAttackSystem(this.entities, lookup, this.buildingProjectiles, dt, () => this.nextBuildingProjectileId++);
@@ -868,11 +936,26 @@ export class World {
     this.releaseDeadBuildingFootprints();
     // Apres les morts du tick : un terrain vide se constate ici.
     this.enemyReinforcementSpawns = this.enemyReinforcements
-      ? stepEnemyReinforcements(this.enemyReinforcements, this.tick, this.entities, this.obstacles)
+      ? stepEnemyReinforcements(this.enemyReinforcements, this.tick, this.entities, this.obstacles, this.reachableFromGoal())
       : [];
+    this.blockedReinforcementGroup = this.enemyReinforcements?.blockedGroupIndex ?? null;
 
     this.tick++;
     this.time += dt;
+  }
+
+  /** Test « case reliee a pied au but de marche » sur le TERRAIN (sans
+   *  emprises de batiments), toujours vrai sans but. */
+  private reachableFromGoal(): (x: number, z: number) => boolean {
+    const goal = this.assaultGoal;
+    if (!goal) return () => true;
+    const key = `${goal.x},${goal.z}`;
+    if (this.reachCache?.obstacles !== this.obstacles || this.reachCache.goal !== key) {
+      const grid = cachedPathGrid(terrainObstacles(this.obstacles, this.entities), this.boardWidth, this.boardHeight);
+      const reach = reachableTiles(grid, goal.x, goal.z);
+      this.reachCache = { obstacles: this.obstacles, goal: key, test: reach ? (x, z) => isReachable(grid, reach, x, z) : () => false };
+    }
+    return this.reachCache.test;
   }
 
   countAlive(team: Team): number {

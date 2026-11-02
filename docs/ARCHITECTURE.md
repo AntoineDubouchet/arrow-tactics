@@ -22,6 +22,7 @@ décisions futures (voir les autres documents de `docs/`).
 11. Rendu
 12. UI HTML
 13. Éditeur de maps
+13 bis. Atelier de personnage
 14. Audio
 15. Points chauds techniques
 16. Pièges techniques confirmés
@@ -62,6 +63,7 @@ Le dépôt a deux niveaux :
 | `render/` | Tout ce qui touche à Three.js : caméra, plateau, silhouettes, VFX |
 | `ui/` | Overlays HTML/CSS par-dessus le canvas |
 | `editor/` | Éditeur de maps (état, scène, UI, historique, sérialisation) |
+| `workshop/` | Atelier de personnage : outil interne de composition des unités Toon RTS (§13 bis) |
 | `audio/` | Moteur audio procédural (actuellement déconnecté, voir §14) |
 | `main.ts` | Orchestration : assemble toutes les couches |
 
@@ -76,6 +78,7 @@ Dépendances observées dans le code :
 | `render/` | `config`, `core` (petites maths), `data`, types de `sim` (plus `forwardDir` et `isCommandable`) |
 | `ui/` | `config`, `core`, `data`, `run` (calculs d'affichage), `render`, types de `sim` |
 | `editor/` | `config`, `data` (catalogue des unités), `render` (fabriques de meshes), types de `sim` |
+| `workshop/` | `three` (et ses addons), `data/units` (noms des unités), `render/toonUnitRig` (matériau teinté, textures, presets fixes) |
 | `audio/` | `run/userSettings` |
 | `main.ts` | tout, dont `core/gridGroupMove.ts` pour le déplacement d'unités de l'éditeur et de la préparation, et `core/wallTrace.ts` pour le tracé de murailles |
 
@@ -334,6 +337,64 @@ voir §9.
     `x`/`z` à l'ancien coin de grille `cornerX`/`cornerZ` ;
   - `findBlockingObstacle` teste la ligne de tir (méthode des tranches), avec
     un paramètre `ignore` pour exclure l'emprise de la cible elle-même.
+
+### Arbres bloquants, marche des vagues (2026-11-02)
+
+- `World.setMap` ajoute un obstacle synthétique `terrainTree` par rangée de
+  cases d'arbres (`config/resourceNodes.ts`, `treeCellKeys` /
+  `treeFootprintCells` : cases dont le centre est dans l'emprise) :
+  collision et trajets, jamais les tirs. La même règle refuse la pose
+  (`main.ts`, `isValidPlacementTile`). Vide hors carte, eau et arbres
+  passent par une seule fusion par rangée (`rowSpanObstacles`, KI-40).
+- `sim/pathfinding.ts` : A* à tas binaire (même ordre que l'ancien tableau
+  trié : f puis rang d'insertion, chemins identiques, mesuré), grilles en
+  cache par référence de tableau d'obstacles (`cachedPathGrid`),
+  accessibilité par inondation (`reachableTiles`).
+- `World.assaultGoal` (posé par `main.ts` en Survie : la Baliste) : un
+  ennemi en assaut sans cible marche vers ce point
+  (`sim/systems/movement.ts`, `marchToGoal`) sur le terrain seul
+  (`terrainObstacles` : sans emprises de bâtiments). Un chemin en cache est
+  recalculé dès qu'une de ses cases devient bloquée ; la tolérance d'un
+  point de cheminement grandit avec le rayon au-delà de 0,5.
+- Renforts (`sim/systems/enemyReinforcements.ts`) : seules les cases reliées
+  au but comptent ; zones de repli fournies par `main.ts`
+  (`ringSpawnSectors`). Diagnostics du pas : `World.pathFailures`,
+  `World.blockedReinforcementGroup`, écrits en console par `main.ts`.
+- Générateur (`config/maps/proceduralSurvival.ts`, `shapeForests`) :
+  goulets, poches et couloirs sur une grille typée, règles de pas
+  (eau, colline, rampe) propres au générateur ; la connexité réelle est
+  vérifiée en test avec la grille de la simulation.
+
+### Héros : mana et sorts (2026-11-02)
+
+- Données : `data/heroes.ts` (`HeroDef` : unité, modèle et portrait, mana,
+  sorts, équipement de départ ; `heroKit` résout mana et sorts) et
+  `data/spells.ts` (`SpellDef`). `World.spawnHero` reçoit le kit résolu et
+  le copie dans `Entity.hero` (`heroId`, `mana`, `maxMana`, `manaRegen`,
+  `spells`, `spellCast`) : la simulation ne relit jamais `HEROES`.
+- Ordre `cast` (`sim/orders.ts`) : ordre de travail (ni ciblage ni
+  combat), validé à l'application (sort connu, mana — en comptant celui
+  d'une incantation en cours, rendu par ce nouvel ordre —, cible alliée
+  vivante ;
+  refus `no-mana` / `invalid-target`). `workGoal` mène le Héros à portée ;
+  `heroWorkSystem` lance l'incantation (`startSpell` : mana retenu,
+  `Entity.cast.heal`).
+- Ordre d'un pas : commandes → `interruptHeroSpells` (ordre changé, mort,
+  Provocation, cible morte : annulation, mana rendu) → `abilitySystem`
+  (avance l'incantation, donne le soin, événement `heal` / `heal-lost`) →
+  `heroSpellSystem` (fin du sort, mana rendu si perdu, Garde ;
+  régénération du mana) → déplacement → travail. Événements
+  `spellStart` / `spellCancel` / `spellEnd` (`HeroEvent`).
+- Rendu et UI : `render/spellCastVfx.ts` (cercle au sol, lu sur
+  `Entity.cast`), rôle `cast` du Héros (`render/toonUnitRig.ts`),
+  `ui/heroHud.ts` (portrait `render/toonThumbnail.ts`,
+  `toonUnitPortrait` ; barre d'action, touches 1 à 6 via
+  `inventoryShortcutSlot`), `ui/heroInventory.ts` (feuille
+  `run/entityInfo.ts`, `heroSheetInfo`), `ui/heroSelect.ts`,
+  `ui/buildMenu.ts`, `ui/worldLabel.ts`, anneau du dépôt
+  (`render/resourcePiles.ts`, `DepotTargetRing`) ; orchestration dans
+  `main.ts` (ciblage du sort, bouton Construire, tas sélectionné, Héros
+  sans fiche).
 
 ## 7. Combat, capacités et dégâts
 
@@ -1090,8 +1151,10 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     sous le curseur passe avant. L'id est abandonné hors bataille, puisque
     les ids repartent de 1 après `world.clear()`.
   - L'éditeur n'utilise pas la fiche.
-- **Disposition** : fiche en haut à gauche, indicateur de vague en haut au
-  centre, debug replié (FPS) en haut à droite, HUD de la Baliste ou panneau
+- **Disposition** (Survie, 2026-11-02) : HUD du Héros en haut à gauche,
+  indicateur de vague en haut au centre, debug replié (FPS) en haut à
+  droite avec la fiche dessous, barre d'XP du Héros en bas sur toute la
+  largeur, bouton Construire en bas à droite ; ailleurs : HUD de la Baliste ou panneau
   de placement en bas au centre, or, boutique, vente et inventaire en bas à
   droite, aide de vitesse en bas à gauche.
 - **Règles transversales** :
@@ -1160,6 +1223,33 @@ L'orchestration reste dans `main.ts` :
   jeu, l'éditeur et le test : il est replacé à chaque transition.
 
 Le détail d'usage relève de `EDITOR.md`.
+
+## 13 bis. Atelier de personnage
+
+Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
+
+| Fichier | Rôle |
+|---|---|
+| `workshop/workshopConfig.ts` | Types purs : emplacements, catalogue, `WorkshopConfig` (pièces `PieceRef` : nom, source, échelle) ; conversion entrée `units.json` ↔ config (`configFromEntry`, `entryFromConfig`), export / import texte |
+| `workshop/workshopModel.ts` | Chargement d'un catalogue (`<source>_atelier.json` + `.glb`), `WorkshopModel` : squelette et clips de la source de base, pièces des autres sources liées aux os de même nom (un matériau par source), échelle par pièce (`scaledSkinnedGeometry`), objets tenus (rigides, attachés à l'os : `boneInverse · ajustement · (miroir) · bindMatrix`), teinte, mixer, statistiques |
+| `workshop/workshopUI.ts` | `CharacterWorkshop` : écran DOM, renderer et caméra orbitale propres, presets (dont presets fixes de cavalerie via `buildToonUnitModel`) |
+
+- `main.ts` crée l'Atelier à la première ouverture (`openCharacterWorkshop`)
+  et revient au menu à sa fermeture. Le menu ne l'expose que par
+  `ScreenHandlers.onOpenWorkshop`.
+- Le pipeline (`tools/toon-units/build_toon_unit.py`, `hand_piece`) et
+  l'aperçu font le même calcul : miroir par le plan sagittal des mains au
+  repos, ajustement `T(prise + décalage) · Rx · Ry · Rz · S · T(−prise)`
+  en axes glTF du modèle. Même chose pour l'échelle d'une pièce
+  (`scale_piece` / `scaledSkinnedGeometry`) : `v' = c + s·(v − c)`, où `c`
+  est la moyenne des articulations au repos pondérée par les poids du
+  sommet (4 plus forts, normalisés). Les os ne changent pas.
+- Unité mixte : le pipeline importe le FBX de chaque autre source et passe
+  ses pièces sur l'armature de l'unité, avec un matériau par source. Dans
+  l'aperçu, les maillages des autres sources sont liés aux os de base en
+  liaison « attached », ce qui rend leur place dans la scène sans effet.
+- Le renderer de l'Atelier tourne seulement quand l'écran est ouvert ; la
+  boucle du jeu n'est pas modifiée.
 
 ## 14. Audio
 

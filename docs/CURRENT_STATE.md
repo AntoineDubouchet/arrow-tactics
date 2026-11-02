@@ -30,6 +30,7 @@ contient ni intentions de design ni décisions futures.
 14. Améliorations de Forge et d’Église
 15. Sauvegarde : ce qui persiste
 16. Éditeur de maps
+16 bis. Atelier de personnage
 17. Audio
 18. Outils de debug présents
 19. Absent ou retiré
@@ -304,8 +305,8 @@ en bataille. Elle n'existe pas dans l'éditeur.
   - en bataille, chaque capacité indique son état (Prête, Recharge x.x s,
     Incantation, « Dans x.x s » pendant le verrou initial de la
     Provocation), et un bouclier actif s'affiche sous la barre de PV ;
-  - **Mine** : PV, production (« 3 à 7 or »), fréquence (« toutes les 5 s »)
-    et emprise. En préparation, aussi l'effet du niveau suivant et le bouton
+  - **Mine** : PV, production (« 3 à 7 or »), fréquence (« toutes les
+    60 s »), en jeu « Prochaine tranche : dans N s », et emprise. En préparation, aussi l'effet du niveau suivant et le bouton
     **« Améliorer la mine — N or »** (§6) ;
   - **Caserne / Camp d'archerie** : « Nom — Niv. N », PV, production
     (« 1 Piquier par manche »), recrutement débloqué (« Recrutement de
@@ -341,7 +342,15 @@ en bataille. Elle n'existe pas dans l'éditeur.
     inspectées comptent.
 - **Durées** : au dixième, sans « .0 » superflu (`0.4 s`, `5.5 s`, `12 s`).
   Les durées restantes suivent le format du HUD de la Baliste (`1.7 s`).
-- **Emplacement** : en haut à gauche (`left: 12px; top: 12px`), 354 px de
+- **Héros** (2026-11-02) : **aucune fiche** quand il est sélectionné seul (un
+  groupe qui le contient garde la fiche du groupe) ; ses statistiques sont
+  dans son **inventaire** (touche **I** ou bouton « Inventaire (I) » de son
+  encart) : PV, mana, dégâts, portée, cadence, vitesse, expérience, sac,
+  sorts, et une section **Équipement** (vide : « les objets récupérés
+  pendant la run apparaîtront ici »). Le jeu continue pendant qu'il est
+  ouvert ; I, Échap ou × le referment (`ui/heroInventory.ts`).
+- **Emplacement** : en haut à **droite** depuis le 2026-11-02, sous le compteur
+  FPS (`right: 12px; top: 40px` ; en haut à gauche avant), 354 px de
   large, même style sombre que le HUD de la Baliste, liseré à la couleur du
   camp. Le titre est en grand (18 px) ; les lignes et les boutons sont à la
   taille du reste de l'interface (13 px).
@@ -724,23 +733,21 @@ de l'Église** :
 - le niveau suit le bâtiment d'une vague à l'autre, et disparaît avec lui
   s'il est détruit.
 
-Production de la Mine :
+Production de la Mine (Survie en temps réel, 2026-11-02) :
 
-- toutes les **5 s** de bataille, chaque Mine vivante produit un montant
-  entier tiré dans la tranche de son niveau : 3 à 7 or au niveau 1, puis
-  +2 / +2 par niveau (5 à 9, 7 à 11…) ;
+- toutes les **60 s de simulation**, chaque Mine **terminée** et vivante
+  produit un montant entier tiré dans la tranche de son niveau : 3 à 7 or au
+  niveau 1, puis +2 / +2 par niveau (5 à 9, 7 à 11…) ; premier versement
+  60 s après la fin du chantier, puis indéfiniment, **sans plafond** ni lien
+  avec les vagues ; la pause arrête le minuteur ;
 - le tirage est pseudo-aléatoire et déterministe (générateur à graine,
   re-semé depuis la graine de la bataille) ;
 - « +N or » s'affiche au-dessus de la Mine ;
-- **5 productions au plus par Mine et par manche** (`maxProductionsPerWave`,
-  `data/mineUpgrade.ts`) : chaque Mine a son propre compteur, remis à 0 à
-  chaque bataille ; une fois à 5, elle ne produit plus jusqu'à la manche
-  suivante. Sa fiche indique « Par manche : 5 productions au plus » en
-  préparation, « Productions : N / 5 » en bataille ;
-- la minuterie est **en pause** quand aucun ennemi n'est en vie alors que
-  des renforts sont attendus (temps mort entre deux groupes, §10) ; elle
-  reprend dès l'arrivée du groupe ;
-- jamais dans « Tester le scénario » ; une Mine détruite s'arrête aussitôt.
+- l'ancien plafond de 5 productions par manche et la pause entre deux
+  groupes de renforts (jeu en manches) n'existent plus. La fiche indique
+  « Prochaine tranche : dans N s » ;
+- un chantier de Mine ne produit rien ; jamais dans « Tester le
+  scénario » ; une Mine détruite s'arrête aussitôt.
 
 Production de la Caserne et du Camp d'archerie :
 
@@ -847,9 +854,11 @@ et l'un des deux éléments de la défaite par le Héros.
   PV ; vivant, il garde ses PV comme les autres unités (l'Église le soigne
   jusqu'aux PV de son niveau) ;
 - stats affichées : 30 PV, 2,5 dégâts, portée 1, aggro 9, cadence 1,1 s,
-  5 % de raté, vitesse 2,6, rayon 0,6 ;
-- **niveaux** : niveau 2 à 50 XP (+7,5 PV, +0,6 dégât, +0,15 vitesse),
-  niveau 3 à 150 XP (+15 PV, +1,2 dégât, +0,3 vitesse, cumulés). Niveau 3
+  5 % de raté, vitesse **4,16** (2,6 avant le 2026-11-02 : +60 %, demande
+  d'Antoine), rayon 0,6 ;
+- **niveaux** : niveau 2 à 50 XP (+7,5 PV, +0,6 dégât, +0,24 vitesse),
+  niveau 3 à 150 XP (+15 PV, +1,2 dégât, +0,48 vitesse, cumulés ; bonus de
+  vitesse augmentés de 60 % avec la base). Niveau 3
   maximum ;
 - **XP en zone partagée** : chaque unité adverse (pas un bâtiment) morte à
   6 cases ou moins du Héros vivant lui donne max(4, coût × 4) XP, **30 au
@@ -859,13 +868,61 @@ et l'un des deux éléments de la défaite par le Héros.
 - **mort** : retour près de la Baliste après 15 s (première mort de la run),
   30 s, 60 s, puis 90 s au plus, à pleins PV et en Garde. **Défaite** si le
   Héros est à terre et que la Baliste est détruite ;
-- **encart** (colonne de droite, au-dessus de la population) : niveau, barre
-  d'XP violette, compte à rebours du retour, **sac** (bois et pierre portés,
-  capacité), stocks déposés ;
-- **visuel** : Toon RTS (`human_hero.glb`, local, hors Git), échelle 1,3,
-  grand marteau ; hache pour couper, pioche pour miner, marteau sinon ;
-  geste accroupi pour construire et ramasser ; ballot sur le dos quand le
-  sac n'est pas vide. Sans le GLB : modèle de la Sentinelle ;
+- **Héros joué** (2026-11-02) : choisi sur l'écran « Choisir votre Héros »
+  avant chaque partie Survie (`ui/heroSelect.ts`, données `data/heroes.ts`) ;
+  un seul aujourd'hui, le **Paladin** (le Héros ci-dessus), présélectionné ;
+- **mana** (2026-11-02, PROVISOIRE) : Paladin **20** au niveau 1 (100 le
+  matin même), 20 au départ, **+2 / s** de simulation (figé en pause), plein
+  au retour après une mort ; les niveaux 2 et 3 ne le changent pas encore ;
+  porté par le Héros seul (`Entity.hero.mana`), gardé dans la run
+  (`HeroProgress.mana`) ;
+- **Soin** (2026-11-02, PROVISOIRE, `data/spells.ts`) : **12 mana** (20
+  avant), icône propre (bouclier argenté, croix dorée, rayons de lumière
+  sacrée ; SVG dessiné par code, `ui/itemIcons.ts`, `paladin_heal`), 2 s
+  d'incantation, **+5 PV** (sans dépasser le maximum), portée 5 cases, sur
+  le Héros lui-même ou une unité alliée vivante (jamais un bâtiment).
+  **Barre d'action** (emplacement 1, touche **1**, ou clic) → clic sur la
+  cible (ou sur le portrait du HUD pour le Héros) ; clic droit / Échap :
+  annule.
+  Le Héros s'approche à 5 cases, puis incante sur place (garde de combat,
+  cercle runique au sol, anneau sous la cible, « Soin » et sa jauge dans le
+  HUD). Le mana est **retenu au début** de l'incantation et **rendu** si
+  elle est annulée avant son effet : nouvel ordre (déplacement, arrêt,
+  autre Soin…), mort du Héros, Provocation, cible morte, ou cible à plus de
+  6 cases à la fin (soin perdu). Aucun soin après une annulation ;
+- **HUD** (2026-11-02, `ui/heroHud.ts`) : encart **permanent en haut à
+  gauche** (la fiche de sélection est à droite), même si autre chose est
+  sélectionné :
+  portrait rond sur fond gris (rendu du modèle, `toonUnitPortrait` ; clic :
+  sélectionne le Héros), **PV** (barre verte), **mana** (barre bleue), sort
+  en cours, bouton « Inventaire (I) » ; à terre, portrait grisé et compte
+  à rebours. **Barre d'action** en bas à gauche, au-dessus de la barre
+  d'XP : 6 emplacements, touches **1 à 6** (les mêmes que l'ancien
+  inventaire de parchemins), sorts du Héros dans l'ordre de
+  `data/heroes.ts` : **Soin** en 1 (icône du parchemin de soin, coût 20),
+  grisé sans mana ou pendant l'incantation (voile qui descend avec
+  l'avancement), 2 à 6 vides. **Barre d'XP**
+  violette en bas, presque toute la largeur (« Niv. N … X / Y XP ») ;
+  juste au-dessus, au centre, une **barre de progression** dorée de
+  l'action en cours du Héros (incantation, ramassage, cycle de récolte,
+  construction, dépôt) : avancement et secondes restantes, jamais le nom de
+  l'action ; masquée sans action. Barre d'XP :
+  12 px de haut, à 18 px du bas, légèrement transparente (opacité 0,8). Encart des
+  ressources (colonne de droite) : **sac** et stocks déposés ;
+- **visuel** : Toon RTS (`human_hero.glb`, local, hors Git), échelle 1,3 ;
+  depuis le 2026-11-02, config de l'Atelier d'Antoine : tête, corps, bras,
+  jambes et épaulières **barbares** (tête ×0,9, corps ×0,8), **marteau
+  barbare ×1,4** ; hache et pioche WK pour couper et miner, marteau sinon.
+  Chaque pièce garde l'atlas de sa source (unité mixte, voir
+  `docs/ASSETS.md`). Déplacement : **essai** du clip `charge` au lieu de
+  `run` (×1,3, à confirmer) ;
+  geste accroupi pour construire et ramasser ; **sac de toile sur le dos**
+  quand le sac n'est pas vide (2026-11-02) : attaché à un os du dos, il suit
+  repos, course, attaque, travail et chute ; planches et cailloux dépassent
+  de son ouverture, il grossit un peu avec la charge, **+25 %** depuis le
+  2026-11-02 (demande d'Antoine) ; masqué quand le sac
+  est vide (rendu, `render/resourcePiles.ts`). Sans le GLB : modèle de la
+  Sentinelle ;
 - absent de la palette d'unités de l'éditeur.
 
 **Ressources, transport et dépôt** :
@@ -873,9 +930,25 @@ et l'un des deux éléments de la défaite par le Héros.
 - **petits tas au sol** (`MapDef.resourcePiles`) : planches (bois) et petits
   cailloux (pierre), **finis** (1 à 4 unités), générés avec la carte. Les
   seules ressources accessibles au début ;
+- **lisibilité** (2026-11-02, refaite à la passe suivante) : tas affichés
+  plus gros (**bois ×1,4, pierre ×1,6**, visuel seulement) ; un tas
+  **visible** (vision actuelle) a des **éclats** ponctuels : toutes les 0,9
+  à 2,2 s, 2 ou 3 étoiles blanches apparaissent vite à des **endroits
+  différents** du tas, grossissent (jusqu'à 0,62 case), dérivent un peu et
+  s'éteignent (≈ 0,55 s) ; rien sur un tas jamais exploré ni hors de la
+  vision. **Clic gauche** sur un tas exploré :
+  sélection, **anneau jaune** et étiquette « Bois — N » / « Pierre — N ».
+  **Clic droit** accepté (ramassage) : **bref pulse** de l'anneau jaune,
+  puis anneau fixe tant que l'ordre dure (plus de clignotement). Même
+  anneau jaune et même pulse sur la **Baliste** (dépôt) au clic droit de
+  dépôt, à la taille de son emprise, fixe pendant le trajet, retiré après
+  le dépôt (`DepotTargetRing`) ;
 - **boucle** : clic droit du Héros sur un tas → il y va → ramassage
   (0,6 s) → **sac** (6 unités au plus, bois et pierre confondus) → clic droit
-  sur la **Baliste** → dépôt de tout le sac → stock de la run. Le stock
+  sur la **Baliste** → dépôt **unité par unité, 0,5 s chacune** (3 s pour
+  un sac de 6, geste accroupi ; un autre ordre l'interrompt, ce qui est
+  versé reste versé ; annonce « Dépôt terminé — stock : … » à la fin) →
+  stock de la run. Le stock
   n'augmente **qu'au dépôt** ; un tas vidé disparaît et ne revient pas
   (quantités gardées dans la run). Sac plein : le Héros s'arrête et un
   message invite à déposer. Le sac est gardé à la mort et entre les manches ;
@@ -886,7 +959,8 @@ et l'un des deux éléments de la défaite par le Héros.
   refusé (« il faut une Scierie / un Camp de mineur »). Un bâtiment **bâti**
   dont la fiche porte `unlocksHarvest` (`trees` ou `deposits`) les ouvrira ;
   aucun n'existe encore. Une fois débloquée, la coupe remplit le sac
-  (1 unité / 1,5 s), comme le reste ;
+  (1 unité / 1,5 s), comme le reste ; un arbre étant bloquant, sa portée se
+  mesure jusqu'à sa case ;
 - seul le Héros ramasse et dépose, et seulement en bataille.
 
 **Coûts des bâtiments** (en plus de l'or) et **durées de construction** :
@@ -903,7 +977,7 @@ et l'un des deux éléments de la défaite par le Héros.
 | Muraille (par case) | — | 1 | 1,2 s |
 | Porte de muraille | 3 | — | 3 s |
 
-**Chantiers** : posés en temps réel depuis la fiche du Héros (ci-dessous),
+**Chantiers** : posés en temps réel depuis le bouton **Construire** (ci-dessous),
 25 % de leurs PV, semi-transparents, sans aucune fonction tant que le Héros
 ne les a pas bâtis ; attaquables pendant la construction. Le Héros enchaîne
 sur le chantier voisin (3 cases).
@@ -914,15 +988,46 @@ sur le chantier voisin (3 cases).
   (`?seed=N` la fixe ; `?map=arena` rend l'ancienne arène, `?map=island`
   l'arène candidate) ; même graine = même carte ;
 - **centre** : plaine plate et sèche de 11 cases de rayon, sans arbre ni
-  rocher ; territoire du joueur = disque de 8 cases ; Baliste en (0,5 ; 0,5) ;
+  rocher ; territoire du joueur = disque de 8 cases (donnée gardée, ni
+  affichée ni exigée pour construire depuis le 2026-11-02) ; Baliste en
+  (0,5 ; 0,5) ;
 - **monde extérieur**, de plus en plus sauvage : forêts par plaques (plus
-  denses au loin), jusqu'à 10 collines (niveau 1) avec une rampe tournée vers
-  le centre, jusqu'à 6 mares, 26 gros rochers, petits décors, plaques de
-  terre ; 111 petits tas (dont 7 à 5–12 cases du centre, aucun collé à la
-  Baliste) ;
+  denses au loin), jusqu'à 10 collines (niveau 1), jusqu'à 6 mares, 26 gros
+  rochers, petits décors, plaques de terre ;
+- **rampes** (2026-11-02, KI-39 corrigé) : chaque colline a une rampe de
+  **3 cases de large** sur son côté tourné vers le camp (plateau complété
+  au-dessus si sa bordure y est plus étroite), bords parfois évasés par une
+  pente de coin, abords dégagés (ni arbre ni eau sur la rangée devant ni sur
+  deux rangées de plateau). Une colline sans place pour sa rampe n'est pas
+  créée. Le Fantassin (0,5), le Héros (0,6), le Cavalier (0,7) et un groupe
+  montent et descendent toutes les collines (mesuré, 3 graines) ;
+- **construction** : une case d'arbre refuse toute pose (bâtiment,
+  chantier, muraille, porte, Baliste, unité) : règle unique
+  `treeCellKeys` (`config/resourceNodes.ts`), partagée avec la simulation ;
+- **arbres bloquants** (2026-11-02) : les forêts forment des massifs pleins
+  séparés par des **sentiers** naturels et des clairières ; un goulet d'une
+  case est comblé dans une forêt ou élargi ailleurs (un arbre retiré) ; une
+  poche praticable isolée par les arbres est comblée (moins de 8 cases) ou
+  reliée au camp par un **couloir de 2 cases**. Contrôle : eau, relief et
+  arbres. Mesuré sur 6 graines : aucune case praticable non reliée au camp
+  (grille de la simulation). L'anneau d'apparition des vagues est plus clair ;
+- **petits tas** : **34 à 35** (111 avant le 2026-11-02, soit trois fois
+  plus rares), toujours sur une case reliée au camp ; **garantie de départ** : des tas à 9–18 cases du centre
+  jusqu'à au moins 10 bois et 6 pierres (Mine, Caserne, Forge) ; le reste
+  dispersé, un peu plus fourni au loin ;
 - pas de débris de planches décoratifs (on les confondrait avec les tas) ;
 - **vagues** : sur un anneau à 22 cases du centre, gardé sans colline ni eau ;
-  la direction tourne à chaque vague (angle d'or), zone de 9 × 9 cases ;
+  la direction tourne à chaque vague (angle d'or), zone de 9 × 9 cases.
+  2026-11-02 : une unité n'apparaît que sur une case **reliée au camp** à
+  pied ; sinon le groupe prend le secteur de repli suivant (11 autour de
+  l'anneau). Sans cible, un ennemi **marche vers la Baliste** par le plus
+  court chemin (A* sur le terrain, bâtiments exclus : il attaque ce qu'il
+  trouve en arrivant), au lieu de l'ancienne marche « vers l'avant » (+z),
+  héritée du jeu en couloirs, qui envoyait une vague apparue au nord vers le
+  bord de la carte (vague qui ne finissait jamais). Chemin recalculé si une
+  case de la route devient bloquée ou si l'unité ne progresse plus. Une unité
+  sans aucun chemin ou un groupe sans case reliée est signalé dans la console
+  (`[vagues]`), jamais supprimé ;
 - **pas d'agrandissement E4** en Survie (temps réel continu) ;
 - cadrage au lancement : le camp, pas tout le disque.
 
@@ -931,8 +1036,13 @@ lu par la simulation) :
 
 - trois états par case : **jamais explorée** (noire), **explorée hors
   vision** (terrain mémorisé, assombri et désaturé), **visible** ;
-- vision (cases) : unité 6, **Baliste 8**, **Héros 9** (+50 %), bâtiment 4,
-  chantier 3. En préparation : Baliste, emplacements de l'armée, bâtiments ;
+- vision (cases) : unité 6, **Baliste 18**, **Tour terminée 18**
+  (2026-11-02 ; 36 à la passe précédente ; portées d'attaque inchangées),
+  **Héros 9** (+50 %), autre bâtiment 4, chantier 3 (`data/vision.ts`). En
+  préparation : Baliste, emplacements de l'armée, bâtiments ;
+- **abords du camp** : au lancement, un disque de **22 cases** autour de la
+  Baliste est déjà **exploré** (terrain mémorisé, assombri), sans être
+  visible (`INITIAL_EXPLORED_RADIUS`, `FogOfWar.exploreDisc`) ;
 - une unité adverse hors vision n'est ni affichée, ni sélectionnable, ni
   dotée de barre de vie ; un tas jamais exploré n'est pas affiché ;
 - rendu par une passe plein écran qui relit la profondeur (tout le décor,
@@ -966,26 +1076,36 @@ modèles). Aucun bonus contre un type d'unité. Modèles Toon RTS « Light B »
 (cheval, lance, petit bouclier), clips `Cavalry_Spear` : repos, garde, galop,
 coup de lance, deux chutes. Le cheval humain a sa propre texture.
 
+**Fond** (2026-11-02) : noir uni, plus d'image de ciel (montagnes, forêt,
+horizon) derrière la carte ronde ; même rendu dans l'éditeur.
+
 **Survie en temps réel continu** (2026-11-01, `main.ts` :
 `startSurvivalRealtime`, `stepSurvivalWaves`, `completeSurvivalWave`,
 `withRealtimeActions`) :
 
-- **lancement** : Héros et Baliste apparaissent et la simulation tourne
-  aussitôt ; aucun écran de préparation, de Boutique ni de bouton de
-  lancement. On peut tout de suite déplacer le Héros, explorer, ramasser,
+- **lancement** : après le choix du Héros (« Mode survie » → « Choisir
+  votre Héros » → « Lancer la partie », Entrée / double-clic ; Échap ou
+  « Retour » : menu), Héros et Baliste apparaissent et la simulation tourne
+  aussitôt ; aucun écran de préparation ni de Boutique. On peut tout de suite déplacer le Héros, explorer, ramasser,
   déposer, construire, combattre ;
 - **vagues** : la première arrive **120 s** de simulation après le
   lancement, puis **90 s** après la fin de chaque vague (indicateur
   « Vague N · dans X s » ; la pause fige le compte). Une vague repoussée
   donne son bonus d'or (5), passe à la suivante et enregistre le record,
   sans rien arrêter. Seule la défaite termine la run ;
-- **construction** : la fiche du Héros (Espace, ou clic sur le Héros)
-  propose « Construire : <bâtiment> — or, bois, pierre » (stock **déposé**
-  uniquement). Le clic arme la pose ; un clic gauche pose le chantier (payé,
-  créé tout de suite dans la simulation), le Héros vivant part le
-  construire ; clic droit : annule la pose. Interdit sur une unité, hors du
-  territoire du joueur ou d'un sol plat. **Murailles et portes reportées**
-  (absentes du menu, choix d'Antoine) ;
+- **construction** (2026-11-02) : bouton **Construire** en bas à droite (à
+  la place de l'ancien bloc Boutique / Vendre), actif quand le Héros est
+  sélectionné ; il ouvre un petit panneau des bâtiments (nom, coût or /
+  bois / pierre, disponible ou non ; pas d'icône, aucune n'existe). Choisir
+  arme la pose (stock **déposé** uniquement) ; un clic gauche pose le
+  chantier (payé, créé tout de suite dans la simulation), le Héros vivant
+  part le construire ; clic droit / Échap : annule. **N'importe où sur la
+  carte** : plus de limite de territoire ; refusé hors carte, sur l'eau, une
+  case d'arbre, un obstacle bloquant, un bâtiment ou chantier, une unité,
+  un sol non plat (pente, rampe). Les gros rochers, décors non bloquants,
+  l'acceptent (règle du 2026-10-28, inchangée). La fiche du Héros n'a plus
+  la liste « Construire : … ». **Murailles et portes reportées** (absentes
+  du menu, choix d'Antoine) ;
 - **production** (`data/production.ts`) : la fiche d'un bâtiment bâti
   propose « Produire : <unité> — or · durée » pour les unités qu'il
   débloque (Caserne : Piquier, + Homme d'armes au Niv. 2 ; Camp d'archerie :
@@ -1000,11 +1120,13 @@ coup de lance, deux chutes. Le cheval humain a sa propre texture.
   est ouvert ; le soin de l'Église rend leurs PV aux unités vivantes ;
 - **Boutique globale** : absente de la Survie (bouton masqué) ; parchemins
   et achat d'unités ne passent plus par elle (voir `ROADMAP.md` §6 quater) ;
+- **inventaire** (6 emplacements) et encart **« AUTO BALISTE — prête »** :
+  masqués en Survie (2026-11-02) ; l'encart de la Baliste reste dans
+  « Tester le scénario » ;
 - **Baliste en mode AUTO** : n'acquiert et ne garde que des cibles **vues**
   par le camp du joueur (vision gameplay `sim/vision.ts`, mêmes rayons que
-  le brouillard, positions simulées). Sa portée (18) dépasse sa propre
-  vision (8) : elle tire au-delà seulement si le Héros ou une autre unité
-  voit la cible. Un carreau déjà tiré poursuit sa course ;
+  le brouillard, positions simulées). Sa vision (18) égale sa portée (18).
+  Un carreau déjà tiré poursuit sa course ;
 - **Espace** : même bascule Héros ↔ Baliste en permanence ;
 - **décors instanciés** (KI-34) : sur la carte générée, arbres, rochers et
   petits décors sont regroupés par modèle et par morceau de 32 cases.
@@ -1024,8 +1146,8 @@ Gains :
 - or de départ (§2) ;
 - **kill ennemi** : `KILL_REWARD`, versé en temps réel ; +1 avec Butin de
   guerre ;
-- **Mines** : une production toutes les 5 s pendant la bataille, 5 au plus
-  par Mine et par manche (§6) ;
+- **Mines** : une tranche toutes les 60 s de simulation par Mine terminée,
+  sans plafond (§6) ;
 - **victoire** : +5 (`WAVE_CLEAR_BONUS`) ; rien à la défaite ;
 - **ventes** d'unités.
 
@@ -1178,7 +1300,9 @@ accessible par `?map=arena`, sur laquelle E4 reste actif.
   étroit que les bases), 100 décors (24 arbres, 7 rochers, 69 props), tous
   **traversables** depuis le 2026-10-28 : ils ne bloquent plus ni le passage
   ni les tirs ni le placement (changement d'équilibrage de l'arène, voir
-  `DESIGN_DECISIONS.md` E8). `SURVIVAL_ARENA_MAP` est la carte complète ;
+  `DESIGN_DECISIONS.md` E8). Exception depuis le 2026-11-02 : la case d'un
+  **arbre** bloque le passage (pas les tirs), ici aussi, et la pose de
+  bâtiments, chantiers, murailles et unités. `SURVIVAL_ARENA_MAP` est la carte complète ;
   `SURVIVAL_BASE_MAP` est la même, sans unités de scénario.
 - Le Mode survie en lit le terrain (`cells`), les décors (`obstacles`), le
   territoire dessiné (`territory`) et la position de la Baliste
@@ -1223,18 +1347,20 @@ s'ouvre toujours sur l'arène officielle.
 **Territoire**
 
 - Chaque case appartient au joueur, à l'ennemi, ou à personne (neutre).
-- En préparation, le **territoire joueur** est la zone de placement : unités
-  et bâtiments (toute l'emprise) doivent y être.
+- En préparation, le **territoire joueur** est la zone de placement des
+  unités. Les **bâtiments** (toute l'emprise) se posent depuis le 2026-11-02
+  sur **toute case de la carte**, sans limite de territoire (contraintes
+  physiques gardées, voir §6 bis).
 - Arène : territoire dessiné, 152 cases par camp. Zone joueur : rangées
   z 9 à 16, colonnes x −9 à 9 ; zone ennemie symétrique (z −17 à −10). Une
   bordure neutre d'une case entoure chaque zone.
 - Une carte sans territoire utilise le **repli historique** : deux bandes de
   7 rangées à l'arrière de chaque camp, le centre neutre.
-- **Affichage** : les zones bleue et rouge sont ce même territoire, case par
-  case (une case neutre n'a pas de zone). Elles restent visibles en
-  préparation, en bataille et pendant la transition de victoire, avec le
-  même filtre discret. Elles disparaissent au retour au menu ; « Tester le
-  scénario » ne les affiche pas.
+- **Affichage** : les zones bleue et rouge du plateau de jeu sont
+  **retirées** (2026-11-02, demande d'Antoine ; `render/board.ts`, groupe
+  vide). Le territoire reste une donnée de la carte ; l'éditeur l'affiche
+  toujours pour le peindre. Les camps (Rouge, Bleu, Vert, Jaune, Neutre)
+  ne changent pas.
 
 **Expansion**
 
@@ -1389,6 +1515,21 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
     actuelles) retire l'eau des trajets, de la collision et du refus de
     destination, pour de futures unités ;
   - la lave reste visuelle.
+- **Lumière globale** (2026-11-02) : les trois lumières de la scène (ambiance,
+  remplissage, soleil) sont multipliées par **0,92** (`Renderer.LIGHT_LEVEL`,
+  preset compris) : stylized 0,6 / 0,45 / 2,1 → 0,552 / 0,414 / 1,932.
+  Luminance moyenne de la vue du camp : −3,8 % (mesurée). Couleurs, ombres et
+  matériaux inchangés ; l'éditeur partage ce rendu ;
+- **Direction graphique officielle par défaut** (2026-11-02, choix
+  d'Antoine) : `look=stylized`, `groundLook=rich`, `surfaceBlend=organic`,
+  `relief=hybrid`, `surfaceBorder=marquee`, sans aucun paramètre d'URL
+  (`main.ts`, `OFFICIAL_LOOK`), en jeu comme dans l'éditeur, carte générée
+  comprise (mêmes surfaces, frontières, eau, relief : aucun chemin propre à
+  une arène). Chaque paramètre reste une surcharge de laboratoire :
+  `?look=baseline&groundLook=baseline&surfaceBlend=irregular&relief=baseline&surfaceBorder=off`
+  rend l'ancien rendu. `?hills=organic` reste expérimental, jamais par
+  défaut. Fond noir. Les « par défaut » des paragraphes suivants décrivent
+  les valeurs d'avant cette date.
 - **Rendu du terrain** (`render/terrainStylized.ts`, 2026-10-29) : par
   défaut `faceted-plus`, en jeu comme dans l'éditeur (arène du Mode survie
   comprise). Les bords libres (bord de carte, trous) reçoivent une bande
@@ -1757,7 +1898,9 @@ carte exportée de l'éditeur puis intégrée au code (§11).
   végétation, relief et forêts, structures décoratives, militaire,
   accessoires…) est purement visuel et traversable ; seule la rubrique
   « Obstacles / structures » (angles de muraille décoratifs, clôtures)
-  bloque. La hauteur d'un décor dérive du relief (pente comprise, sans
+  bloque. Exception (2026-11-02) : dans « Tester le scénario » comme en
+  jeu, la case d'un **arbre** (arbre, arbre isolé, bosquet : toutes ses
+  cases) bloque le passage des unités terrestres. La hauteur d'un décor dérive du relief (pente comprise, sans
   inclinaison), jamais enregistrée.
 
 - **Aspect des décors** : un même décor a le même aspect (orientation,
@@ -1843,6 +1986,110 @@ carte exportée de l'éditeur puis intégrée au code (§11).
   ignorés par le Mode survie. La Baliste garde son outil dédié.
 - **Pose d'unités** : continue, l'outil reste actif après chaque pose ; clic
   droit ou Échap reviennent à Sélection.
+
+## 16 bis. Atelier de personnage
+
+Outil interne de conception (2026-11-01, `src/workshop/`) : composer une
+unité Toon RTS pièce par pièce, puis en exporter la configuration pour
+`tools/toon-units/units.json`. **Aucune incidence sur une run** : aperçu
+seulement, aucune donnée de jeu ni sauvegarde modifiée.
+
+- **Accès** : bouton « Atelier de personnage » du menu principal, après
+  « Éditeur de maps ». Il ouvre un écran dédié : panneau de réglages à
+  gauche, aperçu 3D à droite. « Fermer » revient au menu.
+- **Aperçu** :
+  - renderer et canvas propres ;
+  - caméra orbitale (OrbitControls) avec zoom et rotation automatique
+    facultative ;
+  - fond neutre gris-bleu et disque de sol ;
+  - lumière hémisphérique, soleil avec ombres et lumière d'appoint.
+- **Source** : « Humains — Western Kingdoms », « Barbares —
+  Barbarians » ou **« All — toutes les sources »**. Le catalogue est lu
+  dans `assets/units/toon/atelier/<source>_atelier.json` et `.glb`,
+  produits par le pipeline (`--atelier`, ASSETS.md §3.1), sans liste de
+  pièces en dur.
+  - **All** : chaque liste (emplacements, extras, mains) contient les
+    pièces des deux sources, groupées par source et étiquetées `[Humain]` /
+    `[Barbare]`, sans restriction de mélange. Passer en All garde le
+    personnage affiché.
+  - Repasser sur une source seule garde le personnage s'il n'utilise que ses
+    pièces ; sinon, le premier preset de cette source est chargé.
+  - Chaque pièce connaît sa source. Le squelette et les clips sont ceux de
+    la **source de base** (celle du preset) ; les pièces des autres sources
+    s'y rattachent par nom d'os (même squelette Biped, même repos).
+- **Emplacements** :
+  - tête, corps, bras, jambes et épaulières, chacun avec « Aucun » ;
+  - **échelle par pièce** : curseur de 0,5 à 2, saisie libre (minimum
+    0,05), valeur affichée (×1.100) et « Reset » par emplacement, plus
+    « Échelles des pièces : tout à 1 ». Chaque sommet est mis à l'échelle
+    autour des articulations qui le portent (moyenne pondérée par ses
+    poids). Le squelette, les poids et les clips ne changent pas, et la
+    pièce suit ses os dans toutes les poses. Le calcul est le même que dans
+    le pipeline ;
+  - casque et cape : emplacements présents mais désactivés, signalés
+    « Aucune pièce séparée dans ce pack » (casques et capuches sont des
+    têtes) ;
+  - accessoires (sac, carquois, bois) par cases à cocher ;
+  - tout changement est immédiat.
+- **Mains libres** :
+  - main droite et main gauche acceptent n'importe quelle pièce tenue du
+    pack (armes, boucliers, bâtons, arc), y compris la même dans les deux
+    mains ;
+  - une pièce placée dans l'autre main que la sienne est affichée en miroir
+    sur l'os symétrique, comme `offhand_weapon` ;
+  - par main : échelle, rotation X/Y/Z (degrés), décalage X/Y/Z, et
+    « Réinitialiser ».
+- **Échelle du personnage** : saisie libre et raccourcis 0,8 / 1 / 1,1 /
+  1,2 / 1,3, aperçu seulement. Un preset prend l'échelle de jeu de l'unité
+  (Sentinelle 1,15, Héros 1,3…).
+- **Couleurs** :
+  - palettes du jeu (`TOON_PALETTES` : rouge, bleu, vert, jaune, neutre
+    brun / gris, violet, orange, gris clair, brun, ocre, noir) ou couleur
+    libre (« Personnalisée ») ;
+  - seconde couleur et mélange de 0 à 1 : mélange **uniforme** des deux
+    teintes, pas une seconde zone ;
+  - intensité de 0 (atlas neutre) à 1 ;
+  - **une seule zone d'équipe** : le masque n'a qu'un canal (KI-37) ;
+  - personnage mixte : un matériau par source utilisée, avec son atlas et
+    son masque d'équipe ; la même teinte s'applique à tous.
+- **Animations** : les 64 clips des dossiers `Infantry`, `Spearman`,
+  `Archer`, `Mage` et `Worker`, groupés par dossier (repos, repos de combat,
+  marche, course, attaques, sorts, mort, travail…).
+- **Infos techniques** : sources utilisées (« Sources : Humain +
+  Barbare ») et source de base, triangles, sommets, os, matériaux, clips,
+  échelle du personnage et des pièces, noms des pièces affichées.
+- **Presets** :
+  - Humains : Homme d'armes, Archer, Mage, Sentinelle, Oracle, Piquier,
+    Vengeur et Héros ;
+  - Barbares : Maraudeur, Ravageur, Traqueur, Féticheur et Colosse ;
+  - lus dans `units.json`. Chaque preset composé a exactement les
+    triangles de son GLB de jeu ;
+  - **Cavalier léger** et **Razzieur** : presets **fixes**, affichés depuis
+    leur GLB de jeu. Pièces et mains non éditables (FBX modulaire illisible,
+    KI-36) ; couleurs, échelle et animation réglables.
+- **Export** :
+  - « Copier la config » (presse-papiers) et « Exporter (.json) »
+    (téléchargement `<nom>.json`) produisent le même texte : `{"<nom>":
+    <entrée units.json>}`, avec `source`, `pieces` (dont `pieces.hands`),
+    `animations` (dossier du clip d'aperçu) et un bloc `atelier` (couleur,
+    échelle, clip, `toutes_sources`), que le pipeline ignore ;
+  - une pièce de la source de base à l'échelle 1 reste un nom (format
+    historique, anciennes configs compatibles). Sinon elle devient
+    `{"piece", "source"?, "scale"?}`, et une main reçoit `"source"` si elle
+    vient d'une autre source ;
+  - « Charger » relit une config collée dans la zone de texte et
+    reproduit le personnage à l'identique, sélecteur All compris ;
+  - une config exportée, construite par le pipeline, donne la même
+    géométrie que l'aperçu. C'est vérifié sur une double hache, et sur une
+    config mixte avec échelles au repos et en idle, course, attaque et mort.
+- **Limites** (KNOWN_ISSUES.md KI-37, KI-38) :
+  - une seule zone de couleur ;
+  - une unité mixte construite par le pipeline a deux matériaux. Le jeu
+    (`render/toonUnitRig.ts`) n'applique qu'un atlas par unité : il n'est
+    pas encore prêt à afficher une unité mixte ;
+  - un objet tenu dans la main gauche en miroir suit les gestes de bouclier
+    des clips `Infantry` (même mécanisme que le Vengeur du jeu) ;
+  - pas d'éditeur d'items (ROADMAP.md §6 ter).
 
 ## 17. Audio
 

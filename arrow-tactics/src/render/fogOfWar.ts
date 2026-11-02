@@ -69,6 +69,25 @@ export class FogOfWar {
     return this.stateAt(x, z) !== FOG_UNSEEN;
   }
 
+  /** Marque EXPLOREES (pas visibles) les cases jamais vues dont le centre est
+   *  a `radius` de (x, z) : abords du camp au lancement d'une run. */
+  exploreDisc(x: number, z: number, radius: number): void {
+    const { state, width, height } = this;
+    const r2 = radius * radius;
+    for (let cz = 0; cz < height; cz++) {
+      const dz = cz + this.minZ + 0.5 - z;
+      for (let cx = 0; cx < width; cx++) {
+        const dx = cx + this.minX + 0.5 - x;
+        const i = cz * width + cx;
+        if (state[i] === FOG_UNSEEN && dx * dx + dz * dz <= r2) {
+          state[i] = FOG_EXPLORED;
+          this.pixels[i] = 128;
+        }
+      }
+    }
+    this.texture.needsUpdate = true;
+  }
+
   /** Vision du moment : le visible precedent redevient explore, puis chaque
    *  source rend visibles les cases dont le centre est dans son rayon. */
   update(sources: readonly VisionSource[]): void {

@@ -408,7 +408,8 @@ export const COLORS = {
  *  d'Antoine), tout DECOR est purement visuel et traversable ; seuls les
  *  « Obstacles / structures » (BLOCKING_STRUCTURE_MODELS) bloquent
  *  (mouvement ET ligne de tir). Les obstacles synthetiques de la simulation
- *  (trous, falaises, emprises de batiments) restent toujours bloquants. */
+ *  (trous, falaises, eau, ARBRES depuis le 2026-11-02, emprises de
+ *  batiments) restent toujours bloquants. */
 export interface ObstacleDef {
   kind: 'rock' | 'tree' | 'prop' | 'building';
   /** Position CONTINUE (centre de l'emprise, monde) — 2026-08-16, placement
@@ -476,6 +477,12 @@ export interface ObstacleDef {
    *  bloque collision et trajets des unites sans
    *  `UnitStats.canTraverseWater`, jamais les tirs (`blocksShots: false`). */
   terrainWater?: boolean;
+  /** Arbre synthetique (2026-11-02, demande d'Antoine : une case contenant
+   *  un arbre bloque les unites terrestres) : cases des arbres de la carte
+   *  (config/resourceNodes.ts, treeFootprintCells), injectees par
+   *  World.setMap, jamais dans MapDef.obstacles ni rendues. Bloque collision
+   *  et trajets, jamais les tirs (`blocksShots: false`). */
+  terrainTree?: boolean;
   /** Porte de muraille (BuildingDef.gate) : camp pour lequel l'obstacle est
    *  un PASSAGE. Ses trajets (A*, ligne droite, contournement) le traversent
    *  toujours, meme ferme ; il ne le franchit physiquement que si

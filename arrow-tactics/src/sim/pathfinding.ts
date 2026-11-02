@@ -69,6 +69,21 @@ export function buildPathGrid(obstacles: ObstacleDef[], boardWidth: number, boar
   return { width: boardWidth, height: boardHeight, halfW, halfH, blocked, edges };
 }
 
+/** Grilles en cache par REFERENCE de tableau d'obstacles (2026-11-02) :
+ *  World.obstacles n'est jamais modifie sur place, toujours remplace (meme
+ *  motif que sim/geometry.ts) ; avec les forets bloquantes, la reconstruire a
+ *  chaque pas devenait inutilement couteux. */
+const gridCache = new WeakMap<ObstacleDef[], PathGrid>();
+
+export function cachedPathGrid(obstacles: ObstacleDef[], boardWidth: number, boardHeight: number): PathGrid {
+  let grid = gridCache.get(obstacles);
+  if (!grid || grid.width !== boardWidth || grid.height !== boardHeight) {
+    grid = buildPathGrid(obstacles, boardWidth, boardHeight);
+    gridCache.set(obstacles, grid);
+  }
+  return grid;
+}
+
 /** Falaise (segment sur une ligne de la grille, voir computeCliffObstacles) :
  *  bloque l'arete ENTIERE de chaque case qu'elle touche — meme quand le
  *  segment de collision est raccourci au pied d'une pente — sans bloquer
@@ -191,22 +206,24 @@ export function findPath(grid: PathGrid, fromX: number, fromZ: number, toX: numb
 
   const width = grid.width;
   const key = (x: number, z: number) => z * width + x;
-  const gScore = new Map<number, number>();
-  const cameFrom = new Map<number, number>();
+  const cells = width * grid.height;
+  const gScore = new Float64Array(cells).fill(Infinity);
+  const cameFrom = new Int32Array(cells).fill(-1);
   const startKey = key(startX, startZ);
-  gScore.set(startKey, 0);
+  gScore[startKey] = 0;
 
   const heuristic = (x: number, z: number) => Math.hypot(x - goalX, z - goalZ);
 
-  // File de priorite simplifiee : la grille reste petite (quelques centaines
-  // de cases), un tableau trie par insertion suffit largement — pas besoin
-  // d'un tas binaire pour cette taille.
-  const open: { k: number; x: number; z: number; f: number }[] = [{ k: startKey, x: startX, z: startZ, f: heuristic(startX, startZ) }];
-  const closed = new Set<number>();
+  // File de priorite : tas binaire (2026-11-02, cartes de 96 x 96 avec forets
+  // bloquantes : l'ancien tableau trie a chaque pas devenait quadratique).
+  // Ordre IDENTIQUE a l'ancien tri stable : plus petit f, puis premier insere.
+  const open = new OpenHeap();
+  open.push({ k: startKey, x: startX, z: startZ, f: heuristic(startX, startZ), seq: 0 });
+  let seq = 1;
+  const closed = new Uint8Array(cells);
 
-  while (open.length > 0) {
-    open.sort((a, b) => a.f - b.f);
-    const current = open.shift()!;
+  while (open.size > 0) {
+    const current = open.pop();
     if (current.x === goalX && current.z === goalZ) {
       const path: { x: number; z: number }[] = [];
       let k = current.k;
@@ -214,13 +231,13 @@ export function findPath(grid: PathGrid, fromX: number, fromZ: number, toX: numb
         const cx = k % width;
         const cz = Math.floor(k / width);
         path.push({ x: tileToWorldX(grid, cx), z: tileToWorldZ(grid, cz) });
-        k = cameFrom.get(k)!;
+        k = cameFrom[k]!;
       }
       path.reverse();
       return path;
     }
-    if (closed.has(current.k)) continue;
-    closed.add(current.k);
+    if (closed[current.k]) continue;
+    closed[current.k] = 1;
 
     for (const [dx, dz, cost] of NEIGHBORS) {
       const nx = current.x + dx;
@@ -234,15 +251,114 @@ export function findPath(grid: PathGrid, fromX: number, fromZ: number, toX: numb
       if (stepCrossesCliff(grid, current.x, current.z, dx, dz)) continue;
 
       const nk = key(nx, nz);
-      if (closed.has(nk)) continue;
-      const tentativeG = (gScore.get(current.k) ?? Infinity) + cost;
-      if (tentativeG < (gScore.get(nk) ?? Infinity)) {
-        gScore.set(nk, tentativeG);
-        cameFrom.set(nk, current.k);
-        open.push({ k: nk, x: nx, z: nz, f: tentativeG + heuristic(nx, nz) });
+      if (closed[nk]) continue;
+      const tentativeG = gScore[current.k]! + cost;
+      if (tentativeG < gScore[nk]!) {
+        gScore[nk] = tentativeG;
+        cameFrom[nk] = current.k;
+        open.push({ k: nk, x: nx, z: nz, f: tentativeG + heuristic(nx, nz), seq: seq++ });
       }
     }
   }
 
   return null;
+}
+
+interface OpenNode {
+  k: number;
+  x: number;
+  z: number;
+  f: number;
+  /** Rang d'insertion : departage les f egaux (premier insere d'abord). */
+  seq: number;
+}
+
+/** Tas binaire minimal de findPath, ordonne par (f, seq). */
+class OpenHeap {
+  private readonly items: OpenNode[] = [];
+
+  get size(): number {
+    return this.items.length;
+  }
+
+  private static before(a: OpenNode, b: OpenNode): boolean {
+    return a.f < b.f || (a.f === b.f && a.seq < b.seq);
+  }
+
+  push(node: OpenNode): void {
+    const items = this.items;
+    items.push(node);
+    let i = items.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (!OpenHeap.before(items[i]!, items[parent]!)) break;
+      [items[i], items[parent]] = [items[parent]!, items[i]!];
+      i = parent;
+    }
+  }
+
+  pop(): OpenNode {
+    const items = this.items;
+    const top = items[0]!;
+    const last = items.pop()!;
+    if (items.length > 0) {
+      items[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let best = i;
+        if (l < items.length && OpenHeap.before(items[l]!, items[best]!)) best = l;
+        if (r < items.length && OpenHeap.before(items[r]!, items[best]!)) best = r;
+        if (best === i) break;
+        [items[i], items[best]] = [items[best]!, items[i]!];
+        i = best;
+      }
+    }
+    return top;
+  }
+}
+
+/**
+ * Cases atteignables a pied depuis (fromX, fromZ) (2026-11-02, apparitions
+ * des vagues) : meme regles que findPath (cases bloquees, falaises ; une
+ * diagonale n'ouvrant jamais un passage que deux pas orthogonaux n'ouvrent
+ * pas, la connexite se calcule en 4 directions). Depart sur une case bloquee
+ * (emprise de la Baliste...) : depuis la case libre la plus proche.
+ * Renvoie 1 par case atteignable (index z * width + x), ou null.
+ */
+export function reachableTiles(grid: PathGrid, fromX: number, fromZ: number): Uint8Array | null {
+  const start = nearestFreeTile(grid, worldToTileX(grid, fromX), worldToTileZ(grid, fromZ));
+  if (!start) return null;
+  const seen = new Uint8Array(grid.width * grid.height);
+  const queue: number[] = [start.z * grid.width + start.x];
+  seen[queue[0]!] = 1;
+  for (let head = 0; head < queue.length; head++) {
+    const k = queue[head]!;
+    const x = k % grid.width;
+    const z = Math.floor(k / grid.width);
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = x + dx;
+      const nz = z + dz;
+      if (isBlocked(grid, nx, nz) || edgeBlocked(grid, x, z, dx, dz)) continue;
+      const nk = nz * grid.width + nx;
+      if (seen[nk]) continue;
+      seen[nk] = 1;
+      queue.push(nk);
+    }
+  }
+  return seen;
+}
+
+/** Vrai si la case du point monde (x, z) est marquee dans `reach`. */
+export function isReachable(grid: PathGrid, reach: Uint8Array, x: number, z: number): boolean {
+  const tx = Math.floor(x + grid.halfW);
+  const tz = Math.floor(z + grid.halfH);
+  if (tx < 0 || tx >= grid.width || tz < 0 || tz >= grid.height) return false;
+  return reach[tz * grid.width + tx] === 1;
+}
+
+/** Vrai si la case du point monde (x, z) est bloquee (obstacle). */
+export function isTileBlockedAt(grid: PathGrid, x: number, z: number): boolean {
+  return isBlocked(grid, Math.floor(x + grid.halfW), Math.floor(z + grid.halfH));
 }

@@ -526,7 +526,8 @@ UNITS['hero'] = {
   pluralName: 'Héros',
   cost: 0,
   populationCost: 0,
-  stats: { maxHp: 300, damage: 25, attackRange: 1.0, aggroRange: 9, moveSpeed: 2.6, attackCooldown: 1.1, missChance: 0.05, dodgeChance: 0, radius: 0.6, canAttackWhileMoving: false },
+  // Vitesse +60 % (2026-11-02, demande d'Antoine) : 2,6 -> 4,16 cases/s.
+  stats: { maxHp: 300, damage: 25, attackRange: 1.0, aggroRange: 9, moveSpeed: 4.16, attackCooldown: 1.1, missChance: 0.05, dodgeChance: 0, radius: 0.6, canAttackWhileMoving: false },
   visual: { kit: 'hero', hpBarHeight: 2.0 },
 };
 

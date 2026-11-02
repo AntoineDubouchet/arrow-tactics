@@ -54,7 +54,7 @@ de l'éditeur de maps, voir `EDITOR.md`. Pour les problèmes connus, voir
 | `models/archer/` | 12 | ~78 Mo | .glb | Archer bleu / rouge : base, marche, 3 morts, attaque |
 | `models/fantassin/` | 2 | ~19 Mo | .glb | Ancien Fantassin bleu / rouge (`?footman=v1`, repli du Footman V2) |
 | `assets/units/footman_v2/` | 30 | ~58 Mo | .glb, .json, .png | Footman V2 (Fantassin par défaut) : corps, épée, boucliers, clips, textures PBR 2K |
-| `assets/units/toon/` | 16 | ~7,7 Mo | .glb, .png | Unités Toon RTS humaines et barbares (Oracle, Piquier et Vengeur par défaut, les autres en laboratoire) : **locales, non versionnées** (§3.1) |
+| `assets/units/toon/` | 20, plus 4 dans `atelier/` | ~9,7 Mo, plus ~4,6 Mo | .glb, .png, .json | Unités Toon RTS humaines et barbares (Oracle, Piquier et Vengeur par défaut, les autres en laboratoire) et catalogues de l'Atelier de personnage : **locales, non versionnées** (§3.1) |
 | `models/sentinel/` | 2 | ~20,5 Mo | .glb | Sentinelle bleue / rouge |
 | `models/mage/` | 1 | ~4,4 Mo | .glb | Mage (maillage + 5 clips) |
 | `models/ballista/fbx/` | 11 | ~150,7 Mo | .fbx, .png, .tga | Baliste actuelle, animations, textures |
@@ -125,7 +125,10 @@ ces trois unités Toon côtoient donc les modèles officiels des autres
 - Un GLB par unité (`human_footman`, `human_archer`, `human_mage`,
   `human_sentinel`, `human_oracle`, `human_pikeman`, `human_avenger`, `human_hero`, `human_light_cavalry` : un maillage skinné de 390 à 490 triangles, un
   matériau, squelette de 29 os, **tous** les clips du pack ; Sentinelle
-  affichée 15 % plus grande, rendu seulement ; Héros : trois outils en maillages séparés ; cavaleries : FBX
+  affichée 15 % plus grande, rendu seulement ; Héros : trois outils en maillages séparés (2026-11-02 : unité
+  **mixte** composée dans l'Atelier, pièces et marteau barbares, hache et pioche WK ; un outil peut venir d'une
+  autre source, `{"piece", "source"}`) ; unité mixte : un matériau par source (`<unité>` puis
+  `<unité>__<textures>`), le jeu applique l'atlas désigné par ce suffixe (`render/toonUnitRig.ts`) ; cavaleries : FBX
   « single mesh » `*_Light_B`, squelette de 46 os (cheval + cavalier), cheval humain en maillage séparé avec sa
   texture `wk_horse.png` ; voir le README de `tools/toon-units/`) et deux PNG 1024 **partagés** : atlas neutre et
   masque des zones d'équipe (`wk_albedo.png`, `wk_team_mask.png`).
@@ -148,6 +151,14 @@ ces trois unités Toon côtoient donc les modèles officiels des autres
   `arrow-tactics/` :
   `"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" -b --factory-startup --python-exit-code 1 --python tools/toon-units/build_toon_unit.py -- --config tools/toon-units/units.json --out public/assets/units/toon --all`.
   Seuls le script, sa configuration et sa documentation sont versionnés.
+- **Atelier de personnage** (2026-11-01, outil interne, menu principal) :
+  il lit `toon/atelier/<source>_atelier.glb` et `.json`. Ce sont toutes les
+  pièces du FBX modulaire, séparées, avec les clips des dossiers
+  `atelier_animations`. Ils sont produits par la même commande, avec
+  `--atelier public/assets/units/toon/atelier` (README de
+  `tools/toon-units/`). Mêmes droits, également ignorés par Git. Sans eux,
+  l'Atelier affiche « Catalogue indisponible » et un bouton « Fermer »
+  (d'après le code, non testé). Le jeu n'en dépend pas.
 - Sans ces fichiers (autre machine, clone neuf), le build et le jeu par
   défaut fonctionnent ; avec `?toonUnits=`, chaque unité absente garde son
   modèle officiel, l'Oracle prend celui du Mage, le Piquier et le Vengeur
@@ -303,7 +314,7 @@ ligne), sauf 4 versions différentes **non remplacées** : ponts A/B et moulin
 |---|---|---|
 | `textures/ground/ground_grass.png`, `ground_dirt.png` | Sol du plateau (texture répétée) | `render/textures.ts` |
 | `textures/ground/variants/*.png` (10) | Lot de sol (herbes, terres, mixtes), peignable dans l'éditeur (outil Surface) et comparable avec `?sol=` ; généré par `tools/ground-textures/generate.mjs` (procédural, déterministe, sans source externe) | `config/groundSurfaces.ts` (définitions), `render/groundSurfaces.ts`, `render/textures.ts`, vignettes de `editor/editorUI.ts` |
-| `textures/sky_background.png` | Fond fixe de la scène (pas un vrai skybox) | `render/renderer.ts` |
+| `textures/sky_background.png` | Ancien fond de la scène, **plus chargé** depuis le 2026-11-02 (fond noir uni) | — |
 | `textures/vfx/*.png` (16 sur 18) | Effets : Boule de feu, projectiles d'ombre, soin, Nova de glace, Blizzard, aura Recyclage | `render/vfxTextures.ts` et les vues d'effets |
 | `textures/ui/battle-spells/*.png` | Icônes du parchemin de soin et de la Nova de glace | `ui/itemIcons.ts` |
 

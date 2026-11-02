@@ -182,6 +182,8 @@ export interface ScreenHandlers {
    *  Le menu principal est le point d'entree naturel : Antoine a explicitement
    *  demande de pouvoir y revenir facilement pendant ses tests. */
   onOpenEditor: () => void;
+  /** Atelier de personnage (outil interne de conception, src/workshop). */
+  onOpenWorkshop: () => void;
   /** Reprend la bataille en cours (bouton "Continuer" du menu pause,
    *  Echap y menait). */
   onResume: () => void;
@@ -541,6 +543,7 @@ export class Screens {
       this.button('Mode survie', handlers.onPlay),
       this.button('Arbre de talents', handlers.onOpenTalents),
       this.button('Éditeur de maps', handlers.onOpenEditor),
+      this.button('Atelier de personnage', handlers.onOpenWorkshop),
       this.button('Paramètres', handlers.onOpenSettingsFromMenu),
       this.button('Effacer la sauvegarde', handlers.onRequestResetSave),
     ]);

@@ -85,8 +85,10 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | E5 | Territoire par cases, couche séparée du terrain | Active (territoire de la carte, suit l'expansion) / Ouverte (territoire de run) |
 | E6 | Aspect des décors fixé par leur position | Active |
 | E7 | Relief 2.5D : falaises infranchissables, pentes, combat 2D | Active (prototype) / Ouverte (avantage de hauteur, ligne de vue, grande carte) |
-| E8 | Décors purement visuels, traversables, adaptatifs au relief | Active |
+| E8 | Décors purement visuels, traversables, adaptatifs au relief | Active / Remplacée pour les arbres (G11) |
 | F1 | Intégration audio mise en pause après expérimentation | Historique / Ouverte |
+| G11 | Arbres bloquants, ressources rares, vagues reliées au camp, Mine toutes les 60 s | Active (valeurs provisoires) |
+| H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
 cartes décrites par des données `MapDef`, capacités d'unité génériques) ne
@@ -697,8 +699,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Raison connue** : les bâtiments doivent porter leur propre logique de
   fiche et d'amélioration ; la Forge doit tendre vers les améliorations
   d'unités (D5).
-- **Aujourd'hui** : Mine : 3 à 7 or toutes les 5 s au niveau 1, +2 / +2 par
-  niveau, 5 productions au plus par Mine et par manche ; Caserne et Camp
+- **Aujourd'hui** : Mine : 3 à 7 or toutes les 60 s de simulation au niveau
+  1 (Survie en temps réel, G11), +2 / +2 par niveau, sans plafond ; Caserne et Camp
   d'archerie : voir D7. Ces valeurs sont de
   l'équilibrage, pas une décision.
 - **Sources** : `run/buildingUpgrades.ts`, `run/mineUpgradeEffects.ts`,
@@ -1182,9 +1184,11 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     2026-10-31) : `look=stylized`, `groundLook=rich`, `surfaceBlend=lisiere`,
     `relief=hybrid` ; consolidée le même jour (biseaux low-poly, diagonales
     continues, alternance de deux tons, coût de l'éditeur). `lisiere` est retenue
-    devant `melange` (qui reste un témoin). **Ouvert** : faire de cette
-    combinaison le rendu par défaut ; d'ici là, le rendu sans paramètre ne
-    change pas et `living`, `irregular` restent accessibles pour comparer.
+    devant `melange` (qui reste un témoin). **Décidé** (Antoine,
+    2026-11-02) : rendu **par défaut** `look=stylized`, `groundLook=rich`,
+    `surfaceBlend=organic`, `relief=hybrid`, `surfaceBorder=marquee`
+    (`main.ts`, `OFFICIAL_LOOK`) ; les paramètres restent des surcharges de
+    laboratoire ; `hills=organic` reste expérimental, jamais par défaut.
     **En comparaison** (2026-10-31) : `surfaceBlend=organic` (mêmes
     frontières que `lisiere`, transition douce choisie par couple de
     matières) et `groundLook=organic` (`rich`, herbe un peu plus variée).
@@ -1219,7 +1223,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### E8 — Décors purement visuels, traversables, adaptatifs au relief
 
-- **Statut** : Active.
+- **Statut** : Active, sauf pour les **arbres** : leurs cases bloquent le
+  passage depuis le 2026-11-02 (G11, demande d'Antoine).
 - **Contexte** : des éléments posés pour embellir la carte (arbres,
   rochers, structures) créaient des obstacles invisibles, détournaient les
   unités et bloquaient l'édition du relief.
@@ -1352,7 +1357,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     l'utiliser, 15 s la première fois, 30 s la deuxième, 1 min la troisième,
     puis 1 min 30 au plus ; XP et niveaux gardés ; il revient à la Baliste ;
     **Héros et Baliste à terre = partie perdue**.
-- **Choix provisoires** (non validés) : 30 PV, 2,5 dégâts, vitesse 2,6 ;
+- **Choix provisoires** (non validés) : 30 PV, 2,5 dégâts, vitesse 2,6
+  (portée à 4,16 le 2026-11-02, +60 %, demande d'Antoine ; bonus de niveau
+  0,24 / 0,48) ;
   niveaux 2 et 3 à 50 et 150 XP ; XP = max(4, coût × 4) dans un rayon de
   6 cases, **plafonnée à 30 par mort** (demande d'Antoine, 2026-11-01) ; morts comptées **sur la run** (pas par bataille) ; Héros hors
   population, gratuit, invendable ; visuel Toon (tête E, corps D,
@@ -1396,7 +1403,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   carte procédurale (il reste sur l'arène) ; exploration et ramassage
   **pendant la bataille** (la boucle des manches ne change pas).
 - **Choix provisoires** : 96 × 96, centre de 11 cases, territoire de 8, anneau
-  à 22 cases, vision 6 / 8 / 9 (unité / Baliste / Héros), une graine par run.
+  à 22 cases, vision 6 / 8 / 9 (unité / Baliste / Héros ; Baliste et Tour
+  36 depuis G11), une graine par run.
   Le brouillard est un système de présentation : la simulation ne le lit
   pas. Depuis G10, la simulation a sa propre **vision gameplay**
   (`sim/vision.ts`, mêmes rayons, positions simulées) pour le tir
@@ -1472,6 +1480,169 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   Survie ; ne pas faire dépendre la simulation du brouillard du rendu.
 - **Sources** : `main.ts`, `data/production.ts`, `sim/vision.ts`,
   `sim/systems/buildingProduction.ts` (`tickProductionOrders`).
+
+## H. Outils internes
+
+### H1 — Atelier de personnage : outil interne, export vers `units.json`
+
+- **Statut** : Active.
+- **Contexte** : composer une unité Toon RTS demandait d'écrire des noms de
+  pièces dans `units.json` à l'aveugle, puis de relancer Blender pour voir
+  le résultat.
+- **Décision** (demande d'Antoine, 2026-11-01) : un écran dédié, ouvert
+  depuis le menu principal (pas l'éditeur de maps) :
+  - aperçu 3D, pièces par emplacement, mains totalement libres avec
+    échelle, rotation et décalage, couleurs, échelle, animations et
+    presets ;
+  - export d'une entrée `units.json` que le pipeline construit tel quel ;
+  - pas d'éditeur d'items.
+- **Choix de la passe** :
+  - le catalogue est **produit par le pipeline** (`--atelier`) et lu par
+    l'Atelier, sans liste en dur : une nouvelle source se déclare dans
+    `units.json` (`atelier_animations`) ;
+  - le format `pieces.hands` (une pièce, une échelle, une rotation et un
+    décalage par main) généralise `weapon` / `offhand` /
+    `offhand_weapon`. Les anciennes entrées restent valides et sont lues
+    par l'Atelier ;
+  - l'aperçu reproduit le calcul du pipeline (miroir des mains, ajustement
+    autour de la prise) : même géométrie au repos, vérifiée.
+- **Suite (demande d'Antoine, 2026-11-01)** : source **All** et échelle par
+  pièce.
+  - Une pièce connaît sa source. Le format de `units.json` est étendu sur
+    place : un nom reste un nom (source de l'unité, échelle 1), sinon
+    `{"piece", "source", "scale"}`. Il n'y a pas de structure parallèle.
+  - Mélange libre des packs : un matériau par source, sans fusion d'atlas.
+    La fidélité aperçu = Blender passe avant `1 maillage / 1 matériau`.
+  - Échelle d'une pièce skinnée autour de ses articulations (moyenne
+    pondérée par les poids) : os, poids et clips inchangés, correcte dans
+    toutes les poses. Elle ne rallonge pas le squelette.
+- **À ne pas faire** :
+  - ne pas faire dépendre une run de l'Atelier ou de ses catalogues ;
+  - ne pas présenter le mélange de couleurs comme une seconde zone (KI-37).
+- **Sources** : `src/workshop/`, `tools/toon-units/build_toon_unit.py`
+  (`build_atelier`, `hand_piece`), CURRENT_STATE.md §16 bis.
+
+---
+
+### G11 — Arbres bloquants, ressources rares, vagues reliées au camp, Mine toutes les 60 s
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-02, passe Hero RTS) :
+  - **arbres** : la case d'un arbre bloque les unités terrestres (Héros,
+    infanterie, cavalerie, neutres), sans changer encore les futures unités
+    spéciales ; les bosquets bloquent toutes leurs cases. Remplace E8 pour
+    les arbres ;
+  - **générateur** : forêts en massifs séparés par sentiers, clairières et
+    passages, jamais de mur infranchissable ; connexité contrôlée avec
+    l'eau, le relief et les arbres ;
+  - **vagues** : apparition seulement sur une route vers le camp (sinon un
+    autre point), recalcul propre si la route devient invalide, diagnostic
+    si une unité n'a vraiment aucun chemin ; jamais de suppression
+    automatique d'un ennemi ;
+  - **ressources** : petits tas environ trois fois plus rares, garantie de
+    départ raisonnable, scintillement discret selon le brouillard,
+    indicateur au clic ;
+  - **vision** : Baliste environ 36 cases, Tour une grande vision ; portées
+    d'attaque inchangées (ramenées à 18 / 18 par G12) ;
+  - **Mine** : une tranche toutes les 60 s de simulation, sans plafond
+    (l'ancien quota par manche venait du jeu en manches) ;
+  - **sac** du Héros sur le dos, **fond** noir.
+- **Choix de la passe** :
+  - arbres : obstacles de **déplacement** (comme l'eau), pas de tir ; la
+    pose y est refusée depuis la passe corrective ;
+  - Tour terminée : même rayon que la Baliste (36), lecture de « la même
+    chose pour la Tour » ;
+  - ennemi sans cible : marche vers la Baliste par A* sur le terrain
+    (bâtiments exclus), au lieu de la marche « vers +z » du jeu en couloirs,
+    cause des vagues qui ne finissaient pas ;
+  - garantie de départ : au moins 10 bois et 6 pierres à 9–18 cases ;
+  - passe corrective (2026-11-02) : rampes de 3 cases (KI-39), 34 à 36 tas
+    (au moins trois fois plus rares), et une case d'arbre refuse aussi toute
+    pose (bâtiment, chantier, muraille, Baliste, unité) ;
+  - forêt : goulet d'une case comblé dans une forêt, élargi ailleurs ;
+    poche isolée de moins de 8 cases comblée, sinon couloir de 2 cases.
+- **Effets d'équilibrage à surveiller** : la Mine rapporte bien moins
+  qu'avant (3 à 7 or par minute contre jusqu'à 35 or par vague) ; une vision
+  de 36 cases découvre l'essentiel de la carte dès le lancement, ce qui
+  réduit l'exploration voulue par la rareté des tas.
+- **À ne pas faire** : ne pas supprimer un ennemi bloqué pour finir une
+  vague ; ne pas redonner aux ennemis la marche vers +z en Survie.
+- **Sources** : `sim/world.ts` (`computeTreeObstacles`, `assaultGoal`),
+  `sim/systems/movement.ts` (`marchToGoal`), `sim/pathfinding.ts`,
+  `sim/systems/enemyReinforcements.ts`, `config/maps/proceduralSurvival.ts`,
+  `data/vision.ts`, `data/mineUpgrade.ts`, `render/resourcePiles.ts`.
+
+### G12 — Choix du Héros, mana et Soin, HUD du Héros, construction libre
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-02, passe « UX du Héros ») :
+  - écran « Choisir votre Héros » avant la Survie, un seul choix (Paladin,
+    le Héros actuel), structure prête pour plusieurs héros (id, nom,
+    portrait, modèle, stats, mana, sorts, équipement de départ) ;
+  - **mana** pour les héros seulement : Paladin 100 max, 100 au départ,
+    +2 / s, dans la simulation déterministe, figé en pause ;
+  - sort **Soin** : 2 s d'incantation, +5 PV, portée environ 5 cases, sur
+    soi ou un allié ; un ordre de déplacement pendant l'incantation
+    l'annule sans effet ; préférence : mana rendu ;
+  - **HUD** permanent en haut à droite (portrait rond gris, PV vert, mana
+    bleu, rien d'autre), barre d'XP violette fine tout en bas ; retirer
+    « Auto Baliste prête » et les 6 emplacements d'inventaire ;
+  - bouton **Construire** à la place de Boutique / Vendre, petit panneau de
+    bâtiments, même pose qu'avant ;
+  - **construction** n'importe où sur une case valide (plus de territoire) ;
+    zones bleues / rouges retirées, camps gardés ;
+  - **vision** Baliste 18, Tour 18 ; disque **exploré** d'environ 22 cases
+    au départ ;
+  - tas plus gros (bois +40 %, pierre +60 %), sélectionnables (anneau
+    jaune), pulse au ramassage, éclats refaits ; légère baisse de lumière.
+- **Choix de la passe** :
+  - coût du Soin : **20 mana** (proposé, accepté par la demande) ;
+  - mana **retenu au début** de l'incantation, **rendu** à toute annulation
+    avant l'effet : tout nouvel ordre accepté (même un nouveau Soin, qui
+    repart de zéro), mort, Provocation, cible morte, cible à plus de
+    5 + 1 cases à la fin (soin perdu) ;
+  - le Héros s'approche à 5 cases puis incante **sur place** ; les dégâts
+    reçus n'interrompent pas ;
+  - mana **plein** au retour après une mort (comme les PV) ;
+  - le Soin réutilise l'incantation de l'Oracle (`Entity.cast`,
+    `abilitySystem`) ; l'annulation est vérifiée juste après les commandes,
+    **avant** `abilitySystem` (aucun soin fantôme possible) ;
+  - pas de clip d'incantation dans le GLB du Héros : garde de combat
+    parcourue pendant les 2 s, cercle runique au sol ;
+  - pose de bâtiment : refus hors carte, eau, arbre, obstacle bloquant,
+    bâtiment / chantier, unité, sol non plat ; le territoire ne sert plus
+    qu'au placement des unités en préparation (legacy) ;
+  - impulsion au sol du clic de ramassage remplacée par le pulse de
+    l'anneau jaune ;
+  - lumière : un facteur unique 0,92 sur les trois lumières ;
+  - suites de la même passe (demandes d'Antoine) : Héros sans fiche à sa
+    sélection, **inventaire** (touche I) pour ses statistiques, ses sorts
+    et son futur équipement ; **barre d'action** 1 à 6 en bas à gauche
+    (sorts du Héros, Soin en 1, mêmes touches que l'ancien inventaire) ;
+    anneau jaune et pulse sur le dépôt ; éclats plus gros, plus fréquents,
+    répartis sur le tas ; sac +25 % ; vitesse du Héros +60 % ;
+  - choix de la passe : le bouton Soin quitte l'encart du Héros pour la
+    barre d'action ; l'inventaire ne met pas le jeu en pause ;
+  - ensuite (demandes d'Antoine) : modèle du Héros composé dans l'Atelier
+    (pièces barbares, marteau barbare ×1,4 ; hache, pioche et gestes de
+    travail gardés) ; essai du clip `charge` pour son déplacement ;
+    **mana 20 au niveau 1**, **Soin 12 mana**, icône propre au Paladin ;
+    barre de progression de l'action au-dessus de l'XP ; **dépôt 0,5 s par
+    unité** (unité par unité, interruptible) ;
+  - choix : un nouveau sort pendant une incantation compte le mana qui va
+    être rendu (sinon le premier sort continuait faute de mana) ; l'échelle
+    1,4 du bloc `atelier` reste un réglage d'aperçu (le jeu garde 1,3).
+- **Effets d'équilibrage et de ressenti à surveiller** : le Soin rend le
+  Héros plus durable : avec 20 mana et un Soin à 12, un Soin d'avance puis
+  un toutes les 6 s (+2 / s) ; le dépôt de 3 s par sac ralentit l'économie ; la construction
+  libre permet des tours avancées loin du camp ; la vision 18 (contre 36)
+  rend l'exploration plus nécessaire.
+- **Ouvert** : mana des niveaux 2 et 3 (inchangé pour l'instant).
+- **Sources** : `data/heroes.ts`, `data/spells.ts`, `data/vision.ts`,
+  `sim/systems/hero.ts` (`interruptHeroSpells`, `heroSpellSystem`),
+  `sim/orders.ts` (ordre `cast`), `ui/heroSelect.ts`, `ui/heroHud.ts`,
+  `ui/buildMenu.ts`, `render/spellCastVfx.ts`, `render/resourcePiles.ts`,
+  `render/renderer.ts` (`LIGHT_LEVEL`), `main.ts`.
 
 ---
 

@@ -198,8 +198,11 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
     scale: 1.3,
     roles: {
       ...COMMON_ROLES,
-      // 2,6 cases/s ; foulee agrandie de 30 % avec le modele.
-      walk: loop('run', 1),
+      // ESSAI (2026-11-02, demande d'Antoine, « juste pour tester ») : clip
+      // `charge` (0,83 s) au lieu de `run` (1 s) pour le deplacement.
+      // Cadence estimee : `run` a 1,6 pour 4,16 cases/s, cycle plus court de
+      // `charge` -> 1,3. Pour revenir : walk: loop('run', 1.6).
+      walk: loop('charge', 1.3),
       // Coups de marteau en alternance (A par-dessus, B en revers), cadence 1,1 s.
       attack: once('attackA', 1.25),
       attackAlt: once('attackB', 1.25),
@@ -211,7 +214,14 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
       build: loop('workingC'),
       // Ramasser un petit tas : meme geste accroupi que construire.
       gather: loop('workingC', 1.3),
+      // Deposer le sac a la Baliste (2026-11-02, 0,5 s par unite) : idem.
+      deposit: loop('workingC', 1.3),
+      // Soin (2026-11-02) : le GLB n'a pas de clip d'incantation ; garde de
+      // combat parcourue une fois sur les 2 s du sort (UnitViews), plutot que
+      // le repos.
+      cast: once('combatIdle', 1),
     },
+    castReleaseFraction: 1,
   },
   /** Cavalier leger (2026-11-01) : cheval, lance, petit bouclier (pack
    *  Western Kingdoms, `WK_SM_Cavalry_Light_B`, clips `Cavalry_Spear`).
@@ -365,6 +375,13 @@ function texturesOf(prefix: string): Promise<ToonTextures> {
   return pending;
 }
 
+/** Atlas d'un materiau du GLB : suffixe `__<textures>` (piece d'une autre
+ *  source, pipeline tools/toon-units), sinon celui de l'unite. */
+function sourceTexturesOf(material: THREE.Material, fallback: string): string {
+  const i = material.name.lastIndexOf('__');
+  return i >= 0 ? material.name.slice(i + 2) : fallback;
+}
+
 async function loadPrototype(kind: ToonUnitKind): Promise<void> {
   const def = TOON_UNITS[kind];
   const [gltf] = await Promise.all([
@@ -375,12 +392,24 @@ async function loadPrototype(kind: ToonUnitKind): Promise<void> {
       if (!partTextures.has(file)) partTextures.set(file, await loadTexture(`${DIR}/${file}`, true));
     }),
   ]);
+  // Unite mixte (pieces de plusieurs sources, Atelier) : atlas des autres
+  // sources, d'apres le nom de leur materiau (`<unite>__<textures>`).
+  const extraTextures = new Set<string>();
+  gltf.scene.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.isMesh) extraTextures.add(sourceTexturesOf(mesh.material as THREE.Material, def.textures));
+  });
+  extraTextures.delete(def.textures);
+  await Promise.all([...extraTextures].map(texturesOf));
   const clips = new Map(gltf.animations.map((clip) => [clip.name, clip]));
   const roleClips = new Map<string, THREE.AnimationClip>();
   for (const [name, role] of Object.entries(def.roles)) {
     const clip = clips.get(role.clip);
     if (!clip) throw new Error(`Clip ${role.clip} absent de ${def.file}`);
-    roleClips.set(name, role.retime ? retimeClip(clip, role.retime) : clip);
+    const resolved = role.retime ? retimeClip(clip, role.retime) : clip;
+    // Sort sur un clip deja pris par un autre role (garde du Heros) : clip
+    // clone, pour une action propre (boucle et cadence independantes).
+    roleClips.set(name, name === 'cast' && [...roleClips.values()].includes(resolved) ? resolved.clone() : resolved);
   }
   if (def.arrowHandBone) {
     // Repere lu par main.ts (UnitViews.getBoneWorldPosition(id, 'RightHand')) : la fleche part de la main de corde.
@@ -499,6 +528,41 @@ export function createToonUnitMaterial(textures: string, palette: ToonPaletteId)
   return material;
 }
 
+/** Atelier de personnage (src/workshop) : textures d'une source chargees
+ *  (`wk`, `brb`), partagees avec les unites du jeu. */
+export async function loadToonTextures(prefix: string): Promise<void> {
+  await texturesOf(prefix);
+}
+
+/** Atelier de personnage : materiau de la source `textures` dont la teinte se
+ *  regle EN DIRECT (couleur sRGB et intensite du melange dans la zone du
+ *  masque d'equipe, une seule zone). Meme rendu que createToonUnitMaterial a
+ *  intensite 1 ; jamais utilise par le jeu. */
+export function createToonTintMaterial(textures: string): { material: THREE.MeshStandardMaterial; setTint(color: THREE.Color, strength: number): void } {
+  const set = loadedTextures.get(textures);
+  if (!set) throw new Error(`Textures Toon RTS ${textures} non prechargees.`);
+  const material = new THREE.MeshStandardMaterial({ map: set.albedo, metalness: 0, roughness: 1, emissiveIntensity: 0 });
+  const tint = { value: new THREE.Color(1, 1, 1) };
+  const strength = { value: 1 };
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms['toonTeamMask'] = { value: set.teamMask };
+    shader.uniforms['toonTeamTint'] = tint;
+    shader.uniforms['toonTintStrength'] = strength;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D toonTeamMask;\nuniform vec3 toonTeamTint;\nuniform float toonTintStrength;')
+      .replace(
+        '#include <map_fragment>',
+        `#ifdef USE_MAP
+	vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+	sampledDiffuseColor.rgb *= mix( vec3( 1.0 ), toonTeamTint, texture2D( toonTeamMask, vMapUv ).r * toonTintStrength );
+	diffuseColor *= sampledDiffuseColor;
+#endif`,
+      );
+  };
+  material.customProgramCacheKey = () => 'toon-unit-team-strength';
+  return { material, setTint: (color, value) => { tint.value.copy(color); strength.value = value; } };
+}
+
 /** Hauteur en jeu (casque compris) d'un humain du pack, celle du Footman
  *  V2 ; le squelette natif mesure 1,557 m. Meme echelle pour toutes les
  *  unites d'une source : leurs proportions restent coherentes. */
@@ -516,7 +580,17 @@ export function buildToonUnitModel(kind: ToonUnitKind, team: Team, palette: Toon
   if (!prototype) throw new Error(`Unite Toon RTS ${kind} non prechargee.`);
   const def = TOON_UNITS[kind];
   const group = cloneSkinned(prototype.scene) as THREE.Group;
-  const material = createToonUnitMaterial(def.textures, palette);
+  // Un materiau par atlas : celui de l'unite, plus ceux des autres sources
+  // d'une unite mixte (materiau `<unite>__<textures>` du GLB).
+  const materials = new Map<string, THREE.MeshStandardMaterial>();
+  const materialFor = (textures: string): THREE.MeshStandardMaterial => {
+    let m = materials.get(textures);
+    if (!m) {
+      m = createToonUnitMaterial(textures, palette);
+      materials.set(textures, m);
+    }
+    return m;
+  };
   // Parties a texture propre : un materiau par partie, sans teinte d'equipe.
   const partMaterials = new Map<string, THREE.MeshStandardMaterial>();
   for (const [part, suffix] of Object.entries(def.parts ?? {})) {
@@ -525,7 +599,7 @@ export function buildToonUnitModel(kind: ToonUnitKind, team: Team, palette: Toon
   group.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh) return;
-    mesh.material = partMaterials.get(mesh.name) ?? material;
+    mesh.material = partMaterials.get(mesh.name) ?? materialFor(sourceTexturesOf(mesh.material as THREE.Material, def.textures));
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     // Boite du clone a la pose de liaison : trop etroite pour une chute ou une attaque.

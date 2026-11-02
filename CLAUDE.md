@@ -69,6 +69,7 @@ Dossiers de `arrow-tactics/src/` :
 | `render/` | Three.js : plateau, unités, effets, caméra |
 | `ui/` | Interface HTML/CSS par-dessus le canvas |
 | `editor/` | Éditeur de maps |
+| `workshop/` | Atelier de personnage (outil interne, unités Toon RTS) |
 | `audio/` | Moteur audio (actuellement déconnecté) |
 | `main.ts` | Point d'entrée, orchestration des couches |
 

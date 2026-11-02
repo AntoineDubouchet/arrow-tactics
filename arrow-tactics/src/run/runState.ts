@@ -5,6 +5,7 @@ import {
   EXTRA_ENEMY_MAGE_START_WAVE,
   MAGE_UNLOCK_WAVE,
 } from '../config/constants';
+import { DEFAULT_HERO_ID, getHero } from '../data/heroes';
 import { getItem } from '../data/items';
 import { getUnit } from '../data/units';
 import type { ResourceKind } from '../config/resourceNodes';
@@ -142,14 +143,16 @@ export function isBuildingBuilt(b: Pick<OwnedBuilding, 'constructionProgress'>):
   return b.constructionProgress === undefined;
 }
 
-/** Progression du Heros sur la run (data/hero.ts) : XP totale, niveau,
- *  nombre de morts (delai de resurrection), sac (ressources portees, pas
- *  encore deposees). */
+/** Progression du Heros sur la run (data/hero.ts) : Heros choisi
+ *  (data/heroes.ts), XP totale, niveau, nombre de morts (delai de
+ *  resurrection), sac (ressources portees, pas encore deposees), mana. */
 export interface HeroProgress {
+  heroId: string;
   xp: number;
   level: number;
   deaths: number;
   carry: Record<ResourceKind, number>;
+  mana: number;
 }
 
 /** Stock de depart de bois et de pierre d'une run : rien (2026-11-01,
@@ -322,12 +325,13 @@ export const STARTING_FANTASSIN_COUNT = 0;
  *  `baseMap` optionnel (par defaut l'arene officielle) : carte de depart dont
  *  partent les compteurs d'agrandissement — main.ts y passe l'arene candidate
  *  avec `?map=island` (debogage). */
-export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = getUnit('fantassin').stats.maxHp, upgrades: RunUpgradeLevels = {}, baseMap: Pick<MapDef, 'width' | 'height'> = SURVIVAL_BASE_MAP): RunState {
+export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = getUnit('fantassin').stats.maxHp, upgrades: RunUpgradeLevels = {}, baseMap: Pick<MapDef, 'width' | 'height'> = SURVIVAL_BASE_MAP, heroId: string = DEFAULT_HERO_ID): RunState {
+  const hero = getHero(heroId);
   return {
     gold: roundGold(STARTING_GOLD + startingGoldBonus),
     // Armee de depart (2026-11-01, demande d'Antoine) : le Heros seul, avec
     // la Baliste ; STARTING_FANTASSIN_COUNT Hommes d'armes en plus (0).
-    army: [{ unitId: 'hero', hp: getUnit('hero').stats.maxHp, productionLevel: 0 }, ...Array.from({ length: STARTING_FANTASSIN_COUNT }, () => ({ unitId: 'fantassin', hp: startingFantassinMaxHp, productionLevel: 0 }))],
+    army: [{ unitId: hero.unitId, hp: getUnit(hero.unitId).stats.maxHp, productionLevel: 0 }, ...Array.from({ length: STARTING_FANTASSIN_COUNT }, () => ({ unitId: 'fantassin', hp: startingFantassinMaxHp, productionLevel: 0 }))],
     inventory: [],
     buildings: [],
     waveNumber: 1,
@@ -335,7 +339,7 @@ export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = get
     mapExpansion: createInitialMapExpansionState(baseMap),
     ballistaPosition: null,
     upgrades: { ...upgrades },
-    hero: { xp: 0, level: 1, deaths: 0, carry: { wood: 0, stone: 0 } },
+    hero: { heroId: hero.id, xp: 0, level: 1, deaths: 0, carry: { wood: 0, stone: 0 }, mana: hero.mana.initial },
     resources: { ...STARTING_RESOURCES },
     resourcePileAmounts: {},
     mapSeed: 0,
@@ -571,7 +575,7 @@ export function applyBattleOutcome(run: RunState, entities: Entity[], pendingEne
     // Heros : jamais perdu (resurrection) ; mort en fin de bataille, il
     // revient a pleins PV. Sa progression est relue sur son entite.
     if (entity?.hero) {
-      run.hero = { xp: entity.hero.xp, level: entity.hero.level, deaths: entity.hero.deaths, carry: { ...entity.hero.carry } };
+      run.hero = { heroId: entity.hero.heroId, xp: entity.hero.xp, level: entity.hero.level, deaths: entity.hero.deaths, carry: { ...entity.hero.carry }, mana: entity.hero.mana };
       updatedArmy.push({ ...run.army[i]!, hp: entity.alive ? entity.hp : entity.stats.maxHp });
       continue;
     }

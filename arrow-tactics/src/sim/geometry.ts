@@ -63,6 +63,23 @@ export function obstaclesCollidingTeam(obstacles: ObstacleDef[], team: string, c
   return cachedTeamList(obstacles, 'body:' + team, (o) => o.passableForTeam === team && o.passageOpen === true);
 }
 
+/** Obstacles du TERRAIN (2026-11-02) : la liste sans les emprises
+ *  d'entites (batiments, Baliste, portes). Sert a la marche des vagues vers
+ *  le camp et a leurs apparitions : une route qui bute sur un batiment reste
+ *  une route (l'unite l'attaque en arrivant). En cache par reference de
+ *  tableau, comme les listes par camp. */
+const terrainCache = new WeakMap<ObstacleDef[], ObstacleDef[]>();
+
+export function terrainObstacles(obstacles: ObstacleDef[], entities: readonly { footprintObstacle: ObstacleDef | null }[]): ObstacleDef[] {
+  let list = terrainCache.get(obstacles);
+  if (!list) {
+    const footprints = new Set(entities.map((e) => e.footprintObstacle).filter((f): f is ObstacleDef => f !== null));
+    list = footprints.size > 0 ? obstacles.filter((o) => !footprints.has(o)) : obstacles;
+    terrainCache.set(obstacles, list);
+  }
+  return list;
+}
+
 export function getObstacleBoundsList(obstacles: ObstacleDef[]): ObstacleBounds[] {
   let cached = boundsCache.get(obstacles);
   if (!cached) {

@@ -20,12 +20,7 @@ export function rollMineGold(level: number, random: () => number): number {
   return min + Math.floor(random() * (max - min + 1));
 }
 
-/** Secondes de bataille entre deux productions. */
+/** Secondes de simulation entre deux productions (aucun plafond). */
 export function mineProductionIntervalSeconds(): number {
   return MINE_PRODUCTION.intervalSeconds;
-}
-
-/** Productions au plus par Mine et par manche. */
-export function mineMaxProductionsPerWave(): number {
-  return MINE_PRODUCTION.maxProductionsPerWave;
 }

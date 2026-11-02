@@ -11,7 +11,9 @@ import type { Entity, Team } from './entity';
 export function visionRadiusOf(e: Entity): number {
   if (e.hero) return VISION_RADIUS.hero;
   if (e.unitId === 'ballista') return VISION_RADIUS.ballista;
-  if (e.isBuilding) return e.construction ? VISION_RADIUS.site : VISION_RADIUS.building;
+  if (e.isBuilding && e.construction) return VISION_RADIUS.site;
+  if (e.unitId === 'tower') return VISION_RADIUS.tower;
+  if (e.isBuilding) return VISION_RADIUS.building;
   return VISION_RADIUS.unit;
 }
 

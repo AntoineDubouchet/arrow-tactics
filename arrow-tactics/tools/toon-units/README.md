@@ -28,6 +28,9 @@ Depuis `arrow-tactics/` (Blender 5.2) :
   modulaire, séparées, pour choisir un assemblage (jamais dans le jeu).
 - `--atlas <dossier>` : atlas de couleur du pack en PNG, pour comparer.
 - `--rapport <fichier.json>` : inventaire (pièces, triangles, clips).
+- `--atelier <dossier>` : catalogue de l'**Atelier de personnage**, pour
+  chaque source qui déclare `atelier_animations`. Le jeu le lit dans
+  `public/assets/units/toon/atelier` (voir « Sorties »).
 - `--python-exit-code 1` est nécessaire : sans lui, Blender rend 0 même si
   le script échoue.
 
@@ -56,7 +59,10 @@ est le même, les octets du GLB peuvent différer.
   nom, puis relancer le script.
 - `animations` : dossier de clips FBX. **Tous** ses clips sont exportés, noms
   normalisés : `WK_infantry_07_attack_A` → `attackA`, `WK_mage_11_cast_B` →
-  `castB`. Plages et boucles : celles de l'import Unity du pack (`.meta`).
+  `castB`. Le préfixe `<pack>_<dossier>_` est retiré, et une variante
+  placée avant le numéro est gardée : `WK_worker_bag_07_attack` (dossier
+  `Worker`) → `bagAttack`, distinct de `attack`. Plages et boucles : celles
+  de l'import Unity du pack (`.meta`).
 - `pieces.offhand_weapon` (facultatif) : pièce de **main droite** copiée en
   miroir dans la main gauche (`L_hand_container`). Le plan de symétrie est
   celui des deux mains du squelette, et les normales sont retournées. Le
@@ -64,6 +70,46 @@ est le même, les octets du GLB peuvent différer.
   Vengeur, `"weapon": "WK_weapon_sword_B", "offhand_weapon":
   "WK_weapon_sword_B"`. Les gestes d'un dossier prévu pour un bouclier
   laissent cette main assez passive.
+- `pieces.hands` (facultatif, format de l'Atelier) : mains totalement
+  libres. `{"right": {...}, "left": {...}}`, chaque main recevant
+  `{"piece": <pièce tenue>, "scale": 1, "rotation": [x, y, z],
+  "offset": [x, y, z]}`. Toute pièce portée par un os (arme, bouclier,
+  bâton, arc) peut aller dans l'une ou l'autre main :
+  - **main d'origine** : la pièce reste sur son os porteur ;
+  - **autre main** : la pièce est copiée en miroir sur l'os symétrique
+    (`R_hand_container` ↔ `L_hand_container`). À défaut d'os symétrique,
+    elle va sur celui du parent (bouclier à droite : `Bip001_R_Hand`) ;
+  - **ajustement** : appliqué autour de la prise (tête de l'os porteur), en
+    axes glTF du modèle (X droite, Y haut, Z avant), rotations en degrés,
+    décalage en unités du modèle.
+
+  La même pièce peut aller dans les deux mains (double hache). Une entrée
+  exportée par l'Atelier se colle telle quelle dans `units` ; son bloc
+  `atelier` (couleur, échelle, clip d'aperçu) est ignoré par le script.
+- **Pièce d'une autre source, échelle d'une pièce** (Atelier, facultatif) :
+  un emplacement (`head`, `body`, `arms`, `legs`, `shoulderpads`, `helmet`,
+  `cape`) ou un extra peut s'écrire `{"piece": "BRB_head_B", "source":
+  "barbarian", "scale": 1.1}` au lieu d'un nom. Les deux champs sont
+  facultatifs : par défaut, la source de l'unité et l'échelle 1. Une main
+  (`pieces.hands`) accepte aussi `"source"`. Un nom seul garde son sens
+  historique.
+  - **Unité mixte** : le FBX de chaque autre source est importé à côté. Ses
+    pièces passent sur l'armature de l'unité (même squelette Biped, mêmes
+    noms d'os, même repos). Le squelette et les clips sont ceux de la source
+    de l'unité.
+  - **Matériaux d'une unité mixte** : un matériau par source, sans fusion
+    d'atlas. Le premier garde le nom de l'unité ; les suivants s'appellent
+    `<unité>__<préfixe des textures>` (par exemple `test_mixte__brb`).
+    Leurs textures sont celles de chaque source (`brb_albedo.png`,
+    `brb_team_mask.png`).
+  - **Échelle d'une pièce** : chaque sommet est mis à l'échelle autour de la
+    moyenne, pondérée par ses poids de skinning (les 4 plus forts,
+    normalisés), des articulations qui le portent, au repos. Le squelette,
+    les poids et les clips ne changent pas : la pièce grossit autour de ses
+    os et les suit dans toutes les poses. Les articulations ne bougent pas :
+    des jambes ×1,2 grossissent autour de leurs os sans rallonger le
+    squelette (la semelle descend un peu sous la cheville). L'Atelier fait
+    exactement le même calcul (`scaledSkinnedGeometry`).
 - `extra_animations` (facultatif) : quelques clips d'autres dossiers,
   renommés, par exemple `[{ "folder": "animation/Worker", "clips":
   { "attack": "attackDouble" } }]`.
@@ -143,6 +189,8 @@ l'archer) est à adapter côté jeu.
 | `barbarian_shaman.glb` | Chaman (robe, bâton à crâne), `Mage` : 549 sommets GPU, 602 triangles, 14 clips, 492 Ko |
 | `barbarian_brute.glb` | Brute (casque à cornes, épaulières lourdes, marteau), `Infantry` : 760 sommets GPU, 744 triangles, 11 clips, 426 Ko ; échelle 1,15 en jeu |
 | `brb_albedo.png`, `brb_team_mask.png` | atlas neutre et zones d'équipe des Barbares (`BRB_Standard_Units_white`), 1024, **partagés** |
+| `atelier/<source>_atelier.glb` | Atelier (`--atelier`) : toutes les pièces du FBX modulaire, séparées, et les clips de tous les dossiers `atelier_animations`, préfixés par le dossier (`Infantry_attackA`, `Worker_workingA`). `western_kingdoms` : 42 pièces, 64 clips, ~2,3 Mo ; `barbarian` : 47 pièces, 64 clips, ~2,4 Mo |
+| `atelier/<source>_atelier.json` | catalogue lu par l'Atelier : pièces (emplacement, os porteur, main d'origine, sommets, triangles), clips (dossier, durée, boucle), presets (unités de la source dans `units.json`) |
 
 ## Étapes du script
 

@@ -6,7 +6,8 @@
       "team_color_atlases": "models/Materials/Colors/textures",
       "neutral_atlas": "WK_StandardUnits_white.tga",
       "textures": "wk",
-      "catalogue_animations": "animation/Infantry"
+      "catalogue_animations": "animation/Infantry",
+      "atelier_animations": ["animation/Infantry", "animation/Spearman", "animation/Archer", "animation/Mage", "animation/Worker"]
     },
     "barbarian": {
       "pack": "C:/Users/antoi/ToonRTS_Test/Assets/Toon_RTS/Barbarians",
@@ -14,7 +15,8 @@
       "team_color_atlases": "models/Materials/Color/textures",
       "neutral_atlas": "BRB_Standard_Units_white.tga",
       "textures": "brb",
-      "catalogue_animations": "animation/Infantry"
+      "catalogue_animations": "animation/Infantry",
+      "atelier_animations": ["animation/Infantry", "animation/Spearman", "animation/Archer", "animation/Mage", "animation/Worker"]
     },
     "western_kingdoms_cavalry": {
       "pack": "C:/Users/antoi/ToonRTS_Test/Assets/Toon_RTS/WesternKingdoms",
@@ -223,20 +225,40 @@
     "human_hero": {
       "source": "western_kingdoms",
       "pieces": {
-        "head": "WK_Units_head_E",
-        "body": "WK_Units_Body_D",
-        "arms": "WK_Units_Arms_B",
-        "legs": "WK_Units_Legs_B",
-        "shoulderpads": "WK_Units_shoulderpads_B",
+        "head": {
+          "piece": "BRB_head_B",
+          "source": "barbarian",
+          "scale": 0.9
+        },
+        "body": {
+          "piece": "BRB_body_E",
+          "source": "barbarian",
+          "scale": 0.8
+        },
+        "arms": {
+          "piece": "BRB_arms_B",
+          "source": "barbarian"
+        },
+        "legs": {
+          "piece": "BRB_legs_C",
+          "source": "barbarian"
+        },
+        "shoulderpads": {
+          "piece": "BRB_shoulderpads_B",
+          "source": "barbarian"
+        },
         "weapon": null,
         "offhand": null,
         "tools": {
-          "hammer": "WK_weapon_hammer_B",
+          "hammer": {
+            "piece": "BRB_weapon_hammer_B",
+            "source": "barbarian"
+          },
           "axe": "WK_weapon_axe_A",
           "pick": "WK_weapon_pick"
         },
         "tool_scale": {
-          "hammer": 1.6
+          "hammer": 1.4
         }
       },
       "animations": "animation/Infantry",
@@ -249,7 +271,17 @@
             "workingC": "workingC"
           }
         }
-      ]
+      ],
+      "atelier": {
+        "palette": "blue",
+        "couleur": "#4a90d9",
+        "couleurB": "#ffffff",
+        "melange": 0,
+        "intensite": 1,
+        "echelle": 1.4,
+        "animation": "Infantry_idle",
+        "toutes_sources": true
+      }
     },
     "human_light_cavalry": {
       "source": "western_kingdoms_cavalry",

@@ -500,8 +500,11 @@ est ouverte au départ) :
   bloquante ou la Baliste.
 - **Gomme** : retire tous les arbres (décors « arbre ») des cases du disque,
   quelle que soit leur origine. La sélection + Suppr reste possible (§10).
-- **Arbres posés** : des décors « arbre » ordinaires, traversables,
-  enregistrés comme les autres (position, modèle, rotation, taille).
+- **Arbres posés** : des décors « arbre » ordinaires, enregistrés comme
+  les autres (position, modèle, rotation, taille). Traversables dans
+  l'éditeur ; en « Tester le scénario » et en jeu, la case d'un arbre
+  bloque le passage des unités terrestres (2026-11-02,
+  `DESIGN_DECISIONS.md` G11).
 - **Coût** : seuls les nouveaux arbres sont construits ; le sol et les
   autres objets ne sont pas reconstruits.
 

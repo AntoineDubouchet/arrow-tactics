@@ -154,7 +154,9 @@ img {
 }
 
 .debug-help {
-  bottom: 12px;
+  /* Au-dessus de la barre d'action et de la barre d'XP du Heros
+     (.hero-actions, .hero-xp, 2026-11-02). */
+  bottom: 116px;
   left: 12px;
   color: var(--ink-dim);
 }
@@ -892,7 +894,9 @@ img {
 }
 
 /* Fiche de l'entite selectionnee (voir ui/entityInfoPanel.ts) : en haut a
-   gauche, en preparation comme en bataille (le debug est en haut a droite).
+   DROITE depuis le 2026-11-02 (demande d'Antoine ; le HUD du Heros prend le
+   haut a gauche), sous le compteur FPS du debug, en preparation comme en
+   bataille.
    Meme famille visuelle que le HUD de la Baliste ; le liseré gauche prend la
    couleur du camp. Sous .screen-overlay (boutique, pause), qui la recouvre.
    Grand panneau (une selection doit se voir immediatement), mais hierarchie
@@ -901,8 +905,8 @@ img {
    (13 px), avec un interligne aere. */
 .entity-info {
   position: fixed;
-  left: 12px;
-  top: 12px;
+  right: 12px;
+  top: 40px;
   width: 354px;
   padding: 12px 15px 14px;
   font-size: 13px;
@@ -2648,7 +2652,9 @@ img {
   color: var(--ink);
   background: var(--panel);
   border: 1px solid var(--edge);
-  border-left: 3px solid #9b5de5;
+  /* Encart des ressources (sac, stocks) depuis le 2026-11-02 : le niveau et
+     l'XP sont passes a la barre du bas (.hero-xp). */
+  border-left: 3px solid #c99a5b;
   border-radius: 6px;
   z-index: 5;
   pointer-events: none;
@@ -2656,38 +2662,6 @@ img {
 
 .hero-hud[hidden] {
   display: none;
-}
-
-.hero-hud-title {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.hero-hud-xp {
-  height: 8px;
-  background: rgba(155, 93, 229, 0.18);
-  border: 1px solid rgba(155, 93, 229, 0.55);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.hero-hud-xp-fill {
-  height: 100%;
-  width: 0;
-  background: linear-gradient(90deg, #7b3fd1, #b07cf0);
-  transition: width 0.25s ease-out;
-}
-
-.hero-hud-xp-text {
-  margin-top: 2px;
-  font-size: 10px;
-  color: var(--ink-dim);
-}
-
-.hero-hud-status {
-  margin-top: 4px;
-  font-size: 11px;
-  color: #e8c15c;
 }
 
 .hero-hud-carry {
@@ -2712,4 +2686,829 @@ img {
 
 .hero-hud-resource--stone b {
   color: #b8bcc4;
+}
+
+/* Atelier de personnage (src/workshop, outil interne) : ecran plein, panneau
+   de reglages a gauche, apercu 3D a droite. */
+.workshop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  background: #20252c;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.workshop[hidden] {
+  display: none;
+}
+
+.workshop-panel {
+  width: 360px;
+  flex: none;
+  overflow-y: auto;
+  padding: 10px 12px 24px;
+  background: var(--panel);
+  border-right: 1px solid var(--edge);
+}
+
+.workshop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.workshop-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.workshop-hint,
+.workshop-notice {
+  color: var(--ink-dim);
+}
+
+.workshop-section {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--edge);
+}
+
+.workshop-section-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.workshop-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.workshop-select,
+.workshop-text,
+.workshop-number {
+  width: 100%;
+  min-width: 0;
+  background: #161a1f;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  padding: 3px 4px;
+  font: inherit;
+}
+
+.workshop-extras,
+.workshop-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.workshop-quick {
+  margin-top: 6px;
+}
+
+.workshop-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workshop-hand {
+  margin-bottom: 8px;
+}
+
+.workshop-transform {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.workshop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--ink-dim);
+}
+
+.workshop-button {
+  background: #2c333c;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.workshop-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.workshop-export {
+  width: 100%;
+  height: 160px;
+  background: #161a1f;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  font: 11px/1.35 monospace;
+  resize: vertical;
+}
+
+.workshop-view {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.workshop-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.workshop-stats {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  max-width: 46%;
+  padding: 6px 8px;
+  background: rgba(16, 19, 23, 0.72);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  pointer-events: none;
+}
+
+.workshop-notice {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  max-width: 60%;
+}
+
+/* Atelier : echelle propre d'une piece (curseur, saisie, valeur, Reset). */
+.workshop-scale {
+  display: grid;
+  grid-template-columns: 1fr 58px 48px auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.workshop-range {
+  width: 100%;
+  min-width: 0;
+}
+
+.workshop-scale-value {
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* HUD du Heros (2026-11-02) : encart permanent en haut a GAUCHE (la fiche
+   de selection est a droite), portrait rond sur fond gris neutre, barres
+   PV / mana, sort en cours ; a terre, portrait grise et compte a rebours. */
+.hero-panel {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 232px;
+  padding: 6px 10px 6px 6px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 30px 8px 8px 30px;
+  z-index: 5;
+  user-select: none;
+}
+
+.hero-panel[hidden],
+.hero-xp[hidden],
+.build-menu[hidden],
+.hero-select[hidden],
+.world-label[hidden] {
+  display: none;
+}
+
+.hero-portrait {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 38%, #9aa0a6, #6d7278);
+  border: 2px solid rgba(231, 227, 216, 0.55);
+}
+
+.hero-portrait img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.hero-panel-portrait {
+  cursor: pointer;
+}
+
+.hero-panel--down .hero-panel-portrait img {
+  filter: grayscale(1) brightness(0.55);
+}
+
+.hero-panel-respawn {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #f2e6c4;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+
+.hero-panel-bars {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hero-bar {
+  position: relative;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(231, 227, 216, 0.16);
+}
+
+.hero-bar-fill {
+  height: 100%;
+  width: 0;
+  transition: width 0.2s ease-out;
+}
+
+.hero-bar--hp .hero-bar-fill {
+  background: linear-gradient(180deg, #6fd36a, #3c9a3a);
+}
+
+.hero-bar--mana .hero-bar-fill {
+  background: linear-gradient(180deg, #6aa8ff, #2f63c9);
+}
+
+.hero-bar-text {
+  position: absolute;
+  inset: 0;
+  font-size: 10px;
+  line-height: 13px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
+}
+
+.hero-panel-cast {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: #b9f2c4;
+}
+
+.hero-panel-cast[hidden] {
+  display: none;
+}
+
+.hero-panel-cast-bar {
+  flex: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(159, 240, 176, 0.18);
+}
+
+.hero-panel-cast-fill {
+  height: 100%;
+  width: 0;
+  background: #9ff0b0;
+}
+
+/* Barre d'XP du Heros : en bas, presque toute la largeur, violette ; niveau
+   discret a gauche. Rehaussee, plus haute, plus vive et un peu transparente
+   (2026-11-02, demande d'Antoine : bien plus visible, moins opaque). */
+.hero-xp {
+  position: fixed;
+  left: 24px;
+  right: 24px;
+  bottom: 18px;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.hero-xp-line {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 3px;
+  font-size: 11px;
+  color: #ddd2f0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.hero-xp-level {
+  color: #d9bcff;
+  font-weight: 700;
+}
+
+.hero-xp-bar {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: rgba(46, 22, 82, 0.55);
+  border: 1px solid rgba(196, 150, 255, 0.75);
+  box-shadow: 0 0 8px rgba(170, 110, 255, 0.45);
+  opacity: 0.8;
+}
+
+.hero-xp-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #8a3dff, #c48bff);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: width 0.25s ease-out;
+}
+
+/* Ecran « Choisir votre Heros » (2026-11-02). */
+.hero-select {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(6, 8, 10, 0.86);
+  z-index: 20;
+}
+
+.hero-select-panel {
+  width: min(640px, 100%);
+  padding: 24px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+}
+
+.hero-select-title {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.hero-select-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+.hero-select-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 220px;
+  padding: 14px 12px;
+  font-family: inherit;
+  color: var(--ink);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.hero-select-card--selected {
+  border-color: var(--accent-gold);
+  background: rgba(232, 193, 92, 0.08);
+}
+
+.hero-select-portrait {
+  width: 96px;
+  height: 96px;
+}
+
+.hero-select-name {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.hero-select-description {
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.hero-select-details {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.hero-select-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.hero-select-actions button {
+  min-width: 140px;
+  padding: 9px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.hero-select-launch {
+  border-color: var(--accent-gold) !important;
+}
+
+/* Bouton Construire (2026-11-02), a la place de l'ancien bloc Boutique /
+   Vendre ; panneau des batiments ouvert a sa gauche. */
+.build-menu {
+  position: fixed;
+  right: 16px;
+  /* Au-dessus de la barre d'XP du Heros (.hero-xp). */
+  bottom: 56px;
+  z-index: 6;
+}
+
+.build-menu-button {
+  width: var(--shop-panel-width);
+  padding: 10px 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.build-menu-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.build-menu-button--open {
+  border-color: var(--accent-gold);
+}
+
+.build-menu-panel {
+  position: absolute;
+  right: calc(100% + 8px);
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 250px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+}
+
+.build-menu-panel[hidden] {
+  display: none;
+}
+
+.build-menu-title {
+  padding: 0 2px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.build-menu-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.build-menu-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.build-menu-name {
+  font-weight: 600;
+}
+
+.build-menu-cost {
+  color: var(--accent-gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.build-menu-hint {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+
+/* Etiquette d'un tas selectionne (« Bois — 3 »). */
+.world-label {
+  position: fixed;
+  left: 0;
+  top: 0;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff1b8;
+  white-space: nowrap;
+  background: rgba(18, 21, 26, 0.82);
+  border: 1px solid rgba(255, 210, 63, 0.6);
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Ciblage d'un sort de Heros (Soin). */
+canvas.canvas--spell-target {
+  cursor: crosshair;
+}
+
+/* HUD du Heros : boutons des sorts et de l'inventaire (2026-11-02 ; le Heros
+   n'a plus de fiche a sa selection). */
+.hero-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.hero-panel-button {
+  padding: 2px 7px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.hero-panel-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Inventaire du Heros (touche I) : sous son encart, en haut a gauche ; le
+   jeu continue pendant qu'il est ouvert. */
+.hero-inventory {
+  position: fixed;
+  top: 112px;
+  left: 12px;
+  width: 300px;
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+  padding: 10px 14px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-left: 3px solid #9b5de5;
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+  z-index: 6;
+}
+
+.hero-inventory[hidden] {
+  display: none;
+}
+
+.hero-inventory-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hero-inventory-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.hero-inventory-close {
+  padding: 0 6px;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--ink-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.hero-inventory-section {
+  margin: 8px 0 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.hero-inventory-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hero-inventory-row span:first-child {
+  color: var(--ink-dim);
+}
+
+.hero-inventory-hp {
+  height: 6px;
+  margin: 1px 0 3px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.hero-inventory-hp div {
+  height: 100%;
+  background: linear-gradient(180deg, #6fd36a, #3c9a3a);
+}
+
+.hero-inventory-item {
+  margin-bottom: 4px;
+}
+
+.hero-inventory-detail {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* Barre d'action du Heros (2026-11-02) : bas a gauche, au-dessus de la barre
+   d'XP ; 6 emplacements, touches 1 a 6 ; sorts du Heros (Soin en 1). */
+.hero-actions {
+  position: fixed;
+  left: 12px;
+  bottom: 54px;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  z-index: 5;
+}
+
+.hero-actions[hidden] {
+  display: none;
+}
+
+.hero-action-slot {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  overflow: hidden;
+  font-family: inherit;
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(159, 240, 176, 0.55);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.hero-action-slot--empty {
+  border-color: var(--edge);
+  cursor: default;
+}
+
+.hero-action-slot--off .hero-action-icon {
+  filter: grayscale(1) brightness(0.55);
+}
+
+.hero-action-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Incantation en cours : voile qui descend avec l'avancement. */
+.hero-action-cast {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 0;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.hero-action-key {
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #f2e6c4;
+  text-shadow: 0 1px 2px #000;
+}
+
+.hero-action-cost {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #8fc3ff;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* Progression de l'action du Heros (2026-11-02) : centree, juste au-dessus de
+   la barre d'XP ; duree seulement (sort, ramassage, recolte, construction),
+   jamais la nature de l'action. */
+.hero-progress {
+  position: fixed;
+  left: 50%;
+  bottom: 54px;
+  width: 260px;
+  height: 14px;
+  transform: translateX(-50%);
+  overflow: hidden;
+  background: rgba(10, 12, 16, 0.75);
+  border: 1px solid rgba(232, 193, 92, 0.7);
+  border-radius: 7px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.hero-progress[hidden] {
+  display: none;
+}
+
+.hero-progress-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #c9902a, #f1d27a);
+}
+
+.hero-progress-text {
+  position: absolute;
+  inset: 0;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
 }

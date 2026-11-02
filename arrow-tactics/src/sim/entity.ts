@@ -1,5 +1,6 @@
 import type { AbilityDef } from '../data/abilities';
 import type { ObstacleDef } from '../config/constants';
+import type { SpellDef } from '../data/spells';
 import type { UnitStats } from '../data/units';
 import type { UnitOrder } from './orders';
 
@@ -107,11 +108,24 @@ export interface HeroState {
   respawnTimer: number;
   /** Travail en cours AU CONTACT (rendu : outil et geste), null en chemin ou
    *  sans ordre de travail. `gather` : ramasse un petit tas au sol. */
-  working: 'chop' | 'mine' | 'build' | 'gather' | null;
+  working: 'chop' | 'mine' | 'build' | 'gather' | 'deposit' | null;
   /** Temps accumule vers la prochaine unite recoltee (ou le ramassage). */
   workTimer: number;
   /** Ressources portees (sac), pas encore deposees (data/hero.ts). */
   carry: { wood: number; stone: number };
+  /** Heros joue (data/heroes.ts), mana et sorts connus : parametres resolus
+   *  copies a l'apparition (heroKit), jamais relus depuis data/. Le mana se
+   *  regenere par pas de simulation (sim/systems/hero.ts, heroSpellSystem). */
+  heroId: string;
+  mana: number;
+  maxMana: number;
+  manaRegen: number;
+  spells: readonly SpellDef[];
+  /** Incantation d'un sort en cours (Entity.cast porte le soin lui-meme) :
+   *  sort, cible, mana retenu (rendu si l'incantation est annulee avant son
+   *  effet) et ordre `cast` qui l'a lancee — tout autre ordre l'annule.
+   *  null sinon. */
+  spellCast: { spellId: string; targetId: number; manaSpent: number; order: UnitOrder } | null;
 }
 
 /** Chantier (Entity.construction) : avancement 0..1 et duree totale (s). */

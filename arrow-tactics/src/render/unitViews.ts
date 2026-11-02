@@ -704,7 +704,7 @@ export class UnitViews {
       if (previous) actions[previous]?.fadeOut(cut ? ATTACK_INTERRUPT_FADE_SECONDS : RIGGED_ANIM_FADE_SECONDS);
       if (desired === 'cast' && cast) {
         cast.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
-      } else if (desired === 'walk' || desired === 'chop' || desired === 'mine' || desired === 'build' || desired === 'gather') {
+      } else if (desired === 'walk' || desired === 'chop' || desired === 'mine' || desired === 'build' || desired === 'gather' || desired === 'deposit') {
         actions[desired]?.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
       } else if (desired === 'idle' || desired === 'combatIdle') {
         // Sans fondu au premier etat de l'unite : un fondu depuis rien

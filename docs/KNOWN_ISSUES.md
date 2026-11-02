@@ -48,6 +48,13 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-34 | Grande carte : un maillage par décor, des milliers d'appels de dessin | Atténué (décors instanciés, mesuré) |
 | KI-35 | Brouillard v1 : silhouettes d'arbres au bord, tir automatique hors vision | Corrigé (2026-11-01) |
 | KI-36 | FBX modulaire de cavalerie illisible par l'import Blender | Confirmé (contourné) |
+| KI-37 | Toon RTS : une seule zone de couleur d'équipe | Limite assumée (masque à un canal) |
+| KI-38 | Objet tenu en miroir dans la main gauche : gestes de bouclier des clips | Limite assumée (observé dans l'Atelier) |
+| KI-39 | Rampe d'une case : infranchissable pour un corps de rayon > 0,5 (Héros, Cavalier) | Corrigé (2026-11-02) |
+| KI-40 | Carte générée : ~2 000 cases vides en obstacles 1 × 1, coût par pas de simulation | Corrigé (2026-11-02, mesuré) |
+| KI-41 | Gros rochers (décors non bloquants) : un bâtiment s'y pose | Limite assumée (règle E8, à trancher) |
+| KI-42 | Héros : aucun clip d'incantation dans son GLB (Soin en garde de combat) | Limite assumée (assets) |
+| KI-43 | Carte générée : pas d'ombres portées au-delà d'environ 21 cases du centre | Confirmé (observé) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19 et
@@ -383,7 +390,96 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   cavaleries utilisent les FBX « single mesh » `*_Light_B` : pièces fixes
   (lance, petit bouclier), pas d'assemblage pièce par pièce.
 - **Suite** : réparer l'import (conversion intermédiaire, ou correctif du
-  lien armature-maillage) avant l'Atelier de personnage (`ROADMAP.md` §6 ter).
+  lien armature-maillage). En attendant, l'Atelier de personnage
+  (CURRENT_STATE.md §16 bis) montre le Cavalier léger et le Razzieur en
+  presets fixes, sans édition des pièces ni des mains.
+
+### KI-37 — Toon RTS : une seule zone de couleur d'équipe
+
+- **Statut** : limite assumée (2026-11-01).
+- **Constat** : `<textures>_team_mask.png` n'a qu'un canal : les pixels qui
+  varient entre les atlas de couleur du pack. Le shader fait `rgb *=
+  mix(1, teinte, masque × intensité)`, donc une teinte pour toute la zone.
+  Dans l'Atelier, la « seconde couleur » et le « mélange » donnent une
+  teinte uniforme intermédiaire, pas deux zones.
+- **Suite** (architecture proposée, rien n'est construit) :
+  - un masque à plusieurs canaux (R, G, B = zones : tabard, bordures,
+    métal…), dérivé des atlas de couleur du pack quand leurs différences
+    le permettent, sinon peint à la main ;
+  - N teintes en uniformes ;
+  - l'export de l'Atelier écrirait une couleur par zone.
+
+### KI-38 — Objet tenu en miroir dans la main gauche : gestes de bouclier des clips
+
+- **Statut** : limite assumée (observé dans l'Atelier, 2026-11-01).
+- **Constat** : une arme de main droite tenue en miroir dans la main gauche
+  (`offhand_weapon`, ou `pieces.hands.left` dans l'Atelier) suit le bras de
+  bouclier des clips `Infantry` : au repos et en attaque, elle pointe vers
+  le haut ou reste passive. C'est le même mécanisme que le Vengeur du jeu.
+  Aucun clip du pack n'est prévu pour deux armes.
+- **Suite** : corriger la pose avec la rotation de main de l'Atelier (par
+  configuration), choisir un dossier de clips adapté (`Worker` pour
+  `attackDouble`), ou animer une variante à deux armes.
+
+### KI-39 — Rampe d'une case : infranchissable pour un corps de rayon > 0,5
+
+- **Statut** : confirmé (mesuré en simulation, 2026-11-02), antérieur aux
+  arbres bloquants.
+- **Constat** : la rampe d'une colline fait une case de large, entre deux
+  falaises. Le Fantassin (rayon 0,5) y passe ; le Héros (0,6) et le
+  Cavalier (0,7) restent bloqués au pied, alors que A* (grille par case)
+  trouve la route. Constaté en envoyant un Héros au sommet d'une colline de
+  la carte générée (graine 7).
+- **Corrigé** (2026-11-02) : rampes de 3 cases dans le générateur, abords
+  dégagés ; une colline sans place pour sa rampe n'est pas créée. Mesuré :
+  rayons 0,5 / 0,6 / 0,7 et un groupe de 4 montent et descendent les 10
+  collines de 3 graines (240 essais). Les rampes d'une case restent
+  possibles dans l'éditeur (même limite pour les gros corps).
+
+### KI-40 — Carte générée : ~2 000 cases vides en obstacles 1 × 1
+
+- **Statut** : dette, mesurée en simulation sans navigateur (2026-11-02).
+- **Constat** : hors du disque de la carte générée, chaque case absente
+  devient un obstacle synthétique 1 × 1 (`computeVoidObstacles`, environ
+  2 050), que chaque unité parcourt à chaque sous-pas (collision, ligne
+  droite, contournement). Avec 60 ennemis en marche : environ 21 ms par pas
+  sans arbres bloquants, 25 à 28 ms avec (les arbres ajoutent environ 20 à
+  30 %).
+- **Corrigé** (2026-11-02) : cases vides fusionnées par rangée
+  (`rowSpanObstacles`, règle commune du vide, de l'eau et des arbres) :
+  environ 2 555 obstacles de simulation ramenés à environ 662 ; pas à 60
+  ennemis : environ 28 ms → 8,7 ms. Grille A*, chemins et trajectoires des
+  vagues identiques à la représentation 1 × 1 (mesuré, 3 et 6 graines).
+
+### KI-41 — Gros rochers : un bâtiment s'y pose
+
+- **Statut** : limite assumée (mesurée en jeu, 2026-11-02).
+- **Constat** : les 26 gros rochers de la carte générée sont des décors non
+  bloquants (règle E8 du 2026-10-28) : ni la simulation ni la pose ne les
+  voient. Depuis que la construction n'est plus limitée au territoire, une
+  Maison se pose sur un gros rocher (test en jeu, graine 12345).
+- **Suite** : à trancher par Antoine : rochers bloquants pour la pose
+  (comme les arbres), ou acceptés tels quels.
+
+### KI-42 — Héros sans clip d'incantation
+
+- **Statut** : limite assumée (assets).
+- **Constat** : `human_hero.glb` n'a pas de clip de sort ; le Soin joue la
+  garde de combat (`combatIdle`, clip cloné pour une action propre) sur les
+  2 s, avec un cercle runique au sol (`render/spellCastVfx.ts`).
+- **Suite** : un clip d'incantation dans le pipeline Toon RTS
+  (`tools/toon-units`), si un pack en fournit un.
+
+### KI-43 — Ombres limitées au centre de la carte générée
+
+- **Statut** : confirmé (observé en jeu, 2026-11-02, graine 12345).
+- **Constat** : la caméra d'ombre du soleil est fixe, centrée sur l'origine,
+  ±20,8 cases (`render/renderer.ts` : 0,8 × max(BOARD_W, BOARD_H), réglée
+  pour l'ancienne arène). Sur le disque de 96 cases, un bosquet à 15 cases
+  porte ses ombres, un bosquet à 40 cases n'en porte aucune.
+- **Suite** : caméra d'ombre qui suit le point visé par la caméra de jeu
+  (même taille, texels stables), ou cascades ; à traiter avec l'éclairage
+  (cycle jour / nuit, ROADMAP).
 
 ### KI-33 — Chantier semi-transparent sans écriture de profondeur
 

@@ -8,9 +8,12 @@ import { buildToonUnitModel, ensureToonUnitPrototype, type ToonPaletteId, type T
  * file est vide (aucun contexte WebGL garde en plus du jeu). Une vignette
  * par unite et palette, mise en cache. Rejette si le modele est absent
  * (assets commerciaux hors Git).
+ *
+ * Portrait (2026-11-02, HUD et choix du Heros) : meme rendu, cadre carre sur
+ * la tete et le haut du corps, fond transparent (le cercle gris est du CSS).
  */
-const WIDTH = 120;
-const HEIGHT = 150;
+type Framing = 'full' | 'portrait';
+const SIZES: Record<Framing, { width: number; height: number }> = { full: { width: 120, height: 150 }, portrait: { width: 128, height: 128 } };
 
 let renderer: THREE.WebGLRenderer | null = null;
 let queue: Promise<unknown> = Promise.resolve();
@@ -18,11 +21,20 @@ let pending = 0;
 const cache = new Map<string, Promise<string>>();
 
 export function toonUnitThumbnail(kind: ToonUnitKind, palette: ToonPaletteId = 'red'): Promise<string> {
-  const key = `${kind}:${palette}`;
+  return cachedRender(kind, palette, 'full');
+}
+
+/** Portrait (tete et epaules) : HUD du Heros, ecran de choix. */
+export function toonUnitPortrait(kind: ToonUnitKind, palette: ToonPaletteId = 'blue'): Promise<string> {
+  return cachedRender(kind, palette, 'portrait');
+}
+
+function cachedRender(kind: ToonUnitKind, palette: ToonPaletteId, framing: Framing): Promise<string> {
+  const key = `${kind}:${palette}:${framing}`;
   let url = cache.get(key);
   if (!url) {
     pending++;
-    url = queue.then(() => renderThumbnail(kind, palette)).finally(() => {
+    url = queue.then(() => renderThumbnail(kind, palette, framing)).finally(() => {
       if (--pending === 0) releaseRenderer();
     });
     queue = url.catch(() => undefined);
@@ -31,13 +43,14 @@ export function toonUnitThumbnail(kind: ToonUnitKind, palette: ToonPaletteId = '
   return url;
 }
 
-async function renderThumbnail(kind: ToonUnitKind, palette: ToonPaletteId): Promise<string> {
+async function renderThumbnail(kind: ToonUnitKind, palette: ToonPaletteId, framing: Framing): Promise<string> {
   if (!(await ensureToonUnitPrototype(kind))) throw new Error(`Modele Toon RTS ${kind} absent.`);
+  const { width: WIDTH, height: HEIGHT } = SIZES[framing];
   if (!renderer) {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(2);
-    renderer.setSize(WIDTH, HEIGHT, false);
   }
+  renderer.setSize(WIDTH, HEIGHT, false);
   const model = buildToonUnitModel(kind, 'enemy', palette);
   const actions = model.userData['riggedActions'] as Record<string, THREE.AnimationAction>;
   const mixer = model.userData['riggedMixer'] as THREE.AnimationMixer;
@@ -58,9 +71,25 @@ async function renderThumbnail(kind: ToonUnitKind, palette: ToonPaletteId): Prom
   const box = new THREE.Box3().setFromObject(model);
   const height = box.max.y - box.min.y;
   const camera = new THREE.PerspectiveCamera(30, WIDTH / HEIGHT, 0.05, 20);
-  const distance = (height * 0.62) / Math.tan(THREE.MathUtils.degToRad(15));
-  camera.position.set(distance * 0.45, box.min.y + height * 0.62, -distance * 0.9);
-  camera.lookAt(0, box.min.y + height * 0.5, 0);
+  // Os de la tete (Bip001_Head...), a defaut le haut de la silhouette.
+  let head: THREE.Object3D | null = null;
+  model.traverse((obj) => {
+    if (!head && /head$/i.test(obj.name)) head = obj;
+  });
+  if (framing === 'portrait') {
+    const at = new THREE.Vector3(0, box.min.y + height * 0.85, 0);
+    if (head) (head as THREE.Object3D).getWorldPosition(at);
+    // Centre un peu sous la tete : visage et epaules.
+    at.y -= height * 0.08;
+    const distance = (height * 0.24) / Math.tan(THREE.MathUtils.degToRad(15));
+    const dir = new THREE.Vector3(0.42, 0.12, -0.9).normalize();
+    camera.position.copy(at).addScaledVector(dir, distance);
+    camera.lookAt(at);
+  } else {
+    const distance = (height * 0.62) / Math.tan(THREE.MathUtils.degToRad(15));
+    camera.position.set(distance * 0.45, box.min.y + height * 0.62, -distance * 0.9);
+    camera.lookAt(0, box.min.y + height * 0.5, 0);
+  }
   renderer.render(scene, camera);
   const url = renderer.domElement.toDataURL('image/png');
   mixer.stopAllAction();
