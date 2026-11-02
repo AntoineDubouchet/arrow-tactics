@@ -3512,3 +3512,94 @@ canvas.canvas--spell-target {
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
 }
+
+/* Degats de feu d'un coup (effet d'equipement, 2026-11-02). */
+.fire-text {
+  color: #ff8a3d;
+  font-weight: 700;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* Inventaire du Heros : emplacements et cartes d'items (rarete). */
+.hero-inventory-slot {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 6px;
+  align-items: start;
+  margin-bottom: 4px;
+}
+
+.hero-inventory-card {
+  margin-bottom: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--edge);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.hero-inventory-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.hero-inventory-card-line {
+  font-size: 11px;
+  color: #cfe9c8;
+}
+
+.hero-inventory-action {
+  padding: 1px 6px;
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* Editeur d'items (2026-11-02) : meme mise en page que l'Atelier (classes
+   workshop-*), carte de l'item a la couleur de sa rarete sur l'apercu. */
+.item-editor-card {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 260px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-left-width: 4px;
+  border-radius: 6px;
+}
+
+.item-editor-card-name {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.item-editor-card-meta,
+.item-editor-card-desc {
+  color: var(--ink-dim);
+  font-size: 11px;
+}
+
+.item-editor-card-desc {
+  font-style: italic;
+  margin: 2px 0;
+}
+
+.item-editor-card-line {
+  color: #cfe9c8;
+}
+
+.item-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}

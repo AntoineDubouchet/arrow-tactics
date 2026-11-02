@@ -244,6 +244,11 @@ export class CombatOverlay {
     this.spawnFloatingText(x, z, 'miss-text', 'esquivé');
   }
 
+  /** Degats de feu d'un coup (effet d'equipement, 2026-11-02), en points. */
+  spawnFireText(x: number, z: number, amount: number): void {
+    this.spawnFloatingText(x, z, 'fire-text', `🔥${String(amount).replace('.', ',')}`);
+  }
+
   /** Texte flottant "+N" au-dessus d'une unite soignee (objet d'inventaire,
    *  voir main.ts useArmedItemOnClick) — meme retour que spawnMissText, pour
    *  confirmer l'effet meme quand le gain est trop petit pour deplacer la

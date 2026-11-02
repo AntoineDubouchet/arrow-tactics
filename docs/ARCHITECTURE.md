@@ -1251,6 +1251,24 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
 - Le renderer de l'Atelier tourne seulement quand l'écran est ouvert ; la
   boucle du jeu n'est pas modifiée.
 
+## 13 ter. Équipement, items, butin, Éditeur d'items
+
+- Données : `data/equipment.ts` (raretés, emplacements, format d'item,
+  catalogue `EQUIPMENT`), `data/loot.ts` (sources et tables de butin,
+  tirage déterministe, non branché).
+- Run : `run/heroEquipment.ts` (inventaire pur et sérialisable,
+  `resolveEquipmentBonus` → `HeroEquipmentBonus` en unités internes,
+  visuels tenus, description des items).
+- Simulation : `Entity.hero.equipment` (bonus résolus, jamais d'id
+  d'item), `World.queueHeroEquipment` (appliqué au début du pas suivant),
+  `refreshHeroStats` (`sim/systems/hero.ts`), `Entity.onHit` (feu,
+  `combatSystem`), `World.itemDrops` / `dropItem` et ordre `pickupItem`.
+- Rendu : `render/toonCatalogue.ts` (catalogues et objets tenus, partagé
+  avec l'Atelier : `createHeldPiece`), `render/heroEquipmentView.ts` (arme
+  / bouclier du Héros, outil temporaire), `render/itemDropViews.ts`.
+- Outils : `workshop/workshopStage.ts` (scène d'aperçu partagée Atelier /
+  Éditeur d'items), `itemEditor/` (`itemEditorConfig.ts` pur, UI).
+
 ## 14. Audio
 
 - `audio/` contient un moteur complet : `AudioManager` (bus, budget de voix,

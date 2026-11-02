@@ -184,6 +184,8 @@ export interface ScreenHandlers {
   onOpenEditor: () => void;
   /** Atelier de personnage (outil interne de conception, src/workshop). */
   onOpenWorkshop: () => void;
+  /** Editeur d'items (outil interne, src/itemEditor). */
+  onOpenItemEditor: () => void;
   /** Reprend la bataille en cours (bouton "Continuer" du menu pause,
    *  Echap y menait). */
   onResume: () => void;
@@ -544,6 +546,7 @@ export class Screens {
       this.button('Arbre de talents', handlers.onOpenTalents),
       this.button('Éditeur de maps', handlers.onOpenEditor),
       this.button('Atelier de personnage', handlers.onOpenWorkshop),
+      this.button("Éditeur d'items", handlers.onOpenItemEditor),
       this.button('Paramètres', handlers.onOpenSettingsFromMenu),
       this.button('Effacer la sauvegarde', handlers.onRequestResetSave),
     ]);

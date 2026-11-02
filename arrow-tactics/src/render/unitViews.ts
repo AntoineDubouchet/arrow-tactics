@@ -17,7 +17,7 @@ import { forwardDir, type Entity } from '../sim/entity';
 import type { RiggedActions } from './riggedGltf';
 import type { ProceduralAttackAnimator } from './proceduralAttackAnimator';
 import { updateCarryBundle } from './resourcePiles';
-import { setToonTool } from './toonUnitRig';
+import { setHeroWorkTool } from './heroEquipmentView';
 import { buildUnit } from './unitMesh';
 import { surfaceY } from './terrainSurface';
 
@@ -164,9 +164,9 @@ export class UnitViews {
         this.deathElapsed.delete(entity.id);
         this.deathActionChoice.delete(entity.id);
         this.deathPose.delete(entity.id);
-        // Heros : outil en main selon le travail (hache, pioche, sinon marteau).
-        const working = entity.hero?.working;
-        setToonTool(view, working === 'chop' ? 'axe' : working === 'mine' ? 'pick' : 'hammer');
+        // Heros : outil de travail (hache, pioche, marteau de chantier) le
+        // temps du travail, sinon son arme (equipement, ou le marteau).
+        if (entity.hero) setHeroWorkTool(view, entity.hero.working);
         // Sac du Heros non vide : petit ballot sur le dos (rendu seulement).
         if (entity.hero) updateCarryBundle(view, entity.hero.carry);
         view.visible = true;
@@ -424,6 +424,11 @@ export class UnitViews {
    *  a utiliser par tout ce qui doit s'ancrer visuellement sur l'unite (PV,
    *  texte de miss), plutot que de relire prevX/x et reinterpoler a cote :
    *  sinon la barre de PV se detache visiblement du modele a chaque attaque. */
+  /** Vue d'une entite (equipement visible du Heros), undefined sinon. */
+  getView(entityId: number): THREE.Group | undefined {
+    return this.views.get(entityId);
+  }
+
   getPosition(entityId: number): { x: number; z: number } | null {
     const view = this.views.get(entityId);
     return view ? { x: view.position.x, z: view.position.z } : null;

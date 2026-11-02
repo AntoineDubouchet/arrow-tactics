@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
+import { type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { createToonTintMaterial, loadToonTextures } from '../render/toonUnitRig';
+import { createHeldPiece, loadToonCatalogue } from '../render/toonCatalogue';
+import { createToonTintMaterial } from '../render/toonUnitRig';
 import { BODY_SLOTS, type CataloguePiece, type Hand, type HandConfig, type PieceRef, type WorkshopCatalogue, type WorkshopConfig } from './workshopConfig';
 
 /**
@@ -17,42 +18,15 @@ import { BODY_SLOTS, type CataloguePiece, type Hand, type HandConfig, type Piece
  * `offhand_weapon`), ajustees autour de la prise (meme convention que
  * `pieces.hands` du pipeline).
  */
-const DIR = '/assets/units/toon/atelier';
-
 export interface LoadedCatalogue {
   catalogue: WorkshopCatalogue;
   gltf: GLTF;
 }
 
-const catalogues = new Map<string, Promise<LoadedCatalogue>>();
-
-/** Catalogue d'une source (JSON + GLB du pipeline), charge une fois. */
+/** Catalogue d'une source (JSON + GLB du pipeline), charge une fois
+ *  (render/toonCatalogue.ts, partage avec le jeu). */
 export function loadCatalogue(source: string): Promise<LoadedCatalogue> {
-  let pending = catalogues.get(source);
-  if (!pending) {
-    pending = (async () => {
-      const response = await fetch(`${DIR}/${source}_atelier.json`);
-      if (!response.ok) throw new Error(`Catalogue ${source} absent (tools/toon-units, --atelier).`);
-      const catalogue = (await response.json()) as WorkshopCatalogue;
-      const [gltf] = await Promise.all([new GLTFLoader().loadAsync(`${DIR}/${source}_atelier.glb`), loadToonTextures(catalogue.textures)]);
-      return { catalogue, gltf };
-    })();
-    catalogues.set(source, pending);
-  }
-  return pending;
-}
-
-/** Nom d'os du glTF (espaces -> soulignes). */
-const boneKey = (name: string): string => name.replace(/[\s.]/g, '_');
-
-/** Os symetrique (R <-> L), sinon celui du parent. */
-function counterpartBone(bones: Map<string, THREE.Bone>, name: string): THREE.Bone {
-  const swapped = name.replace(/(^|_)([LR])(_|$)/, (_m, a: string, side: string, b: string) => `${a}${side === 'L' ? 'R' : 'L'}${b}`);
-  const bone = bones.get(swapped);
-  if (bone && swapped !== name) return bone;
-  const parent = bones.get(name)?.parent;
-  if (!parent || !(parent as THREE.Bone).isBone) throw new Error(`Pas d'os symetrique pour ${name}`);
-  return counterpartBone(bones, parent.name);
+  return loadToonCatalogue<WorkshopCatalogue>(source);
 }
 
 /**
@@ -180,56 +154,17 @@ export class WorkshopModel {
     return name ? this.sources.get(source)?.catalogue.pieces.find((p) => p.name === name) : undefined;
   }
 
-  /** Position de repos (espace de liaison) d'un os. */
-  private restPosition(boneName: string): THREE.Vector3 {
-    const inverse = this.restInverse.get(boneName);
-    if (!inverse) throw new Error(`Os ${boneName} absent du squelette`);
-    return new THREE.Vector3().setFromMatrixPosition(inverse.clone().invert());
-  }
-
-  /** Symetrie du plan sagittal des mains au repos (espace de liaison). */
-  private handsMirror(): THREE.Matrix4 {
-    const right = this.restPosition('Bip001_R_Hand');
-    const left = this.restPosition('Bip001_L_Hand');
-    const n = right.clone().sub(left).normalize();
-    const mid = right.clone().add(left).multiplyScalar(0.5);
-    const reflect = new THREE.Matrix4().set(
-      1 - 2 * n.x * n.x, -2 * n.x * n.y, -2 * n.x * n.z, 0,
-      -2 * n.y * n.x, 1 - 2 * n.y * n.y, -2 * n.y * n.z, 0,
-      -2 * n.z * n.x, -2 * n.z * n.y, 1 - 2 * n.z * n.z, 0,
-      0, 0, 0, 1,
-    );
-    return new THREE.Matrix4().makeTranslation(mid.x, mid.y, mid.z).multiply(reflect).multiply(new THREE.Matrix4().makeTranslation(-mid.x, -mid.y, -mid.z));
-  }
-
-  /** Objet tenu par la main `hand` : copie rigide sur l'os de cette main. */
+  /** Objet tenu par la main `hand` : copie rigide sur l'os de cette main
+   *  (render/toonCatalogue.ts, createHeldPiece : meme placement en jeu). */
   private attachHand(hand: Hand, config: HandConfig): void {
     const info = this.piece(config.source, config.piece);
     const pieces = this.sources.get(config.source);
     const source = config.piece ? pieces?.meshes.get(config.piece) : undefined;
-    if (!info || !source || !info.carrier || !pieces) return;
-    const native = boneKey(info.carrier);
-    const bone = info.side === hand ? this.bones.get(native)! : counterpartBone(this.bones, native);
-    const grip = this.restPosition(bone.name);
-    const [ox, oy, oz] = config.offset;
-    const [rx, ry, rz] = config.rotation.map((d) => THREE.MathUtils.degToRad(d)) as [number, number, number];
-    // Ajustement autour de la prise : T(prise) . T(decalage) . Rx . Ry . Rz . S . T(-prise).
-    const adjust = new THREE.Matrix4()
-      .makeTranslation(grip.x + ox, grip.y + oy, grip.z + oz)
-      .multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, ry, rz, 'XYZ')))
-      .multiply(new THREE.Matrix4().makeScale(config.scale, config.scale, config.scale))
-      .multiply(new THREE.Matrix4().makeTranslation(-grip.x, -grip.y, -grip.z));
-    const local = this.restInverse.get(bone.name)!.clone().multiply(adjust);
-    if (info.side !== hand) local.multiply(this.handsMirror());
-    local.multiply(source.bindMatrix);
-    const mesh = new THREE.Mesh(source.geometry, pieces.tint.material);
+    if (!info || !source || !pieces) return;
+    const mesh = createHeldPiece({ bones: this.bones, restInverse: this.restInverse }, hand, info, source, pieces.tint.material, config);
+    if (!mesh) return;
     mesh.name = `${config.piece}_${hand}`;
     mesh.userData['source'] = config.source;
-    mesh.matrixAutoUpdate = false;
-    mesh.matrix.copy(local);
-    mesh.castShadow = true;
-    mesh.frustumCulled = false;
-    bone.add(mesh);
     this.handObjects.push(mesh);
   }
 

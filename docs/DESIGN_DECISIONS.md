@@ -1481,6 +1481,37 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Sources** : `main.ts`, `data/production.ts`, `sim/vision.ts`,
   `sim/systems/buildingProduction.ts` (`tickProductionOrders`).
 
+### G13 — Équipement du Héros, items, butin (fondation)
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-02) : éditeur d'items, raretés, slots,
+  visuel réutilisant l'Atelier, stats de base + bonus = finales, effet de
+  feu générique, valeur de vente, items de démonstration, équiper /
+  remplacer / retirer, outil de travail temporaire, fondation du butin et
+  de l'inventaire ; Marché, camps, Scierie, Camp de mineur : architecture
+  seulement.
+- **Choix de la passe** :
+  - stats et effets des items en **points affichés** (« +3 dégâts » =
+    +3 points, 30 internes) : l'Épée du débutant fait passer le Paladin de
+    2,5 à 5,5 dégâts ;
+  - PV / mana actuels **en proportion** quand l'équipement change (pas de
+    soin par équiper / retirer) ;
+  - main secondaire et bouclier exclusifs (même main) ;
+  - inventaire : ids d'items (doublons possibles), sac de 12 ;
+  - au travail, seule l'arme principale cède sa place à l'outil (le
+    bouclier reste) ;
+  - pièces de corps (casque, épaulières) : stats seulement en jeu (modèle
+    fusionné), visibles dans l'aperçu de l'éditeur ;
+  - butin : pas de tables ; `?loot=demo` pour tester ; item non ramassé si
+    le sac d'objets est plein.
+- **Effets d'équilibrage** : les bonus de dégâts sont forts à l'échelle
+  actuelle des unités (un Homme d'armes a 5 PV) ; à revoir avec les camps.
+- **Sources** : `data/equipment.ts`, `data/loot.ts`, `run/heroEquipment.ts`,
+  `sim/systems/hero.ts`, `sim/systems/combat.ts`, `render/heroEquipmentView.ts`,
+  `render/itemDropViews.ts`, `src/itemEditor/`.
+
+---
+
 ## H. Outils internes
 
 ### H1 — Atelier de personnage : outil interne, export vers `units.json`

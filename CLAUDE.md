@@ -70,6 +70,7 @@ Dossiers de `arrow-tactics/src/` :
 | `ui/` | Interface HTML/CSS par-dessus le canvas |
 | `editor/` | Éditeur de maps |
 | `workshop/` | Atelier de personnage (outil interne, unités Toon RTS) |
+| `itemEditor/` | Éditeur d'items (outil interne, équipements du Héros) |
 | `audio/` | Moteur audio (actuellement déconnecté) |
 | `main.ts` | Point d'entrée, orchestration des couches |
 

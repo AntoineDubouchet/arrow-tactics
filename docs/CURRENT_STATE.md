@@ -20,6 +20,7 @@ contient ni intentions de design ni décisions futures.
 5. La Baliste (tour du joueur)
 6. Bâtiments gameplay : Mine, Caserne, Camp d'archerie, Forge, Tour et Église
 6 bis. Héros, ressources, carte procédurale
+6 ter. Équipement, items et butin du Héros
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -31,6 +32,7 @@ contient ni intentions de design ni décisions futures.
 15. Sauvegarde : ce qui persiste
 16. Éditeur de maps
 16 bis. Atelier de personnage
+16 ter. Éditeur d'items
 17. Audio
 18. Outils de debug présents
 19. Absent ou retiré
@@ -1131,6 +1133,54 @@ horizon) derrière la carte ronde ; même rendu dans l'éditeur.
 - **décors instanciés** (KI-34) : sur la carte générée, arbres, rochers et
   petits décors sont regroupés par modèle et par morceau de 32 cases.
 
+## 6 ter. Équipement, items et butin du Héros
+
+Depuis le 2026-11-02 (valeurs PROVISOIRES) :
+
+- **items** (`data/equipment.ts`) : id, nom, description, **rareté**
+  (Commune blanc, Peu commune vert, Rare bleu, Épique violet, Légendaire
+  orange : couleur du nom et du cadre), type, **emplacement** (arme
+  principale, main secondaire, bouclier, casque, épaulières, cape ; main
+  secondaire et bouclier partagent la main gauche), **visuel** (source de
+  pièces — Western Kingdoms, Barbares, futures —, pièce, échelle, rotation,
+  décalage : format des mains de l'Atelier), **stats** en points affichés
+  (PV max, mana max, régénération de mana, dégâts de mêlée, vitesse
+  d'attaque en %, vitesse de déplacement), **effets** (aujourd'hui : feu à
+  chaque coup qui touche), **valeur de vente** (or, futur Marché) ;
+- **items de démonstration** : Épée du débutant (Commune, +3 dégâts),
+  Lame des braises (Peu commune, +4 dégâts, feu +3 à chaque coup), Bouclier
+  robuste (Peu commun, +8 PV max), Épaulières de garde (Commune, +4 PV,
+  +0,1 vitesse) ;
+- **inventaire de run** (`run/heroEquipment.ts`, `HeroProgress.inventory`) :
+  items possédés (sac d'objets, 12 au plus), items équipés par
+  emplacement ; équiper, remplacer (l'ancien revient au sac), retirer ;
+  jamais d'item perdu ni dupliqué ;
+- **stats finales** = fiche du niveau + bonus d'équipement, recalculées
+  d'un bloc (`refreshHeroStats`) : rien ne se cumule ; PV et mana actuels
+  gardent la même proportion du maximum quand l'équipement change (équiper
+  puis retirer ne soigne jamais), augmentent du même écart à la montée de
+  niveau ; mort et retour gardent l'équipement ;
+- **feu** : à chaque coup de mêlée qui touche, dégâts normaux puis dégâts de
+  feu (`Entity.onHit`, `applyDamageToEntity`) ; rien sur un raté, une
+  esquive ou un élan annulé ; petit texte orange « 🔥3 » à l'impact ;
+- **interface** : inventaire du Héros (touche I) avec ses emplacements
+  (« Retirer ») et son sac d'objets (« Équiper »), cartes à la couleur de la
+  rareté. Console : `arrowItems.give / equip / unequip / list`.
+  `?items=demo` met les quatre items dans le sac au lancement ;
+- **visuel en jeu** : l'arme et le bouclier équipés apparaissent dans les
+  mains du Héros (même placement que l'Atelier, pièces de toute source). Au
+  travail, l'outil (hache, pioche, marteau de chantier) remplace l'arme le
+  temps du travail ; sans arme, le marteau du Paladin reste son arme. Les
+  pièces de corps (casque, épaulières) ne sont **pas encore** affichées en
+  jeu (KI-44) : leurs stats s'appliquent ;
+- **butin (fondation)** : item au sol (`World.dropItem`), pièce de l'item,
+  anneau et colonne de lumière à la couleur de la rareté, caché tant que
+  sa case n'est pas explorée ; clic droit du Héros → ramassage (0,6 s,
+  barre de progression) → sac d'objets (« Butin : … ») ; sac plein : l'item
+  reste au sol. `?loot=demo` pose les quatre items autour de la Baliste.
+  Sources de butin (ennemi, coffre, camp, boss) et tables : format seul
+  (`data/loot.ts`), rien ne lâche encore d'item.
+
 ## 7. Économie d'or
 
 Sources : `run/runState.ts`, `run/talentEffects.ts`, `run/runUpgrades.ts`,
@@ -2090,6 +2140,24 @@ seulement, aucune donnée de jeu ni sauvegarde modifiée.
   - un objet tenu dans la main gauche en miroir suit les gestes de bouclier
     des clips `Infantry` (même mécanisme que le Vengeur du jeu) ;
   - pas d'éditeur d'items (ROADMAP.md §6 ter).
+
+## 16 ter. Éditeur d'items
+
+Outil interne (2026-11-02, `src/itemEditor`), bouton « Éditeur d'items »
+du menu principal, écran distinct de l'Atelier et de l'éditeur de maps :
+
+- champs : partir d'un item du catalogue, nom, identifiant, description,
+  rareté, type, emplacement (le type et une pièce plausible suivent),
+  valeur de vente, source, pièce (objets tenus ou pièces de corps de
+  l'emplacement), échelle, rotation et décalage (objets tenus), six stats,
+  feu à chaque coup ;
+- aperçu : le Paladin (preset `human_hero` du catalogue) porte l'item, dans
+  la scène de l'Atelier ; carte de l'item (nom et cadre à la couleur de la
+  rareté, lignes de stats, valeur) ;
+- **Copier la config**, **Exporter JSON** (`<id>.json`), **Charger config**
+  (texte collé, validé : valeurs inconnues remplacées par défaut, texte
+  illisible refusé avec un message). Format : `{ "<id>": <item> }`, celui de
+  `EQUIPMENT` (data/equipment.ts), prêt à y être collé.
 
 ## 17. Audio
 

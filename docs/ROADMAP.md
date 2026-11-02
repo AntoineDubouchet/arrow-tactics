@@ -425,6 +425,20 @@ La Survie n'emprunte plus la préparation (`DESIGN_DECISIONS.md` G10). Reste
 - trajets selon la taille du corps (les rampes d'une case restent possibles
   dans l'éditeur).
 
+## 6 quinquies. Équipement et butin — suites
+
+Fondation construite le 2026-11-02 (`DESIGN_DECISIONS.md` G13). À faire :
+
+- brancher des **tables de butin** (`data/loot.ts`) sur les camps neutres,
+  coffres, boss et certains ennemis ;
+- **camps neutres** générés sur la carte (gardes, coffre, ressources, XP) ;
+- **Marché** : vendre items (`sellValue`) et ressources, acheter ;
+- visuel des pièces de corps en jeu (KI-44), butin couché (KI-45) ;
+- effets suivants : vol de vie, bonus contre un type d'ennemi,
+  régénération, bonus de récolte (champ `effects`) ;
+- **Scierie** et **Camp de mineur** (crochets `unlocksHarvest` prêts) ;
+- items propres à d'autres héros (`heroId` générique).
+
 ## 6 ter. Outils internes de conception
 
 **Atelier de personnage** : **construit** (2026-11-01, CURRENT_STATE.md

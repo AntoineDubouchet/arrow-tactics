@@ -247,6 +247,11 @@ import { GoldHud } from './ui/goldHud';
 import { HeroHud, type HeroHudState } from './ui/heroHud';
 import { HeroSelectScreen, type HeroChoice } from './ui/heroSelect';
 import { HeroInventoryPanel } from './ui/heroInventory';
+import { ItemEditor } from './itemEditor/itemEditorUI';
+import { addInventoryItem, equipInventoryItem, equippedHandVisuals, resolveEquipmentBonus, unequipInventorySlot, type HeroInventory } from './run/heroEquipment';
+import { EQUIPMENT, type EquipmentSlot } from './data/equipment';
+import { applyHeroEquipmentVisual } from './render/heroEquipmentView';
+import { ItemDropViews } from './render/itemDropViews';
 import { BuildMenu, type BuildChoice } from './ui/buildMenu';
 import { WorldLabel } from './ui/worldLabel';
 import { DEFAULT_HERO_ID, getHero, heroKit, HEROES, type HeroDef } from './data/heroes';
@@ -298,7 +303,11 @@ const goldHud = new GoldHud();
 const heroHud = new HeroHud(() => selectPlayerHero(), (spellId) => armSpellTargeting(spellId), () => toggleHeroInventory());
 /** Inventaire du Heros (touche I, bouton du HUD) : statistiques, sorts,
  *  equipement ; remplace sa fiche (ui/heroInventory.ts). */
-const heroInventory = new HeroInventoryPanel(() => heroInventory.close());
+const heroInventory = new HeroInventoryPanel(
+  () => heroInventory.close(),
+  (itemId) => equipHeroItem(itemId),
+  (slot) => unequipHeroSlot(slot as EquipmentSlot),
+);
 const populationHud = new PopulationHud();
 const telegraphView = new TelegraphView();
 const fireballView = new FireballView();
@@ -488,6 +497,9 @@ renderer.scene.add(unitViews.group);
 /** Petits tas de bois et de pierre au sol (World.resourcePiles). */
 const resourcePileViews = new ResourcePileViews();
 renderer.scene.add(resourcePileViews.group);
+/** Items au sol (butin, World.itemDrops). */
+const itemDropViews = new ItemDropViews();
+renderer.scene.add(itemDropViews.group);
 /** Anneau jaune du depot (Baliste) vise par un ordre de depot du Heros. */
 const depotTargetRing = new DepotTargetRing();
 renderer.scene.add(depotTargetRing.mesh);
@@ -2223,7 +2235,7 @@ function onValidatePlacement(): void {
   for (const slot of placementSlots) {
     if (slot.x === null || slot.z === null) continue;
     // Heros : progression de la run (XP, niveau, morts, sac), fiche de son niveau.
-    const spawned = slot.unitId === HERO_UNIT_ID ? world.spawnHero('player', slot.x, slot.z, currentRun.hero, slot.hp, heroKit(currentRun.hero.heroId)) : world.spawn(
+    const spawned = slot.unitId === HERO_UNIT_ID ? world.spawnHero('player', slot.x, slot.z, currentRun.hero, slot.hp, heroKit(currentRun.hero.heroId), resolveEquipmentBonus(currentRun.hero.inventory)) : world.spawn(
       slot.unitId,
       'player',
       slot.x,
@@ -2475,6 +2487,7 @@ function startNewRun(heroId: string = selectedHeroId): void {
   if (survivalMapUsed && survivalBaseMap.generator) survivalBaseMap = survivalMapFor(survivalUrlSeed ?? randomSeed());
   survivalMapUsed = true;
   currentRun = createFreshRun(heroId);
+  if (demoItems) for (const itemId of Object.keys(EQUIPMENT)) giveHeroItem(itemId);
   refreshHeroPortrait();
   currentRun.mapSeed = survivalBaseMap.generator?.seed ?? 0;
   // Brouillard de guerre (carte procedurale) : rien d'explore au lancement.
@@ -2575,6 +2588,9 @@ function updateFogOfWar(): void {
   resourcePileViews.setTargets(targeted);
   // Tas : visibles une fois explores ; scintillement seulement sous les yeux du joueur.
   resourcePileViews.sync(world.resourcePiles, on ? (x, z) => fogOfWar!.isExplored(x, z) : undefined, on ? (x, z) => fogOfWar!.isVisible(x, z) : undefined);
+  // Butin : visible une fois explore.
+  itemDropViews.group.visible = !inEditorMode;
+  itemDropViews.sync(world.itemDrops, on ? (x, z) => fogOfWar!.isExplored(x, z) : undefined);
 }
 
 // --- Heros : choix, sorts, HUD, Construire, tas selectionne (2026-11-02) ----
@@ -2710,6 +2726,53 @@ function toggleBuildMenu(): void {
   buildMenu.open(buildChoices());
 }
 
+// --- Equipement du Heros (2026-11-02, run/heroEquipment.ts) -----------------
+
+/** Nouvel inventaire de la run : bonus resolus transmis a la simulation (au
+ *  prochain pas fixe) ; le visuel suit (updateHeroUi). */
+function setHeroInventory(inventory: HeroInventory): void {
+  currentRun.hero.inventory = inventory;
+  const hero = playerHero();
+  if (hero) world.queueHeroEquipment(hero.id, resolveEquipmentBonus(inventory));
+  heroInventoryRefreshAt = 0;
+}
+
+/** Equipe un item du sac (l'ancien de l'emplacement revient au sac). */
+function equipHeroItem(itemId: string): boolean {
+  const next = equipInventoryItem(currentRun.hero.inventory, itemId);
+  if (next) setHeroInventory(next);
+  return next !== null;
+}
+
+/** Retire l'item d'un emplacement (il revient au sac). */
+function unequipHeroSlot(slot: EquipmentSlot): void {
+  setHeroInventory(unequipInventorySlot(currentRun.hero.inventory, slot));
+}
+
+/** Ajoute un item au sac du Heros (butin) ; faux si le sac est plein. */
+function giveHeroItem(itemId: string): boolean {
+  const next = addInventoryItem(currentRun.hero.inventory, itemId);
+  if (next) {
+    currentRun.hero.inventory = next;
+    heroInventoryRefreshAt = 0;
+  }
+  return next !== null;
+}
+
+/** Acces developpeur (console) : `arrowItems.give('ember_blade')`,
+ *  `arrowItems.equip(...)`, `arrowItems.unequip('mainHand')`, `arrowItems.list()`. */
+(window as unknown as Record<string, unknown>)['arrowItems'] = {
+  give: giveHeroItem,
+  equip: equipHeroItem,
+  unequip: unequipHeroSlot,
+  list: () => ({ catalogue: Object.keys(EQUIPMENT), inventory: currentRun.hero.inventory }),
+};
+
+/** `?items=demo` : les items de demonstration dans le sac au lancement (test). */
+const demoItems = survivalUrl.get('items') === 'demo';
+/** `?loot=demo` : les memes items poses au sol autour de la Baliste. */
+const demoLoot = survivalUrl.get('loot') === 'demo';
+
 /** Inventaire du Heros : ouvert seulement en Survie, Heros present. */
 function toggleHeroInventory(): void {
   if (heroInventory.isOpen()) {
@@ -2725,7 +2788,7 @@ function heroSheet(): ReturnType<typeof heroSheetInfo> | null {
   const hero = playerHero();
   if (!hero?.hero || !inBattlePhase() || inTestMode) return null;
   const next = HERO_LEVELS.find((l) => l.level === hero.hero!.level + 1);
-  return heroSheetInfo(hero, getHero(hero.hero.heroId).name, next ? next.xp : null, HERO_CARRY_CAPACITY);
+  return heroSheetInfo(hero, getHero(hero.hero.heroId).name, next ? next.xp : null, HERO_CARRY_CAPACITY, currentRun.hero.inventory);
 }
 
 /** Anneau du depot `entity` : centre et rayon couvrant son emprise. */
@@ -2754,6 +2817,9 @@ function updateHeroUi(): void {
     buildMenu.refresh(buildChoices());
   }
   if (spellTargeting && (!hero?.alive || !inBattlePhase())) cancelSpellTargeting();
+  // Equipement visible (objets tenus) : vue du Heros, sans effet si rien n'a change.
+  const heroView = hero ? unitViews.getView(hero.id) : undefined;
+  if (heroView) applyHeroEquipmentVisual(heroView, equippedHandVisuals(currentRun.hero.inventory));
   if (heroInventory.isOpen() && performance.now() >= heroInventoryRefreshAt) {
     heroInventoryRefreshAt = performance.now() + 250;
     const sheet = heroSheet();
@@ -2846,6 +2912,12 @@ function startSurvivalRealtime(): void {
   placementSlots = currentRun.army.map((unit, i) => ({ unitId: unit.unitId, x: formation[i]!.x, z: formation[i]!.z, hp: unit.hp, productionLevel: unit.productionLevel }));
   onValidatePlacement();
   placementSlots = [];
+  // `?loot=demo` : les items de demonstration au sol autour de la Baliste (test du butin).
+  const lootBallista = world.entities.find((e) => e.alive && e.team === 'player' && e.unitId === 'ballista');
+  if (demoLoot && lootBallista) Object.keys(EQUIPMENT).forEach((itemId, i, all) => {
+    const a = (i / all.length) * Math.PI * 2 + 0.4;
+    world.dropItem(itemId, lootBallista.x + Math.cos(a) * 4.2, lootBallista.z + Math.sin(a) * 4.2);
+  });
   // Vagues : sans cible, les ennemis marchent vers la Baliste par le terrain
   // (sim/systems/movement.ts, marchToGoal) et n'apparaissent que sur des
   // cases reliees a elle.
@@ -3043,6 +3115,16 @@ function openCharacterWorkshop(): void {
   screens.hideAll();
   characterWorkshop ??= new CharacterWorkshop(() => screens.show('menu'));
   void characterWorkshop.open();
+}
+
+/** Editeur d'items (outil interne, src/itemEditor) : meme principe que
+ *  l'Atelier ; « Fermer » revient au menu. Aucune incidence sur une run. */
+let itemEditor: ItemEditor | null = null;
+
+function openItemEditor(): void {
+  screens.hideAll();
+  itemEditor ??= new ItemEditor(() => screens.show('menu'));
+  void itemEditor.open();
 }
 
 /** Place la Baliste (modele, origine des tirs, collision) a la position de
@@ -5908,13 +5990,16 @@ function issueRightClickOrder(event: MouseEvent): void {
     const others = entityIds.filter((id) => !heroIds.includes(id));
     const depot = picked !== null && picked.team === 'player' && !picked.construction && picked.isBuilding && getBuilding(picked.unitId).resourceDepot ? picked : battleDepotAt(point.x, point.z);
     const site = depot ? null : picked !== null && picked.team === 'player' && picked.construction ? picked : battleChantierAt(point.x, point.z);
-    const pile = depot || site ? null : resourcePileNear(point.x, point.z);
-    const node = depot || site || pile ? null : resourceNodeNear(point.x, point.z);
+    const drop = depot || site ? null : itemDropNear(point.x, point.z);
+    const pile = depot || site || drop ? null : resourcePileNear(point.x, point.z);
+    const node = depot || site || drop || pile ? null : resourceNodeNear(point.x, point.z);
     const command: PlayerCommand | null = depot
       ? { kind: 'deposit', entityIds: heroIds, targetEntityId: depot.id }
       : site
         ? { kind: 'build', entityIds: heroIds, targetEntityId: site.id }
-        : pile
+        : drop
+          ? { kind: 'pickupItem', entityIds: heroIds, dropId: drop.id }
+          : pile
           ? { kind: 'pickup', entityIds: heroIds, pileId: pile.id }
           : node
             ? { kind: 'harvest', entityIds: heroIds, nodeId: node.id }
@@ -5968,6 +6053,21 @@ function resourcePileNear(x: number, z: number): { id: number } | null {
   return best;
 }
 
+/** Item au sol (butin) le plus proche de (x, z) a moins de 0,9 case, explore. */
+function itemDropNear(x: number, z: number): { id: number } | null {
+  let best: { id: number } | null = null;
+  let bestD = 0.9;
+  for (const d of world.itemDrops) {
+    if (d.taken || (fogActive() && !fogOfWar!.isExplored(d.x, d.z))) continue;
+    const dist = Math.hypot(d.x - x, d.z - z);
+    if (dist < bestD) {
+      bestD = dist;
+      best = d;
+    }
+  }
+  return best;
+}
+
 /** Source de ressource (arbre, rocher) la plus proche de (x, z) a moins d'une
  *  case, ou null. */
 function resourceNodeNear(x: number, z: number): { id: number; resource: ResourceKind } | null {
@@ -5998,6 +6098,15 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
       }
       // Une unite a la fois (0,5 s chacune) : annonce a la fin du sac.
       if (ev.remaining === 0) waveIndicator.flash(`Dépôt terminé — stock : ${currentRun.resources.wood} bois, ${currentRun.resources.stone} pierre`);
+    } else if (ev.type === 'itemPickup') {
+      // Butin : au sac d'objets du Heros ; sac plein : l'item retombe a ses pieds.
+      const name = EQUIPMENT[ev.itemId]?.name ?? ev.itemId;
+      if (giveHeroItem(ev.itemId)) waveIndicator.flash(`Butin : ${name}`);
+      else {
+        const hero = world.getById(ev.heroId);
+        if (hero) world.dropItem(ev.itemId, hero.x, hero.z);
+        waveIndicator.flash(`Sac d'objets plein — ${name} reste au sol`);
+      }
     } else if (ev.type === 'carryFull') {
       waveIndicator.flash('Sac plein — clic droit sur la Baliste pour déposer');
     } else if (ev.type === 'built') {
@@ -7479,6 +7588,7 @@ const loop = new Loop(
       // (talent "Réflexes de vétéran").
       if (event.result === 'miss') combatOverlay.spawnMissText(target.x, target.z);
       if (event.result === 'dodge') combatOverlay.spawnDodgeText(target.x, target.z);
+      if (event.result === 'hit' && event.fireDamage) combatOverlay.spawnFireText(target.x, target.z, event.fireDamage / HP_PER_PIP);
       // "Game feel" (2026-08-09) : flash sur la cible qui vient d'encaisser
       // un coup, sans quoi un hit ne se voit qu'a la baisse (lente, par pips
       // de HP_PER_PIP) de la barre de PV. Batiments gameplay (2026-08-16) :
@@ -8041,6 +8151,7 @@ const loop = new Loop(
     healVfxView.sync(realDt);
     moveOrderFeedback.sync(realDt);
     resourcePileViews.animate(realDt);
+    itemDropViews.animate(realDt);
     // Depot vise par un ordre de depot du Heros : anneau fixe tant qu'il dure.
     const depositing = inBattlePhase() ? world.entities.find((e) => e.alive && e.hero && e.team === 'player' && e.order.type === 'deposit') : undefined;
     depotTargetRing.setTarget(depositing?.order.type === 'deposit' ? depotRingTarget(world.getById(depositing.order.targetEntityId)) : null);
@@ -8554,6 +8665,7 @@ const screens = new Screens({
   onContinueAfterShop: () => screens.hideAll(),
   onOpenEditor: () => enterEditor(),
   onOpenWorkshop: () => openCharacterWorkshop(),
+  onOpenItemEditor: () => openItemEditor(),
   onResume: resumeFromPause,
   onQuit: quitToMenu,
   onRequestQuitRun: requestQuitRun,

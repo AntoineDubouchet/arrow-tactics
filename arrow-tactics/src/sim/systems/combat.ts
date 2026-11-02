@@ -7,7 +7,9 @@ import type { Entity } from '../entity';
 
 export type CombatEvent =
   /** `windup` : coup resolu a la fin d'un elan (UnitStats.attackWindup). */
-  | { attackerId: number; targetId: number; result: 'hit' | 'miss' | 'dodge'; windup?: true }
+  /** `fireDamage` : degats de feu ajoutes a ce coup qui touche (effet
+   *  d'equipement, Entity.onHit), internes. */
+  | { attackerId: number; targetId: number; result: 'hit' | 'miss' | 'dodge'; windup?: true; fireDamage?: number }
   | { attackerId: number; targetId: number; result: 'blocked'; impactX: number; impactZ: number }
   /** Debut d'un elan : le coup sera resolu `attackWindup` secondes plus tard. */
   | { attackerId: number; targetId: number; result: 'windup' }
@@ -153,6 +155,14 @@ function resolveStrike(e: Entity, target: Entity, rng: Rng, events: CombatEvent[
   }
 
   applyDamageToEntity(target, e.stats.damage);
+  // Effet d'equipement (2026-11-02) : feu en plus, seulement sur un coup qui
+  // touche (jamais sur un raté, une esquive ou un elan annule).
+  const fire = e.onHit?.fireDamage ?? 0;
+  if (fire > 0 && target.alive) {
+    applyDamageToEntity(target, fire);
+    events.push({ attackerId: e.id, targetId: target.id, result: 'hit', ...windup, fireDamage: fire });
+    return;
+  }
   events.push({ attackerId: e.id, targetId: target.id, result: 'hit', ...windup });
 }
 

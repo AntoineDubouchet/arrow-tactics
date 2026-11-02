@@ -33,10 +33,10 @@ export function heroLevelForXp(xp: number): HeroLevel {
 }
 
 /** Stats du Heros au niveau `level` : fiche de base + bonus cumules. */
-export function heroStatsForLevel(level: number): { maxHp: number; damage: number; moveSpeed: number } {
+export function heroStatsForLevel(level: number): { maxHp: number; damage: number; moveSpeed: number; attackCooldown: number } {
   const base = getUnit(HERO_UNIT_ID).stats;
   const l = HERO_LEVELS.find((h) => h.level === level) ?? HERO_LEVELS[0]!;
-  return { maxHp: base.maxHp + l.maxHpBonus, damage: base.damage + l.damageBonus, moveSpeed: base.moveSpeed + l.moveSpeedBonus };
+  return { maxHp: base.maxHp + l.maxHpBonus, damage: base.damage + l.damageBonus, moveSpeed: base.moveSpeed + l.moveSpeedBonus, attackCooldown: base.attackCooldown };
 }
 
 /** Rayon (cases) du partage d'XP : toute unite du camp adverse (Neutre) qui

@@ -6,6 +6,7 @@ import {
   MAGE_UNLOCK_WAVE,
 } from '../config/constants';
 import { DEFAULT_HERO_ID, getHero } from '../data/heroes';
+import { createHeroInventory, type HeroInventory } from './heroEquipment';
 import { getItem } from '../data/items';
 import { getUnit } from '../data/units';
 import type { ResourceKind } from '../config/resourceNodes';
@@ -153,6 +154,8 @@ export interface HeroProgress {
   deaths: number;
   carry: Record<ResourceKind, number>;
   mana: number;
+  /** Items possedes et equipes (2026-11-02, run/heroEquipment.ts). */
+  inventory: HeroInventory;
 }
 
 /** Stock de depart de bois et de pierre d'une run : rien (2026-11-01,
@@ -339,7 +342,7 @@ export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = get
     mapExpansion: createInitialMapExpansionState(baseMap),
     ballistaPosition: null,
     upgrades: { ...upgrades },
-    hero: { heroId: hero.id, xp: 0, level: 1, deaths: 0, carry: { wood: 0, stone: 0 }, mana: hero.mana.initial },
+    hero: { heroId: hero.id, xp: 0, level: 1, deaths: 0, carry: { wood: 0, stone: 0 }, mana: hero.mana.initial, inventory: createHeroInventory() },
     resources: { ...STARTING_RESOURCES },
     resourcePileAmounts: {},
     mapSeed: 0,
@@ -575,7 +578,7 @@ export function applyBattleOutcome(run: RunState, entities: Entity[], pendingEne
     // Heros : jamais perdu (resurrection) ; mort en fin de bataille, il
     // revient a pleins PV. Sa progression est relue sur son entite.
     if (entity?.hero) {
-      run.hero = { heroId: entity.hero.heroId, xp: entity.hero.xp, level: entity.hero.level, deaths: entity.hero.deaths, carry: { ...entity.hero.carry }, mana: entity.hero.mana };
+      run.hero = { heroId: entity.hero.heroId, xp: entity.hero.xp, level: entity.hero.level, deaths: entity.hero.deaths, carry: { ...entity.hero.carry }, mana: entity.hero.mana, inventory: run.hero.inventory };
       updatedArmy.push({ ...run.army[i]!, hp: entity.alive ? entity.hp : entity.stats.maxHp });
       continue;
     }

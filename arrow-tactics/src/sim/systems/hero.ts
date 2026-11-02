@@ -50,6 +50,8 @@ export type HeroEvent =
   | { type: 'pickup'; heroId: number; resource: ResourceKind; amount: number; pileId: number; remaining: number }
   /** Sac plein : le travail s'arrete (le Heros passe en Garde). */
   | { type: 'carryFull'; heroId: number }
+  /** Item au sol ramasse (butin) : la run l'ajoute a l'inventaire du Heros. */
+  | { type: 'itemPickup'; heroId: number; dropId: number; itemId: string }
   /** Unite versee au stock de la run (depot, une toutes les
    *  DEPOSIT_SECONDS_PER_ITEM s) ; `remaining` : unites encore portees. */
   | { type: 'deposit'; heroId: number; wood: number; stone: number; remaining: number }
@@ -60,6 +62,16 @@ export type HeroEvent =
   | { type: 'spellCancel'; heroId: number; spellId: string; reason: SpellCancelReason; refunded: number }
   /** Sort abouti (`healed` : PV internes reellement rendus). */
   | { type: 'spellEnd'; heroId: number; spellId: string; targetId: number; healed: number };
+
+/** Item au sol (butin, 2026-11-02) : identifiant d'item (data/equipment.ts),
+ *  ramasse une fois par le Heros (`taken`). L'inventaire est a la run. */
+export interface ItemDrop {
+  id: number;
+  x: number;
+  z: number;
+  itemId: string;
+  taken: boolean;
+}
 
 /** Petit tas au sol de la carte (MapDef.resourcePiles), etat de simulation :
  *  `amount` baisse a chaque ramassage, 0 = disparu. */
@@ -76,6 +88,7 @@ export interface ResourcePile {
 export interface HeroWorkContext {
   nodes: ReadonlyMap<number, ResourceNode>;
   piles: readonly ResourcePile[];
+  drops: readonly ItemDrop[];
 }
 
 /** Unites portees par un Heros. */
@@ -104,6 +117,11 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
     // le Heros ne pouvant plus en approcher le centre.
     const reach = node.block ? distanceToBox(e, node.block) : Math.hypot(node.x - e.x, node.z - e.z);
     return { x: node.x, z: node.z, reached: reach <= e.stats.radius + HARVEST_REACH, target: null };
+  }
+  if (order.type === 'pickupItem') {
+    const drop = work.drops[order.dropId];
+    if (!drop || drop.taken) return null;
+    return { x: drop.x, z: drop.z, reached: Math.hypot(drop.x - e.x, drop.z - e.z) <= e.stats.radius + PICKUP_REACH, target: null };
   }
   if (order.type === 'pickup') {
     const pile = work.piles[order.pileId];
@@ -195,6 +213,19 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
         h.carry[node.resource]++;
         events.push({ type: 'harvest', heroId: e.id, resource: node.resource, amount: 1, nodeId: node.id });
       }
+      continue;
+    }
+    if (e.order.type === 'pickupItem') {
+      // Butin : meme geste et meme duree qu'un petit tas.
+      const drop = work.drops[e.order.dropId]!;
+      h.working = 'gather';
+      h.workTimer += dt;
+      if (h.workTimer < PICKUP_SECONDS) continue;
+      drop.taken = true;
+      events.push({ type: 'itemPickup', heroId: e.id, dropId: drop.id, itemId: drop.itemId });
+      e.order = { type: 'guard' };
+      h.working = null;
+      h.workTimer = 0;
       continue;
     }
     if (e.order.type === 'pickup') {
@@ -351,13 +382,41 @@ export function gainHeroXp(e: Entity, amount: number, events: HeroEvent[]): void
   events.push({ type: 'xp', heroId: e.id, amount, xp: h.xp });
   const target = heroLevelForXp(h.xp).level;
   while (h.level < target) {
-    const before = heroStatsForLevel(h.level);
     h.level++;
-    const after = heroStatsForLevel(h.level);
-    e.stats = { ...e.stats, maxHp: e.stats.maxHp + after.maxHp - before.maxHp, damage: e.stats.damage + after.damage - before.damage, moveSpeed: e.stats.moveSpeed + after.moveSpeed - before.moveSpeed };
-    e.hp += after.maxHp - before.maxHp;
+    refreshHeroStats(e, 'add');
     events.push({ type: 'levelUp', heroId: e.id, level: h.level });
   }
+}
+
+/**
+ * Stats FINALES du Heros (2026-11-02, equipement) : fiche de son niveau +
+ * bonus d'equipement resolus (Entity.hero.equipment), recalculees d'un bloc
+ * — jamais un bonus ajoute par-dessus le precedent, donc rien ne se cumule
+ * en equipant, remplacant ou retirant. PV et mana actuels :
+ *  - `add` (montee de niveau) : augmentes du meme ecart que le maximum ;
+ *  - `ratio` (equipement) : meme proportion du maximum, pour qu'equiper puis
+ *    retirer un objet ne soigne jamais.
+ * Une baisse du maximum ramene toujours la valeur actuelle sous ce maximum.
+ */
+export function refreshHeroStats(e: Entity, rule: 'add' | 'ratio'): void {
+  const h = e.hero!;
+  const base = heroStatsForLevel(h.level);
+  const b = h.equipment;
+  const prevMaxHp = e.stats.maxHp;
+  const maxHp = base.maxHp + b.maxHp;
+  e.stats = { ...e.stats, maxHp, damage: base.damage + b.damage, moveSpeed: base.moveSpeed + b.moveSpeed, attackCooldown: base.attackCooldown / (1 + b.attackSpeed) };
+  e.hp = adjustCurrent(e.hp, prevMaxHp, maxHp, rule);
+  const prevMaxMana = h.maxMana;
+  h.maxMana = h.baseMaxMana + b.maxMana;
+  h.mana = adjustCurrent(h.mana, prevMaxMana, h.maxMana, rule);
+  h.manaRegen = h.baseManaRegen + b.manaRegen;
+  e.onHit = b.fireDamage > 0 ? { fireDamage: b.fireDamage } : null;
+}
+
+function adjustCurrent(current: number, prevMax: number, max: number, rule: 'add' | 'ratio'): number {
+  if (max === prevMax) return Math.min(current, max);
+  if (rule === 'add') return max > prevMax ? current + (max - prevMax) : Math.min(current, max);
+  return prevMax > 0 ? Math.min(max, (current * max) / prevMax) : max;
 }
 
 /** Resurrection : le delai court en temps de simulation ; a son terme, le

@@ -55,6 +55,8 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-41 | Gros rochers (décors non bloquants) : un bâtiment s'y pose | Limite assumée (règle E8, à trancher) |
 | KI-42 | Héros : aucun clip d'incantation dans son GLB (Soin en garde de combat) | Limite assumée (assets) |
 | KI-43 | Carte générée : pas d'ombres portées au-delà d'environ 21 cases du centre | Confirmé (observé) |
+| KI-44 | Équipement : casque et épaulières sans visuel en jeu (modèle du Héros fusionné) | Limite assumée |
+| KI-45 | Butin au sol : pièce dressée plutôt que couchée | À améliorer (observé) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19 et
@@ -469,6 +471,22 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   2 s, avec un cercle runique au sol (`render/spellCastVfx.ts`).
 - **Suite** : un clip d'incantation dans le pipeline Toon RTS
   (`tools/toon-units`), si un pack en fournit un.
+
+### KI-44 — Casque et épaulières sans visuel en jeu
+
+- **Statut** : limite assumée (2026-11-02).
+- **Constat** : le GLB du Héros fusionne ses pièces de corps ; un item de
+  corps ne peut pas remplacer une pièce en jeu. Ses stats s'appliquent ;
+  l'aperçu de l'Éditeur d'items le montre (composition de l'Atelier).
+- **Suite** : composer le Héros en jeu à partir du catalogue (comme
+  l'Atelier), ou exporter les pièces de corps séparées par le pipeline.
+
+### KI-45 — Butin au sol dressé
+
+- **Statut** : à améliorer (capture du 2026-11-02).
+- **Constat** : la pièce d'un item au sol est recentrée mais reste dressée
+  (épées en bâtons, bouclier debout) : l'axe long de la pièce au repos
+  n'est pas celui supposé. Lisible grâce à l'anneau et à la colonne.
 
 ### KI-43 — Ombres limitées au centre de la carte générée
 

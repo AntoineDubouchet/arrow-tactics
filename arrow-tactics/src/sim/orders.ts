@@ -37,6 +37,8 @@ export type UnitOrder =
   | { type: 'build'; targetEntityId: number }
   /** Heros : ramasser le petit tas au sol `pileId` (World.resourcePiles). */
   | { type: 'pickup'; pileId: number }
+  /** Heros : ramasser l'item au sol `dropId` (World.itemDrops, butin). */
+  | { type: 'pickupItem'; dropId: number }
   /** Heros : deposer ce qu'il porte au depot `targetEntityId` (Baliste). */
   | { type: 'deposit'; targetEntityId: number }
   /** Heros : lancer le sort `spellId` (Entity.hero.spells) sur
@@ -55,6 +57,7 @@ export type PlayerCommand =
   | { kind: 'harvest'; entityIds: readonly number[]; nodeId: number }
   | { kind: 'build'; entityIds: readonly number[]; targetEntityId: number }
   | { kind: 'pickup'; entityIds: readonly number[]; pileId: number }
+  | { kind: 'pickupItem'; entityIds: readonly number[]; dropId: number }
   | { kind: 'deposit'; entityIds: readonly number[]; targetEntityId: number }
   | { kind: 'cast'; entityIds: readonly number[]; spellId: string; targetEntityId: number };
 
@@ -66,9 +69,9 @@ export type CommandRejectionReason = 'no-commandable-entity' | 'invalid-destinat
 /** Ordres de TRAVAIL du Heros (recolte, construction, ramassage, depot,
  *  sort) : comme un deplacement, ils suspendent le ciblage et l'attaque de
  *  base. */
-export type WorkOrder = Extract<UnitOrder, { type: 'harvest' | 'build' | 'pickup' | 'deposit' | 'cast' }>;
+export type WorkOrder = Extract<UnitOrder, { type: 'harvest' | 'build' | 'pickup' | 'pickupItem' | 'deposit' | 'cast' }>;
 export function isWorkOrder(order: UnitOrder): order is WorkOrder {
-  return order.type === 'harvest' || order.type === 'build' || order.type === 'pickup' || order.type === 'deposit' || order.type === 'cast';
+  return order.type === 'harvest' || order.type === 'build' || order.type === 'pickup' || order.type === 'pickupItem' || order.type === 'deposit' || order.type === 'cast';
 }
 
 /** Ce que la validation des ordres de travail lit du monde (World). */
@@ -78,11 +81,13 @@ export interface WorkLookups {
   node(id: number): 'ok' | 'locked' | 'missing';
   /** Petit tas au sol encore present. */
   hasPile(id: number): boolean;
+  /** Item au sol encore present (butin). */
+  hasDrop(id: number): boolean;
   /** Depot de ressources (BuildingDef.resourceDepot) vivant. */
   isDepot(entity: Entity): boolean;
 }
 
-const NO_WORK: WorkLookups = { node: () => 'missing', hasPile: () => false, isDepot: () => false };
+const NO_WORK: WorkLookups = { node: () => 'missing', hasPile: () => false, hasDrop: () => false, isDepot: () => false };
 
 /** Resultat de l'application d'une commande — sert au retour visuel et a la
  *  verification. Une commande peut etre acceptee pour une partie seulement
@@ -379,6 +384,7 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
       case 'harvest':
       case 'build':
       case 'pickup':
+      case 'pickupItem':
       case 'deposit': {
         // Travail : Heros seulement ; source exploitable, chantier allie
         // vivant, tas encore present ou depot allie vivant.
@@ -395,6 +401,7 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
           command.kind === 'harvest' ? nodeState === 'ok'
           : command.kind === 'build' ? allied && target!.construction !== null
           : command.kind === 'pickup' ? work.hasPile(command.pileId)
+          : command.kind === 'pickupItem' ? work.hasDrop(command.dropId)
           : allied && work.isDepot(target!);
         if (!valid) {
           result.rejection = nodeState === 'locked' ? 'locked' : 'invalid-target';
@@ -404,6 +411,7 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
           command.kind === 'harvest' ? { type: 'harvest', nodeId: command.nodeId }
           : command.kind === 'build' ? { type: 'build', targetEntityId: command.targetEntityId }
           : command.kind === 'pickup' ? { type: 'pickup', pileId: command.pileId }
+          : command.kind === 'pickupItem' ? { type: 'pickupItem', dropId: command.dropId }
           : { type: 'deposit', targetEntityId: command.targetEntityId };
         break;
       }

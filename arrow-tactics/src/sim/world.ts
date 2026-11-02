@@ -7,9 +7,9 @@ import { dist } from '../core/math';
 import { Rng, randomSeed } from '../core/rng';
 import { getBuilding, type BuildingDef } from '../data/buildings';
 import { getUnit, type UnitStats } from '../data/units';
-import type { ConstructionState, Entity, Team } from './entity';
+import { NO_EQUIPMENT_BONUS, type ConstructionState, type Entity, type HeroEquipmentBonus, type Team } from './entity';
 import { heroStatsForLevel } from '../data/hero';
-import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWorkSystem, interruptHeroSpells, type HeroEvent, type HeroWorkContext, type ResourcePile } from './systems/hero';
+import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
 import { DEFAULT_HERO_ID, heroKit, type HeroKit } from '../data/heroes';
 import { applyCommands, resolveOrders, type CommandResult, type OrderEndEvent, type PlayerCommand } from './orders';
 import {
@@ -183,6 +183,8 @@ export class World {
    *  `amount` baisse au ramassage. Remis a plein par setMap ; la run
    *  reapplique ses quantites (applyResourcePileAmounts). */
   resourcePiles: ResourcePile[] = [];
+  /** Items au sol (butin, 2026-11-02), indice = id ; vides a chaque carte. */
+  itemDrops: ItemDrop[] = [];
   /** Droits de recolte deja RESOLUS par l'orchestration (run/
    *  harvestPermissions.ts) : la simulation ne sait pas d'ou ils viennent
    *  (Scierie, Camp de mineur...). Faux par defaut. */
@@ -254,6 +256,8 @@ export class World {
 
   /** Commandes du joueur en attente, appliquees au debut du prochain step. */
   private commandQueue: PlayerCommand[] = [];
+  /** Changements d'equipement des Heros, appliques au debut du prochain pas. */
+  private equipmentQueue: { entityId: number; bonus: HeroEquipmentBonus }[] = [];
 
   constructor(seed: number = randomSeed()) {
     this.seed = seed;
@@ -310,6 +314,7 @@ export class World {
     // Arbres (2026-11-02) : leurs cases aussi (computeTreeObstacles).
     this.resourceNodes = new Map(resourceNodesOf(map.obstacles).map((n) => [n.id, n]));
     this.resourcePiles = (map.resourcePiles ?? []).map((p, id) => ({ id, x: p.x, z: p.z, resource: p.resource, amount: p.amount }));
+    this.itemDrops = [];
     this.waterCells = waterCellKeys(map.surfaceCells);
     const water = computeWaterObstacles(this.waterCells, cellIndex, paddedBounds);
     const trees = computeTreeObstacles(map.obstacles, this.waterCells, cellIndex, paddedBounds);
@@ -396,6 +401,7 @@ export class World {
       abilityCooldowns: {},
       dash: null,
       cast: null,
+      onHit: null,
       abilityDamageBonus,
       rootTimer: 0,
       tauntTimer: 0,
@@ -539,6 +545,7 @@ export class World {
       abilityCooldowns: {},
       dash: null,
       cast: null,
+      onHit: null,
       abilityDamageBonus: 0,
       rootTimer: 0,
       tauntTimer: 0,
@@ -659,7 +666,7 @@ export class World {
    *  la run (XP, niveau, morts, sac, mana). `hp` : PV actuels, pleins par
    *  defaut. `kit` : mana et sorts deja resolus (data/heroes.ts, heroKit) ;
    *  mana plein par defaut. */
-  spawnHero(team: Team, x: number, z: number, progress: { xp: number; level: number; deaths: number; carry?: { wood: number; stone: number }; mana?: number }, hp?: number, kit: HeroKit = heroKit(DEFAULT_HERO_ID)): Entity {
+  spawnHero(team: Team, x: number, z: number, progress: { xp: number; level: number; deaths: number; carry?: { wood: number; stone: number }; mana?: number }, hp?: number, kit: HeroKit = heroKit(DEFAULT_HERO_ID), equipment: HeroEquipmentBonus = NO_EQUIPMENT_BONUS): Entity {
     const e = this.spawn('hero', team, x, z, hp, heroStatsForLevel(progress.level));
     e.hero = {
       xp: progress.xp,
@@ -675,8 +682,27 @@ export class World {
       manaRegen: kit.manaRegen,
       spells: kit.spells,
       spellCast: null,
+      baseMaxMana: kit.maxMana,
+      baseManaRegen: kit.manaRegen,
+      equipment: { ...equipment },
     };
+    // Equipement porte des l'apparition : stats finales (meme proportion).
+    if (Object.values(equipment).some((v) => v !== 0)) refreshHeroStats(e, 'ratio');
     return e;
+  }
+
+  /** Pose un item au sol (butin d'un ennemi, d'un coffre, d'un camp ; sac
+   *  plein). Renvoie son id. Deterministe : ordre d'appel. */
+  dropItem(itemId: string, x: number, z: number): number {
+    const id = this.itemDrops.length;
+    this.itemDrops.push({ id, x, z, itemId, taken: false });
+    return id;
+  }
+
+  /** Equipement d'un Heros change (bonus deja resolus) : applique au debut
+   *  du prochain pas fixe, dans l'ordre d'appel (deterministe). */
+  queueHeroEquipment(entityId: number, bonus: HeroEquipmentBonus): void {
+    this.equipmentQueue.push({ entityId, bonus: { ...bonus } });
   }
 
   /** Commande de production temps reel : `unitId` sortira du batiment
@@ -700,7 +726,7 @@ export class World {
 
   /** Contexte du travail du Heros (sources et tas). */
   private heroWork(): HeroWorkContext {
-    return { nodes: this.resourceNodes, piles: this.resourcePiles };
+    return { nodes: this.resourceNodes, piles: this.resourcePiles, drops: this.itemDrops };
   }
 
   /** Point de resurrection d'un Heros : pres de la Baliste vivante de son
@@ -785,6 +811,7 @@ export class World {
     this.assaultGoal = null;
     this.pathFailures = [];
     this.blockedReinforcementGroup = null;
+    this.equipmentQueue = [];
     this.reachCache = null;
     this.commandQueue = [];
     this.commandResults = [];
@@ -897,12 +924,22 @@ export class World {
           return allowed ? 'ok' : 'locked';
         },
         hasPile: (id) => (this.resourcePiles[id]?.amount ?? 0) > 0,
+        hasDrop: (id) => this.itemDrops[id]?.taken === false,
         isDepot: (entity) => entity.isBuilding && getBuilding(entity.unitId).resourceDepot === true,
       },
     );
     this.commandQueue = [];
     this.orderEvents = [];
     resolveOrders(this.entities, lookup, this.orderEvents);
+    // Equipement des Heros (bonus resolus, file du pas) : stats finales
+    // recalculees, jamais cumulees.
+    for (const change of this.equipmentQueue) {
+      const hero = this.entityById.get(change.entityId);
+      if (!hero?.hero) continue;
+      hero.hero.equipment = change.bonus;
+      refreshHeroStats(hero, 'ratio');
+    }
+    this.equipmentQueue = [];
     // Sorts des Heros : un nouvel ordre (ou la mort, une Provocation) annule
     // l'incantation AVANT qu'abilitySystem ne puisse donner son effet.
     if (hasHero) interruptHeroSpells(this.entities, this.heroEvents);

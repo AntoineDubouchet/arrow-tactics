@@ -97,6 +97,29 @@ export interface CastState {
   heal?: { targetId: number; amount: number; endRangeTiles: number };
 }
 
+/** Bonus d'equipement d'un Heros, deja resolus (run/heroEquipment.ts) et en
+ *  unites INTERNES : PV, degats et feu x HP_PER_PIP ; vitesse d'attaque en
+ *  fraction (0,1 = 10 % de coups en plus) ; vitesse en cases/s ; mana et sa
+ *  regeneration tels quels. La simulation ne connait pas les items. */
+export interface HeroEquipmentBonus {
+  maxHp: number;
+  maxMana: number;
+  manaRegen: number;
+  damage: number;
+  attackSpeed: number;
+  moveSpeed: number;
+  /** Degats de feu ajoutes a chaque coup de melee qui touche. */
+  fireDamage: number;
+}
+
+export const NO_EQUIPMENT_BONUS: Readonly<HeroEquipmentBonus> = { maxHp: 0, maxMana: 0, manaRegen: 0, damage: 0, attackSpeed: 0, moveSpeed: 0, fireDamage: 0 };
+
+/** Effets « a l'impact » d'une entite (equipement du Heros aujourd'hui),
+ *  appliques par combatSystem apres un coup qui touche. */
+export interface OnHitEffects {
+  fireDamage: number;
+}
+
 /** Etat propre au Heros (Entity.hero). */
 export interface HeroState {
   /** XP totale de la run et niveau (data/hero.ts, HERO_LEVELS). */
@@ -126,6 +149,12 @@ export interface HeroState {
    *  effet) et ordre `cast` qui l'a lancee — tout autre ordre l'annule.
    *  null sinon. */
   spellCast: { spellId: string; targetId: number; manaSpent: number; order: UnitOrder } | null;
+  /** Mana de base du Heros (kit) et bonus d'equipement resolus : `maxMana`,
+   *  `manaRegen` et les stats de l'entite en sont deduits
+   *  (sim/systems/hero.ts, refreshHeroStats), jamais cumules. */
+  baseMaxMana: number;
+  baseManaRegen: number;
+  equipment: HeroEquipmentBonus;
 }
 
 /** Chantier (Entity.construction) : avancement 0..1 et duree totale (s). */
@@ -260,6 +289,8 @@ export interface Entity {
    *  CastState. Le PROJECTILE resultant n'est PAS stocke ici une fois lance
    *  (voir World.blasts) : il doit survivre a la mort de cette entite. */
   cast: CastState | null;
+  /** Effets a l'impact (equipement du Heros), null sinon. */
+  onHit: OnHitEffects | null;
 
   /** Statut ROOT/MOVEMENT LOCK generique (2026-08-14, Nova de glace — voir
    *  sim/world.ts, applyIceNovaRoot) : secondes RESTANTES avant expiration,

@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { UNITS } from '../data/units';
 import { buildToonUnitModel, createToonTintMaterial, ensureToonUnitPrototype, toonFactionKind, toonUnitClips, TOON_PALETTES, TOON_UNITS, type ToonUnitKind } from '../render/toonUnitRig';
 import {
@@ -19,6 +18,7 @@ import {
   type WorkshopConfig,
 } from './workshopConfig';
 import { loadCatalogue, WorkshopModel, type LoadedCatalogue } from './workshopModel';
+import { WorkshopStage } from './workshopStage';
 
 /**
  * Atelier de personnage (2026-11-01) : ecran INTERNE de conception ouvert
@@ -94,10 +94,8 @@ export class CharacterWorkshop {
   private readonly statsBox = el('div', 'workshop-stats');
   private readonly exportBox = el('textarea', 'workshop-export');
   private readonly notice = el('div', 'workshop-notice');
-  private renderer: THREE.WebGLRenderer | null = null;
-  private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(32, 1, 0.05, 100);
-  private controls: OrbitControls | null = null;
+  /** Scene d'apercu (partagee avec l'Editeur d'items). */
+  private readonly stage = new WorkshopStage(this.canvas);
   private readonly clock = new THREE.Clock();
   private frame = 0;
   private catalogues = new Map<string, LoadedCatalogue>();
@@ -112,21 +110,6 @@ export class CharacterWorkshop {
     this.overlay.append(this.panel, this.view);
     this.view.append(this.canvas, this.statsBox, this.notice);
     document.body.appendChild(this.overlay);
-    this.scene.background = new THREE.Color(0x2b3139);
-    this.scene.add(new THREE.HemisphereLight(0xdfe9ff, 0x3a3328, 1.6));
-    const sun = new THREE.DirectionalLight(0xfff1d8, 2.4);
-    sun.position.set(3, 6, 4);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xc8d8ff, 0.6);
-    fill.position.set(-4, 3, -3);
-    this.scene.add(fill);
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(2.2, 48), new THREE.MeshStandardMaterial({ color: 0x55604a, roughness: 1 }));
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
-    this.camera.position.set(0, 1.3, 4.2);
   }
 
   get isOpen(): boolean {
@@ -136,16 +119,7 @@ export class CharacterWorkshop {
   async open(): Promise<void> {
     this.overlay.hidden = false;
     this.open_ = true;
-    if (!this.renderer) {
-      this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      this.renderer.shadowMap.enabled = true;
-      this.controls = new OrbitControls(this.camera, this.canvas);
-      this.controls.target.set(0, 0.85, 0);
-      this.controls.enableDamping = true;
-      this.controls.minDistance = 1.2;
-      this.controls.maxDistance = 9;
-    }
+    this.stage.ensureRenderer();
     this.panel.replaceChildren(el('div', 'workshop-title', 'Atelier de personnage'), el('div', 'workshop-hint', 'Chargement des catalogues…'));
     try {
       for (const { id } of SOURCES) this.catalogues.set(id, await loadCatalogue(id));
@@ -166,31 +140,24 @@ export class CharacterWorkshop {
   }
 
   private loop = (): void => {
-    if (!this.open_ || !this.renderer) return;
+    if (!this.open_ || !this.stage.renderer) return;
     this.frame = requestAnimationFrame(this.loop);
     const dt = Math.min(this.clock.getDelta(), 0.1);
     this.model?.mixer.update(dt);
     this.fixed?.mixer.update(dt);
-    this.controls!.update();
-    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
-    if (this.canvas.width !== Math.floor(w * this.renderer.getPixelRatio()) || this.canvas.height !== Math.floor(h * this.renderer.getPixelRatio())) {
-      this.renderer.setSize(w, h, false);
-      this.camera.aspect = w / Math.max(1, h);
-      this.camera.updateProjectionMatrix();
-    }
-    this.renderer.render(this.scene, this.camera);
+    this.stage.render();
   };
 
   // --- Modele -------------------------------------------------------------
 
   private clearModel(): void {
     if (this.model) {
-      this.scene.remove(this.model.root);
+      this.stage.scene.remove(this.model.root);
       this.model.dispose();
       this.model = null;
     }
     if (this.fixed) {
-      this.scene.remove(this.fixed.root);
+      this.stage.scene.remove(this.fixed.root);
       this.fixed.mixer.stopAllAction();
       this.fixed = null;
     }
@@ -202,7 +169,7 @@ export class CharacterWorkshop {
     if (this.model?.catalogue.source === source && !this.fixed) return;
     this.clearModel();
     this.model = new WorkshopModel(this.catalogues.get(source)!, this.catalogues);
-    this.scene.add(this.model.root);
+    this.stage.scene.add(this.model.root);
   }
 
   /** Preset d'une unite existante (entree units.json du catalogue) ; le
@@ -252,7 +219,7 @@ export class CharacterWorkshop {
     mixer.stopAllAction();
     const clips = [...toonUnitClips(kind).values()];
     this.fixed = { kind, root, mixer, tint, clips, action: null };
-    this.scene.add(root);
+    this.stage.scene.add(root);
     const file = TOON_UNITS[kind].file.replace('.glb', '');
     this.config = { ...this.config, name: file, source: FIXED_PRESETS.find((f) => f.kind === kind)!.source, look: { ...this.config.look, echelle: 1, animation: 'idle' } };
     this.applyConfig();
@@ -514,10 +481,10 @@ export class CharacterWorkshop {
     }, 'animation'));
     const rotate = el('input');
     rotate.type = 'checkbox';
-    rotate.checked = this.controls?.autoRotate ?? false;
+    rotate.checked = this.stage.controls?.autoRotate ?? false;
     rotate.dataset['name'] = 'rotation-auto';
     rotate.addEventListener('change', () => {
-      if (this.controls) this.controls.autoRotate = rotate.checked;
+      if (this.stage.controls) this.stage.controls.autoRotate = rotate.checked;
     });
     this.row(anim, 'Rotation automatique', rotate);
 
