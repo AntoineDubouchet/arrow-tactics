@@ -67,10 +67,8 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-58 | Cartes dessinées : leurs `rock` deviennent des gisements bloquants ; carte générée : placement des gisements changé (mêmes graines, autres cartes) | Limite assumée (2026-11-03) |
 | KI-59 | Écurie : modèle KayKit 2 × 3 ajusté à l'emprise 3 × 3, un peu petit et plat ; gisement d'or : pépites procédurales | Limite assumée (visuels provisoires) |
 | KI-60 | Maison B : variante seulement pour les Maisons posées en jeu ; une Maison de scénario de l'éditeur reste A | Limite assumée |
-| KI-61 | Villageois : modèle du Piquier, sans geste de récolte ni charge visible ; pas d'outil en main | Limite assumée (visuel provisoire) |
 | KI-62 | Tourbillon : rotation du modèle entier (5 tours/s), sans clip dédié (arme et jambes figées dans le clip courant) ; VFX procédural provisoire (arcs, cercle de zone) | Limite assumée (prototype) |
-| KI-63 | Piles de ressources de l'inventaire RPG (`sim/inventory.ts`, `RESOURCE_ITEMS`) encore présentes dans le code, plus alimentées depuis le cargo économique | Dette (à retirer) |
-| KI-64 | Villageois : clips Spearman, estoc en guise de coup de hache / pioche, ramassage et dépôt sans geste dédié | Limite assumée (assets) |
+| KI-64 | Villageois : clips Spearman, estoc en guise de coup de hache / pioche ; ramassage et dépôt sur la pose de repos, sans geste de travail dédié | Limite assumée (assets) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
@@ -78,7 +76,10 @@ KI-25 et KI-45, butin couché depuis le 2026-11-02 ; KI-48, comportement
 voulu par Antoine : une unité militaire sélectionnée reçoit les ordres ;
 KI-54, arbre épuisé : abattu, souche, cases libérées depuis le 2026-11-02 ;
 KI-49 et KI-50, sans objet depuis la suppression du Wall V1 le 2026-11-02 :
-la Palissade V2 est au menu Construire du temps réel, à tout angle).
+la Palissade V2 est au menu Construire du temps réel, à tout angle ;
+KI-61, Villageois avec son propre modèle, ses outils et son sac depuis le
+2026-11-03, G32 ; KI-63, piles de ressources retirées de l'inventaire RPG le
+2026-11-03, G33).
 
 Retirées lors de la refonte de l'éditeur, résolues côté code :
 
@@ -588,30 +589,14 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   les Maisons de scénario de l'éditeur gardent le modèle A (« Maison B »
   reste disponible comme décor).
 
-### KI-61 — Villageois : visuel provisoire
-
-- **Statut** : limite assumée (2026-11-03).
-- **Constat** : aucun modèle de paysan dans les assets ; le Villageois porte
-  le modèle du Piquier, dont le rig n'a pas les clips `chop` / `mine` /
-  `deposit` du Héros : il reste immobile pendant qu'il récolte ou dépose,
-  sans outil ni charge visibles (non observé en détail).
-
-### KI-63 — Restes des ressources dans l'inventaire RPG
-
-- **Statut** : dette (2026-11-03, réévaluée après le cargo économique G32).
-- **Constat** : les ordres `pickup` et `deposit` servent de nouveau (cargo) ;
-  en revanche les piles de ressources de l'inventaire RPG
-  (`sim/inventory.ts` : `addResource`, `resourceCount`, `RESOURCE_ITEMS`,
-  cases « resource » de la fenêtre) ne sont plus alimentées par rien.
-  À retirer dans une passe de nettoyage.
-
 ### KI-64 — Villageois : gestes empruntés au Piquier
 
-- **Statut** : limite assumée (assets).
+- **Statut** : limite assumée (assets), réduite le 2026-11-03 (G33).
 - **Constat** : le set Spearman n'a ni coup de hache, ni coup de pioche, ni
-  geste accroupi : l'estoc (ralenti) sert aux trois travaux, le ramassage
-  et le dépôt jouent le même geste. Un futur set d'ouvrier remplacerait
-  les rôles `chop` / `mine` / `gather` / `deposit` du kit `villageois`.
+  geste accroupi : l'estoc (ralenti) sert de coup de hache et de pioche ;
+  le ramassage d'un tas et le dépôt jouent la pose de repos (plus d'estoc
+  à vide). Un futur set d'ouvrier remplacerait les rôles `chop` / `mine` /
+  `gather` / `deposit` du kit `villageois`.
 
 ### KI-57 — Palissade : rendu sur relief
 

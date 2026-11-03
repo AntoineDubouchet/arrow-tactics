@@ -148,10 +148,11 @@ export interface BuildingDef {
   /** Soin de toute l'armee contre de l'or, en preparation (Eglise). */
   armyHeal?: ArmyHealConfig;
   /** Point de collecte (2026-11-03) : ressources de cargo acceptees par ce
-   *  batiment TERMINE (Heros et Villageois y vident leur sac, seul chemin
-   *  vers le stock). La Baliste accepte tout aujourd'hui ; futurs (non
-   *  actives) : Scierie ['wood'], Camp de mineur ['stone', 'minedGold'].
-   *  Absent : pas un point de collecte. */
+   *  batiment TERMINE et allie (Heros et Villageois y vident leur sac, seul
+   *  chemin vers le stock ; sim/systems/cargo.ts, nearestDropOff). Baliste :
+   *  tout (point universel de depart) ; Scierie : bois ; Camp de mineur :
+   *  pierre et or extrait. Aucune logique par id de batiment : seule cette
+   *  liste compte. Absent : pas un point de collecte (Forge). */
   dropOff?: readonly CargoResource[];
   /** Outils de recolte donnes a tout le camp par ce batiment, une fois
    *  TERMINE (hache : arbres ; pioche : gisements de pierre et d'or). Lu par
@@ -236,8 +237,10 @@ export const BUILDINGS: Record<string, BuildingDef> = {
   ballista: {
     id: 'ballista',
     displayName: 'Baliste',
-    // Coeur du camp initial : SEUL point de collecte (2026-11-03) ; accepte
-    // bois, pierre et or extrait (jamais le butin RPG).
+    // Coeur du camp initial : point de collecte UNIVERSEL de depart
+    // (2026-11-03) ; accepte bois, pierre et or extrait (jamais le butin
+    // RPG). La Scierie et le Camp de mineur s'y ajoutent sans le remplacer
+    // (a decider plus tard si elle garde ce role).
     dropOff: ['wood', 'stone', 'minedGold'],
     maxHp: 25 * HP_PER_PIP,
     // Légèrement plus grand que la Mine — la baliste+tour est visuellement
@@ -493,11 +496,13 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     description: 'Produit le Cavalier léger',
   },
   // Scierie (2026-11-02) : ne controle plus la recolte (la Forge donne les
-  // outils) ; constructible, EN ATTENTE d'une nouvelle fonction economique.
-  // Emprise 3 x 3, modele KayKit de scierie. Valeurs PROVISOIRES.
+  // outils) ; point de collecte du BOIS depuis le 2026-11-03 (jamais la
+  // pierre ni l'or). Emprise 3 x 3, modele KayKit de scierie. Valeurs
+  // PROVISOIRES.
   sawmill: {
     id: 'sawmill',
     displayName: 'Scierie',
+    dropOff: ['wood'],
     maxHp: 15 * HP_PER_PIP,
     radius: 1.5,
     targetable: true,
@@ -511,11 +516,13 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintTilesZ: 3,
   },
   // Camp de mineur (2026-11-02) : ne controle plus la recolte (la Forge donne
-  // la pioche) ; constructible, EN ATTENTE d'une nouvelle fonction
-  // economique. Distinct de la Mine (or toutes les 60 s). Valeurs PROVISOIRES.
+  // la pioche) ; point de collecte de la PIERRE et de l'OR EXTRAIT depuis le
+  // 2026-11-03 (jamais le bois). Distinct de la Mine (or toutes les 60 s).
+  // Valeurs PROVISOIRES.
   miner_camp: {
     id: 'miner_camp',
     displayName: 'Camp de mineur',
+    dropOff: ['stone', 'minedGold'],
     maxHp: 15 * HP_PER_PIP,
     radius: 1.5,
     targetable: true,

@@ -96,7 +96,8 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G28 | Auberge et Villageois : première unité économique | Active (valeurs provisoires ; transport rétabli par G32, modèle dédié) |
 | G29 | Tourbillon du Paladin (prototype) | Active (valeurs et VFX provisoires) |
 | G30 | Stock direct : bois et pierre comme l'or | Remplacée le jour même (G32) |
-| G32 | Cargo économique : inventaire RPG ≠ sac de ressources ; or de gisement = cargo, or de butin = monnaie | Active (valeurs provisoires) |
+| G32 | Cargo économique : inventaire RPG ≠ sac de ressources ; or de gisement = cargo, or de butin = monnaie | Active (valeurs provisoires ; amendée par G33) |
+| G33 | Points de collecte spécialisés : Scierie = bois, Camp de mineur = pierre + or extrait, Baliste universelle de départ ; inventaire RPG sans ressource (KI-63) | Active (valeurs provisoires ; rôle de la Baliste à revoir) |
 | G31 | Caméra de jeu verrouillée sur le Héros | Retirée (essai d'un jour, retour à la vue RTS libre) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
@@ -1729,8 +1730,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 ### G22 — Scierie et Camp de mineur
 
 - **Statut** : **Remplacée** le 2026-11-03 par G25 pour les droits de
-  récolte (la Forge donne les outils) ; Scierie et Camp de mineur restent
-  constructibles, en attente d'une nouvelle fonction.
+  récolte (la Forge donne les outils) ; Scierie et Camp de mineur sont des
+  **points de collecte** depuis le même jour (G33).
 - **Demande d'Antoine** (2026-11-02) : mettre en jeu la Scierie (coupe des
   arbres) et le Camp de mineur (gros gisements), gisements finis (40 pierre),
   même philosophie que l'arbre ; progression petits tas → dépôt → Scierie /
@@ -1928,7 +1929,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### G32 — Cargo économique : inventaire RPG ≠ sac de ressources
 
-- **Statut** : Active ; valeurs **provisoires**.
+- **Statut** : Active ; valeurs **provisoires** ; amendée le soir même par
+  G33 (points de collecte spécialisés, chaînage des dépôts, inventaire RPG
+  nettoyé, gestes du Villageois).
 - **Demande d'Antoine** (2026-11-03) : distinguer les ressources économiques
   transportées (bois, pierre, or **extrait d'un gisement**) de l'or de
   butin (monnaie directe) ; ne pas remettre les ressources dans les 20
@@ -1942,14 +1945,15 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Choix de la passe** :
   - un seul système (`sim/systems/cargo.ts`) pour le Héros et le Villageois,
     l'ancien dépôt du Héros (lié au sac RPG) remplacé plutôt que ressuscité ;
-  - point de collecte choisi d'après la ressource la **plus portée** ; les
-    ressources non acceptées restent dans le cargo ;
+  - point de collecte choisi d'après la ressource la **plus portée** (à
+    défaut la suivante, G33) ; les ressources non acceptées restent dans le
+    cargo ;
   - source épuisée : dépôt **d'abord**, puis source voisine (Villageois) ou
     Garde (Héros) ; outil perdu : unité finie, dépôt, Garde ;
   - tout ordre manuel oublie la tâche à reprendre (cargo gardé) ;
   - mort : ressources perdues, pas de sac au sol (**PROVISOIRE**) ;
   - Villageois : dégâts 0 et aggro 0 (aucune attaque), clips Spearman, estoc
-    = coup de hache / de pioche, ramassage et dépôt sans geste accroupi.
+    = coup de hache / de pioche ; ramassage et dépôt sur le repos (G33).
 - **Sources** : `data/resources.ts`, `data/buildings.ts` (`dropOff`),
   `data/units.ts`, `sim/entity.ts`, `sim/systems/cargo.ts`,
   `sim/systems/hero.ts`, `sim/systems/workers.ts`, `sim/world.ts`,
@@ -1957,6 +1961,69 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `render/unitViews.ts`, `render/resourcePiles.ts`, `run/entityInfo.ts`,
   `ui/heroInventory.ts`, `main.ts`, `tools/toon-units/units.json`
   (`human_villager`).
+
+### G33 — Points de collecte spécialisés et inventaire RPG sans ressource
+
+- **Statut** : Active ; valeurs **provisoires**. **Ouvert** : la Baliste
+  garde-t-elle son rôle de point universel une fois Scierie et Camp de
+  mineur construits ? (décision d'Antoine, plus tard).
+- **Demande d'Antoine** (2026-11-03, soir) : terminer KI-63 (plus aucune
+  ressource économique comme `InventoryItem`, sans toucher à l'inventaire
+  générique : équipements, butin, consommables, glisser-déposer) ; activer la
+  Scierie (bois seul) et le Camp de mineur (pierre, or extrait) comme points
+  de collecte, chantier exclu, bâtiment terminé allié seulement ; Baliste
+  conservée comme point universel de départ ; choix du point valide le plus
+  proche pour la ressource à déposer, par `BuildingDef.dropOff`, jamais par
+  id ; cargo mixte : un point ne prend que ce qu'il accepte, dépôt
+  automatique enchaîné jusqu'à cargo vide ou aucune destination (pas de
+  blocage à 9 / 10) ; dépôt manuel refusé explicitement (« Aucune ressource
+  acceptée »), jamais vidé en silence ; point détruit en chemin → suivant ;
+  Villageois : estoc seulement pour couper et miner, geste neutre pour
+  ramasser et déposer ; sac 3D du Villageois vérifié en gros plan ; fiche
+  des bâtiments « Point de collecte : … » ; Forge = accès aux outils, sans
+  mélange avec les points de collecte ; coûts, emprises, modèles, PV et
+  réparation inchangés.
+- **Direction officielle** : **Forge = accès aux outils** ; **Scierie =
+  dépôt du bois** ; **Camp de mineur = dépôt de la pierre et de l'or
+  extrait** ; **Baliste = dépôt universel de départ** ; **inventaire RPG ≠
+  cargo économique**.
+- **Choix de la passe** :
+  - `sim/inventory.ts` ne connaît plus que des cases d'équipement
+    (`InventorySlot` = item | null) ; `RESOURCE_ITEMS`, `CarriedResource`,
+    `addResource`, `removeOneResource`, `resourceCount`, `roomFor`,
+    `maxStackOf`, `carriedResourceTotal`, la fusion de piles de `moveSlot`,
+    la case « ressource » de la fenêtre et son CSS, et
+    `HarvestNodeKind.currency` sont retirés ; déplacer / échanger / équiper /
+    retirer / ajouter inchangés ; KI-63 close ;
+  - `dropOff` sur la Scierie (`['wood']`) et le Camp de mineur
+    (`['stone', 'minedGold']`), rien d'autre dans leurs données ;
+  - choix du point : pour chaque ressource portée, de la plus à la moins
+    portée, le point allié terminé le plus proche qui l'accepte ; le premier
+    trouvé gagne (une unité avec 6 pierre et 4 bois devant une Scierie seule
+    y dépose son bois) ;
+  - `CargoState.auto` distingue le dépôt de la boucle (chaînage) du dépôt
+    manuel (un seul point) ; tout ordre manuel (`sim/orders.ts`) remet
+    `returnTo` et `auto` à zéro ;
+  - chaînage silencieux : une ressource sans point reste dans le cargo, la
+    boucle de la source continue ; l'alerte « Aucun point de collecte pour
+    déposer : … » ne sort que quand rien de ce qu'elle porte n'a de point ;
+  - `heroWorkSystem` délègue au cargo **avant** son repli « cible perdue →
+    Garde » (sinon le Héros passait en Garde au lieu de rejoindre le point
+    suivant ; le Villageois le faisait déjà) ;
+  - clic droit sur un point : l'ordre `deposit` ne part qu'aux unités qui
+    portent une ressource acceptée ; message « Aucune ressource acceptée —
+    Scierie : bois » ou « Rien à déposer » ;
+  - fiche : ligne « Point de collecte » (Bois / Pierre, Or / Toutes
+    ressources), aussi sur la Baliste ;
+  - Villageois : rôles `gather` et `deposit` sur le clip `idle` (le set
+    Spearman n'a pas de geste accroupi, aucune animation Blender créée) ;
+    sac 3D observé en gros plan (vide : absent ; 3 / 5 et 5 / 5 : dans le
+    dos, proportionné, sans traverser le corps) : aucun réglage propre au
+    Villageois n'a été nécessaire, le sac du Héros est inchangé.
+- **Sources** : `sim/inventory.ts`, `data/resources.ts`,
+  `data/buildings.ts`, `sim/entity.ts`, `sim/world.ts`, `sim/orders.ts`,
+  `sim/systems/cargo.ts`, `sim/systems/hero.ts`, `render/toonUnitRig.ts`,
+  `run/entityInfo.ts`, `ui/heroInventory.ts`, `ui/style.css`, `main.ts`.
 
 ### G31 — Caméra de jeu verrouillée sur le Héros (essai retiré)
 

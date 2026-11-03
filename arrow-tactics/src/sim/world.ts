@@ -13,7 +13,7 @@ import { areAllied } from './relations';
 import { ENEMY_LOOT_TABLES, LOOT_TABLES, rollLoot } from '../data/loot';
 import { applyInventoryAction, createHeroInventory, resolveEquipmentBonus, type HeroInventory, type InventoryAction } from './inventory';
 import { DESTRUCTIBLE_LOOT, ENEMY_GOLD_DROPS } from '../data/loot';
-import { CARGO_CAPACITY, createCargo, NO_HARVEST_TOOLS, type CarriedResource, type HarvestPermissions } from '../data/resources';
+import { CARGO_CAPACITY, createCargo, NO_HARVEST_TOOLS, type HarvestPermissions, type PileResource } from '../data/resources';
 import type { NodeResource } from '../config/resourceNodes';
 import { campClearSystem, campSystem, isChestLocked, type CampEvent, type CampSpec, type CampState, type Chest, type LootDropEvent } from './systems/camps';
 import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWhirlwindSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
@@ -517,7 +517,7 @@ export class World {
       hero: null,
       worker: def.worker ? { working: null, workTimer: 0 } : null,
       // Cargo economique : Villageois des sa creation ; Heros dans spawnHero.
-      cargo: def.worker ? { ...createCargo(CARGO_CAPACITY.villageois), returnTo: null } : null,
+      cargo: def.worker ? { ...createCargo(CARGO_CAPACITY.villageois), returnTo: null, auto: false } : null,
       construction: null,
       isBuilding: false,
       // Une unite normale compte TOUJOURS pour la survie de sa faction —
@@ -827,7 +827,7 @@ export class World {
     equipment ??= progress.inventory ? resolveEquipmentBonus(inventory) : NO_EQUIPMENT_BONUS;
     const e = this.spawn('hero', team, x, z, hp, heroStatsForLevel(progress.level));
     e.level = normalizeUnitLevel(progress.level);
-    e.cargo = { ...createCargo(CARGO_CAPACITY.hero), returnTo: null };
+    e.cargo = { ...createCargo(CARGO_CAPACITY.hero), returnTo: null, auto: false };
     e.hero = {
       xp: progress.xp,
       level: progress.level,
@@ -969,9 +969,9 @@ export class World {
     return id;
   }
 
-  /** Tas de ressource physique au sol (butin : bois, pierre), ramasse par le
-   *  Heros dans son sac. Renvoie son id. */
-  dropResource(resource: CarriedResource, x: number, z: number, amount: number): number {
+  /** Tas de ressource physique au sol (butin : bois, pierre), pris dans le
+   *  cargo d'une unite economique (ordre pickup). Renvoie son id. */
+  dropResource(resource: Exclude<PileResource, 'gold'>, x: number, z: number, amount: number): number {
     const id = this.resourcePiles.length;
     this.resourcePiles.push({ id, x, z, resource, amount });
     return id;

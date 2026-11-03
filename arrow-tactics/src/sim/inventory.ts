@@ -1,26 +1,24 @@
 import { HP_PER_PIP } from '../config/constants';
 import { EQUIPMENT, EQUIPMENT_SLOTS, type EquipmentSlot } from '../data/equipment';
 import { HERO_INVENTORY_SLOTS } from '../data/hero';
-import { RESOURCE_ITEMS, type CarriedResource } from '../data/resources';
 import { NO_EQUIPMENT_BONUS, type HeroEquipmentBonus } from './entity';
 
 /**
- * Inventaire unique du Heros (2026-11-02) : une seule verite pour tout ce
- * qu'il porte. HERO_INVENTORY_SLOTS cases (sac) contenant des piles de
- * ressources (bois, pierre, or : RESOURCE_ITEMS.maxStack par case) ou un
- * equipement (une case), et les emplacements d'equipement (un item porte ne
- * prend pas de case). Donnees pures et serialisables (ids), deterministes :
- * les fonctions renvoient un NOUVEL inventaire (ou null si l'operation est
- * impossible) et ne perdent ni ne dupliquent jamais rien.
+ * Inventaire RPG du Heros (2026-11-02) : une seule verite pour les objets
+ * qu'il porte. HERO_INVENTORY_SLOTS cases (sac) contenant chacune un
+ * equipement (butin, futurs consommables), et les emplacements d'equipement
+ * (un item porte ne prend pas de case). Les ressources economiques (bois,
+ * pierre, or extrait) n'y entrent JAMAIS : elles vont dans le cargo
+ * (Entity.cargo, sim/systems/cargo.ts ; KI-63 close le 2026-11-03).
+ * Donnees pures et serialisables (ids), deterministes : les fonctions
+ * renvoient un NOUVEL inventaire (ou null si l'operation est impossible) et
+ * ne perdent ni ne dupliquent jamais rien.
  *
- * Etat de simulation (Entity.hero.inventory) : ramassage, recolte et depot
- * l'utilisent dans le pas fixe ; l'interface passe par
+ * Etat de simulation (Entity.hero.inventory) : le ramassage d'un objet au
+ * sol l'utilise dans le pas fixe ; l'interface passe par
  * World.queueInventoryAction (applique au debut du pas suivant).
  */
-export type InventorySlot =
-  | { kind: 'resource'; resource: CarriedResource; amount: number }
-  | { kind: 'item'; itemId: string }
-  | null;
+export type InventorySlot = { kind: 'item'; itemId: string } | null;
 
 export interface HeroInventory {
   slots: InventorySlot[];
@@ -29,7 +27,7 @@ export interface HeroInventory {
 
 /** Action de l'interface sur l'inventaire (World.queueInventoryAction). */
 export type InventoryAction =
-  /** Deplacer, echanger ou fusionner deux cases du sac. */
+  /** Deplacer ou echanger deux cases du sac. */
   | { type: 'move'; from: number; to: number }
   /** Equiper l'item de la case `from` (emplacement `slot` s'il est donne :
    *  il doit etre le sien). */
@@ -49,78 +47,8 @@ function copy(inv: HeroInventory): HeroInventory {
   return { slots: inv.slots.map((s) => (s ? { ...s } : null)), equipped: { ...inv.equipped } };
 }
 
-export function maxStackOf(resource: CarriedResource): number {
-  return RESOURCE_ITEMS[resource].maxStack;
-}
-
-/** Quantite portee d'une ressource (toutes ses piles). */
-export function resourceCount(inv: HeroInventory, resource: CarriedResource): number {
-  let n = 0;
-  for (const s of inv.slots) if (s?.kind === 'resource' && s.resource === resource) n += s.amount;
-  return n;
-}
-
-/** Unites de ressources portees (bois + pierre + or). */
-export function carriedResourceTotal(inv: HeroInventory): number {
-  let n = 0;
-  for (const s of inv.slots) if (s?.kind === 'resource') n += s.amount;
-  return n;
-}
-
-/** Unites de `resource` que le sac peut encore prendre (piles entamees,
- *  puis cases libres). */
-export function roomFor(inv: HeroInventory, resource: CarriedResource): number {
-  const max = maxStackOf(resource);
-  let room = 0;
-  for (const s of inv.slots) {
-    if (s === null) room += max;
-    else if (s.kind === 'resource' && s.resource === resource) room += Math.max(0, max - s.amount);
-  }
-  return room;
-}
-
 export function freeSlotCount(inv: HeroInventory): number {
   return inv.slots.filter((s) => s === null).length;
-}
-
-/** Ajoute jusqu'a `amount` unites : piles entamees d'abord (ordre des
- *  cases), puis nouvelles piles dans les cases libres (ordre des cases).
- *  `added` peut etre inferieur a `amount` (sac plein : le reste reste ou il
- *  etait). */
-export function addResource(inv: HeroInventory, resource: CarriedResource, amount: number): { inventory: HeroInventory; added: number } {
-  const max = maxStackOf(resource);
-  const next = copy(inv);
-  let left = Math.max(0, Math.floor(amount));
-  for (const s of next.slots) {
-    if (left === 0) break;
-    if (s?.kind !== 'resource' || s.resource !== resource || s.amount >= max) continue;
-    const take = Math.min(left, max - s.amount);
-    s.amount += take;
-    left -= take;
-  }
-  for (let i = 0; i < next.slots.length && left > 0; i++) {
-    if (next.slots[i] !== null) continue;
-    const take = Math.min(left, max);
-    next.slots[i] = { kind: 'resource', resource, amount: take };
-    left -= take;
-  }
-  const added = Math.max(0, Math.floor(amount)) - left;
-  return { inventory: added > 0 ? next : inv, added };
-}
-
-/** Retire une unite de `resource`, prise sur sa derniere pile (ordre des
- *  cases) ; une pile videe libere sa case. null si le Heros n'en porte pas. */
-export function removeOneResource(inv: HeroInventory, resource: CarriedResource): HeroInventory | null {
-  for (let i = inv.slots.length - 1; i >= 0; i--) {
-    const s = inv.slots[i];
-    if (s?.kind !== 'resource' || s.resource !== resource || s.amount <= 0) continue;
-    const next = copy(inv);
-    const pile = next.slots[i] as Extract<InventorySlot, { kind: 'resource' }>;
-    pile.amount -= 1;
-    if (pile.amount === 0) next.slots[i] = null;
-    return next;
-  }
-  return null;
 }
 
 /** Ajoute un equipement dans la premiere case libre ; null si le sac est
@@ -134,23 +62,14 @@ export function addItem(inv: HeroInventory, itemId: string): HeroInventory | nul
   return next;
 }
 
-/** Deplace la case `from` vers `to` : case vide -> deplacement ; meme
- *  ressource -> fusion jusqu'a la pile pleine (le reste reste en `from`) ;
- *  sinon echange. Indices invalides : inventaire inchange. */
+/** Deplace la case `from` vers `to` : case vide -> deplacement, sinon
+ *  echange. Indices invalides : inventaire inchange. */
 export function moveSlot(inv: HeroInventory, from: number, to: number): HeroInventory {
   const n = inv.slots.length;
   if (from === to || from < 0 || to < 0 || from >= n || to >= n || inv.slots[from] === null) return inv;
   const next = copy(inv);
   const a = next.slots[from]!;
   const b = next.slots[to] ?? null;
-  if (a.kind === 'resource' && b?.kind === 'resource' && a.resource === b.resource) {
-    const take = Math.min(a.amount, maxStackOf(a.resource) - b.amount);
-    if (take <= 0) return inv;
-    b.amount += take;
-    a.amount -= take;
-    if (a.amount === 0) next.slots[from] = null;
-    return next;
-  }
   next.slots[to] = a;
   next.slots[from] = b;
   return next;

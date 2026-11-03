@@ -140,9 +140,13 @@ export interface WorkerState {
 
 /** Cargo economique (data/resources.ts ResourceCargo) et boucle de travail :
  *  `returnTo` : tache de recolte a reprendre apres un depot automatique
- *  (source ou tas), oubliee par tout ordre manuel. */
+ *  (source ou tas) ; `auto` : le depot en cours vient de la boucle (il
+ *  enchaine sur d'autres points de collecte tant qu'il reste quelque chose
+ *  a deposer), faux pour un depot manuel (un seul point). Tout ordre manuel
+ *  remet les deux a zero (sim/orders.ts). */
 export interface CargoState extends ResourceCargo {
   returnTo: { kind: 'node'; nodeId: number } | { kind: 'pile'; pileId: number } | null;
+  auto: boolean;
 }
 
 /** Tourbillon en cours d'un Heros (data/spells.ts, WhirlwindEffect). */
@@ -173,8 +177,8 @@ export interface HeroState {
   working: 'chop' | 'mine' | 'build' | 'gather' | 'deposit' | null;
   /** Temps accumule vers la prochaine unite recoltee (ou le ramassage). */
   workTimer: number;
-  /** Inventaire unique (sim/inventory.ts, 2026-11-02) : ressources portees
-   *  (pas encore deposees), equipements du sac, items equipes. */
+  /** Inventaire RPG (sim/inventory.ts, 2026-11-02) : equipements du sac,
+   *  items equipes ; les ressources sont dans Entity.cargo. */
   inventory: HeroInventory;
   /** Reparation en cours (ordre `repair`) : PV payes (budget) et rendus ;
    *  sa fin (terminee, interrompue, cible perdue) emet `repairEnd`. */

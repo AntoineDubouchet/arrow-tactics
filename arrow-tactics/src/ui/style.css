@@ -3750,11 +3750,7 @@ body.debug-mode .debug-panel { display: block; top: auto; bottom: 150px; }
 .inventory-cell--over { outline: 2px solid #ffd25a; outline-offset: 1px; }
 .inventory-cell-label { font-size: 9px; color: var(--ink-dim); text-align: center; line-height: 1.1; }
 .inventory-cell-name { position: absolute; bottom: 1px; left: 2px; right: 2px; font-size: 8px; line-height: 1; text-align: center; color: var(--ink-dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.inventory-cell-amount { position: absolute; right: 3px; bottom: 1px; font-size: 12px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px #000; }
 .inventory-icon { display: block; width: 26px; height: 26px; margin-bottom: 6px; }
-.inventory-icon--wood { background: linear-gradient(160deg, #c8925a, #7a4a26); border-radius: 6px 3px; transform: rotate(-20deg); width: 30px; height: 14px; }
-.inventory-icon--stone { background: radial-gradient(circle at 35% 30%, #d7dde3, #8a929b 60%, #5b636b); border-radius: 50% 42% 48% 38%; width: 26px; height: 22px; }
-.inventory-icon--gold { background: radial-gradient(circle at 35% 35%, #fff2b0, #f2c94c 55%, #a77a0a); border-radius: 50%; width: 24px; height: 24px; box-shadow: 6px 4px 0 -2px #d9a92e; }
 .inventory-icon[class*='inventory-icon--slot-'] { background: currentColor; -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
 .inventory-icon--slot-mainHand { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19 2l3 1-1 3-11 11-3-3zM5 15l4 4-2 2-1-1-2 2-2-2 2-2-1-1z'/%3E%3C/svg%3E"); }
 .inventory-icon--slot-offHand,

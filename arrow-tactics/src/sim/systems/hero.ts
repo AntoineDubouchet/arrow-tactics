@@ -206,6 +206,10 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
     }
     if (!e.alive) continue;
     const goal = workGoal(e, work, byId);
+    // Recolte, tas, depot : cargo economique partage avec le Villageois
+    // (sim/systems/cargo.ts, 2026-11-03) ; il gere lui-meme la perte de sa
+    // cible (source epuisee, point de collecte detruit -> le suivant).
+    if (cargoWork(e, goal, work, entities, dt, cargoEvents)) continue;
     if (isWorkOrder(e.order) && !goal) {
       // Source, tas ou chantier disparu (chantier termine par ailleurs,
       // detruit, tas vide) : le Heros passe en Garde.
@@ -222,9 +226,6 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       if (!h.spellCast) startSpell(e, e.order, byId, events);
       continue;
     }
-    // Recolte, tas, depot : cargo economique partage avec le Villageois
-    // (sim/systems/cargo.ts, 2026-11-03).
-    if (cargoWork(e, goal, work, entities, dt, cargoEvents)) continue;
     if (e.order.type === 'pickupItem') {
       // Butin : meme geste et meme duree qu'un petit tas.
       const drop = work.drops[e.order.dropId]!;

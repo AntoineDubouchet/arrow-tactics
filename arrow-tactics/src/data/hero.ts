@@ -142,8 +142,8 @@ export const BUILD_CHAIN_RADIUS = 3;
 export const DEPOSIT_SECONDS_PER_ITEM = 0.5;
 export const PICKUP_SECONDS = 0.6;
 export const PICKUP_REACH = 0.5;
-/** Inventaire unique du Heros (2026-11-02) : cases du sac (ressources en
- *  piles, equipements, butin). PROVISOIRE. */
+/** Inventaire RPG du Heros (2026-11-02) : cases du sac (equipements, butin ;
+ *  jamais une ressource economique, qui va dans le cargo). PROVISOIRE. */
 export const HERO_INVENTORY_SLOTS = 20;
 /** Ouverture d'un coffre (2026-11-02) : duree au contact (barre d'action),
  *  portee de contact. PROVISOIRE. */

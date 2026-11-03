@@ -64,8 +64,10 @@ des parchemins de bataille.
   **Héros** seul et la **Baliste**. Le Héros explore sous un **brouillard de
   guerre**, gagne de l'XP, récolte du **bois**, de la **pierre** et de l'or
   des gisements dans son **sac de ressources** (cargo de 10, séparé de
-  l'inventaire RPG), les **dépose à la Baliste** (seul chemin vers le stock,
-  §6 undecies ; le stock s'ajoute à l'or dans le prix des bâtiments) et
+  l'inventaire RPG), les **dépose à un point de collecte** (Baliste pour
+  tout, Scierie pour le bois, Camp de mineur pour la pierre et l'or
+  extrait : seul chemin vers le stock, §6 undecies ; le stock s'ajoute à
+  l'or dans le prix des bâtiments) et
   bâtit en bataille les **chantiers**.
 - La run continue tant que le joueur gagne ; elle s'arrête à la première
   défaite.
@@ -896,13 +898,15 @@ passe par le **cargo économique**, jamais par l'inventaire RPG, voir
   demande la **Hache de bûcheron**, exploiter les gros gisements de pierre
   et d'or la **Pioche de mineur** ; les deux outils sont donnés par une
   **Forge terminée** (`BuildingDef.unlocksTools`). La Scierie et le Camp de
-  mineur ne contrôlent plus rien. Un chantier ne débloque rien ; il suffit
+  mineur ne contrôlent plus rien (ce sont des points de collecte, §6
+  undecies). Un chantier ne débloque rien ; il suffit
   d'un bâtiment terminé ; les droits sont recalculés avant chaque pas d'après les
   bâtiments du joueur présents dans le monde (Survie générée, carte
   dessinée, « Tester le scénario »). Dernier bâtiment détruit pendant une
   récolte : le Héros finit l'unité en cours d'extraction, puis s'arrête ; en
   chemin, il s'arrête aussitôt ; tout nouvel ordre de récolte est refusé.
-  La Baliste reste le seul dépôt. La **Mine** (or toutes les 60 s) est
+  Points de collecte : Baliste (tout), Scierie (bois), Camp de mineur
+  (pierre, or extrait), §6 undecies. La **Mine** (or toutes les 60 s) est
   inchangée. **Clic droit sur un arbre ou un
   rocher verrouillé** (2026-11-02, règle d'Antoine : « interaction reconnue +
   déplacement autorisé », jamais « clic consommé ») : la source est
@@ -950,8 +954,8 @@ passe par le **cargo économique**, jamais par l'inventaire RPG, voir
 | Maison | 6 | — | 5 s |
 | Tour | 5 | 10 | 10 s |
 | Église | 10 | 10 | 12 s |
-| Scierie (10 or, 3 × 3, 15 PV ; en attente d'une fonction) | 8 | — | 8 s |
-| Camp de mineur (10 or, 3 × 3, 15 PV ; en attente d'une fonction) | 6 | 4 | 8 s |
+| Scierie (10 or, 3 × 3, 15 PV ; point de collecte : bois) | 8 | — | 8 s |
+| Camp de mineur (10 or, 3 × 3, 15 PV ; point de collecte : pierre, or extrait) | 6 | 4 | 8 s |
 | Sanctuaire (25 or, 2 × 2, 20 PV) | 8 | 8 | 10 s |
 | Écurie (20 or, 3 × 3, 25 PV) | 12 | — | 10 s |
 | Palissade (par case de longueur) | 0,5 | — | 1,5 s |
@@ -1453,8 +1457,9 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   Pioche de mineur. » (une fois par partie). Sans Forge : sélection,
   message et déplacement, aucune extraction. Dernière Forge détruite :
   nouveaux ordres refusés, l'unité en cours est finie, puis arrêt.
-- **Scierie et Camp de mineur** : constructibles, **sans fonction** pour
-  l'instant (en attente d'un nouveau rôle économique).
+- **Scierie et Camp de mineur** : **points de collecte** spécialisés depuis
+  le 2026-11-03 (Scierie : bois ; Camp de mineur : pierre et or extrait ;
+  §6 undecies). Coûts, emprises, modèles et PV inchangés.
 - **Maison A / B** : même bâtiment de jeu, modèle alterné à la pose
   (1re A, 2e B, 3e A…) d'après le nombre de Maisons posées dans la run
   (`RunState.placedBuildingCounts`) ; la variante est stockée sur le
@@ -1482,12 +1487,15 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   corps barbare D, bras et jambes WK A, ni épaulière ni arme, clips
   Spearman) : **mains vides** au repos et en marche ; **hache** en main
   pendant la coupe, **pioche** pendant le minage (pierre, or), retirées dès
-  la fin du travail ; l'estoc du set sert de coup de hache / de pioche. Se
-  sélectionne et se commande comme une unité. **Clic droit** sur un arbre,
-  un gisement de pierre ou d'or : récolte (même permission que le Héros :
-  Forge terminée) ; sur un tas de bois / pierre : ramassage ; sur la
-  Baliste avec un cargo non vide : dépôt. Cargo de **5** (§6 undecies) :
-  plein → dépôt automatique à la Baliste → retour à la source. Source
+  la fin du travail ; l'estoc du set sert de coup de hache / de pioche ;
+  ramassage d'un tas et dépôt sur la pose de repos (aucun geste dédié,
+  KI-64). Se sélectionne et se commande comme une unité. **Clic droit**
+  sur un arbre, un gisement de pierre ou d'or : récolte (même permission
+  que le Héros : Forge terminée) ; sur un tas de bois / pierre :
+  ramassage ; sur un point de collecte qui accepte ce qu'il porte : dépôt.
+  Cargo de **5** (§6 undecies) : plein → dépôt automatique au point de
+  collecte le plus proche (Scierie pour le bois, Camp de mineur pour la
+  pierre et l'or, Baliste sinon) → retour à la source. Source
   épuisée : dépôt du cargo, puis la source voisine du même type à 6 cases,
   sinon Garde. Outil perdu : l'unité en cours est finie, dépôt, Garde.
   Fiche : « Transport : 3 / 5 — Pierre 3 ».
@@ -1546,25 +1554,43 @@ le « stock direct » G30 du même jour) :
 - **Récolte** (arbre : hache ; gisement de pierre ou d'or : pioche, Forge
   terminée) : chaque unité (1 / 1,5 s) entre dans le cargo, le **stock et le
   HUD ne bougent pas**. Cargo plein → **dépôt automatique** au point de
-  collecte allié le plus proche qui accepte la ressource → retour à la
-  source → reprise. Un ordre manuel pendant le trajet annule la boucle (le
-  cargo est gardé).
+  collecte allié le plus proche qui accepte la ressource la **plus portée**
+  (à défaut la suivante) → retour à la source → reprise. Un ordre manuel
+  pendant le trajet annule la boucle (le cargo est gardé).
 - **Petits tas** de bois / pierre : clic droit → déplacement, geste 0,6 s,
   autant que le cargo peut prendre ; le reste attend au sol, dépôt, retour
   au tas, fin du tas.
-- **Point de collecte** (`BuildingDef.dropOff`, liste des ressources
-  acceptées) : la **Baliste est le seul** aujourd'hui (bois, pierre, or
-  extrait ; jamais le butin RPG). Futurs, prévus par les données mais non
-  activés : Scierie (bois), Camp de mineur (pierre, or extrait). La Forge
-  n'est pas un point de collecte.
+- **Points de collecte** (`BuildingDef.dropOff`, liste des ressources
+  acceptées par un bâtiment **terminé et allié** ; un chantier ne compte
+  pas ; jamais le butin RPG), depuis le 2026-11-03 soir (G33) :
+  - **Baliste** : bois, pierre, or extrait (point **universel de départ**,
+    conservé quand on construit les autres ; son maintien dans ce rôle
+    reste à décider) ;
+  - **Scierie** : **bois** seulement ;
+  - **Camp de mineur** : **pierre** et **or extrait** seulement ;
+  - la **Forge** n'en est pas un (elle donne les outils).
+  Aucune règle par bâtiment dans la simulation : seule la liste `dropOff`
+  compte. Fiche du bâtiment : « Point de collecte : Bois » / « Pierre, Or »
+  / « Toutes ressources ».
 - **Dépôt** : automatique (sac plein, source épuisée, outil perdu) ou
-  **manuel** (clic droit sur la Baliste avec un cargo non vide ; « Rien à
-  déposer » sinon) ; une unité / 0,5 s ; le stock (HUD) monte à chaque
-  unité ; « Dépôt terminé — stock : … » à la fin ; retour à la tâche en
-  cours s'il y en avait une.
-- **Aucun point valide** : l'unité garde son cargo, s'arrête pleine, rien
-  n'est perdu (« Sac plein — aucun point de collecte ») ; un point détruit
-  en chemin → un autre, sinon Garde.
+  **manuel** (clic droit sur un point de collecte qui accepte au moins une
+  ressource portée ; « Rien à déposer » à cargo vide ; « Aucune ressource
+  acceptée — Scierie : bois » quand il n'accepte rien de ce qu'on porte :
+  rien n'est jamais vidé en silence) ; une unité / 0,5 s ; le stock (HUD)
+  monte à chaque unité ; « Dépôt terminé — stock : … » à la fin ; retour à
+  la tâche en cours s'il y en avait une.
+- **Cargo mixte** (ex. 4 bois, 3 pierre, 2 or) : un point ne prend que ce
+  qu'il accepte, le reste demeure dans le cargo. Dépôt **manuel** : ce
+  point seulement (Scierie → les 4 bois, puis Garde). Dépôt
+  **automatique** : après un dépôt partiel, l'unité enchaîne sur le prochain
+  point acceptant ce qui reste (Scierie → Camp de mineur), jusqu'à cargo
+  vide ou aucune destination, puis retourne à sa source ; une ressource
+  sans point reste dans le cargo sans bloquer la boucle (pas d'arrêt à
+  9 / 10).
+- **Aucun point valide** pour ce qu'elle porte : l'unité garde son cargo,
+  s'arrête pleine, rien n'est perdu (« Aucun point de collecte pour
+  déposer : 10 pierre ») ; un point détruit en chemin → le suivant pour
+  ces ressources (Scierie détruite → Baliste), sinon Garde.
 - **Mort** avec un cargo : ressources **perdues** (message), aucun sac au
   sol ; le Héros revient à cargo vide. PROVISOIRE.
 - **Affichage** : sac 3D sur le dos dès qu'une ressource est transportée

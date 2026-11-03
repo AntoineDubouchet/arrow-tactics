@@ -402,8 +402,8 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
         // (2026-11-03). Source exploitable, chantier allie vivant, tas encore
         // present ou depot allie vivant.
         // Tourbillon en cours (2026-11-03) : aucun travail. Villageois :
-        // recolte seulement (plus de depot depuis le 2026-11-03).
-        const worker = command.kind === 'harvest';
+        // recolte, tas et depot (cargo, 2026-11-03).
+        const worker = command.kind === 'harvest' || command.kind === 'pickup' || command.kind === 'deposit';
         const channeling = accepted.some((e) => e.hero?.whirlwind);
         const canWork = (e: Entity): boolean => (e.hero !== null && !e.hero.whirlwind) || (worker && e.worker !== null);
         for (const e of accepted) if (!canWork(e)) result.rejectedEntityIds.push(e.id);
@@ -489,6 +489,12 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
         destination = nearestDryPoint(destination.x, destination.z, entity.stats.radius, board, isWater) ?? { x: command.x, z: command.z };
       }
       entity.order = destination ? { type: 'move', x: destination.x, z: destination.z } : { ...order };
+      // Ordre manuel : la boucle de cargo (tache a reprendre, chainage des
+      // depots) est annulee, le cargo garde (sim/systems/cargo.ts).
+      if (entity.cargo) {
+        entity.cargo.returnTo = null;
+        entity.cargo.auto = false;
+      }
       resetNavigation(entity);
       result.acceptedEntityIds.push(entity.id);
       if (moveDestinations && entity.order.type === 'move') moveDestinations.push({ entityId: entity.id, x: entity.order.x, z: entity.order.z });

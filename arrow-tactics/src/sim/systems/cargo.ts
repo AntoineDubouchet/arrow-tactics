@@ -12,20 +12,24 @@ import type { HeroWorkContext } from './hero';
  * Cargo economique (2026-11-03, demande d'Antoine) : Heros et Villageois
  * TRANSPORTENT bois, pierre et or extrait d'un gisement (`minedGold`) dans un
  * sac separe de l'inventaire RPG (Entity.cargo), jusqu'a un point de
- * collecte (BuildingDef.dropOff : la Baliste aujourd'hui). Le stock de la
- * run ne monte qu'au depot (evenement `cargoDeposit`). L'or de butin au sol
- * (monstres, coffres, barils) n'y passe jamais : monnaie directe au
- * ramassage (evenement `lootGold`).
+ * collecte (BuildingDef.dropOff : Baliste pour tout, Scierie pour le bois,
+ * Camp de mineur pour la pierre et l'or extrait ; aucune regle par id de
+ * batiment ici). Le stock de la run ne monte qu'au depot (evenement
+ * `cargoDeposit`). L'or de butin au sol (monstres, coffres, barils) n'y
+ * passe jamais : monnaie directe au ramassage (evenement `lootGold`).
  *
  * Boucle (meme regle pour les deux unites) :
  *  - `harvest` au contact : une unite toutes les HARVEST_INTERVAL s dans le
  *    cargo ; plein -> depot automatique au point allie le plus proche qui
- *    accepte la ressource, puis retour a la source (`cargo.returnTo`) ;
+ *    accepte la ressource la plus portee (a defaut, la suivante), puis
+ *    retour a la source (`cargo.returnTo`) ;
  *  - `pickup` d'un tas de bois / pierre : PICKUP_SECONDS, puis autant que
  *    le cargo peut prendre ; le reste attend au sol, depot, retour au tas ;
  *  - `deposit` : une unite toutes les DEPOSIT_SECONDS_PER_ITEM s, seules les
- *    ressources acceptees ; cargo vide -> retour a la tache memorisee, sinon
- *    Garde ;
+ *    ressources acceptees par CE point, le reste demeure dans le cargo ;
+ *    depot automatique (`cargo.auto`) : enchaine sur le prochain point qui
+ *    accepte ce qui reste, jusqu'a cargo vide ou aucun point ; puis retour
+ *    a la tache memorisee, sinon Garde ; depot manuel : ce point seulement ;
  *  - source epuisee : depot si le cargo n'est pas vide, puis (Villageois)
  *    source voisine du meme type, sinon Garde ;
  *  - outil perdu : l'unite en cours est finie, depot, Garde ;
@@ -39,7 +43,8 @@ export type CargoEvent =
   | { type: 'lootGold'; entityId: number; pileId: number; amount: number }
   /** Tas de bois / pierre : part prise dans le cargo, reste au sol. */
   | { type: 'pilePickup'; entityId: number; pileId: number; resource: CargoResource; amount: number; remaining: number }
-  /** Cargo plein (recolte ou tas) sans aucun point de collecte valide. */
+  /** Depot automatique impossible (cargo plein, source finie, point perdu
+   *  en chemin) : aucun point de collecte valide pour ce que porte l'unite. */
   | { type: 'cargoFullNoDropOff'; entityId: number }
   /** Cargo perdu a la mort (PROVISOIRE : pas de sac au sol). */
   | { type: 'cargoLost'; entityId: number; wood: number; stone: number; minedGold: number };
@@ -77,24 +82,30 @@ export function dropOffAccepts(site: Entity): readonly CargoResource[] {
   return site.isBuilding && !site.construction ? getBuilding(site.unitId).dropOff ?? [] : [];
 }
 
-/** Ressource de cargo la plus portee (pour choisir le point de collecte). */
-function mainCargoResource(e: Entity): CargoResource | null {
-  const c = e.cargo!;
-  let best: CargoResource | null = null;
-  for (const r of CARGO_RESOURCES) if (c[r] > 0 && (best === null || c[r] > c[best])) best = r;
-  return best;
+/** Ressources portees, de la plus a la moins portee (tri stable sur
+ *  CARGO_RESOURCES : deterministe). */
+function carriedResources(c: CargoState): CargoResource[] {
+  return CARGO_RESOURCES.filter((r) => c[r] > 0).sort((a, b) => c[b] - c[a]);
 }
 
-/** Part en depot automatique (point le plus proche acceptant ce que porte
- *  l'unite), en memorisant `returnTo` ; faux sans point de collecte. */
-function goDeposit(e: Entity, entities: readonly Entity[], returnTo: CargoReturnTo, events: CargoEvent[]): boolean {
-  const resource = mainCargoResource(e);
-  const site = resource ? nearestDropOff(e, entities, resource) : null;
+/** Part en depot (point allie le plus proche acceptant la ressource la plus
+ *  portee ; a defaut la suivante), en memorisant `returnTo` ; faux sans
+ *  aucun point. `auto` : depot de la boucle (chainage ensuite) ; `reroute` :
+ *  point perdu en chemin, mode inchange ; `chain` : suite d'un depot
+ *  partiel, silencieux sans point. */
+function goDeposit(e: Entity, entities: readonly Entity[], returnTo: CargoReturnTo, events: CargoEvent[], mode: 'auto' | 'reroute' | 'chain' = 'auto'): boolean {
+  const c = e.cargo!;
+  let site: Entity | null = null;
+  for (const r of carriedResources(c)) {
+    site = nearestDropOff(e, entities, r);
+    if (site) break;
+  }
   if (!site) {
-    events.push({ type: 'cargoFullNoDropOff', entityId: e.id });
+    if (mode !== 'chain') events.push({ type: 'cargoFullNoDropOff', entityId: e.id });
     return false;
   }
-  e.cargo!.returnTo = returnTo;
+  if (mode === 'auto') c.auto = true;
+  c.returnTo = returnTo;
   e.order = { type: 'deposit', targetEntityId: site.id };
   return true;
 }
@@ -139,6 +150,7 @@ function afterSource(e: Entity, work: HeroWorkContext, entities: readonly Entity
   const returnTo = next !== null ? ({ kind: 'node', nodeId: next } as const) : null;
   if (cargoTotal(e.cargo!) > 0 && goDeposit(e, entities, returnTo, events)) return;
   e.cargo!.returnTo = null;
+  e.cargo!.auto = false;
   e.order = next !== null ? { type: 'harvest', nodeId: next } : { type: 'guard' };
 }
 
@@ -162,6 +174,7 @@ export function cargoWork(e: Entity, goal: { reached: boolean; target: Entity | 
     // Tout autre ordre (deplacement, Stop, attaque, chantier...) oublie la
     // tache a reprendre : la boucle est annulee, le cargo garde.
     c.returnTo = null;
+    c.auto = false;
     return false;
   }
   // Ordre de travail sans but (source disparue, tas vide, depot perdu,
@@ -169,10 +182,11 @@ export function cargoWork(e: Entity, goal: { reached: boolean; target: Entity | 
   if (!goal) {
     if (order.type === 'harvest') afterSource(e, work, entities, order.nodeId, events, true);
     else if (order.type === 'deposit') {
-      // Point de collecte disparu en chemin : un autre, sinon Garde (cargo garde).
-      const back = c.returnTo;
-      if (!goDeposit(e, entities, back, events)) {
+      // Point de collecte disparu en chemin : le prochain point valide pour
+      // ce qu'elle porte, sinon Garde (cargo garde).
+      if (!goDeposit(e, entities, c.returnTo, events, 'reroute')) {
         c.returnTo = null;
+        c.auto = false;
         e.order = { type: 'guard' };
       }
     } else {
@@ -210,8 +224,13 @@ export function cargoWork(e: Entity, goal: { reached: boolean; target: Entity | 
     if (!pending()) {
       w.working = null;
       w.workTimer = 0;
+      // Depot automatique partiel (point specialise, cargo mixte) : enchaine
+      // sur le prochain point acceptant ce qui reste ; sinon (ou depot
+      // manuel) le reste demeure dans le cargo.
+      if (c.auto && cargoTotal(c) > 0 && goDeposit(e, entities, c.returnTo, events, 'chain')) return true;
       const resumed = resumeOrder(e, work);
       c.returnTo = null;
+      c.auto = false;
       e.order = resumed ?? { type: 'guard' };
     }
     return true;
@@ -254,6 +273,7 @@ export function cargoWork(e: Entity, goal: { reached: boolean; target: Entity | 
       if (!goDeposit(e, entities, { kind: 'pile', pileId: pile.id }, events)) e.order = { type: 'guard' };
     } else {
       c.returnTo = null;
+      c.auto = false;
       e.order = { type: 'guard' };
     }
     return true;
@@ -305,4 +325,5 @@ export function loseCargoOnDeath(e: Entity, events: CargoEvent[]): void {
   if (cargoTotal(c) > 0) events.push({ type: 'cargoLost', entityId: e.id, wood: c.wood, stone: c.stone, minedGold: c.minedGold });
   c.wood = c.stone = c.minedGold = 0;
   c.returnTo = null;
+  c.auto = false;
 }

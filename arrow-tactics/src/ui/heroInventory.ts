@@ -231,12 +231,7 @@ export class HeroInventoryPanel {
   private bagCell(c: HeroSheetCell, index: number): HTMLElement {
     const cell = el('div', 'inventory-cell');
     cell.dataset['index'] = String(index);
-    if (c.kind === 'resource') {
-      cell.classList.add('inventory-cell--resource', `inventory-cell--${c.resource}`);
-      cell.style.borderColor = c.color;
-      cell.append(el('i', `inventory-icon inventory-icon--${c.resource}`), el('span', 'inventory-cell-amount', `${c.amount}`));
-      this.hover(cell, () => [{ text: c.name, strong: true, color: c.color }, { text: `Quantité : ${c.amount} / ${c.max}` }, { text: 'À déposer à la Baliste pour l\'utiliser.' }]);
-    } else if (c.kind === 'item') {
+    if (c.kind === 'item') {
       this.fillItem(cell, c.item);
       cell.addEventListener('dblclick', () => this.onAction({ type: 'equip', from: index }));
       this.hover(cell, () => itemTooltip(c.item));

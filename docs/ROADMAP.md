@@ -374,8 +374,8 @@ verrous de récolte avancée, cavaleries légères (bestiaire, éditeur),
 chantiers bâtis en bataille (`CURRENT_STATE.md` §6 bis). À ne pas
 construire avant une décision explicite d'Antoine :
 
-- la **Scierie** et le **Camp de mineur** (crochet `BuildingDef.unlocksHarvest`
-  prêt) et leur économie ;
+- le reste de l'économie de la **Scierie** et du **Camp de mineur** (points
+  de collecte depuis le 2026-11-03, G33) ;
 - les **camps PvE** de la carte, la place des cavaleries (recrutement,
   vagues) ;
 - **performance de la grande carte** (KI-34) : décors instanciés ou fusionnés
@@ -455,18 +455,19 @@ Wall V1 supprimé et Palissade V2 construite le 2026-11-02
 ## 6 nonies. Scierie et Camp de mineur — suites
 
 Construits le 2026-11-02 (`DESIGN_DECISIONS.md` G22). Depuis le 2026-11-03,
-ils ne contrôlent plus la récolte (Forge = outils, G25) : **nouvelle
-fonction à définir** (décision d'Antoine). À voir aussi :
+ils ne contrôlent plus la récolte (Forge = outils, G25) et sont des
+**points de collecte** (Scierie : bois ; Camp de mineur : pierre, or
+extrait ; G33). À voir aussi :
 
 - visuel dédié du Camp de mineur (aujourd'hui l'atelier KayKit : outils,
   sans pierre) ;
-- dépôt local (Scierie, Camp de mineur) si la marche jusqu'à la Baliste
-  devient pénible ;
+- ~~dépôt local (Scierie, Camp de mineur)~~ : fait le 2026-11-03 (G33) ; à
+  décider : la Baliste garde-t-elle son rôle de dépôt universel ?
 - ~~gros rochers bloquants ou non (KI-41)~~ : bloquants depuis le
   2026-11-03 (G25) ;
 - ouvriers / récolte par d'autres unités que le Héros : Auberge et
-  Villageois faits le 2026-11-03 (G28) ; à suivre : modèle et gestes du
-  Villageois (KI-61), construction par les Villageois, dépôts locaux ;
+  Villageois faits le 2026-11-03 (G28, modèle dédié G32) ; à suivre :
+  gestes de travail dédiés (KI-64), construction par les Villageois ;
 - amélioration de l'Écurie et du Sanctuaire plus parlante que +5 PV
   (G26) ;
 - ~~éditeur : génération procédurale (graine) et vue globale (G27)~~ :
@@ -519,7 +520,8 @@ coffre, drop du Maraudeur). À faire :
 - visuel des pièces de corps en jeu (KI-44) ;
 - effets suivants : vol de vie, bonus contre un type d'ennemi,
   régénération, bonus de récolte (champ `effects`) ;
-- **Scierie** et **Camp de mineur** (crochets `unlocksHarvest` prêts) ;
+- ~~**Scierie** et **Camp de mineur**~~ : points de collecte depuis le
+  2026-11-03 (G33) ;
 - items propres à d'autres héros (`heroId` générique).
 
 ## 6 ter. Outils internes de conception

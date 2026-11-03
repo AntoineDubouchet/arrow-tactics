@@ -1267,12 +1267,14 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
 
 ## 13 quinquies. Inventaire unique, économie, contrôles
 
-- `sim/inventory.ts` : inventaire pur (cases, piles, équipement), actions
-  (`InventoryAction`), `resolveEquipmentBonus` (données fixes des items,
-  comme les stats d'unité). État : `Entity.hero.inventory` ; l'interface
+- `sim/inventory.ts` : inventaire RPG pur (cases d'équipement seulement :
+  aucune ressource, KI-63 close le 2026-11-03 ; les ressources vont dans
+  `Entity.cargo`, §13 nonies), actions (`InventoryAction`),
+  `resolveEquipmentBonus` (données fixes des items, comme les stats
+  d'unité). État : `Entity.hero.inventory` ; l'interface
   passe par `World.queueInventoryAction` (pas suivant) ; `run/heroEquipment`
   ne garde que descriptions et visuels.
-- Données : `data/resources.ts` (bois, pierre, or : piles), `data/hero.ts`
+- Données : `data/resources.ts` (sources, outils, cargo), `data/hero.ts`
   (`HERO_INVENTORY_SLOTS`), `data/loot.ts` (`ENEMY_GOLD_DROPS`),
   `data/equipment.ts` (`BODY_LAYOUT`, torse / bras / jambes).
 - Or au sol : `World.dropGold` (tas = `resourcePiles`, ressource `gold`),
@@ -1423,16 +1425,29 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   `data/resources.ts` (`CargoResource` = wood | stone | minedGold,
   `ResourceCargo`, `CARGO_CAPACITY`, `cargoResourceOf`), `Entity.cargo`
   (`CargoState` : compteurs, capacité, `returnTo` = tâche à reprendre après
-  un dépôt automatique). `sim/systems/cargo.ts` (`cargoWork`) : une seule
-  boucle récolte → plein → dépôt (`nearestDropOff`, `BuildingDef.dropOff`)
-  → retour, partagée par le Héros (`heroWorkSystem` y délègue `harvest`,
-  `pickup`, `deposit`) et le Villageois (`workerSystem`) ; mort :
-  `loseCargoOnDeath`. La simulation ne crédite jamais : elle publie
+  un dépôt automatique, `auto` = dépôt lancé par la boucle, qui enchaîne
+  sur d'autres points). `sim/systems/cargo.ts` (`cargoWork`) : une seule
+  boucle récolte → plein → dépôt → retour, partagée par le Héros
+  (`heroWorkSystem` appelle `cargoWork` **avant** son repli « cible perdue
+  → Garde », pour que le cargo gère lui-même un point détruit) et le
+  Villageois (`workerSystem`) ; mort : `loseCargoOnDeath`. **Points de
+  collecte par données** : `BuildingDef.dropOff` (Baliste : tout ; Scierie :
+  bois ; Camp de mineur : pierre, or extrait), `nearestDropOff(e, entités,
+  ressource)` (allié, terminé, vivant, le plus proche), aucun test d'id ;
+  `goDeposit` essaie les ressources portées de la plus à la moins portée et
+  prend le premier point trouvé ; fin d'un dépôt automatique partiel
+  (`auto`) → `goDeposit(…, 'chain')` vers le point suivant, silencieux
+  sans point ; point perdu en chemin → `goDeposit(…, 'reroute')`.
+  `sim/orders.ts` remet `returnTo` et `auto` à zéro sur tout ordre manuel.
+  La simulation ne crédite jamais : elle publie
   `World.cargoEvents` (`cargoDeposit`, `lootGold`, `pilePickup`,
   `cargoFullNoDropOff`, `cargoLost`) ; `main.ts` (`handleCargoEvents`,
-  `creditStock`) crédite `RunState.resources` ou `RunState.gold`.
-  L'inventaire RPG (`sim/inventory.ts`) n'est plus touché par les
-  ressources. Rendu : `updateCarryBundle(view, cargo)`.
+  `creditStock`) crédite `RunState.resources` ou `RunState.gold` ; le
+  clic droit sur un point de collecte n'envoie `deposit` qu'aux unités qui
+  portent une ressource acceptée (sinon message). L'inventaire RPG
+  (`sim/inventory.ts`) ne connaît plus les ressources (KI-63 close).
+  Rendu : `updateCarryBundle(view, cargo)` ; fiche : `dropOffRows`
+  (`run/entityInfo.ts`).
 - **Outils** : `data/resources.ts` (`HARVEST_TOOLS`, `HARVEST_NODE_KINDS`
   : outil, geste, unité, quantité, monnaie) ; `BuildingDef.unlocksTools` ;
   `run/harvestPermissions.ts` (alliés via `sim/relations.ts`,
@@ -1455,7 +1470,8 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   `sim/orders.ts` accepte `harvest`, `pickup` et `deposit` des entités à
   `worker`. Aucune attaque : `damage` 0, `aggroRange` 0 (`data/units.ts`).
   Rendu : kit `villageois` (`toonUnitRig.ts`, `human_villager.glb`, outils
-  `tool_axe` / `tool_pick` montrés par `setWorkerTool` selon `working`) ;
+  `tool_axe` / `tool_pick` montrés par `setWorkerTool` selon `working` ;
+  rôles `chop` / `mine` sur l'estoc, `gather` / `deposit` sur le repos) ;
   un clip partagé par plusieurs rôles reçoit une action par rôle
   (`buildToonUnitModel`), pour que `UnitViews` distingue l'attaque du
   geste de travail.

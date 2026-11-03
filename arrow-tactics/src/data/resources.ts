@@ -1,34 +1,19 @@
 /**
- * Ressources (2026-11-02) : deux categories.
+ * Ressources (2026-11-02, cargo economique du 2026-11-03) : deux categories.
  *
- * - Ressources PHYSIQUES transportees (bois, pierre, futurs materiaux) :
- *   objets empilables du sac du Heros (ou charge d'un Villageois), ramasses
- *   dans le monde, portes, deposes : alors seulement elles entrent dans le
- *   stock de la run (seul utilisable pour payer).
- * - MONNAIE (or) : appartient directement au joueur (RunState.gold), jamais
- *   dans un sac. Tas d'or au sol, gisement d'or, Mine : credit immediat.
+ * - Ressources TRANSPORTEES (bois, pierre, or extrait d'un gisement) : dans
+ *   le cargo d'une unite economique (ResourceCargo, jamais une case de
+ *   l'inventaire RPG), deposees a un point de collecte : alors seulement
+ *   elles entrent dans le stock de la run (seul utilisable pour payer).
+ * - MONNAIE (or de butin) : appartient directement au joueur (RunState.gold)
+ *   des qu'il est ramasse. Tas d'or au sol, Mine : credit immediat.
  *
  * Valeurs PROVISOIRES.
  */
-export type CarriedResource = 'wood' | 'stone';
 
-/** Ce qu'un tas au sol peut contenir : une ressource physique ou de l'or
- *  (monnaie, ramasse d'un clic, World.collectGoldPile). */
-export type PileResource = CarriedResource | 'gold';
-
-export interface ResourceItemDef {
-  id: CarriedResource;
-  name: string;
-  /** Taille maximale d'une pile dans une case du sac. */
-  maxStack: number;
-  /** Couleur de l'icone et du cadre (#rrggbb). */
-  color: string;
-}
-
-export const RESOURCE_ITEMS: Readonly<Record<CarriedResource, ResourceItemDef>> = {
-  wood: { id: 'wood', name: 'Bois', maxStack: 5, color: '#b07a45' },
-  stone: { id: 'stone', name: 'Pierre', maxStack: 5, color: '#9aa3ad' },
-};
+/** Ce qu'un tas au sol peut contenir : une ressource physique (prise dans
+ *  le cargo) ou de l'or de butin (monnaie directe au ramassage). */
+export type PileResource = 'wood' | 'stone' | 'gold';
 
 /** Outils de recolte (2026-11-02) : debloques pour tout le camp par un
  *  batiment TERMINE qui les porte (BuildingDef.unlocksTools : la Forge). */
@@ -46,8 +31,7 @@ export type HarvestResource = 'wood' | 'stone' | 'gold';
  *  gisements de pierre et d'or, meme logique — quantite finie decomptee a
  *  chaque unite (World.resourceNodeAmounts), outil requis, geste, nom
  *  affiche ; a 0 : source retiree, cases liberees (World.depleteResourceNode).
- *  `currency` : chaque unite extraite credite directement l'or du joueur
- *  (jamais le sac). PROVISOIRE. */
+ *  Toute unite extraite va dans le cargo (cargoResourceOf). PROVISOIRE. */
 export interface HarvestNodeKind {
   /** Nom affiche a la selection (« Arbre — 20 bois »). */
   name: string;
@@ -59,15 +43,14 @@ export interface HarvestNodeKind {
   tool: HarvestTool;
   /** Geste au contact (HeroState.working). */
   working: 'chop' | 'mine';
-  /** Vrai : monnaie creditee a chaque unite (or), pas de transport. */
-  currency: boolean;
 }
 
 export const HARVEST_NODE_KINDS: Readonly<Record<HarvestResource, HarvestNodeKind>> = {
-  wood: { name: 'Arbre', unit: 'bois', amount: 20, tool: 'axe', working: 'chop', currency: false },
-  stone: { name: 'Gisement de pierre', unit: 'pierre', amount: 40, tool: 'pickaxe', working: 'mine', currency: false },
-  // Or (2026-11-02) : plus rare que la pierre, credite directement (25 or).
-  gold: { name: 'Gisement d’or', unit: 'or', amount: 25, tool: 'pickaxe', working: 'mine', currency: true },
+  wood: { name: 'Arbre', unit: 'bois', amount: 20, tool: 'axe', working: 'chop' },
+  stone: { name: 'Gisement de pierre', unit: 'pierre', amount: 40, tool: 'pickaxe', working: 'mine' },
+  // Or (2026-11-02) : plus rare que la pierre (25 or) ; transporte comme le
+  // reste (minedGold) depuis le 2026-11-03.
+  gold: { name: 'Gisement d’or', unit: 'or', amount: 25, tool: 'pickaxe', working: 'mine' },
 };
 
 /** Bois total d'un arbre (arbre isole ou bosquet). PROVISOIRE. */
@@ -89,9 +72,6 @@ export const NO_HARVEST_TOOLS: HarvestPermissions = { tools: [] };
 export function canHarvestResource(permissions: HarvestPermissions, resource: HarvestResource): boolean {
   return permissions.tools.includes(HARVEST_NODE_KINDS[resource].tool);
 }
-
-/** Ordre de depot (une unite toutes les DEPOSIT_SECONDS_PER_ITEM s). */
-export const CARRIED_RESOURCES: readonly CarriedResource[] = ['wood', 'stone'];
 
 // --- Cargo economique (2026-11-03) -------------------------------------------
 

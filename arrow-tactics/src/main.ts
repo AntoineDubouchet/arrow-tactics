@@ -239,7 +239,7 @@ import { HeroInventoryPanel } from './ui/heroInventory';
 import { ItemEditor } from './itemEditor/itemEditorUI';
 import { equippedHandVisuals } from './run/heroEquipment';
 import { createHeroInventory, inventoryItems, type InventoryAction } from './sim/inventory';
-import { canHarvestResource, cargoTotal, HARVEST_NODE_KINDS, HARVEST_TOOLS, RESOURCE_ITEMS } from './data/resources';
+import { canHarvestResource, CARGO_LABELS, cargoResourceOf, cargoTotal, HARVEST_NODE_KINDS, HARVEST_TOOLS } from './data/resources';
 import { EconomyHud } from './ui/economyHud';
 import { ActionProgressBar } from './ui/actionProgress';
 import { EQUIPMENT, type EquipmentSlot } from './data/equipment';
@@ -2634,7 +2634,7 @@ function updateHeroUi(): void {
   resourceSelectionRing.animate(0);
   if (selectedPileId !== null && pile) {
     const at = worldToScreen(pile.x, pile.z);
-    pileLabel.show(`${pile.resource === 'gold' ? 'Or' : RESOURCE_ITEMS[pile.resource as ResourceKind].name} — ${pile.amount}`, at.x, at.y - 22);
+    pileLabel.show(`${CARGO_LABELS[cargoResourceOf(pile.resource)]} — ${pile.amount}`, at.x, at.y - 22);
   } else if (shownSource) {
     const at = worldToScreen(shownSource.x, shownSource.z);
     pileLabel.show(`${HARVEST_NODE_KINDS[shownSource.resource].name} — ${sourceLeft ?? 0} ${HARVEST_NODE_KINDS[shownSource.resource].unit}`, at.x, at.y - 22);
@@ -3096,13 +3096,17 @@ function handleCargoEvents(): void {
       if (e?.hero) waveIndicator.flash(`+${ev.amount} ${ev.resource === 'wood' ? 'bois' : 'pierre'} dans le sac${ev.remaining > 0 ? ` — ${ev.remaining} au sol (sac plein)` : ''}`);
     } else if (ev.type === 'cargoFullNoDropOff') {
       const e = world.getById(ev.entityId);
-      if (e?.hero) waveIndicator.flash('Sac plein — aucun point de collecte (Baliste) pour déposer');
+      if (e?.hero) waveIndicator.flash(`Aucun point de collecte pour déposer : ${cargoParts(e.cargo!)}`);
     } else if (ev.type === 'cargoLost') {
       const e = world.getById(ev.entityId);
-      const parts = [ev.wood > 0 ? `${ev.wood} bois` : '', ev.stone > 0 ? `${ev.stone} pierre` : '', ev.minedGold > 0 ? `${ev.minedGold} or` : ''].filter(Boolean).join(', ');
-      waveIndicator.flash(`${e?.hero ? 'Héros' : 'Villageois'} à terre : ${parts} perdus`);
+      waveIndicator.flash(`${e?.hero ? 'Héros' : 'Villageois'} à terre : ${cargoParts(ev)} perdus`);
     }
   }
+}
+
+/** « 4 bois, 2 pierre, 1 or » d'un cargo (ou d'un evenement qui en a la forme). */
+function cargoParts(c: { wood: number; stone: number; minedGold: number }): string {
+  return [c.wood > 0 ? `${c.wood} bois` : '', c.stone > 0 ? `${c.stone} pierre` : '', c.minedGold > 0 ? `${c.minedGold} or` : ''].filter(Boolean).join(', ');
 }
 
 /** Outils de la Forge deja annonces pendant cette partie (une seule fois,
@@ -6237,11 +6241,17 @@ function issueRightClickOrder(event: MouseEvent): void {
     const pile = depot || site || chest || drop ? null : resourcePileNear(point.x, point.z);
     const node = depot || site || chest || drop || pile ? null : resourceNodeAtClick(event.clientX, event.clientY, point);
     // Depot manuel (2026-11-03) : clic droit sur un point de collecte avec
-    // un cargo non vide ; tout tas (bois, pierre, or de butin) se ramasse en
-    // y allant (ordre pickup, geste de ramassage).
-    const heroCargo = heroIds.map((id) => world.getById(id)!).some((e) => e.cargo && cargoTotal(e.cargo) > 0);
+    // une ressource qu'il accepte (BuildingDef.dropOff) ; seules les unites
+    // concernees y vont, rien n'est vide en silence ; tout tas (bois,
+    // pierre, or de butin) se ramasse en y allant (ordre pickup, geste de
+    // ramassage).
+    const accepted = depot ? getBuilding(depot.unitId).dropOff ?? [] : [];
+    const canDeposit = (id: number): boolean => { const c = world.getById(id)?.cargo; return !!c && accepted.some((r) => c[r] > 0); };
+    const carries = (ids: readonly number[]): boolean => ids.some((id) => { const c = world.getById(id)?.cargo; return !!c && cargoTotal(c) > 0; });
+    const depositHeroIds = heroIds.filter(canDeposit);
+    const heroCargo = depositHeroIds.length > 0;
     const command: PlayerCommand | null = heroIds.length === 0 ? null : depot
-      ? (heroCargo ? { kind: 'deposit', entityIds: heroIds, targetEntityId: depot.id } : null)
+      ? (heroCargo ? { kind: 'deposit', entityIds: depositHeroIds, targetEntityId: depot.id } : null)
       : site
         ? { kind: 'build', entityIds: heroIds, targetEntityId: site.id }
         : chest
@@ -6253,13 +6263,18 @@ function issueRightClickOrder(event: MouseEvent): void {
           : node
             ? { kind: 'harvest', entityIds: heroIds, nodeId: node.id }
             : null;
-    const workerCargo = workerIds.map((id) => world.getById(id)!).some((e) => e.cargo && cargoTotal(e.cargo) > 0);
+    const depositWorkerIds = workerIds.filter(canDeposit);
+    const workerCargo = depositWorkerIds.length > 0;
     const workerCommand: PlayerCommand | null = workerIds.length === 0 ? null
-      : depot ? (workerCargo ? { kind: 'deposit', entityIds: workerIds, targetEntityId: depot.id } : null)
+      : depot ? (workerCargo ? { kind: 'deposit', entityIds: depositWorkerIds, targetEntityId: depot.id } : null)
       : pile && pile.resource !== 'gold' ? { kind: 'pickup', entityIds: workerIds, pileId: pile.id }
       : node ? { kind: 'harvest', entityIds: workerIds, nodeId: node.id }
       : null;
-    if (depot && !heroCargo && !workerCargo && (heroIds.length > 0 || workerIds.length > 0)) waveIndicator.flash('Rien à déposer');
+    if (depot && !heroCargo && !workerCargo && (heroIds.length > 0 || workerIds.length > 0)) {
+      waveIndicator.flash(carries(heroIds) || carries(workerIds)
+        ? `Aucune ressource acceptée — ${getBuilding(depot.unitId).displayName} : ${accepted.map((r) => CARGO_LABELS[r].toLowerCase()).join(', ')}`
+        : 'Rien à déposer');
+    }
     if (command || workerCommand) {
       if (node) {
         // Source visee : selectionnee (anneau jaune), recoltable ou non.

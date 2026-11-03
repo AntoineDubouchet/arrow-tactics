@@ -19,7 +19,7 @@ import { churchHealCost, churchHealHpPerGold } from './churchHeal';
 import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isBuildingAtMaxLevel, isUpgradableBuilding } from './buildingUpgrades';
 import { BODY_LAYOUT, EQUIPMENT_SLOTS, EQUIPMENT_TYPES, getEquipment, RARITIES, type EquipmentSlot } from '../data/equipment';
-import { CARGO_LABELS, CARGO_RESOURCES, cargoTotal, HARVEST_TOOLS, RESOURCE_ITEMS, type ResourceCargo } from '../data/resources';
+import { CARGO_LABELS, CARGO_RESOURCES, cargoTotal, HARVEST_TOOLS, type ResourceCargo } from '../data/resources';
 import { describeEquipment } from './heroEquipment';
 import { freeSlotCount, type HeroInventory } from '../sim/inventory';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
@@ -376,11 +376,9 @@ export interface HeroSheetItem {
   sellValue: number;
 }
 
-/** Case du sac (grille) : vide, pile de ressource ou equipement. */
-export type HeroSheetCell =
-  | { kind: 'empty' }
-  | { kind: 'resource'; resource: string; name: string; amount: number; max: number; color: string }
-  | { kind: 'item'; item: HeroSheetItem };
+/** Case du sac (grille) : vide ou equipement (jamais une ressource :
+ *  cargo, 2026-11-03). */
+export type HeroSheetCell = { kind: 'empty' } | { kind: 'item'; item: HeroSheetItem };
 
 /** Feuille du Heros (2026-11-02, inventaire, touche I) : remplace sa fiche,
  *  qui ne s'affiche plus a sa selection. Statistiques EFFECTIVES de son
@@ -439,12 +437,7 @@ export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: num
       const worn = b.accepts.map((slot) => inventory.equipped[slot]).find((id) => id !== undefined);
       return { id: b.id, label: b.label, accepts: b.accepts, item: worn ? sheetItem(worn) : null };
     }),
-    cells: inventory.slots.map((s): HeroSheetCell => {
-      if (!s) return { kind: 'empty' };
-      if (s.kind === 'item') return { kind: 'item', item: sheetItem(s.itemId) };
-      const def = RESOURCE_ITEMS[s.resource];
-      return { kind: 'resource', resource: s.resource, name: def.name, amount: s.amount, max: def.maxStack, color: def.color };
-    }),
+    cells: inventory.slots.map((s): HeroSheetCell => (s ? { kind: 'item', item: sheetItem(s.itemId) } : { kind: 'empty' })),
     capacity: `${inventory.slots.length - freeSlotCount(inventory)} / ${inventory.slots.length}`,
     cargo: entity.cargo ? cargoSummary(entity.cargo) : undefined,
   };
@@ -597,6 +590,15 @@ function harvestUnlockRows(buildingId: string): EntityInfoRow[] {
   return tools.length > 0 ? [{ label: 'Outils', value: tools.map((t) => HARVEST_TOOLS[t].name).join(', ') }] : [];
 }
 
+/** Point de collecte (2026-11-03) : ressources de cargo acceptees
+ *  (« Toutes ressources » quand il accepte tout, comme la Baliste). */
+function dropOffRows(buildingId: string): EntityInfoRow[] {
+  const accepted = getBuilding(buildingId).dropOff ?? [];
+  if (accepted.length === 0) return [];
+  const value = CARGO_RESOURCES.every((r) => accepted.includes(r)) ? 'Toutes ressources' : accepted.map((r) => CARGO_LABELS[r]).join(', ');
+  return [{ label: 'Point de collecte', value }];
+}
+
 /** Lignes de production d'un batiment possede selon SON niveau. */
 function ownedBuildingRows(buildingId: string, level: number): EntityInfoRow[] {
   const def = getBuilding(buildingId);
@@ -604,7 +606,7 @@ function ownedBuildingRows(buildingId: string, level: number): EntityInfoRow[] {
   if (def.production) return productionRows(def.id, level);
   if (def.attack) return attackRows(effectiveBuildingAttackDamage(def.id, level), def.attack.rangeTiles, def.attack.cooldownSeconds);
   if (def.armyHeal) return [...armyHealRows(def.id, level), ...recruitmentUnlockRows(def.id)];
-  return [...populationBonusRows(def.id), ...harvestUnlockRows(def.id)];
+  return [...populationBonusRows(def.id), ...harvestUnlockRows(def.id), ...dropOffRows(def.id)];
 }
 
 /** Effet du prochain niveau, en une ligne (Mine, Caserne, Camp d'archerie,
@@ -717,7 +719,7 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
   } else if (def.armyHeal) {
     // Le soin de l'armee ne se declenche qu'en preparation.
     rows = [...armyHealRows(def.id, ownedLevel ?? 0), { label: 'Soin de l’armée', value: 'En préparation uniquement' }, ...recruitmentUnlockRows(def.id)];
-  } else rows = [...populationBonusRows(def.id), ...harvestUnlockRows(def.id)];
+  } else rows = [...populationBonusRows(def.id), ...harvestUnlockRows(def.id), ...dropOffRows(def.id)];
   rows.push(...footprintRows(def.id));
   // Batiment de production d'un scenario de l'editeur (non possede) : Niv. 1.
   const level = isUpgradableBuilding(def.id) ? (def.production ? (ownedLevel ?? 0) : ownedLevel) : playerLevel(entity.team, progress.upgrades, def.id);
@@ -733,6 +735,7 @@ function ballistaRows(progress: PlayerProgression): EntityInfoRow[] {
     { label: 'Portée', value: formatRange(PLAYER_ARROW_RANGE) },
     { label: 'Recharge', value: formatSeconds(effectivePlayerArrowCooldown(progress)) },
     { label: 'Carreaux / volée', value: String(playerArrowBoltsPerVolley(progress.talents)) },
+    ...dropOffRows('ballista'),
   ];
 }
 

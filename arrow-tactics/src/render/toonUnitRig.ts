@@ -189,8 +189,9 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
   // barbare D, bras et jambes WK A, ni epauliere ni arme) : peon economique,
   // clips Spearman ; son estoc sert de coup de hache / de pioche (outils
   // `tool_axe` / `tool_pick` du GLB, visibles seulement au travail,
-  // setWorkerTool), ramassage et depot accroupis absents du set : estoc
-  // ralenti. Aucune attaque en jeu (data/units.ts).
+  // setWorkerTool). Le set n'a aucun geste accroupi : ramassage et depot
+  // restent sur le repos (pas de coup de lance a vide, KI-64). Aucune
+  // attaque en jeu (data/units.ts).
   villageois: {
     file: 'human_villager.glb',
     textures: 'wk',
@@ -201,8 +202,8 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
       attack: once('attack'),
       chop: loop('attack', 1.1),
       mine: loop('attack', 1.1),
-      gather: loop('attack', 0.8),
-      deposit: loop('attack', 0.8),
+      gather: loop('idle'),
+      deposit: loop('idle'),
     },
   },
   vengeur: {
