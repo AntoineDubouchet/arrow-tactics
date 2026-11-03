@@ -174,8 +174,7 @@ export class BuildingDamageFx {
   private measure(): THREE.Box3 {
     if (!this.box) {
       const box = new THREE.Box3().setFromObject(this.mesh);
-      // Vue sans modele (case suiveuse d'une paire de murailles, voir
-      // render/wallVisuals.ts) : une case de haut de mur.
+      // Vue sans modele (boite vide) : une case de haut par defaut.
       if (box.isEmpty()) {
         const p = this.mesh.position;
         box.set(new THREE.Vector3(p.x - 0.5, p.y, p.z - 0.5), new THREE.Vector3(p.x + 0.5, p.y + 1.1, p.z + 0.5));

@@ -15,11 +15,12 @@ import {
   type ObstacleDef,
 } from '../../config/constants';
 import { clamp } from '../../core/math';
-import { bodyPathNearTerrainCliff, crossesTerrainCliff, findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, isMeleeAttack, obstaclesBlockingTeam, obstaclesCollidingTeam, segmentIntersectsBox, terrainObstacles } from '../geometry';
+import { closestOnSegment } from '../../core/wallLine';
+import { bodyPathNearTerrainCliff, bodyPathNearWall, crossesTerrainCliff, findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, isMeleeAttack, obstaclesForUnit, segmentIntersectsBox, targetDistance, terrainObstacles } from '../geometry';
 import { forwardDir, type Entity } from '../entity';
 import { finishOrder, isWorkOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
 import { workGoal, type HeroWorkContext } from './hero';
-import { cachedPathGrid, findPath, isTileBlockedAt, type PathGrid } from '../pathfinding';
+import { cachedPathGrid, findPath, isTileBlockedAt, tileToWorldX, tileToWorldZ, type PathGrid } from '../pathfinding';
 import { SpatialGrid } from '../spatialGrid';
 
 /** Distance (cases) sous laquelle un point de cheminement est considere
@@ -141,7 +142,7 @@ export function movementSystem(
   /** Recoit les fins d'ordres manuels du pas (voir sim/orders.ts). */
   orderEvents: OrderEndEvent[] = [],
   /** Sources de ressources (ordres de recolte du Heros). */
-  heroWork: HeroWorkContext = { nodes: new Map(), nodeAmounts: new Map(), depleted: [], piles: [], drops: [], chests: [], chestLocked: () => true, openChest: () => ({ itemId: null, dropId: null }) },
+  heroWork: HeroWorkContext = { nodes: new Map(), nodeAmounts: new Map(), depleted: [], canHarvest: () => false, piles: [], drops: [], chests: [], chestLocked: () => true, openChest: () => ({ itemId: null, dropId: null }) },
   /** Marche des vagues vers le camp (null : marche neutre historique). */
   march: MarchContext | null = null,
 ): void {
@@ -174,15 +175,13 @@ export function movementSystem(
   // (voir pursueNeutralWithPathfinding, updateStuckState) — construite avant
   // updateStuckState, qui peut avoir besoin d'un premier calcul de chemin
   // des ce tick si un blocage prolonge vient d'etre detecte.
-  // Obstacles et grille PAR CAMP : une porte de muraille est un passage pour
-  // les TRAJETS de son camp, meme fermee (ObstacleDef.passableForTeam) ; la
-  // COLLISION (etape 3) ne la laisse franchir qu'ouverte. Sans porte, les
-  // deux camps partagent la meme liste et la meme grille.
+  // Obstacles et grille par camp : une porte de palissade ouverte n'est un
+  // passage que pour son proprietaire et ses allies (sim/relations.ts).
   // Eau : retiree des trajets et de la collision des seules unites qui la
   // franchissent (UnitStats.canTraverseWater, aucune unite actuelle).
   // Grilles en cache par reference de liste (cachedPathGrid) : reconstruites
   // seulement quand World.obstacles change (2026-11-02).
-  const teamObstacles = (e: Entity): ObstacleDef[] => obstaclesBlockingTeam(obstacles, e.team, e.stats.canTraverseWater === true);
+  const teamObstacles = (e: Entity): ObstacleDef[] => obstaclesForUnit(obstacles, e, e.stats.canTraverseWater === true);
   const teamGrid = (e: Entity): PathGrid => cachedPathGrid(teamObstacles(e), boardWidth, boardHeight);
   // Marche vers le camp : terrain seul (sans emprises de batiments).
   const terrain = march ? terrainObstacles(obstacles, entities) : obstacles;
@@ -336,7 +335,7 @@ export function movementSystem(
     // 3. Collision avec les obstacles
     // Une unite est un cercle (rayon = stats.radius), un obstacle un
     // rectangle exact (voir OBSTACLES).
-    for (const e of movable) resolveObstacleCollisions(e, obstaclesCollidingTeam(obstacles, e.team, e.stats.canTraverseWater === true));
+    for (const e of movable) resolveObstacleCollisions(e, obstaclesForUnit(obstacles, e, e.stats.canTraverseWater === true));
   }
 
   // 4. Confinement au plateau
@@ -463,7 +462,7 @@ function applySeparationPair(a: Entity, b: Entity, i: number, subDt: number): vo
  *  elle continue de chercher un passage (pente) au lieu de s'arreter au pied
  *  de la falaise sans pouvoir frapper (voir combatSystem). */
 function isEngaged(e: Entity, target: Entity, obstacles: ObstacleDef[]): boolean {
-  if (Math.hypot(target.x - e.x, target.z - e.z) > engagementStopDistance(e, target)) return false;
+  if (targetDistance(e.x, e.z, target) > engagementStopDistance(e, target)) return false;
   return e.stats.engageRange !== undefined || !isMeleeAttack(e.stats) || !crossesTerrainCliff(e.x, e.z, target.x, target.z, obstacles);
 }
 
@@ -835,20 +834,24 @@ function moveStraightTowards(e: Entity, aimX: number, aimZ: number, subDt: numbe
  *  (plateau deconnecte) — utilise pour faire echouer une attaque ciblee. Le
  *  deplacement de repli de ce cas reste celui d'avant. */
 function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: ObstacleDef[], grid: PathGrid, subDt: number, bodyClearance: number): boolean {
+  // Piece de mur V2 (2026-11-02) : on vise le point du mur le plus proche, du
+  // cote de l'unite, au contact. Viser son centre (case bloquee par la ligne)
+  // laissait A* choisir une case libre quelconque, parfois de l'autre cote.
+  const aim = target.wall ? wallApproachPoint(e, target.wall, target.footprintObstacle?.line?.halfWidth ?? 0) : target;
   // target.footprintObstacle (2026-08-16) : meme correctif que combatSystem —
   // un batiment cible ne doit jamais se declarer bloquant envers lui-meme.
-  if (findBlockingObstacle(e.x, e.z, target.x, target.z, obstacles, target.footprintObstacle) === null && !bodyPathNearTerrainCliff(e.x, e.z, target.x, target.z, bodyClearance, obstacles)) {
+  if (findBlockingObstacle(e.x, e.z, aim.x, aim.z, obstacles, target.footprintObstacle) === null && !bodyPathNearTerrainCliff(e.x, e.z, aim.x, aim.z, bodyClearance, obstacles) && !bodyPathNearWall(e.x, e.z, aim.x, aim.z, bodyClearance, obstacles, target.footprintObstacle)) {
     e.path = null;
-    moveStraightTowards(e, target.x, target.z, subDt);
+    moveStraightTowards(e, aim.x, aim.z, subDt);
     return true;
   }
 
-  const goalTileX = Math.floor(target.x + grid.halfW);
-  const goalTileZ = Math.floor(target.z + grid.halfH);
+  const goalTileX = Math.floor(aim.x + grid.halfW);
+  const goalTileZ = Math.floor(aim.z + grid.halfH);
   const stale = e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ;
 
   if (!e.path || e.path.length === 0 || stale || cachedPathBlocked(e, grid)) {
-    e.path = findPath(grid, e.x, e.z, target.x, target.z);
+    e.path = findPathFrom(e, grid, obstacles, aim.x, aim.z);
     e.pathGoalTileX = goalTileX;
     e.pathGoalTileZ = goalTileZ;
   }
@@ -859,7 +862,7 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
     // faire — moins bon qu'un vrai chemin, mais jamais pire qu'avant.
     // `[]` (deja sur la case de la cible) n'est pas une absence de route.
     const routeFound = e.path !== null;
-    pursueTowards(e, target.x, target.z, obstacles, subDt);
+    pursueTowards(e, aim.x, aim.z, obstacles, subDt);
     return routeFound;
   }
 
@@ -867,7 +870,7 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
   if (Math.hypot(next.x - e.x, next.z - e.z) < waypointReachDist(e)) {
     e.path.shift();
     if (e.path.length === 0) {
-      moveStraightTowards(e, target.x, target.z, subDt);
+      moveStraightTowards(e, aim.x, aim.z, subDt);
       return true;
     }
     next = e.path[0]!;
@@ -910,7 +913,7 @@ function followMoveOrder(
     return;
   }
 
-  if (findBlockingObstacle(e.x, e.z, order.x, order.z, obstacles) === null && !bodyPathNearTerrainCliff(e.x, e.z, order.x, order.z, bodyClearance, obstacles)) {
+  if (findBlockingObstacle(e.x, e.z, order.x, order.z, obstacles) === null && !bodyPathNearTerrainCliff(e.x, e.z, order.x, order.z, bodyClearance, obstacles) && !bodyPathNearWall(e.x, e.z, order.x, order.z, bodyClearance, obstacles)) {
     e.path = null;
     moveStraightTowards(e, order.x, order.z, subDt);
     return;
@@ -919,7 +922,7 @@ function followMoveOrder(
   const goalTileX = Math.floor(order.x + grid.halfW);
   const goalTileZ = Math.floor(order.z + grid.halfH);
   if (e.path === null || e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ || cachedPathBlocked(e, grid)) {
-    e.path = findPath(grid, e.x, e.z, order.x, order.z);
+    e.path = findPathFrom(e, grid, obstacles, order.x, order.z);
     e.pathGoalTileX = goalTileX;
     e.pathGoalTileZ = goalTileZ;
     if (e.path === null) {
@@ -961,6 +964,63 @@ function computeNeutralFallbackPath(e: Entity, grid: PathGrid): { x: number; z: 
   return findPath(grid, e.x, e.z, e.x, farZ);
 }
 
+/** Point d'approche d'une piece de mur V2 : le point de sa ligne le plus
+ *  proche de l'unite, garde a l'ecart des extremites (jonctions avec les
+ *  segments voisins, ou le corps toucherait aussi le voisin), decale vers
+ *  l'unite de la demi-epaisseur plus son rayon : corps au contact, de son
+ *  cote du mur. */
+function wallApproachPoint(e: Entity, w: { ax: number; az: number; bx: number; bz: number }, halfWidth: number): { x: number; z: number } {
+  const dx = w.bx - w.ax;
+  const dz = w.bz - w.az;
+  const len = Math.hypot(dx, dz) || 1;
+  const off = halfWidth + e.stats.radius + 0.05;
+  const margin = Math.min(0.5, off / len);
+  const t = Math.max(margin, Math.min(1 - margin, closestOnSegment(e.x, e.z, w).t));
+  const cx = w.ax + dx * t;
+  const cz = w.az + dz * t;
+  // Cote de l'unite (normale du segment orientee vers elle).
+  let nx = -dz / len;
+  let nz = dx / len;
+  if ((e.x - cx) * nx + (e.z - cz) * nz < 0) {
+    nx = -nx;
+    nz = -nz;
+  }
+  return { x: cx + nx * off, z: cz + nz * off };
+}
+
+/**
+ * Chemin A* de l'unite vers (toX, toZ). Une unite collee a une palissade
+ * (mur V2) peut se tenir sur une case BLOQUEE par la ligne centrale du mur
+ * (sim/pathfinding.ts) : partir de cette case laisserait A* la faire sortir
+ * du mauvais cote, a travers le mur. Le depart est alors la case libre
+ * voisine la plus proche atteignable en ligne droite (meme cote), ajoutee en
+ * tete du chemin. Case libre (cas general) : findPath tel quel.
+ */
+function findPathFrom(e: Entity, grid: PathGrid, obstacles: ObstacleDef[], toX: number, toZ: number): { x: number; z: number }[] | null {
+  if (!isTileBlockedAt(grid, e.x, e.z)) return findPath(grid, e.x, e.z, toX, toZ);
+  const tx = Math.floor(e.x + grid.halfW);
+  const tz = Math.floor(e.z + grid.halfH);
+  let start: { x: number; z: number } | null = null;
+  let bestD = Infinity;
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dz === 0) continue;
+      const cx = tileToWorldX(grid, tx + dx);
+      const cz = tileToWorldZ(grid, tz + dz);
+      if (tx + dx < 0 || tz + dz < 0 || tx + dx >= grid.width || tz + dz >= grid.height || isTileBlockedAt(grid, cx, cz)) continue;
+      if (findBlockingObstacle(e.x, e.z, cx, cz, obstacles) !== null) continue;
+      const d = Math.hypot(cx - e.x, cz - e.z);
+      if (d < bestD) {
+        bestD = d;
+        start = { x: cx, z: cz };
+      }
+    }
+  }
+  if (!start) return findPath(grid, e.x, e.z, toX, toZ);
+  const path = findPath(grid, start.x, start.z, toX, toZ);
+  return path ? [start, ...path] : null;
+}
+
 /**
  * Marche vers le camp (2026-11-02) : ligne droite si elle est degagee sur le
  * TERRAIN (les batiments ne comptent pas : l'unite attaque ce qu'elle trouve
@@ -982,7 +1042,7 @@ function marchToGoal(e: Entity, march: MarchContext, obstacles: ObstacleDef[], g
   const retry = marchRetry.get(e) ?? 0;
   const needed = e.path === null || e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ || cachedPathBlocked(e, grid);
   if (needed && retry <= 0) {
-    e.path = findPath(grid, e.x, e.z, goal.x, goal.z);
+    e.path = findPathFrom(e, grid, obstacles, goal.x, goal.z);
     e.pathGoalTileX = goalTileX;
     e.pathGoalTileZ = goalTileZ;
     if (e.path === null) {
@@ -1221,6 +1281,31 @@ function findSteeringPoint(
   return best;
 }
 
+/** Ressort une unite de rayon `r` d'une capsule de mur (segment A -> B,
+ *  demi-epaisseur) : poussee perpendiculaire au point le plus proche. Centre
+ *  pile sur la ligne : vers le cote de la normale (deterministe). */
+function pushOutOfCapsule(e: Entity, line: { ax: number; az: number; bx: number; bz: number; halfWidth: number }, r: number): void {
+  const dx = line.bx - line.ax;
+  const dz = line.bz - line.az;
+  const len2 = dx * dx + dz * dz;
+  const t = len2 < 1e-12 ? 0 : clamp(((e.x - line.ax) * dx + (e.z - line.az) * dz) / len2, 0, 1);
+  const cx = line.ax + dx * t;
+  const cz = line.az + dz * t;
+  const px = e.x - cx;
+  const pz = e.z - cz;
+  const d = Math.hypot(px, pz);
+  const reach = r + line.halfWidth;
+  if (d >= reach) return;
+  if (d < 1e-4) {
+    const len = Math.sqrt(len2) || 1;
+    e.x = cx + (-dz / len) * reach;
+    e.z = cz + (dx / len) * reach;
+    return;
+  }
+  e.x = cx + (px / d) * reach;
+  e.z = cz + (pz / d) * reach;
+}
+
 /** Ressort une unite hors d'un obstacle si son cercle le penetre, en la
  *  poussant vers le bord le plus proche du rectangle. */
 function resolveObstacleCollisions(e: Entity, obstacles: ObstacleDef[]): void {
@@ -1232,7 +1317,16 @@ function resolveObstacleCollisions(e: Entity, obstacles: ObstacleDef[]): void {
   // les obstacles a chaque appel etait la principale source d'allocations
   // du "FPS chuté" remonte par Antoine a la vague 6.
   const boundsList = getObstacleBoundsList(obstacles);
-  for (const { minX, maxX, minZ, maxZ } of boundsList) {
+  for (let i = 0; i < boundsList.length; i++) {
+    const { minX, maxX, minZ, maxZ } = boundsList[i]!;
+    // Piece de mur V2 (ObstacleDef.line) : capsule exacte, a tout angle ;
+    // la boite englobante n'est qu'un premier filtre.
+    const line = obstacles[i]!.line;
+    if (line) {
+      if (e.x < minX - r || e.x > maxX + r || e.z < minZ - r || e.z > maxZ + r) continue;
+      pushOutOfCapsule(e, line, r);
+      continue;
+    }
 
     const closestX = clamp(e.x, minX, maxX);
     const closestZ = clamp(e.z, minZ, maxZ);

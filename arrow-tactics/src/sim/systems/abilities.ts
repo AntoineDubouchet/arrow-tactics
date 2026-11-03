@@ -4,7 +4,7 @@ import { findAbility, type AreaBlastAbility, type ChargeAbility, type HealAbilit
 import { getUnit } from '../../data/units';
 import { applyDamageToEntity, applyHealToEntity } from '../damage';
 import type { CastState, Entity, Team } from '../entity';
-import { findBlockingObstacle, obstaclesCollidingTeam } from '../geometry';
+import { findBlockingObstacle, obstaclesForUnit } from '../geometry';
 
 /**
  * Systeme GENERIQUE de capacites d'unite (2026-08-10, demande explicite
@@ -540,7 +540,7 @@ function tryTriggerCharge(
   // target.footprintObstacle (2026-08-16) : meme correctif que combatSystem —
   // un batiment cible (Mine/Baliste) ne doit jamais se declarer bloquant
   // envers lui-meme.
-  if (findBlockingObstacle(e.x, e.z, target.x, target.z, obstaclesCollidingTeam(obstacles, e.team, e.stats.canTraverseWater === true), target.footprintObstacle)) return;
+  if (findBlockingObstacle(e.x, e.z, target.x, target.z, obstaclesForUnit(obstacles, e, e.stats.canTraverseWater === true), target.footprintObstacle)) return;
 
   const dirX = d > 1e-4 ? (target.x - e.x) / d : 0;
   const dirZ = d > 1e-4 ? (target.z - e.z) / d : 1;

@@ -1,4 +1,5 @@
 import { cellKey } from '../config/mapDef';
+import { getBuilding } from '../data/buildings';
 import type { GroundTextureId } from '../config/groundSurfaces';
 
 /**
@@ -28,11 +29,11 @@ export interface SettlementSite {
   maxZ: number;
 }
 
-/** Murailles et portes : ni terre battue ni chemin (une ligne de remparts
- *  tracerait une toile de chemins). Les autres batiments du joueur, Baliste
- *  comprise, en laissent. */
+/** Pieces de mur (BuildingDef.wallPiece) : ni terre battue ni chemin (une
+ *  ligne de palissade tracerait une toile de chemins). Les autres batiments
+ *  du joueur, Baliste comprise, en laissent. */
 export function leavesSettlementGround(buildingId: string): boolean {
-  return !buildingId.startsWith('wall');
+  return buildingId === 'ballista' || getBuilding(buildingId).wallPiece === undefined;
 }
 
 /**

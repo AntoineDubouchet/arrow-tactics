@@ -63,6 +63,7 @@ export class HeroHud {
   private readonly portrait: HTMLElement;
   /** Medaillon du niveau, a cheval sur le bas droit du portrait. */
   private readonly levelBadge: HTMLElement;
+  private readonly levelUpText: HTMLElement;
   /** Bouton Inventaire du bas de l'ecran (a gauche de Construire). */
   private readonly inventoryButton: HTMLButtonElement;
   private readonly respawn: HTMLElement;
@@ -143,9 +144,13 @@ export class HeroHud {
     // Portrait et medaillon de niveau (a cheval sur son bord, bas droit).
     this.levelBadge = document.createElement('span');
     this.levelBadge.className = 'hero-level-badge';
+    // Montee de niveau : texte bref « NIVEAU N » au-dessus du portrait.
+    this.levelUpText = document.createElement('span');
+    this.levelUpText.className = 'hero-level-up-text';
+    this.levelUpText.hidden = true;
     const frame = document.createElement('div');
     frame.className = 'hero-portrait-frame';
-    frame.append(this.portrait, this.levelBadge);
+    frame.append(this.portrait, this.levelBadge, this.levelUpText);
     this.panel.append(frame, bars);
 
     // Progression de l'action, au centre, au-dessus de la barre d'XP.
@@ -236,6 +241,27 @@ export class HeroHud {
     this.xpText.textContent = state.level >= HERO_MAX_LEVEL ? `${state.xp} XP (niveau max)` : `${state.xp} / ${next!.xp} XP`;
 
   }
+
+  /** Montee de niveau (2026-11-02) : le medaillon pulse, la barre d'XP
+   *  brille et « NIVEAU N » apparait brievement (~1,4 s). Discret : rien
+   *  n'interrompt la partie. Relance l'animation si un niveau suit. */
+  pulseLevelUp(level: number): void {
+    this.levelUpText.textContent = `NIVEAU ${level}`;
+    this.levelUpText.hidden = false;
+    for (const el of [this.levelBadge, this.levelUpText, this.xpRoot]) {
+      el.classList.remove('is-level-up');
+      // Reflow : l'animation CSS repart de zero.
+      void el.offsetWidth;
+      el.classList.add('is-level-up');
+    }
+    window.clearTimeout(this.levelUpTimer);
+    this.levelUpTimer = window.setTimeout(() => {
+      this.levelUpText.hidden = true;
+      for (const el of [this.levelBadge, this.levelUpText, this.xpRoot]) el.classList.remove('is-level-up');
+    }, 1400);
+  }
+
+  private levelUpTimer = 0;
 
   /** Emplacement `index` (0 a 5) de la barre d'action : clic ou touche 1 a 6.
    *  Sans effet sur un emplacement vide ou un sort inutilisable. */

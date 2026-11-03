@@ -58,32 +58,7 @@ import { populationOfEntities } from './data/population';
 import { canRecruitWithinPopulation, runPopulation } from './run/population';
 import { PopulationHud } from './ui/populationHud';
 import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMoveMember } from './core/gridGroupMove';
-import {
-  advanceWallTrace,
-  finalizeWallTrace,
-  joinWallPath,
-  openWallEnds,
-  planWallTraceLeg,
-  resumeWallTrace,
-  startWallTrace,
-  wallChainTo,
-  wallNetPiece,
-  type WallEnd,
-  type WallNetPiece,
-  type WallPath,
-  traceCellAt,
-  traceInteriorSign,
-  wallEndJoins,
-  wallPieceFacing,
-  type TraceCell,
-  type TraceLayout,
-  type WallJoinPiece,
-  type WallTrace,
-  type WallTraceLeg,
-  type WallTracePiece,
-  isDiagonalDir,
-} from './core/wallTrace';
-import { BUILDINGS, buildingFootprintTiles, buildingRotationStep, buildTimeOf, getBuilding, listBuyableBuildingIds, migrateLegacyWalls, replacedWallCells, sameBuildingFootprint, unitsProducedPerWave } from './data/buildings';
+import { BUILDINGS, BUILDING_ROTATION_STEP, buildingFootprintTiles, buildTimeOf, getBuilding, listBuyableBuildingIds, unitsProducedPerWave } from './data/buildings';
 import { hasRecruitmentBuilding } from './run/recruitment';
 import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
 import { getUnit, WAVE_UNIT_BY_ROLE, type UnitStats } from './data/units';
@@ -94,7 +69,6 @@ import {
   type ReliefStrokeStart,
   buildingBoundsAt,
   snapBuildingCenter,
-  type EditorBuilding,
   type EditorMapShapeSnapshot,
   type EditorObjectsSnapshot,
   type CellReliefOp,
@@ -109,7 +83,6 @@ import {
   buildCellPreview,
   buildReliefBrushPreview,
   buildSurfaceBrushPreview,
-  buildWallEndMarker,
   buildGhost,
   buildObstacleView,
   buildUnitGhost,
@@ -126,7 +99,11 @@ import { attachUnitSelectionRing, teamColor } from './render/unitSelectionRing';
 import { ensureModels, loadEnvironmentAssets, obstacleModelKeys, type EnvironmentAssets } from './render/assetLibrary';
 import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
-import { emptyWallView, wallVisualObstacle, wallVisualRoles, type WallPlaced, type WallVisualRole } from './render/wallVisuals';
+import { buildWallPieceView, disposeWallPieceView, tintWallGhost } from './render/palisade';
+import { createProceduralLevelUpEffect, type LevelUpEffect } from './render/levelUpVfx';
+import { planWallLine, segmentBoxDistance, segmentWallLine, WALL_ISSUE_LABELS, wallLength, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint } from './core/wallLine';
+import { getWallType, WALL_TYPES, wallGateCost, wallLineCost } from './data/walls';
+import { crossesTerrainCliff } from './sim/geometry';
 import { buildObstacleMesh, obstaclePlacementOffset, placeObstacleMesh } from './render/obstacleFactory';
 import { GROUND_PALETTES, setGroundPalette } from './render/groundSurfaces';
 import { buildCellGridLines, setTerrainRenderMode, TERRAIN_RENDER_MODES } from './render/terrainCells';
@@ -259,7 +236,7 @@ import { HeroInventoryPanel } from './ui/heroInventory';
 import { ItemEditor } from './itemEditor/itemEditorUI';
 import { equippedHandVisuals } from './run/heroEquipment';
 import { carriedResourceTotal, createHeroInventory, inventoryItems, type InventoryAction } from './sim/inventory';
-import { RESOURCE_ITEMS } from './data/resources';
+import { canHarvestResource, HARVEST_NODE_KINDS, RESOURCE_ITEMS } from './data/resources';
 import { EconomyHud } from './ui/economyHud';
 import { ActionProgressBar } from './ui/actionProgress';
 import { EQUIPMENT, type EquipmentSlot } from './data/equipment';
@@ -572,8 +549,8 @@ let playerArrowOrigin = resolveBallistaOrigin(currentMap);
 // BallistaTowerPlatform pour pourquoi la rotation locale de la baliste reste
 // valide sans changement.
 const environmentAssets = await loadEnvironmentAssets();
-// Modeles des batiments gameplay charges a la demande (murailles KayKit) :
-// necessaires des la premiere preparation, charges une fois au demarrage.
+// Modeles des batiments gameplay charges a la demande : necessaires des la
+// premiere preparation, charges une fois au demarrage.
 await ensureModels(Object.values(BUILDINGS).flatMap((def) => (def.buildingModel ? [def.buildingModel] : [])));
 const { platform: ballistaPlatform, ballista, mountHeight } = await buildBallistaTowerPlatform(environmentAssets);
 // Correctif (2026-08-14, Antoine : "le tir de la baliste semble partir de la
@@ -660,283 +637,15 @@ function clearOwnedBuildingViews(): void {
  *  quelconque dans sa zone, pas necessairement alignee sur un coin de bloc
  *  pair). */
 function ownedBuildingObstacle(owned: OwnedBuilding): ObstacleDef {
-  return gameplayBuildingObstacle(owned.buildingId, owned.x, owned.z, owned.rotationY ?? 0, 'player', currentRun.buildings);
-}
-
-/** Lacet visuel de camp d'une muraille (BuildingDef.outerFaceTowardHostiles) :
- *  face exterieure vers les hostiles tant qu'aucune enceinte fermee n'a fixe
- *  son orientation. */
-function teamFacingYaw(team: Team): number {
-  return forwardDir(team) < 0 ? Math.PI : 0;
-}
-
-/** `rotationY` qui tourne la face exterieure (creneaux, +Z natif) d'un
- *  segment de muraille vers (outwardX, outwardZ). Le lacet de camp s'ajoute
- *  au rendu : il est compense ici. Toujours un quart de tour exact de meme
- *  parite que l'axe du segment : emprise, collision et position inchangees
- *  (un demi-tour garde la meme emprise). */
-function outwardRotationY(outwardX: number, outwardZ: number, team: Team, diagonal = false): number {
-  // Segment diagonal (2026-11-02) : huitieme de tour (45 degres).
-  const step = diagonal ? Math.PI / 4 : Math.PI / 2;
-  const count = diagonal ? 8 : 4;
-  const turns = Math.round((Math.atan2(outwardX, outwardZ) - teamFacingYaw(team)) / step);
-  return (((turns % count) + count) % count) * step;
-}
-
-/** Piece de trace devenue batiment concret : mur, demi-segment
- *  (BuildingDef.traceHalf) ou variante de virage (BuildingDef.traceCorners),
- *  coin de grille et rotation enregistree. */
-interface TracedWallPiece {
-  kind: WallTracePiece['kind'];
-  buildingId: string;
-  cornerX: number;
-  cornerZ: number;
-  tilesX: number;
-  tilesZ: number;
-  rotationY: number;
-}
-
-/** Oriente une piece du trace `wallId` pour son cote interieur
- *  (core/wallTrace.ts, wallPieceFacing) : creneaux dehors. */
-function tracedWallPiece(wallId: string, piece: WallTracePiece, interiorSign: number, team: Team): TracedWallPiece {
-  const facing = wallPieceFacing(piece, interiorSign);
-  const base = { kind: piece.kind, cornerX: piece.cornerX, cornerZ: piece.cornerZ, tilesX: piece.tilesX, tilesZ: piece.tilesZ };
-  const def = getBuilding(wallId);
-  if (facing.kind === 'corner') {
-    return { ...base, buildingId: def.traceCorners ? def.traceCorners[facing.variant] : wallId, rotationY: facing.rotationY };
-  }
-  const diagonal = piece.kind !== 'corner' && isDiagonalDir(piece.dir);
-  return { ...base, buildingId: piece.kind === 'half' ? def.traceHalf ?? wallId : wallId, rotationY: outwardRotationY(facing.outwardX, facing.outwardZ, team, diagonal) };
-}
-
-/** Passage d'une disposition de trace a une autre (core/wallTrace.ts) :
- *  pieces retirees (troncon re-apparie), pieces posees, orientation de TOUTES
- *  les pieces apres (le cote interieur peut changer), cases en attente
- *  (contour d'apercu) et cout. */
-interface WallTraceStep {
-  removed: TracedWallPiece[];
-  added: TracedWallPiece[];
-  all: TracedWallPiece[];
-  waiting: TraceCell[];
-  cost: number;
-  /** Part du cout qui paie la recomposition de pieces existantes (reprise,
-   *  jonction) au-dela du prix des cases nouvellement couvertes. */
-  joinCost: number;
-  /** Muraille tracee et cout NET de l'etape en cases (bois / pierre par case,
-   *  BuildingDef.resourceCost). */
-  wallId: string;
-  units: number;
-}
-
-/** Cout d'une disposition, en CASES de mur (prix du mur = prix d'une case,
- *  2026-11-01) : une case droite vaut 1 (case EN ATTENTE comprise, payee des
- *  que sa portion est validee), un virage 2 (comme avant : un virage valait
- *  un ancien segment de deux cases). La finalisation d'un trace ouvert ne
- *  coute donc rien de plus. */
-function wallLayoutCost(layout: TraceLayout): number {
-  let units = layout.waiting.length;
-  for (const p of layout.pieces) units += p.kind === 'corner' ? 2 : p.tilesX * p.tilesZ;
-  return units;
-}
-
-/** Cases d'une piece de trace. */
-function tracePieceCells(p: { cornerX: number; cornerZ: number; tilesX: number; tilesZ: number }): string[] {
-  const cells: string[] = [];
-  for (let dz = 0; dz < p.tilesZ; dz++) for (let dx = 0; dx < p.tilesX; dx++) cells.push(`${p.cornerX + dx},${p.cornerZ + dz}`);
-  return cells;
-}
-
-function wallTraceStep(wallId: string, before: TraceLayout, after: TraceLayout, interiorSign: number, team: Team): WallTraceStep {
-  const orient = (p: WallTracePiece): TracedWallPiece => tracedWallPiece(wallId, p, interiorSign, team);
-  const key = (p: WallTracePiece): string => `${p.kind}:${p.cornerX},${p.cornerZ},${p.tilesX},${p.tilesZ}`;
-  const beforeKeys = new Set(before.pieces.map(key));
-  const afterKeys = new Set(after.pieces.map(key));
-  const unitCost = getEffectiveBuildingCost(wallId);
-  const cost = roundGold(unitCost * (wallLayoutCost(after) - wallLayoutCost(before)));
-  // Prix "neuf" des seules cases nouvellement couvertes (1 par case droite,
-  // 2 par virage) : le reste du cout paie la recomposition de l'existant.
-  const beforeCells = new Set([...before.pieces.flatMap(tracePieceCells), ...before.waiting.map((c) => `${c.x},${c.z}`)]);
-  let freshUnits = after.waiting.filter((c) => !beforeCells.has(`${c.x},${c.z}`)).length;
-  for (const p of after.pieces) {
-    const fresh = tracePieceCells(p).filter((c) => !beforeCells.has(c)).length;
-    freshUnits += p.kind === 'corner' ? fresh * 2 : fresh;
-  }
-  return {
-    removed: before.pieces.filter((p) => !afterKeys.has(key(p))).map(orient),
-    added: after.pieces.filter((p) => !beforeKeys.has(key(p))).map(orient),
-    all: after.pieces.map(orient),
-    waiting: after.waiting,
-    cost,
-    joinCost: Math.max(0, roundGold(cost - unitCost * freshUnits)),
-    wallId,
-    units: wallLayoutCost(after) - wallLayoutCost(before),
-  };
-}
-
-/** Portion de trace vers le curseur, orientee. Interieur : polygone si la
- *  portion ferme l'enceinte, sinon cote de `reference` (la Baliste du
- *  joueur). */
-function planTracedWallLeg(wallId: string, trace: WallTrace, x: number, z: number, reference: { x: number; z: number } | null, team: Team, join: WallPath | null = null): { leg: WallTraceLeg; step: WallTraceStep } {
-  const leg = planWallTraceLeg(trace, x, z, join);
-  const vertices = join ? [...trace.vertices, ...join.vertices] : leg.closes ? trace.vertices : [...trace.vertices, leg.end];
-  const dirs = join ? [...trace.dirs, leg.dir, ...join.dirs] : [...trace.dirs, leg.dir];
-  const sign = traceInteriorSign(vertices, dirs, leg.closes, reference);
-  return { leg, step: wallTraceStep(wallId, leg.before, leg.after, sign, team) };
-}
-
-/** Trace termine sans fermeture : ses cases en attente deviennent des
- *  pieces droites (meme orientation que le reste du trace). */
-function finalizeTracedWall(wallId: string, trace: WallTrace, reference: { x: number; z: number } | null, team: Team): WallTraceStep {
-  const { before, after } = finalizeWallTrace(trace);
-  return wallTraceStep(wallId, before, after, traceInteriorSign(trace.vertices, trace.dirs, false, reference), team);
-}
-
-/** Batiment pose qui porte une piece de trace : meme emprise, meme famille
- *  (virage, ou segment droit d'une case — un ancien demi-segment aussi —, ou
- *  porte posee a la place de segments). */
-function isTracedBuildingFor(b: PlacedBuildingRef, p: TracedWallPiece): boolean {
-  const def = getBuilding(b.buildingId);
-  const family = def.nativeModelPose ? 'corner' : 'straight';
-  return family === (p.kind === 'half' ? 'straight' : p.kind) && sameBuildingFootprint(p.buildingId, p.cornerX + p.tilesX / 2, p.cornerZ + p.tilesZ / 2, p.rotationY, b.buildingId, b.x, b.z, b.rotationY ?? 0);
-}
-
-/** Reoriente les batiments deja poses d'un trace (nouvelle liste, jamais une
- *  mutation : les instantanes d'historique de l'editeur partagent les
- *  anciens objets). Un mur ou une porte a la meme emprise qu'un segment prend
- *  sa rotation ; un virage peut changer de variante. */
-function reorientTracedBuildings<T extends PlacedBuildingRef>(placed: readonly T[], pieces: readonly TracedWallPiece[]): T[] {
-  return placed.map((b) => {
-    const p = pieces.find((q) => isTracedBuildingFor(b, q));
-    if (!p) return b;
-    const buildingId = getBuilding(b.buildingId).nativeModelPose ? p.buildingId : b.buildingId;
-    if (buildingId === b.buildingId && (b.rotationY ?? 0) === p.rotationY) return b;
-    return { ...b, buildingId, rotationY: p.rotationY };
-  });
-}
-
-/** Batiments a retirer pour un passage de disposition (pieces re-appariees). */
-function tracedBuildingsToRemove<T extends PlacedBuildingRef>(placed: readonly T[], step: WallTraceStep): T[] {
-  return step.removed.flatMap((p) => placed.filter((b) => isTracedBuildingFor(b, p)));
-}
-
-/** Vrai si l'etape devrait recomposer une PORTE : jamais (raccord refuse,
- *  il faut prolonger droit d'abord). */
-function wallStepTouchesGate(placed: readonly PlacedBuildingRef[], step: WallTraceStep): boolean {
-  return tracedBuildingsToRemove(placed, step).some((b) => getBuilding(b.buildingId).gate);
-}
-
-/** Famille de reseau d'un batiment pose (murailles), ou null. */
-function wallNetKind(buildingId: string): WallNetPiece['kind'] | null {
-  const def = getBuilding(buildingId);
-  if (def.nativeModelPose) return 'corner';
-  if (def.gate) return 'gate';
-  // Segment d'une case (unite canonique) ; ancien demi-segment lu de meme.
-  return def.placementMode === 'line' || def.modelLengthScale ? 'straight' : null;
-}
-
-/** Reseau de murailles (core/wallTrace.ts) d'une liste de batiments poses :
- *  connecteurs DERIVES de leur emprise et de leur rotation (aucun etat de
- *  session : marche apres un rechargement). */
-function wallNetworkOf(placed: readonly PlacedBuildingRef[]): WallNetPiece[] {
-  return placed.flatMap((b) => {
-    const kind = wallNetKind(b.buildingId);
-    if (!kind) return [];
-    const { tilesX, tilesZ } = buildingFootprintTiles(b.buildingId, b.rotationY ?? 0);
-    return [wallNetPiece(kind, b.x - tilesX / 2, b.z - tilesZ / 2, tilesX, tilesZ, b.rotationY ?? 0)];
-  });
-}
-
-/** Piece de trace equivalente a une piece posee (etat courant d'une reprise ;
- *  une porte compte comme un segment droit). */
-function netTracePiece(p: WallNetPiece): WallTracePiece {
-  const base = { cornerX: p.cornerX, cornerZ: p.cornerZ };
-  if (p.kind === 'corner') return { kind: 'corner', ...base, tilesX: 1, tilesZ: 1, inDir: { x: -p.connectors[0].dir.x, z: -p.connectors[0].dir.z }, outDir: p.connectors[1].dir };
-  if (p.kind === 'half') return { kind: 'half', ...base, tilesX: 1, tilesZ: 1, dir: p.connectors[1].dir };
-  return { kind: 'straight', ...base, tilesX: p.tilesX, tilesZ: p.tilesZ, dir: p.connectors[1].dir };
-}
-
-/** Extremites ouvertes raccordables, hors pieces du trace en cours. */
-function joinableWallEnds(net: readonly WallNetPiece[], trace: WallTrace | null): WallEnd[] {
-  const own = new Set((trace?.current.pieces ?? []).map((p) => `${p.cornerX},${p.cornerZ},${p.tilesX},${p.tilesZ}`));
-  return openWallEnds(net).filter((e) => {
-    const p = net[e.piece]!;
-    return !own.has(`${p.cornerX},${p.cornerZ},${p.tilesX},${p.tilesZ}`);
-  });
-}
-
-/** Extremite sur laquelle le curseur s'aimante : sa case, ou la case libre
- *  juste apres son connecteur. La plus proche du curseur. */
-function wallEndNear(ends: readonly WallEnd[], x: number, z: number): WallEnd | null {
-  const cell = traceCellAt(x, z);
-  let best: WallEnd | null = null;
-  let bestDistance = Infinity;
-  for (const e of ends) {
-    const onEnd = cell.x === e.cell.x && cell.z === e.cell.z;
-    const beyond = cell.x === e.cell.x + e.dir.x && cell.z === e.cell.z + e.dir.z;
-    if (!onEnd && !beyond) continue;
-    const d = Math.hypot(x - (e.cell.x + 0.5 + e.dir.x * 0.5), z - (e.cell.z + 0.5 + e.dir.z * 0.5));
-    if (d < bestDistance) {
-      bestDistance = d;
-      best = e;
-    }
-  }
-  return best;
-}
-
-/** Trace qui reprend la muraille de l'extremite `end`. */
-function resumeTraceAt(net: readonly WallNetPiece[], end: WallEnd): WallTrace | null {
-  const chain = wallChainTo(net, end);
-  return chain ? resumeWallTrace(chain, chain.pieces.map((i) => netTracePiece(net[i]!))) : null;
-}
-
-/** Jonction possible : extremite d'une AUTRE muraille sous le curseur,
- *  alignee avec l'ancre du trace. */
-function wallJoinAt(net: readonly WallNetPiece[], trace: WallTrace, x: number, z: number): { end: WallEnd; path: WallPath } | null {
-  const end = wallEndNear(joinableWallEnds(net, trace), x, z);
-  if (!end || (end.cell.x !== trace.anchor.x && end.cell.z !== trace.anchor.z)) return null;
-  const chain = wallChainTo(net, end);
-  return chain ? { end, path: joinWallPath(chain, chain.pieces.map((i) => netTracePiece(net[i]!))) } : null;
-}
-
-/** Reperes des extremites raccordables, l'extremite aimantee en evidence. */
-function addWallEndMarkers(group: THREE.Group, ends: readonly WallEnd[], snapped: WallEnd | null): void {
-  for (const e of ends) group.add(buildWallEndMarker(e.cell.x, e.cell.z, e.dir.x, e.dir.z, e === snapped));
-}
-
-/** Batiment pose (possede, de scenario ou de l'editeur) : ce qu'il faut pour
- *  raccorder visuellement les virages de murailles. */
-interface PlacedBuildingRef {
-  buildingId: string;
-  x: number;
-  z: number;
-  rotationY?: number;
-}
-
-function wallJoinPiece(buildingId: string, x: number, z: number, rotationY: number): WallJoinPiece {
-  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
-  return { cornerX: x - tilesX / 2, cornerZ: z - tilesZ / 2, tilesX, tilesZ };
+  return gameplayBuildingObstacle(owned.buildingId, owned.x, owned.z, owned.rotationY ?? 0);
 }
 
 /** Emprise de collision et modele d'un batiment GAMEPLAY centre en (x, z) :
  *  la meme pour un batiment possede, un batiment de scenario de l'editeur
- *  et son instance dans « Tester le scénario ». `team` (camp proprietaire)
- *  ne sert qu'a orienter la face exterieure d'une muraille vers les
- *  hostiles (outerFaceTowardHostiles) ; il ne change jamais l'emprise. */
-function gameplayBuildingObstacle(
-  buildingId: string,
-  x: number,
-  z: number,
-  rotationY = 0,
-  team: Team = 'player',
-  /** Batiments poses du meme ensemble (run, scenario, brouillon) : un segment
-   *  de muraille y cherche ses virages (ObstacleDef.wallJoin). Absent : aucun
-   *  raccord (fantomes de pose). */
-  neighbors?: readonly PlacedBuildingRef[],
-): ObstacleDef {
+ *  et son instance dans « Tester le scénario ». */
+function gameplayBuildingObstacle(buildingId: string, x: number, z: number, rotationY = 0): ObstacleDef {
   const def = getBuilding(buildingId);
-  // Emprise tournee par quarts de tour pour une muraille (voir
-  // buildingFootprintTiles), fixe pour les autres batiments.
-  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
+  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId);
   return {
     kind: 'building',
     buildingModel: def.buildingModel,
@@ -946,23 +655,7 @@ function gameplayBuildingObstacle(
     z,
     rotationY,
     scale: def.modelScale,
-    ...(def.footprintFollowsRotation ? { footprintFollowsRotation: true } : {}),
     ...(def.blocksShots === false ? { blocksShots: false } : {}),
-    ...(def.nativeModelPose ? { nativeModelPose: def.nativeModelPose } : {}),
-    ...(def.modelLengthScale ? { modelLengthScale: def.modelLengthScale } : {}),
-    // Face exterieure (+Z natif du modele) vers les hostiles : -Z pour le
-    // joueur (demi-tour), +Z pour l'ennemi (modele tel quel).
-    ...(def.outerFaceTowardHostiles ? { modelFacingYaw: teamFacingYaw(team) } : {}),
-    // Segments de muraille (emprise qui suit la rotation) : raccord visuel
-    // des virages avec les segments perpendiculaires voisins.
-    ...(def.footprintFollowsRotation && neighbors
-      ? {
-          wallJoin: wallEndJoins(
-            wallJoinPiece(buildingId, x, z, rotationY),
-            neighbors.filter((n) => getBuilding(n.buildingId).footprintFollowsRotation).map((n) => wallJoinPiece(n.buildingId, n.x, n.z, n.rotationY ?? 0)),
-          ),
-        }
-      : {}),
   };
 }
 
@@ -993,13 +686,8 @@ function activeBuildingObstacles(excludeBuildingIndex?: number): ObstacleDef[] {
  *  placement). */
 function refreshOwnedBuildingViews(): void {
   clearOwnedBuildingViews();
-  // Murailles : deux cases voisines d'une ligne dessinees ensemble.
-  const placed = currentRun.buildings.map((b) => ({ ...b, team: 'player' }));
-  ownedWallRoles = wallVisualRoles(placed);
   currentRun.buildings.forEach((owned, i) => {
-    const obstacle = ownedBuildingObstacle(owned);
-    const role = ownedWallRoles[i]!;
-    const mesh = buildPlacedBuildingMesh(obstacle, role, placed, environmentAssets, role.role === 'lead' ? role.partner : null);
+    const mesh = buildObstacleMesh(ownedBuildingObstacle(owned), environmentAssets);
     // Index dans currentRun.buildings (2026-08-17, "rebouger ses bâtiments"),
     // meme convention que placementSlots/userData['slotIndex'] pour les
     // unites (voir findSlotIndex) — permet de retrouver quel bâtiment un
@@ -1010,60 +698,6 @@ function refreshOwnedBuildingViews(): void {
     view.setConstruction(owned.constructionProgress ?? null);
     ownedBuildingViews.push({ mesh, view });
   });
-}
-
-/** Roles visuels des murailles possedees (render/wallVisuals.ts), meme
- *  ordre que currentRun.buildings (refreshOwnedBuildingViews). */
-let ownedWallRoles: WallVisualRole[] = [];
-
-/** Modele d'un batiment pose selon son role visuel de muraille
- *  (render/wallVisuals.ts) : tete d'une paire -> modele long sur les deux
- *  cases, marque de la case partenaire (`pairTarget`, voir wallPairTarget) ;
- *  case suiveuse -> vue vide ; sinon le modele de `obstacle`. */
-function buildPlacedBuildingMesh(obstacle: ObstacleDef, role: WallVisualRole, placed: readonly WallPlaced[], assets: EnvironmentAssets, pairTarget: unknown): THREE.Object3D {
-  const partner = role.role === 'single' ? null : placed[role.partner] ?? null;
-  const visual = wallVisualObstacle(obstacle, role, partner);
-  if (!visual) return emptyWallView(obstacle);
-  const mesh = buildObstacleMesh(visual, assets);
-  if (role.role === 'lead' && partner) mesh.userData['wallPair'] = { x: Math.floor(partner.x), z: Math.floor(partner.z), target: pairTarget };
-  return mesh;
-}
-
-/** Case de mur visee : une paire est dessinee par sa tete ; un point dans
- *  la case partenaire designe celle-ci (`own` sinon). */
-function wallPairTarget<T>(object: THREE.Object3D, point: THREE.Vector3, own: T): T {
-  for (let o: THREE.Object3D | null = object; o; o = o.parent) {
-    const pair = o.userData['wallPair'] as { x: number; z: number; target: T } | undefined;
-    if (pair) return Math.floor(point.x) === pair.x && Math.floor(point.z) === pair.z ? pair.target : own;
-  }
-  return own;
-}
-
-/** Bataille : case de mur d'une paire visuelle -> sa partenaire et la
- *  reconstruction de sa vue en modele d'une case (splitBattleWallPair). */
-const battleWallPairs = new Map<number, { partner: number; single: () => void }>();
-
-/** Remplace la vue de bataille d'un batiment (mesh et BuildingView), sans
- *  toucher a son entite. */
-function replaceBattleBuildingView(entityId: number, oldMesh: THREE.Object3D, mesh: THREE.Object3D): BuildingView {
-  renderer.scene.remove(oldMesh);
-  buildingViewsByEntityId.get(entityId)?.dispose();
-  renderer.scene.add(mesh);
-  const view = new BuildingView(mesh, buildingVfxGroup);
-  buildingViewsByEntityId.set(entityId, view);
-  return view;
-}
-
-/** Une case d'une paire visuelle tombe : les deux cases repassent en modele
- *  d'une case (la tombee s'effondre seule, l'autre reste debout). */
-function splitBattleWallPair(entityId: number): void {
-  const pair = battleWallPairs.get(entityId);
-  if (!pair) return;
-  battleWallPairs.delete(entityId);
-  const other = battleWallPairs.get(pair.partner);
-  battleWallPairs.delete(pair.partner);
-  pair.single();
-  other?.single();
 }
 
 /** Meme patron que findSlotIndex (unites) — remonte les parents jusqu'a
@@ -1101,7 +735,7 @@ function findHoveredOwnedBuilding(event: MouseEvent): number | null {
     ownedBuildingViews.map((v) => v.mesh),
     true,
   )[0];
-  return hit ? wallPairTarget(hit.object, hit.point, findOwnedBuildingIndex(hit.object)) : null;
+  return hit ? findOwnedBuildingIndex(hit.object) : null;
 }
 // PAS d'appel eager ici : `currentRun` n'est declare que plus bas dans ce
 // fichier (TDZ — provoquait "Cannot access 'currentRun' before
@@ -1507,35 +1141,17 @@ function setupTestBattle(): void {
   // entites au niveau 1 (PV, collision, fonction), apres les unites comme
   // les batiments possedes en vraie bataille.
   clearScenarioBuildingMeshes();
-  // Anciennes murailles (segments de 2 cases) : une case par segment.
-  const scenarioBuildings = migrateLegacyWalls(currentMap.buildings ?? []);
-  const scenarioRoles = wallVisualRoles(scenarioBuildings);
-  const scenarioEntityIds: number[] = [];
-  battleWallPairs.clear();
-  scenarioBuildings.forEach((placed, i) => {
-    const obstacle = gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0, placed.team, scenarioBuildings);
+  for (const placed of currentMap.buildings ?? []) {
+    const obstacle = gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0);
     const entity = world.spawnBuilding(getBuilding(placed.buildingId), placed.team, placed.x, placed.z, obstacle);
-    const mesh = buildPlacedBuildingMesh(obstacle, scenarioRoles[i]!, scenarioBuildings, environmentAssets, null);
+    const mesh = buildObstacleMesh(obstacle, environmentAssets);
     renderer.scene.add(mesh);
     scenarioBuildingMeshes.push(mesh);
     buildingViewsByEntityId.set(entity.id, new BuildingView(mesh, buildingVfxGroup));
     scenarioBuildingEntityIds.add(entity.id);
-    scenarioEntityIds.push(entity.id);
-  });
-  // Paires visuelles de murailles : redessinees case par case a la chute
-  // d'une des deux (splitBattleWallPair).
-  scenarioRoles.forEach((role, i) => {
-    if (role.role === 'single') return;
-    const placed = scenarioBuildings[i]!;
-    battleWallPairs.set(scenarioEntityIds[i]!, {
-      partner: scenarioEntityIds[role.partner]!,
-      single: () => {
-        const mesh = buildObstacleMesh(gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0, placed.team), environmentAssets);
-        replaceBattleBuildingView(scenarioEntityIds[i]!, scenarioBuildingMeshes[i]!, mesh);
-        scenarioBuildingMeshes[i] = mesh;
-      },
-    });
-  });
+  }
+  // Murs V2 du scenario (MapDef.walls), bâtis.
+  spawnMapWalls();
   // Apres les unites, comme en vraie bataille (voir onValidatePlacement).
   spawnBallistaBuilding();
   // Apres la Baliste : son empreinte compte dans le pas d'ouverture.
@@ -2277,7 +1893,6 @@ function onValidatePlacement(): void {
 
   // Recolte avancee (Scierie, Camp de mineur) resolue cote run ; tas au sol
   // deja entames pendant les manches precedentes.
-  world.harvestPermissions = harvestPermissionsOf(currentRun);
   world.applyResourcePileAmounts(currentRun.resourcePileAmounts);
   for (const slot of placementSlots) {
     if (slot.x === null || slot.z === null) continue;
@@ -2338,32 +1953,14 @@ function onValidatePlacement(): void {
     buildingViewsByEntityId.set(entity.id, view);
     ownedBuildingIndexByEntityId.set(entity.id, i);
   });
-  // Paires visuelles de murailles possedees : redessinees case par case a la
-  // chute d'une des deux (splitBattleWallPair).
-  battleWallPairs.clear();
-  const ownedEntityIds: number[] = [];
-  for (const [entityId, index] of ownedBuildingIndexByEntityId) ownedEntityIds[index] = entityId;
-  ownedWallRoles.forEach((role, i) => {
-    if (role.role === 'single') return;
-    const owned = currentRun.buildings[i]!;
-    const entityId = ownedEntityIds[i]!;
-    battleWallPairs.set(entityId, {
-      partner: ownedEntityIds[role.partner]!,
-      single: () => {
-        const mesh = buildObstacleMesh(ownedBuildingObstacle(owned), environmentAssets);
-        mesh.userData['ownedBuildingIndex'] = i;
-        const view = replaceBattleBuildingView(entityId, ownedBuildingViews[i]!.mesh, mesh);
-        ownedBuildingViews[i] = { mesh, view };
-      },
-    });
-  });
-
   // La Baliste est TOUJOURS presente (jamais achetee, contrairement a la
   // Mine/la Caserne ci-dessus).
   spawnBallistaBuilding();
   // Camps neutres de la carte generee (2026-11-02) : gardes a leurs postes
   // et coffre, parametres resolus depuis data/camps.ts.
   for (const def of currentMap.camps ?? []) world.addCamp(campSpecOf(def));
+  // Murs V2 de la carte (MapDef.walls), bâtis.
+  spawnMapWalls();
   // Objets destructibles de la carte (barils des camps).
   for (const d of currentMap.destructibles ?? []) world.addDestructible(d.kind, d.x, d.z);
   // Or des ennemis abattus (tas au sol) : bonus du talent, resolu ici.
@@ -2439,7 +2036,9 @@ function clearScenarioBuildingMeshes(): void {
 
 function forgetBattleBuildings(): void {
   ballistaEntityId = null;
-  battleWallPairs.clear();
+  levelUpVfx.clear();
+  cancelWallPlacement();
+  clearWallViews();
   buildingViewsByEntityId.clear();
   ownedBuildingIndexByEntityId.clear();
   productionPayments.clear();
@@ -2569,14 +2168,17 @@ function startNewRun(heroId: string = selectedHeroId): void {
   // courant (carte de depart deja en place) demarre immediatement, seul le
   // retour d'une run agrandie attend la reconstruction. Plus de placement de
   // la tour : la preparation commence directement.
+  // Camera (2026-11-02) : centree sur le Heros et le suivant des le lancement.
   if (currentMap === survivalBaseMap) {
     applyRunBallistaPosition();
     frameRunCamera();
     startSurvivalRealtime();
+    followHero(false);
   } else {
     void resetGameBoardToSurvivalMap().then(() => {
       frameRunCamera();
       startSurvivalRealtime();
+      followHero(false);
     });
   }
 }
@@ -2735,10 +2337,9 @@ function selectPlayerHero(): void {
     cancelSpellTargeting();
     return;
   }
-  // Selection explicite et camera recentree sur le Heros (portrait).
-  setBattleSelection([hero.id]);
-  const at = unitViews.getPosition(hero.id) ?? hero;
-  renderer.setViewState({ ...renderer.getViewState(), targetX: at.x, targetZ: at.z });
+  // Selection explicite, camera recentree sur le Heros et suivi (portrait,
+  // meme geste qu'Espace).
+  followHero(true);
 }
 
 /** Sort de Heros en attente de sa cible (fiche : Soin) : clic gauche sur le
@@ -2797,6 +2398,7 @@ function armSpellTargeting(spellId: string): void {
   if (!hero?.alive || !hero.hero?.spells.some((s) => s.id === spellId) || !canIssueRtsOrder()) return;
   disarmItem();
   if (buildingPlacementMode) cancelBuildingPlacement();
+  cancelWallPlacement();
   buildMenu.close();
   spellTargeting = { spellId };
   buildingRotationHint.setText(`${getSpell(spellId).name} : clic sur le Héros (ou son portrait) ou un allié — clic droit ou Échap pour annuler`);
@@ -3018,7 +2620,7 @@ function updateHeroUi(): void {
     pileLabel.show(`${RESOURCE_ITEMS[pile.resource].name} — ${pile.amount}`, at.x, at.y - 22);
   } else if (shownSource) {
     const at = worldToScreen(shownSource.x, shownSource.z);
-    pileLabel.show(shownSource.resource === 'wood' ? `Arbre — ${sourceLeft} bois` : 'Rocher — pierre', at.x, at.y - 22);
+    pileLabel.show(`${HARVEST_NODE_KINDS[shownSource.resource].name} — ${sourceLeft ?? 0} ${shownSource.resource === 'wood' ? 'bois' : 'pierre'}`, at.x, at.y - 22);
   } else {
     pileLabel.hide();
   }
@@ -3044,11 +2646,13 @@ function resourceApproachPoint(source: ResourceNode, hero: Entity): { x: number;
   return d > 1e-6 ? { x: source.x + (dx / d) * reach, z: source.z + (dz / d) * reach } : { x: source.x, z: source.z + reach };
 }
 
-// --- Espace : Heros <-> Baliste (2026-11-01) --------------------------------
+// --- Camera : suivi du Heros (2026-11-02) ----------------------------------
 
-/** Camera suivant le Heros (Espace), et dernier point vise par ce suivi :
- *  un deplacement MANUEL de la camera (cible differente de celle posee par
- *  le suivi) lache le suivi ; l'appui suivant ramene alors au Heros. */
+/** Camera suivant le Heros, et dernier point vise par ce suivi. Actif des le
+ *  lancement d'une run (le Heros est l'avatar du joueur) ; un deplacement
+ *  MANUEL de la camera (bords, glisser : cible differente de celle posee par
+ *  le suivi) le lache, la camera reste alors libre ; Espace et le portrait le
+ *  rendent (followHero). 2026-11-02 : Espace ne bascule plus vers la Baliste. */
 let heroCameraLock = false;
 let heroCameraLastTarget: { x: number; z: number } | null = null;
 
@@ -3059,19 +2663,12 @@ function heroCameraPoint(): { x: number; z: number } | null {
   return hero ? (unitViews.getPosition(hero.id) ?? { x: hero.x, z: hero.z }) : null;
 }
 
-/** Espace en jeu : Heros (selection, centrage, suivi) <-> Baliste (suivi
- *  lache, centrage sur la Baliste). */
-function toggleHeroCamera(): void {
-  if (heroCameraLock) {
-    heroCameraLock = false;
-    heroCameraLastTarget = null;
-    renderer.setViewState({ ...renderer.getViewState(), targetX: playerArrowOrigin.x, targetZ: playerArrowOrigin.z });
-    return;
-  }
-  const point = heroCameraPoint();
-  if (!point) return;
+/** Retour au Heros : camera centree sur lui et suivi actif ; `select` :
+ *  le Heros devient aussi la selection (Espace, portrait), pas au lancement. */
+function followHero(select: boolean): void {
+  // Sans Heros encore en jeu (lancement) : le suivi s'accroche des qu'il apparait.
   const hero = world.entities.find((e) => e.hero && e.team === 'player');
-  if (hero) setBattleSelection([hero.id]);
+  if (select && hero) setBattleSelection([hero.id]);
   heroCameraLock = true;
   heroCameraLastTarget = null;
   updateHeroCameraLock();
@@ -3090,7 +2687,10 @@ function updateHeroCameraLock(): void {
   const point = heroCameraPoint();
   if (!point) return;
   renderer.setViewState({ ...view, targetX: point.x, targetZ: point.z });
-  heroCameraLastTarget = point;
+  // Cible REELLEMENT posee (bornee aux limites de la camera) : pres d'un bord,
+  // l'ecart avec le Heros n'est pas un deplacement manuel.
+  const placed = renderer.getViewState();
+  heroCameraLastTarget = { x: placed.targetX, z: placed.targetZ };
 }
 
 // --- Survie en temps reel continu (2026-11-01) -------------------------------
@@ -3165,10 +2765,8 @@ function completeSurvivalWave(): void {
  *  manche (legacy) : la production passe par les commandes (fiche). */
 function spawnOwnedBuildingRealtime(index: number): Entity {
   const owned = currentRun.buildings[index]!;
-  const role = wallVisualRoles([{ ...owned, team: 'player' }])[0]!;
-  ownedWallRoles[index] = role;
   const obstacle = ownedBuildingObstacle(owned);
-  const mesh = buildPlacedBuildingMesh(obstacle, role, [], environmentAssets, null);
+  const mesh = buildObstacleMesh(obstacle, environmentAssets);
   mesh.userData['ownedBuildingIndex'] = index;
   renderer.scene.add(mesh);
   const view = new BuildingView(mesh, buildingVfxGroup);
@@ -3210,13 +2808,11 @@ function pruneDestroyedOwnedBuildings(): void {
     currentRun.buildings.splice(index, 1);
     const [views] = ownedBuildingViews.splice(index, 1);
     if (views) destroyedOwnedBuildingViews.push(views);
-    ownedWallRoles.splice(index, 1);
   }
   for (const [entityId, index] of [...ownedBuildingIndexByEntityId]) {
     if (dead.includes(index)) ownedBuildingIndexByEntityId.delete(entityId);
     else ownedBuildingIndexByEntityId.set(entityId, index - dead.filter((d) => d < index).length);
   }
-  world.harvestPermissions = harvestPermissionsOf(currentRun);
 }
 
 /** Batiment possede inspecte en jeu (fiche), index dans la run, ou null. */
@@ -3234,16 +2830,21 @@ function realtimeArmyMissingHp(): number {
   return world.entities.filter((e) => e.alive && e.team === 'player' && !e.isBuilding).reduce((sum, e) => sum + Math.max(0, e.stats.maxHp - e.hp), 0);
 }
 
-/** Batiments proposes au Heros (bouton Construire) : cout, disponibilite. */
+/** Batiments proposes au Heros (bouton Construire) : cout, disponibilite ;
+ *  puis les murs V2 (trace A -> B, porte sur un segment). */
 function buildChoices(): BuildChoice[] {
+  return [...buildingChoices(), ...wallChoices()];
+}
+
+function buildingChoices(): BuildChoice[] {
   return listBuyableBuildingIds()
-    .filter((id) => getBuilding(id).placementMode !== 'line' && !id.startsWith('wall'))
     .map((id) => {
       const gold = getEffectiveBuildingCost(id);
       const res = buildingResourceCost(id);
       const cost = [`${formatGold(gold)} or`, res.wood ? `${res.wood} bois` : '', res.stone ? `${res.stone} pierre` : ''].filter(Boolean).join(', ');
       const enabled = currentRun.gold >= gold && canAffordBuildingResources(id);
-      return { id, name: getBuilding(id).displayName, cost, enabled, hint: enabled ? undefined : 'Or ou ressources déposées insuffisants' };
+      const description = getBuilding(id).description;
+      return { id, name: getBuilding(id).displayName, cost, enabled, hint: enabled ? undefined : 'Or ou ressources déposées insuffisants', ...(description ? { description } : {}) };
     });
 }
 
@@ -3255,7 +2856,12 @@ function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
   // Reparation (2026-11-02) : tout batiment allie bati et endommage, Baliste
   // comprise.
   const repair = info.kind === 'building' ? repairAction() : null;
-  if (!inspected || inspected.entity.construction) return repair ? { ...info, actions: [...(info.actions ?? []), repair] } : info;
+  // Porte de palissade : Ouvrir / Fermer (2026-11-02).
+  const door = info.kind === 'building' ? doorAction() : null;
+  if (!inspected || inspected.entity.construction) {
+    const extra = [...(door ? [door] : []), ...(repair ? [repair] : [])];
+    return extra.length > 0 ? { ...info, actions: [...(info.actions ?? []), ...extra] } : info;
+  }
   const { entity, owned } = inspected;
   const level = ownedBuildingLevel(owned);
   const actions: EntityInfoAction[] = [];
@@ -3302,7 +2908,7 @@ function inspectedPlayerBuilding(): Entity | null {
 function repairAction(): EntityInfoAction | null {
   const e = inspectedPlayerBuilding();
   if (!e || e.construction || e.hp >= e.stats.maxHp - 1e-6 || !inBattlePhase() || inTestMode) return null;
-  const cost = repairCost(e.unitId, (e.stats.maxHp - e.hp) / e.stats.maxHp);
+  const cost = repairCost(e.unitId, (e.stats.maxHp - e.hp) / e.stats.maxHp, wallPieceLength(e));
   const hero = playerHero();
   const busy = [...repairLedger.values()].some((r) => r.buildingId === e.id);
   const affordable = canPayRepair(cost);
@@ -3326,7 +2932,7 @@ function startRepairOfInspected(): void {
   const hero = playerHero();
   if (!e || !hero?.alive || e.construction || e.hp >= e.stats.maxHp || [...repairLedger.values()].some((r) => r.buildingId === e.id)) return;
   const budgetHp = e.stats.maxHp - e.hp;
-  const cost = repairCost(e.unitId, budgetHp / e.stats.maxHp);
+  const cost = repairCost(e.unitId, budgetHp / e.stats.maxHp, wallPieceLength(e));
   if (!canPayRepair(cost)) return;
   currentRun.gold = roundGold(currentRun.gold - cost.gold);
   currentRun.resources.wood -= cost.wood;
@@ -3423,27 +3029,31 @@ function applyOwnedLevelToEntity(entity: Entity, owned: OwnedBuilding): void {
   if (entity.buildingAttack) entity.buildingAttack = { ...entity.buildingAttack, damage: effectiveBuildingAttackDamage(owned.buildingId, level) };
 }
 
-/** Souche d'un arbre abattu : decor non bloquant (jamais dans la simulation
- *  ni dans la carte). PROVISOIRE. */
+/** Souche d'un arbre abattu et gravats d'un gisement vide : decors non
+ *  bloquants (jamais dans la simulation ni dans la carte). PROVISOIRE. */
 const STUMP_MODEL = 'stump_roundDetailed';
 const STUMP_SCALE = 0.55;
+const RUBBLE_SCALE = 0.3;
 
-/** Arbres abattus (apres chaque pas, World.treeFelledEvents) : l'arbre
- *  disparait du plateau (decor instancie, ou maillage d'une carte dessinee) et
- *  une souche decorative le remplace (une par case liberee d'un bosquet).
- *  Rendu seulement : cases et pathfinding sont deja a jour dans la simulation. */
-function handleFelledTrees(): void {
-  for (const felled of world.treeFelledEvents) {
-    if (!board.decor?.hide(felled.x, felled.z)) {
-      const mesh = board.obstacles.children.find((c) => Math.hypot(c.position.x - felled.x, c.position.z - felled.z) < 0.8 && c.visible);
+/** Sources epuisees (apres chaque pas, World.resourceDepletedEvents) : l'arbre
+ *  ou le rocher disparait du plateau (decor instancie, ou maillage d'une carte
+ *  dessinee) ; une souche decorative remplace l'arbre (une par case liberee
+ *  d'un bosquet), un petit rocher (gravats) le gisement. Rendu seulement :
+ *  cases et pathfinding sont deja a jour dans la simulation. */
+function handleDepletedResources(): void {
+  for (const depleted of world.resourceDepletedEvents) {
+    if (!board.decor?.hide(depleted.x, depleted.z)) {
+      const mesh = board.obstacles.children.find((c) => Math.hypot(c.position.x - depleted.x, c.position.z - depleted.z) < 0.8 && c.visible);
       if (mesh) mesh.visible = false;
     }
-    const spots = felled.cells.length > 1 ? felled.cells.map((c) => ({ x: c.x + 0.5, z: c.z + 0.5 })) : [{ x: felled.x, z: felled.z }];
+    const spots = depleted.cells.length > 1 ? depleted.cells.map((c) => ({ x: c.x + 0.5, z: c.z + 0.5 })) : [{ x: depleted.x, z: depleted.z }];
     for (const spot of spots) {
-      const stump: ObstacleDef = { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: STUMP_MODEL, scale: STUMP_SCALE, x: spot.x, z: spot.z };
-      const mesh = buildObstacleMesh(stump, environmentAssets);
-      placeObstacleMesh(mesh, stump);
-      mesh.userData['stump'] = felled.nodeId;
+      const remains: ObstacleDef = depleted.resource === 'wood'
+        ? { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: STUMP_MODEL, scale: STUMP_SCALE, x: spot.x, z: spot.z }
+        : { kind: 'rock', tilesX: 1, tilesZ: 1, scale: RUBBLE_SCALE, x: spot.x, z: spot.z };
+      const mesh = buildObstacleMesh(remains, environmentAssets);
+      placeObstacleMesh(mesh, remains);
+      mesh.userData[depleted.resource === 'wood' ? 'stump' : 'rubble'] = depleted.nodeId;
       board.group.add(mesh);
     }
   }
@@ -3592,6 +3202,12 @@ function onEntityInfoAction(id: EntityInfoAction['id'], payload?: string): void 
   }
   if (id === 'repairBuilding') {
     startRepairOfInspected();
+    return;
+  }
+  if (id === 'toggleDoor') {
+    const e = inspectedPlayerBuilding();
+    if (e) world.setDoorWanted(e.id, payload === 'open', RUN_OWNER_TEAM);
+    entityInfoSelectionKey = '';
     return;
   }
   if (!inPlacementPhase && inBattlePhase() && (id === 'upgradeBuilding' || id === 'healArmy' || id === 'openForge' || id === 'openChurchUpgrades')) {
@@ -3857,7 +3473,11 @@ const editorGhostGroup = new THREE.Group();
  *  maillages propres, distincts des decors (editorObjectsGroup). */
 const editorBuildingsGroup = new THREE.Group();
 const editorBuildingMeshes = new Map<number, THREE.Object3D>();
-renderer.scene.add(editorObjectsGroup, editorUnitsGroup, editorBuildingsGroup, editorGhostGroup);
+/** Murs V2 du brouillon (render/palisade.ts, memes pieces qu'en jeu),
+ *  reconstruits quand la liste des lignes change. */
+const editorWallsGroup = new THREE.Group();
+let editorWallsKey = '';
+renderer.scene.add(editorObjectsGroup, editorUnitsGroup, editorBuildingsGroup, editorWallsGroup, editorGhostGroup);
 
 // Sol/grille/zones PROPRES a l'editeur, distincts de ceux de la partie en
 // cours (board.group) : necessaire pour le redimensionnement (Antoine,
@@ -4200,7 +3820,8 @@ function deleteEditorSelection(): void {
   if (
     editorState.obstacles.length !== before.obstacles.length ||
     editorState.units.length !== before.units.length ||
-    editorState.buildings.length !== before.buildings.length
+    editorState.buildings.length !== before.buildings.length ||
+    editorState.walls.length !== before.walls.length
   ) {
     pushEditorObjectsCommand(before, editorState.objectsSnapshot());
   }
@@ -4277,6 +3898,12 @@ const editorUI = new EditorUI({
   onSelectBuilding: (buildingId) => {
     if (!editorState) return;
     editorState.setTool({ type: 'place-building', buildingId });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
+  onSelectWallTool: (wallType, gate) => {
+    if (!editorState) return;
+    editorState.setTool(gate ? { type: 'place-wall-gate', wallType } : { type: 'place-wall', wallType });
     clearEditorGhost();
     refreshEditorObjects();
   },
@@ -4528,24 +4155,32 @@ function refreshEditorObjects(): void {
     editorBuildingsGroup.remove(mesh);
     editorBuildingMeshes.delete(id);
   }
-  // Murailles : deux cases voisines d'une ligne dessinees ensemble
-  // (render/wallVisuals.ts).
-  const editorWallRoles = wallVisualRoles(editorState.buildings);
-  for (const [i, b] of editorState.buildings.entries()) {
-    // Un segment de muraille dont les virages ou la paire visuelle changent
-    // (voisin pose ou retire) est reconstruit.
-    const obstacle = gameplayBuildingObstacle(b.buildingId, b.x, b.z, b.rotationY ?? 0, b.team, editorState.buildings);
-    const role = editorWallRoles[i]!;
-    const partner = role.role === 'single' ? null : editorState.buildings[role.partner]!;
-    const joinKey = JSON.stringify([obstacle.wallJoin ?? null, b.buildingId, b.x, b.z, b.rotationY ?? 0, role.role, partner ? [partner.x, partner.z] : null]);
+  for (const b of editorState.buildings) {
+    // Batiment deplace ou tourne : reconstruit.
+    const key = JSON.stringify([b.buildingId, b.x, b.z, b.rotationY ?? 0]);
     const existing = editorBuildingMeshes.get(b.id);
-    if (existing && existing.userData['wallJoinKey'] === joinKey) continue;
+    if (existing && existing.userData['placementKey'] === key) continue;
     if (existing) editorBuildingsGroup.remove(existing);
-    const mesh = buildPlacedBuildingMesh(obstacle, role, editorState.buildings, editorAssets, role.role === 'lead' ? partner!.id : null);
-    mesh.userData['wallJoinKey'] = joinKey;
+    const mesh = buildObstacleMesh(gameplayBuildingObstacle(b.buildingId, b.x, b.z, b.rotationY ?? 0), editorAssets);
+    mesh.userData['placementKey'] = key;
     mesh.userData['editorBuildingId'] = b.id;
     editorBuildingMeshes.set(b.id, mesh);
     editorBuildingsGroup.add(mesh);
+  }
+
+  // Murs V2 du brouillon : segments et portes, tagues pour le clic.
+  const wallsKey = JSON.stringify(editorState.walls.map((w) => [w.id, w.type, w.ax, w.az, w.bx, w.bz, w.gates ?? []]));
+  if (wallsKey !== editorWallsKey) {
+    editorWallsKey = wallsKey;
+    for (const child of [...editorWallsGroup.children]) {
+      editorWallsGroup.remove(child);
+      disposeWallPieceView(child);
+    }
+    for (const piece of editorState.wallPieces()) {
+      const view = buildWallPieceView(piece.segment, piece.gate);
+      view.userData['editorWallId'] = piece.line.id;
+      editorWallsGroup.add(view);
+    }
   }
 
   // Baliste du brouillon : le modele (partage avec le jeu, voir
@@ -4554,8 +4189,17 @@ function refreshEditorObjects(): void {
 
   const selectedObstacle = editorState.selectedObstacle;
   const selectedBuilding = editorState.selectedBuilding;
+  const selectedWall = editorState.selectedWall;
   const ballistaSelected = editorState.selection?.kind === 'ballista';
-  editorSelectionRing.visible = selectedObstacle !== null || ballistaSelected || selectedBuilding !== null;
+  editorSelectionRing.visible = selectedObstacle !== null || ballistaSelected || selectedBuilding !== null || selectedWall !== null;
+  if (selectedWall) {
+    // Ligne de mur : anneau au milieu, a la mesure de sa longueur.
+    const mx = (selectedWall.ax + selectedWall.bx) / 2;
+    const mz = (selectedWall.az + selectedWall.bz) / 2;
+    editorSelectionRing.position.set(mx, 0.02 + surfaceY(mx, mz), mz);
+    editorSelectionRing.scale.setScalar(Math.max(1, wallLength(selectedWall) / 2) * 0.7);
+    editorSelectionRingMaterial.color.setHex(teamColor(selectedWall.team ?? 'player'));
+  }
   if (selectedBuilding) {
     // Meme convention d'echelle que les decors, sur l'emprise reelle.
     const def = getBuilding(selectedBuilding.buildingId);
@@ -4608,6 +4252,8 @@ function editorPropertiesSubject(state: EditorState): PropertiesSubject {
   if (state.selection?.kind === 'ballista') return { kind: 'ballista', x: state.ballista.x, z: state.ballista.z };
   const building = state.selectedBuilding;
   if (building) return { kind: 'building', building };
+  const wall = state.selectedWall;
+  if (wall) return { kind: 'wall', wall };
   return { kind: 'none' };
 }
 
@@ -4656,6 +4302,9 @@ function exitEditor(): void {
   editorUnitRings.clear();
   editorBuildingsGroup.clear();
   editorBuildingMeshes.clear();
+  for (const child of [...editorWallsGroup.children]) disposeWallPieceView(child);
+  editorWallsGroup.clear();
+  editorWallsKey = '';
   editorBoardGroup.clear();
   editorBoardGroup.visible = false;
   clearEditorGhost();
@@ -4685,7 +4334,6 @@ function exitEditor(): void {
  */
 async function testScenario(): Promise<void> {
   if (!editorState || !editorAssets) return;
-  finishEditorWallTrace();
   const testMap = exportMapDef(editorState, editorBaseMap);
 
   // Masque l'editeur (mais garde editorState intact) et bascule dans les
@@ -4696,6 +4344,7 @@ async function testScenario(): Promise<void> {
   editorObjectsGroup.visible = false;
   editorUnitsGroup.visible = false;
   editorBuildingsGroup.visible = false;
+  editorWallsGroup.visible = false;
   editorGhostGroup.visible = false;
   clearEditorGhost();
   editorSelectionRing.visible = false;
@@ -4788,6 +4437,7 @@ function returnToEditorAfterTest(): void {
   editorObjectsGroup.visible = true;
   editorUnitsGroup.visible = true;
   editorBuildingsGroup.visible = true;
+  editorWallsGroup.visible = true;
   // Masque par testScenario : sans cette ligne, plus aucun apercu de
   // l'editeur (fantomes, cases, pinceau, Baliste) ne s'affichait apres un test.
   editorGhostGroup.visible = true;
@@ -4846,7 +4496,7 @@ function snapToTileCenter(v: number): number {
 }
 
 /** Derniere position du fantome de l'editeur : R (rotation de l'outil
- *  Muraille) le rafraichit sans attendre un mouvement de souris. */
+ *  Batiment) le rafraichit sans attendre un mouvement de souris. */
 let lastEditorGhostX = 0;
 let lastEditorGhostZ = 0;
 
@@ -4895,44 +4545,44 @@ function updateEditorGhost(x: number, z: number): void {
     // le clic, canPlaceBuildingAt), plus le modele du jeu en fantome.
     const buildingId = editorState.tool.buildingId;
     const rotationY = editorState.tool.rotationY ?? 0;
-    const trace = activeEditorWallTrace();
-    if (trace || getBuilding(buildingId).placementMode === 'line') {
-      // Trace de murailles : segment au repos avant le premier clic, puis la
-      // portion de l'ancre au curseur (segments, virage, case en attente).
-      const net = wallNetworkOf(editorWallBuildings());
-      const ends = joinableWallEnds(net, trace);
-      const join = trace ? wallJoinAt(net, trace, x, z) : null;
-      const snapped = trace ? join?.end ?? null : wallEndNear(ends, x, z);
-      const plan = trace ? planTracedWallLeg(buildingId, trace, x, z, editorState.ballista, 'player', join?.path ?? null) : null;
-      const pieces = plan ? plan.step.added : snapped ? [] : [wallRestPiece(buildingId, x, z, rotationY)];
-      const centers = editorTracePieceCenters(pieces);
-      const halfId = getBuilding(buildingId).traceHalf ?? buildingId;
-      const valid = plan
-        ? plan.leg.usable && !wallStepTouchesGate(editorState.buildings, plan.step) && !wallStepSplitsLevels(plan.step, editorState.heightField()) && editorState.canReplaceBuildingPieces(tracedBuildingsToRemove(editorState.buildings, plan.step).map((b) => b.id), centers, editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))
-        : snapped !== null || editorState.canPlaceBuildingAt(halfId, traceCellAt(x, z).x + 0.5, traceCellAt(x, z).z + 0.5, undefined, 0);
-      const group = new THREE.Group();
-      addWallEndMarkers(group, ends, snapped);
-      for (const r of plan?.step.removed ?? []) for (const c of tracePieceCells(r)) group.add(buildCellPreview(+c.split(',')[0]!, +c.split(',')[1]!, valid));
-      const assets = editorAssets;
-      pieces.forEach((p, i) => {
-        for (let dz = 0; dz < p.tilesZ; dz++) for (let dx = 0; dx < p.tilesX; dx++) group.add(buildCellPreview(p.cornerX + dx, p.cornerZ + dz, valid));
-        group.add(buildGhost(gameplayBuildingObstacle(p.buildingId, centers[i]!.x, centers[i]!.z, p.rotationY), centers[i]!.x, centers[i]!.z, assets));
-      });
-      for (const c of plan?.step.waiting ?? []) group.add(buildCellPreview(c.x, c.z, valid));
-      editorGhost = group;
-      editorGhostGroup.add(editorGhost);
-      return;
-    }
-    const center = snapBuildingCenter(buildingId, x, z, rotationY);
-    const replaced = editorState.replaceableBuildingsAt(buildingId, center.x, center.z, rotationY);
-    const valid = replaced.length > 0 ? editorState.canReplaceBuildingPieces(replaced.map((b) => b.id), [{ buildingId, x: center.x, z: center.z, rotationY }], []) : editorState.canPlaceBuildingAt(buildingId, center.x, center.z, undefined, rotationY);
-    const bounds = buildingBoundsAt(buildingId, center.x, center.z, rotationY);
+    const center = snapBuildingCenter(buildingId, x, z);
+    const valid = editorState.canPlaceBuildingAt(buildingId, center.x, center.z);
+    const bounds = buildingBoundsAt(buildingId, center.x, center.z);
     const combined = new THREE.Group();
     for (let cz = Math.floor(bounds.minZ); cz < bounds.maxZ; cz++) {
       for (let cx = Math.floor(bounds.minX); cx < bounds.maxX; cx++) combined.add(buildCellPreview(cx, cz, valid));
     }
     combined.add(buildGhost(gameplayBuildingObstacle(buildingId, center.x, center.z, rotationY), center.x, center.z, editorAssets));
     editorGhost = combined;
+    editorGhostGroup.add(editorGhost);
+  } else if (editorState.tool.type === 'place-wall' || editorState.tool.type === 'place-wall-gate') {
+    // Murs V2 : memes pieces et memes regles qu'en jeu (core/wallLine.ts).
+    const tool = editorState.tool;
+    const type = getWallType(tool.wallType);
+    const group = new THREE.Group();
+    if (tool.type === 'place-wall-gate') {
+      const piece = editorState.wallPieceAt(x, z);
+      if (piece) {
+        const ghost = buildWallPieceView(piece.segment, true);
+        tintWallGhost(ghost, !piece.gate);
+        group.add(ghost);
+      }
+    } else if (!tool.start) {
+      const a = planWallLine({ x, z }, { x, z }, type, editorState.wallPlacementContext()).line;
+      const ghost = buildWallPieceView({ ax: a.ax - 0.01, az: a.az, bx: a.ax + 0.01, bz: a.az }, false);
+      tintWallGhost(ghost, editorState.hasCellAt(Math.floor(a.ax), Math.floor(a.az)));
+      group.add(ghost);
+    } else {
+      const plan = editorState.planWallTo(x, z);
+      if (plan && plan.length > 0.05) {
+        for (const s of segmentWallLine(plan.line, type.segmentLength)) {
+          const ghost = buildWallPieceView(s, false);
+          tintWallGhost(ghost, plan.issue === null);
+          group.add(ghost);
+        }
+      }
+    }
+    editorGhost = group;
     editorGhostGroup.add(editorGhost);
   } else if (editorState.tool.type === 'add-cell') {
     // Toujours alignee sur la grille (Part AG) : coin de case le plus
@@ -5310,56 +4960,6 @@ function brushAt(x: number, z: number): void {
   updateEditorGhost(x, z);
 }
 
-/** Trace de murailles en cours dans l'editeur (outil de pose d'un batiment
- *  'line', core/wallTrace.ts), ou null. Une entree d'historique par portion
- *  validee ; Echap / clic droit, annuler / retablir et tout changement
- *  d'outil abandonnent la portion non construite. */
-let editorWallTrace: { buildingId: string; trace: WallTrace } | null = null;
-
-/** Trace de l'editeur s'il correspond encore a l'outil actif (sinon il est
- *  termine : changement d'outil). */
-function activeEditorWallTrace(): WallTrace | null {
-  const tool = editorState?.tool;
-  if (editorWallTrace && (tool?.type !== 'place-building' || tool.buildingId !== editorWallTrace.buildingId)) finishEditorWallTrace();
-  return editorWallTrace?.trace ?? null;
-}
-
-/** Termine le trace de l'editeur sans le fermer (Echap, clic droit,
- *  changement d'outil, Tester le scenario) : ses cases en attente deviennent
- *  des pieces droites, en une entree d'historique. */
-function finishEditorWallTrace(): void {
-  const current = editorWallTrace;
-  editorWallTrace = null;
-  if (!current || !editorState || current.trace.current.waiting.length === 0) return;
-  const step = finalizeTracedWall(current.buildingId, current.trace, editorState.ballista, 'player');
-  if (step.added.length === 0 && step.removed.length === 0) return;
-  const before = editorState.objectsSnapshot();
-  const removedIds = tracedBuildingsToRemove(editorState.buildings, step).map((b) => b.id);
-  const placeable = step.added.filter((p) => editorState!.canReplaceBuildingPieces(removedIds, editorTracePieceCenters([p]), []));
-  if (!editorState.replaceBuildingPieces(removedIds, editorTracePieceCenters(placeable), [])) return;
-  editorState.buildings = reorientTracedBuildings(editorState.buildings, step.all);
-  pushEditorObjectsCommand(before, editorState.objectsSnapshot());
-  refreshEditorObjects();
-}
-
-/** Centres des segments d'une portion de trace (pose de l'editeur). */
-function editorTracePieceCenters(pieces: readonly TracedWallPiece[]): { buildingId: string; x: number; z: number; rotationY: number }[] {
-  return pieces.map((p) => ({ buildingId: p.buildingId, x: p.cornerX + p.tilesX / 2, z: p.cornerZ + p.tilesZ / 2, rotationY: p.rotationY }));
-}
-
-/** Murailles du brouillon raccordables par le trace de l'editeur (camp
- *  joueur, comme les pieces qu'il pose). */
-function editorWallBuildings(): EditorBuilding[] {
-  return (editorState?.buildings ?? []).filter((b) => b.team === 'player');
-}
-
-/** Cases en attente d'une etape, vues comme des demi-segments (elles le
- *  deviendront si le trace s'arrete) : elles doivent etre posables. */
-function waitingHalfPieces(wallId: string, step: WallTraceStep): TracedWallPiece[] {
-  const halfId = getBuilding(wallId).traceHalf ?? wallId;
-  return step.waiting.map((c) => ({ kind: 'half', buildingId: halfId, cornerX: c.x, cornerZ: c.z, tilesX: 1, tilesZ: 1, rotationY: 0 }));
-}
-
 /** Termine le trait en cours : une entree d'historique s'il a change quelque
  *  chose. Annuler revient exactement a l'etat d'avant le trait (cases et
  *  territoire, y compris "aucun territoire explicite" pour une ancienne
@@ -5462,42 +5062,20 @@ function handleEditorClick(event: MouseEvent): void {
     return;
   }
 
-  if (editorState.tool.type === 'place-building' && getBuilding(editorState.tool.buildingId).placementMode === 'line') {
-    // Trace de murailles : premier clic = case de depart, puis une portion
-    // par clic (tout ou rien, une entree d'historique), jusqu'a la fermeture.
-    const buildingId = editorState.tool.buildingId;
-    const trace = activeEditorWallTrace();
-    const net = wallNetworkOf(editorWallBuildings());
-    if (!trace) {
-      // Premier clic : reprise d'une extremite existante, ou depart sur une
-      // case libre.
-      const snapped = wallEndNear(joinableWallEnds(net, null), groundHit.x, groundHit.z);
-      const cell = traceCellAt(groundHit.x, groundHit.z);
-      const resumed = snapped ? resumeTraceAt(net, snapped) : null;
-      if (resumed) editorWallTrace = { buildingId, trace: resumed };
-      else if (!snapped && editorState.canPlaceBuildingAt(getBuilding(buildingId).traceHalf ?? buildingId, cell.x + 0.5, cell.z + 0.5, undefined, 0)) editorWallTrace = { buildingId, trace: startWallTrace(cell) };
-    } else {
-      const join = wallJoinAt(net, trace, groundHit.x, groundHit.z);
-      const plan = planTracedWallLeg(buildingId, trace, groundHit.x, groundHit.z, editorState.ballista, 'player', join?.path ?? null);
-      const leg = plan.leg;
-      const before = editorState.objectsSnapshot();
-      const removedIds = tracedBuildingsToRemove(editorState.buildings, plan.step).map((b) => b.id);
-      if (leg.usable && !wallStepTouchesGate(editorState.buildings, plan.step) && !wallStepSplitsLevels(plan.step, editorState.heightField()) && editorState.replaceBuildingPieces(removedIds, editorTracePieceCenters(plan.step.added), editorTracePieceCenters(waitingHalfPieces(buildingId, plan.step)))) {
-        // Creneaux de tout le trace vers l'exterieur (meme entree d'historique).
-        editorState.buildings = reorientTracedBuildings(editorState.buildings, plan.step.all);
-        pushEditorObjectsCommand(before, editorState.objectsSnapshot());
-        const next = advanceWallTrace(trace, leg);
-        editorWallTrace = next ? { buildingId, trace: next } : null;
-      }
-    }
+  if (editorState.tool.type === 'place-building') {
+    const before = editorState.objectsSnapshot();
+    if (editorState.placeBuildingAt(groundHit.x, groundHit.z)) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
     refreshEditorObjects();
     updateEditorGhost(groundHit.x, groundHit.z);
     return;
   }
 
-  if (editorState.tool.type === 'place-building') {
+  // Murs V2 : point A puis point B (une entree d'historique par ligne
+  // posee) ; porte : clic sur un segment.
+  if (editorState.tool.type === 'place-wall' || editorState.tool.type === 'place-wall-gate') {
     const before = editorState.objectsSnapshot();
-    if (editorState.placeBuildingAt(groundHit.x, groundHit.z)) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
+    const changed = editorState.tool.type === 'place-wall' ? editorState.wallClick(groundHit.x, groundHit.z) !== null : editorState.placeGateAt(groundHit.x, groundHit.z);
+    if (changed) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
     refreshEditorObjects();
     updateEditorGhost(groundHit.x, groundHit.z);
     return;
@@ -5560,6 +5138,8 @@ function handleEditorClick(event: MouseEvent): void {
     editorState.select({ kind: 'ballista' });
   } else if (picked?.kind === 'building') {
     editorState.select({ kind: 'building', id: picked.id });
+  } else if (picked?.kind === 'wall') {
+    editorState.select({ kind: 'wall', id: picked.id });
   } else if (picked?.kind === 'obstacle') {
     editorState.select({ kind: 'obstacle', id: picked.id });
   } else if (picked === null && !event.shiftKey && editorState.selection?.kind === 'ballista') {
@@ -5591,23 +5171,30 @@ function handleEditorClick(event: MouseEvent): void {
  *  plutot qu'une priorite arbitraire. */
 function pickEditorObjectAt(
   event: MouseEvent,
-): { kind: 'ballista' } | { kind: 'obstacle'; id: number } | { kind: 'unit'; id: number } | { kind: 'building'; id: number } | null {
+): { kind: 'ballista' } | { kind: 'obstacle'; id: number } | { kind: 'unit'; id: number } | { kind: 'building'; id: number } | { kind: 'wall'; id: number } | null {
   setRaycasterFromEvent(event);
   const obstacleHit = raycaster.intersectObjects(editorObjectsGroup.children, true)[0];
   const unitHit = raycaster.intersectObjects(editorUnitsGroup.children, true)[0];
   const buildingHit = raycaster.intersectObjects(editorBuildingsGroup.children, true)[0];
+  const wallHit = raycaster.intersectObjects(editorWallsGroup.children, true)[0];
   // La Baliste (modele partage avec le jeu, voir ballistaPlatform) est aussi
   // cliquable directement.
   const ballistaHit = raycaster.intersectObject(ballistaPlatform, true)[0];
-  const hit = [obstacleHit, unitHit, buildingHit, ballistaHit].reduce<THREE.Intersection | undefined>(
+  const hit = [obstacleHit, unitHit, buildingHit, wallHit, ballistaHit].reduce<THREE.Intersection | undefined>(
     (best, h) => (h && (!best || h.distance < best.distance) ? h : best),
     undefined,
   );
   if (!hit) return null;
   if (hit === ballistaHit) return { kind: 'ballista' };
   if (hit === buildingHit) {
-    const buildingId = wallPairTarget(hit.object, hit.point, findEditorBuildingId(hit.object));
+    const buildingId = findEditorBuildingId(hit.object);
     if (buildingId !== null) return { kind: 'building', id: buildingId };
+  }
+  if (hit === wallHit) {
+    for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
+      const id = o.userData['editorWallId'];
+      if (typeof id === 'number') return { kind: 'wall', id };
+    }
   }
   const obstacleId = findEditorObstacleId(hit.object);
   if (obstacleId !== null) return { kind: 'obstacle', id: obstacleId };
@@ -6455,7 +6042,7 @@ function issueRightClickOrder(event: MouseEvent): void {
         // demande d'Antoine) : interaction reconnue ET deplacement autorise,
         // jamais « clic consomme » — le Heros va voir la ressource, sans la
         // recolter ; la raison est rappelee.
-        if (!(node.resource === 'wood' ? world.harvestPermissions.canHarvestTrees : world.harvestPermissions.canMineDeposits)) {
+        if (!canHarvestResource(world.harvestPermissions, node.resource)) {
           waveIndicator.flash(node.resource === 'wood' ? 'Couper les arbres : il faut une Scierie' : 'Exploiter ce gisement : il faut un Camp de mineur');
           const hero = world.getById(heroIds[0]!);
           const approach = hero ? resourceApproachPoint(node, hero) : point;
@@ -6608,7 +6195,33 @@ function handleCampEvents(): void {
   }
 }
 
+// --- Montee de niveau du Heros (2026-11-02) ----------------------------------
+
+/** Effet 3D de montee de niveau (render/levelUpVfx.ts) : PROVISOIRE et
+ *  remplacable — seule cette ligne choisit l'implementation ; le
+ *  declenchement vient de l'evenement de la simulation (HeroEvent 'levelUp'),
+ *  jamais du rendu. */
+const levelUpVfx: LevelUpEffect = createProceduralLevelUpEffect(renderer.scene);
+
+/** Montees de niveau d'UN pas, agregees par Heros (niveau final) : un seul
+ *  effet et une seule reaction du badge, meme si plusieurs niveaux tombent
+ *  ensemble. Un Heros a terre n'a pas d'effet 3D (le badge reagit quand
+ *  meme). */
+function playLevelUps(levels: ReadonlyMap<number, number>): void {
+  for (const [heroId, level] of levels) {
+    const hero = world.getById(heroId);
+    if (!hero || hero.team !== 'player') continue;
+    heroHud.pulseLevelUp(level);
+    if (!hero.alive) continue;
+    levelUpVfx.play(heroId, () => {
+      const p = unitViews.getPosition(heroId) ?? world.getById(heroId);
+      return p ? { x: p.x, y: surfaceY(p.x, p.z), z: p.z } : null;
+    });
+  }
+}
+
 function handleHeroEvents(events: readonly HeroEvent[]): void {
+  const levelUps = new Map<number, number>();
   for (const ev of events) {
     // Transport (2026-11-01) : la recolte et le ramassage remplissent le sac ;
     // seul le depot a la Baliste remplit le stock de la run.
@@ -6644,12 +6257,10 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
     } else if (ev.type === 'built') {
       const index = ownedBuildingIndexByEntityId.get(ev.buildingId);
       const owned = index !== undefined ? currentRun.buildings[index] : undefined;
-      if (owned) {
-        delete owned.constructionProgress;
-        world.harvestPermissions = harvestPermissionsOf(currentRun);
-      }
+      if (owned) delete owned.constructionProgress;
     } else if (ev.type === 'levelUp') {
-      waveIndicator.flash(`Héros : niveau ${ev.level} !`);
+      // VFX et badge (2026-11-02) a la place de l'ancien bandeau texte.
+      levelUps.set(ev.heroId, Math.max(levelUps.get(ev.heroId) ?? 0, ev.level));
     } else if (ev.type === 'death') {
       waveIndicator.flash(`Héros à terre — retour dans ${Math.round(ev.respawnIn)} s`);
     } else if (ev.type === 'respawn') {
@@ -6660,6 +6271,7 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
       if (ev.reason !== 'death') waveIndicator.flash(`${name} annulé — ${why}${ev.refunded > 0 ? ' (mana rendu)' : ''}`);
     }
   }
+  if (levelUps.size > 0) playLevelUps(levelUps);
 }
 
 /** Etat de l'encart du Heros : son entite en bataille, sinon la progression
@@ -6727,7 +6339,7 @@ function heroActionProgress(hero: Entity): { progress: number; remaining: number
 }
 
 /** Bois et pierre que coute `buildingId` (BuildingDef.resourceCost),
- *  `times` fois (murailles : par case). */
+ *  `times` fois. */
 function buildingResourceCost(buildingId: string, times = 1): Record<ResourceKind, number> {
   const cost = getBuilding(buildingId).resourceCost ?? {};
   return { wood: (cost.wood ?? 0) * times, stone: (cost.stone ?? 0) * times };
@@ -7163,7 +6775,7 @@ function findFallbackSlot(event: MouseEvent, shift: boolean): number | null {
 }
 
 /** `zone` : `territory` (unites en preparation, legacy) exige une case du
- *  territoire du joueur ; `map` (batiments, chantiers, murailles, depuis le
+ *  territoire du joueur ; `map` (batiments, chantiers, depuis le
  *  2026-11-02) seulement une case existante de la carte. Les contraintes
  *  physiques (occupation, obstacle, eau, arbre) valent dans les deux cas. */
 function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: number[], excludeBuildingIndex?: number, zone: 'territory' | 'map' = 'territory'): boolean {
@@ -7195,10 +6807,10 @@ function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: numb
     return tileX > b.minX && tileX < b.maxX && tileZ > b.minZ && tileZ < b.maxZ;
   });
   if (onObstacle) return false;
-  // Eau (isWaterSurface) : ni unite, ni batiment, ni muraille.
+  // Eau (isWaterSurface) : ni unite, ni batiment, ni mur.
   if (isWaterTile(tileX, tileZ)) return false;
   // Arbre (2026-11-02) : sa case bloque les unites terrestres, donc aussi
-  // toute pose (batiment, chantier, muraille, Baliste, unite) — regle unique
+  // toute pose (batiment, chantier, mur, Baliste, unite) — regle unique
   // des cases d'arbre (config/resourceNodes.ts, treeCellKeys). Arbre abattu :
   // sa case redevient constructible (World.treeCells, arbres debout).
   if (world.treeCells.has(cellKey(Math.floor(tileX), Math.floor(tileZ)))) return false;
@@ -7310,10 +6922,6 @@ interface BuildingPlacementMode {
    *  lue par canPlaceBuildingAt/l'empreinte de collision (voir
    *  OwnedBuilding.rotationY). */
   rotationY: number;
-  /** Mode Muraille (BuildingDef.placementMode 'line') : trace en cours
-   *  (core/wallTrace.ts) apres le premier clic, null avant et apres une
-   *  enceinte fermee. Toujours null pour un batiment pose a l'unite. */
-  trace: WallTrace | null;
   /** Index dans currentRun.buildings du bâtiment EN COURS DE DEPLACEMENT
    *  (2026-08-17, "il faut pouvoir rebouger ses bâtiments pendant la phase
    *  de placement") — `null` pour un ACHAT tout neuf (voir
@@ -7394,7 +7002,7 @@ function updateBuildingSelectionRing(): void {
       selectedBuildingIndex = null;
       return;
     }
-    const { tilesX, tilesZ } = buildingFootprintTiles(owned.buildingId, owned.rotationY ?? 0);
+    const { tilesX, tilesZ } = buildingFootprintTiles(owned.buildingId);
     buildingSelectionRing = createEditorSelectionRing(Math.hypot(tilesX, tilesZ) / 2 + 0.2);
     buildingSelectionRing.position.set(owned.x, 0.02 + surfaceY(owned.x, owned.z), owned.z);
   }
@@ -7442,116 +7050,15 @@ function buildingFootprintCells(cornerX: number, cornerZ: number, tilesX: number
  *  (2026-08-17) : voir activeBuildingObstacles — passe tel quel pendant un
  *  DEPLACEMENT (voir requestMoveBuilding), absent pour un ACHAT (rien a
  *  exclure, le bâtiment n'existe pas encore). */
-function canPlaceBuildingAt(buildingId: string, cornerX: number, cornerZ: number, excludeBuildingIndex?: number, rotationY = 0): boolean {
-  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
+function canPlaceBuildingAt(buildingId: string, cornerX: number, cornerZ: number, excludeBuildingIndex?: number): boolean {
+  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId);
   if (gameTerrain().flatLevelOver(cornerX, cornerX + tilesX, cornerZ, cornerZ + tilesZ) === null) return false;
   // Temps reel : jamais sur une unite vivante (elle serait enfermee).
   if (inBattlePhase() && world.entities.some((e) => e.alive && !e.isBuilding && e.x > cornerX - e.stats.radius && e.x < cornerX + tilesX + e.stats.radius && e.z > cornerZ - e.stats.radius && e.z < cornerZ + tilesZ + e.stats.radius)) return false;
+  // Ni sur une ligne de mur V2 (meme ecart que la pose d'un mur pres d'un batiment).
+  const footprint = { minX: cornerX, maxX: cornerX + tilesX, minZ: cornerZ, maxZ: cornerZ + tilesZ };
+  if (inBattlePhase() && world.entities.some((e) => e.alive && e.wall && segmentBoxDistance(e.wall, footprint) < getWallType(e.wall.wallType).halfWidth + getWallType(e.wall.wallType).buildingClearance)) return false;
   return buildingFootprintCells(cornerX, cornerZ, tilesX, tilesZ).every((c) => isValidPlacementTile(c.x, c.z, [], excludeBuildingIndex, 'map'));
-}
-
-/** Relief : vrai si une etape de trace ne tient pas sur UN seul niveau
- *  plat (pieces du trace et cases en attente) — une portion de muraille ne
- *  franchit jamais une falaise ni une pente. */
-function wallStepSplitsLevels(step: WallTraceStep, field: TerrainHeightField): boolean {
-  if (field.isFlat) return false;
-  const levels = new Set<number | null>();
-  for (const p of step.all) levels.add(field.flatLevelOver(p.cornerX, p.cornerX + p.tilesX, p.cornerZ, p.cornerZ + p.tilesZ));
-  for (const c of step.waiting) levels.add(field.flatLevelOver(c.x, c.x + 1, c.z, c.z + 1));
-  return levels.has(null) || levels.size > 1;
-}
-
-/** Segment de muraille sous le curseur avant le premier clic du trace,
- *  oriente selon `restRotationY` (Ctrl+molette). Partage par la preparation
- *  et l'editeur. */
-function wallRestPiece(buildingId: string, x: number, z: number, restRotationY: number): TracedWallPiece {
-  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, restRotationY);
-  const cell = traceCellAt(x, z);
-  return { kind: 'straight', buildingId, cornerX: cell.x, cornerZ: cell.z, tilesX, tilesZ, rotationY: tilesX >= tilesZ ? 0 : Math.PI / 2 };
-}
-
-/** Execute `check` comme si les batiments `removed` n'existaient plus (piece
- *  re-appariee par le trace), puis les remet en place. */
-function withoutOwnedBuildings<R>(removed: readonly OwnedBuilding[], check: () => R): R {
-  if (removed.length === 0) return check();
-  const saved = [...currentRun.buildings];
-  currentRun.buildings.splice(0, saved.length, ...saved.filter((b) => !removed.includes(b)));
-  try {
-    return check();
-  } finally {
-    currentRun.buildings.splice(0, currentRun.buildings.length, ...saved);
-  }
-}
-
-/** Etape de trace posable : or suffisant (cout de l'etape, voir
- *  wallLayoutCost) et chaque nouvelle piece ET chaque case en attente
- *  valides selon la regle de toute construction du joueur
- *  (canPlaceBuildingAt : territoire joueur, cases existantes, ni obstacle,
- *  ni batiment, ni unite). Tout ou rien. */
-function wallLineStatus(buildingId: string, step: WallTraceStep): { cost: number; affordable: boolean; placeable: boolean } {
-  const halfId = getBuilding(buildingId).traceHalf ?? buildingId;
-  const placeable =
-    !wallStepTouchesGate(currentRun.buildings, step) &&
-    !wallStepSplitsLevels(step, gameTerrain()) &&
-    withoutOwnedBuildings(tracedBuildingsToRemove(currentRun.buildings, step), () =>
-      step.added.every((s) => canPlaceBuildingAt(s.buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY)) && step.waiting.every((c) => canPlaceBuildingAt(halfId, c.x, c.z, undefined, 0)),
-    );
-  return { cost: step.cost, affordable: currentRun.gold >= step.cost && canAffordBuildingResources(step.wallId, Math.max(0, step.units)), placeable };
-}
-
-/** Applique une etape de trace aux batiments du joueur : retire les pieces
- *  re-appariees, pose les nouvelles, reoriente tout le trace, debite (ou
- *  rembourse) l'or. */
-function applyOwnedWallStep(step: WallTraceStep): void {
-  const removed = tracedBuildingsToRemove(currentRun.buildings, step);
-  const kept = currentRun.buildings.filter((b) => !removed.includes(b));
-  // Jamais de reparation gratuite : une piece recomposee garde le
-  // pourcentage de PV des cases qu'elle reprend (moyenne par case) ; une case
-  // nouvellement construite part a 100 %.
-  const cellHealth = new Map<string, number>();
-  // Chantiers recomposes : leur avancement est garde (jamais construit gratuitement).
-  const cellProgress = new Map<string, number>();
-  for (const b of removed) {
-    const { tilesX, tilesZ } = buildingFootprintTiles(b.buildingId, b.rotationY ?? 0);
-    const ratio = b.hp / getBuilding(b.buildingId).maxHp;
-    for (const c of tracePieceCells({ cornerX: b.x - tilesX / 2, cornerZ: b.z - tilesZ / 2, tilesX, tilesZ })) {
-      cellHealth.set(c, ratio);
-      if (b.constructionProgress !== undefined) cellProgress.set(c, b.constructionProgress);
-    }
-  }
-  for (const s of step.added) {
-    const cells = tracePieceCells(s);
-    const maxHp = getBuilding(s.buildingId).maxHp;
-    // Case neuve ou chantier recompose : CHANTIER (le Heros le construit).
-    const fresh = cells.every((c) => !cellHealth.has(c));
-    const progress = fresh ? 0 : cells.some((c) => cellProgress.has(c)) ? Math.min(...cells.map((c) => cellProgress.get(c) ?? 1)) : null;
-    const ratio = fresh ? CONSTRUCTION_START_HP_FRACTION : cells.reduce((sum, c) => sum + (cellHealth.get(c) ?? 1), 0) / cells.length;
-    kept.push({ buildingId: s.buildingId, x: s.cornerX + s.tilesX / 2, z: s.cornerZ + s.tilesZ / 2, hp: Math.max(1, Math.round(maxHp * ratio)), rotationY: s.rotationY, ...(progress !== null && progress < 1 ? { constructionProgress: progress } : {}) });
-  }
-  currentRun.buildings.splice(0, currentRun.buildings.length, ...reorientTracedBuildings(kept, step.all));
-  currentRun.gold = Math.max(0, roundGold(currentRun.gold - step.cost));
-  if (step.cost > 0) spawnCoinPopup(screens.shopGoldElement, -step.cost);
-  // Comme l'or : un cout net negatif (cases rendues) rembourse la pierre.
-  if (step.units !== 0) payBuildingResources(step.wallId, step.units);
-}
-
-/** Termine le trace en cours de la preparation (Echap, clic droit, sortie du
- *  mode) : ses cases en attente, deja payees, deviennent des pieces droites.
- *  Une case devenue invalide entre-temps reste vide et est remboursee. */
-function finishOwnedWallTrace(): void {
-  const mode = buildingPlacementMode;
-  if (!mode?.trace) return;
-  const trace = mode.trace;
-  mode.trace = null;
-  // Muraille reprise sans nouvelle portion : rien a finaliser.
-  if (trace.current.waiting.length === 0) return;
-  const step = finalizeTracedWall(mode.buildingId, trace, playerArrowOrigin, 'player');
-  const placeable = withoutOwnedBuildings(tracedBuildingsToRemove(currentRun.buildings, step), () =>
-    step.added.filter((s) => canPlaceBuildingAt(s.buildingId, s.cornerX, s.cornerZ, undefined, s.rotationY)),
-  );
-  const refundUnits = step.added.filter((s) => !placeable.includes(s)).reduce((sum, s) => sum + (s.kind === 'half' ? 0.5 : 1), 0);
-  applyOwnedWallStep({ ...step, added: placeable, cost: roundGold(step.cost - getEffectiveBuildingCost(mode.buildingId) * refundUnits), units: step.units - refundUnits });
-  refreshOwnedBuildingViews();
 }
 
 /** Clic sur un bouton "Bâtiments" de la boutique : entre en mode de
@@ -7559,18 +7066,19 @@ function finishOwnedWallTrace(): void {
  *  silencieusement si l'or est insuffisant (garde-fou en plus du bouton deja
  *  desactive cote UI, voir ui/screens.ts refreshShop). */
 function requestPlaceBuilding(buildingId: string): void {
+  // Murs V2 (menu Construire) : mode de trace propre, sans grille.
+  if (buildingId.startsWith(WALL_CHOICE_PREFIX) || buildingId.startsWith(WALL_GATE_CHOICE_PREFIX)) {
+    startWallPlacement(buildingId.slice(buildingId.indexOf(':') + 1), buildingId.startsWith(WALL_GATE_CHOICE_PREFIX));
+    return;
+  }
   // Cout EFFECTIF (2026-08-18, Mine/Caserne desormais plus cheres a chaque
   // amelioration permanente — voir getEffectiveBuildingCost, SOURCE UNIQUE
   // partagee avec l'affichage boutique ET confirmBuildingPlacement plus bas).
   if (currentRun.gold < getEffectiveBuildingCost(buildingId)) return;
-  // Murailles : bois / pierre verifies case par case au trace.
-  if (getBuilding(buildingId).placementMode !== 'line' && !canAffordBuildingResources(buildingId)) return;
+  if (!canAffordBuildingResources(buildingId)) return;
   disarmItem();
-  // Changement d'outil pendant un trace de murailles : ses extremites deja
-  // payees sont construites.
-  finishOwnedWallTrace();
-  buildingPlacementMode = { buildingId, rotationY: 0, movingIndex: null, trace: null };
-  buildingRotationHint.setText(placementHintText(buildingId, null));
+  buildingPlacementMode = { buildingId, rotationY: 0, movingIndex: null };
+  buildingRotationHint.setText(placementHintText());
   buildingRotationHint.setVisible(true);
   // Referme la boutique pour degager la vue sur la zone de placement (point
   // 48 de la demande d'Antoine) — retour a l'etat normal du placement des
@@ -7606,12 +7114,11 @@ function requestMoveBuilding(index: number): void {
   const owned = currentRun.buildings[index];
   if (!owned) return;
   disarmItem();
-  finishOwnedWallTrace();
   selectedBuildingIndex = null;
   placementBallistaSelected = false;
   updateBuildingSelectionRing();
-  buildingPlacementMode = { buildingId: owned.buildingId, rotationY: owned.rotationY ?? 0, movingIndex: index, trace: null };
-  buildingRotationHint.setText(placementHintText(owned.buildingId, null));
+  buildingPlacementMode = { buildingId: owned.buildingId, rotationY: owned.rotationY ?? 0, movingIndex: index };
+  buildingRotationHint.setText(placementHintText());
   buildingRotationHint.setVisible(true);
   updateBuildingPlacementGhost(owned.x, owned.z);
   const view = ownedBuildingViews[index];
@@ -7625,8 +7132,7 @@ function requestMoveBuilding(index: number): void {
  *  sans attendre un mousemove. */
 function rotateBuildingPlacement(direction: number): void {
   if (!buildingPlacementMode) return;
-  // 90° pour une emprise qui suit la rotation (muraille), 45° sinon.
-  const step = buildingRotationStep(buildingPlacementMode.buildingId);
+  const step = BUILDING_ROTATION_STEP;
   buildingPlacementMode.rotationY = (buildingPlacementMode.rotationY + direction * step + Math.PI * 2) % (Math.PI * 2);
   updateBuildingPlacementGhost(lastBuildingGhostGroundX, lastBuildingGhostGroundZ);
 }
@@ -7641,8 +7147,6 @@ function rotateBuildingPlacement(direction: number): void {
  *  un bâtiment SANS avoir encore franchi le seuil de glisser. */
 function cancelBuildingPlacement(): void {
   buildingClickCandidate = null;
-  // Trace de murailles en cours : ses extremites deja payees sont construites.
-  finishOwnedWallTrace();
   if (buildingPlacementMode?.movingIndex !== null && buildingPlacementMode?.movingIndex !== undefined) {
     const view = ownedBuildingViews[buildingPlacementMode.movingIndex];
     if (view) view.mesh.visible = true;
@@ -7650,16 +7154,6 @@ function cancelBuildingPlacement(): void {
   buildingPlacementMode = null;
   buildingPlacementGroup.clear();
   buildingRotationHint.setVisible(false);
-}
-
-/** Termine le trace de murailles en cours (Echap / clic droit) : l'apercu
- *  de la portion suivante disparait ; les cases en attente des portions
- *  validees (deja payees) deviennent des pieces droites — une ligne ouverte
- *  reste complete. Le mode Muraille reste actif pour un nouveau trace. */
-function cancelWallTrace(): void {
-  if (!buildingPlacementMode) return;
-  finishOwnedWallTrace();
-  updateBuildingPlacementGhost(lastBuildingGhostGroundX, lastBuildingGhostGroundZ);
 }
 
 /** Repositionne le fantome + l'apercu vert/rouge sous le curseur — appele a
@@ -7671,56 +7165,10 @@ function updateBuildingPlacementGhost(x: number, z: number): void {
   buildingPlacementGroup.clear();
   const mode = buildingPlacementMode;
   const def = getBuilding(mode.buildingId);
-  if (isLinePlacement(mode)) {
-    // Mode Muraille : avant le premier clic, un segment sous le curseur ;
-    // ensuite la PORTION de l'ancre au curseur (segments futurs, virage
-    // compris, et case en attente), verte si toute la portion est posable.
-    const net = wallNetworkOf(currentRun.buildings);
-    if (!mode.trace) {
-      // Extremites existantes raccordables : le curseur s'y aimante pour
-      // reprendre la muraille ; ailleurs, le depart doit etre une case libre.
-      const ends = joinableWallEnds(net, null);
-      const snapped = wallEndNear(ends, x, z);
-      addWallEndMarkers(buildingPlacementGroup, ends, snapped);
-      if (!snapped) {
-        const piece = wallRestPiece(mode.buildingId, x, z, mode.rotationY);
-        addBuildingPreview(mode.buildingId, piece.cornerX, piece.cornerZ, piece.rotationY, canPlaceBuildingAt(getBuilding(mode.buildingId).traceHalf ?? mode.buildingId, piece.cornerX, piece.cornerZ, undefined, 0));
-      }
-      buildingRotationHint.setText(placementHintText(mode.buildingId, null, snapped !== null));
-      return;
-    }
-    const join = wallJoinAt(net, mode.trace, x, z);
-    addWallEndMarkers(buildingPlacementGroup, joinableWallEnds(net, mode.trace), join?.end ?? null);
-    const plan = planTracedWallLeg(mode.buildingId, mode.trace, x, z, playerArrowOrigin, 'player', join?.path ?? null);
-    const status = wallLineStatus(mode.buildingId, plan.step);
-    const valid = plan.leg.usable && status.placeable && status.affordable;
-    // Pieces existantes qui seront recomposees : leurs cases, puis le
-    // resultat (virage, segments) en fantome.
-    for (const r of plan.step.removed) for (const c of tracePieceCells(r)) buildingPlacementGroup.add(buildCellPreview(+c.split(',')[0]!, +c.split(',')[1]!, valid));
-    for (const s of plan.step.added) addBuildingPreview(s.buildingId, s.cornerX, s.cornerZ, s.rotationY, valid);
-    for (const c of plan.step.waiting) buildingPlacementGroup.add(buildCellPreview(c.x, c.z, valid));
-    buildingRotationHint.setText(placementHintText(mode.buildingId, { leg: plan.leg, cells: wallLegCellCount(mode.trace, plan.leg), joinCost: plan.step.joinCost, ...status }));
-    return;
-  }
-  const { tilesX, tilesZ } = buildingFootprintTiles(mode.buildingId, mode.rotationY);
+  const { tilesX, tilesZ } = buildingFootprintTiles(mode.buildingId);
   const { cornerX, cornerZ } = computeBuildingFootprintCorner(x, z, tilesX, tilesZ);
-  const replaced = replaceableBuildingIndices(mode, cornerX, cornerZ);
-  const valid = withoutOwnedBuildings(replaced.map((i) => currentRun.buildings[i]!), () => canPlaceBuildingAt(mode.buildingId, cornerX, cornerZ, mode.movingIndex ?? undefined, mode.rotationY));
+  const valid = canPlaceBuildingAt(mode.buildingId, cornerX, cornerZ, mode.movingIndex ?? undefined);
   if (def.buildingModel) addBuildingPreview(mode.buildingId, cornerX, cornerZ, mode.rotationY, valid);
-}
-
-/** Index des batiments possedes que l'achat en cours REMPLACERAIT
- *  (BuildingDef.placeOverBuildingId : porte de 2 cases posee sur deux cases
- *  de mur alignees, voir replacedWallCells), sinon liste vide. Jamais
- *  pendant un deplacement. */
-function replaceableBuildingIndices(mode: BuildingPlacementMode, cornerX: number, cornerZ: number): number[] {
-  if (mode.movingIndex !== null) return [];
-  return replacedWallCells(mode.buildingId, cornerX, cornerZ, mode.rotationY, currentRun.buildings).map((b) => currentRun.buildings.indexOf(b));
-}
-
-/** Vrai pour un achat en mode Muraille (pose par lignes). */
-function isLinePlacement(mode: BuildingPlacementMode): boolean {
-  return mode.movingIndex === null && getBuilding(mode.buildingId).placementMode === 'line';
 }
 
 /** Apercu d'un batiment de placement : cases vertes/rouges de son emprise
@@ -7735,28 +7183,9 @@ function addBuildingPreview(buildingId: string, cornerX: number, cornerZ: number
   buildingPlacementGroup.add(buildGhost(gameplayBuildingObstacle(buildingId, centerX, centerZ, rotationY), centerX, centerZ, environmentAssets));
 }
 
-/** Cases nouvellement couvertes par une portion de trace : sa longueur, plus
- *  la case de depart pour la premiere portion, moins la case de depart deja
- *  couverte pour la fermeture. */
-function wallLegCellCount(trace: WallTrace, leg: WallTraceLeg): number {
-  if (leg.single) return 1;
-  const length = Math.abs(leg.end.x - trace.anchor.x) + Math.abs(leg.end.z - trace.anchor.z);
-  return trace.dirs.length === 0 ? length + 1 : leg.closes || leg.joins ? length - 1 : length;
-}
-
-/** Texte de l'indication de placement : rotation pour un batiment pose a
- *  l'unite ; en mode Muraille, etape du trace, nombre de cases couvertes par
- *  la portion et son cout. */
-function placementHintText(buildingId: string, line: { leg: WallTraceLeg; cells: number; joinCost: number; cost: number; affordable: boolean; placeable: boolean } | null, resume = false): string {
-  const def = getBuilding(buildingId);
-  const rotate = `Ctrl + molette — tourner (${def.footprintFollowsRotation ? 90 : 45}°)`;
-  if (def.placementMode !== 'line') return rotate;
-  if (!line) return resume ? `${def.displayName} : clic — reprendre la muraille ici · clic droit / Échap — quitter` : `${def.displayName} : clic — début du tracé · ${rotate} · clic droit / Échap — quitter`;
-  const count = line.cells;
-  const issue = !line.leg.usable || !line.placeable ? ' · emplacement invalide' : !line.affordable ? ' · or insuffisant' : '';
-  const close = line.leg.closes ? ' · ferme l’enceinte' : line.leg.joins ? ' · relie les murailles' : '';
-  const join = line.joinCost > 0 ? ` (dont ${formatGold(line.joinCost)} or de raccord)` : '';
-  return `${def.displayName} : ${count} case${count > 1 ? 's' : ''} — ${formatGold(line.cost)} or${join}${issue}${close} · clic — construire · clic droit / Échap — annuler le tracé`;
+/** Indication de placement d'un batiment pose a l'unite : rotation. */
+function placementHintText(): string {
+  return 'Ctrl + molette — tourner (45°)';
 }
 
 /** Clic de confirmation pendant un placement de batiment : deduit l'or
@@ -7780,13 +7209,11 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   if (!buildingPlacementMode) return false;
   setRaycasterFromEvent(event);
   if (!intersectTerrain(raycaster.ray, groundHit)) return false;
-  if (isLinePlacement(buildingPlacementMode)) return confirmWallLine(groundHit.x, groundHit.z);
   const def = getBuilding(buildingPlacementMode.buildingId);
-  const { tilesX, tilesZ } = buildingFootprintTiles(buildingPlacementMode.buildingId, buildingPlacementMode.rotationY);
+  const { tilesX, tilesZ } = buildingFootprintTiles(buildingPlacementMode.buildingId);
   const { cornerX, cornerZ } = computeBuildingFootprintCorner(groundHit.x, groundHit.z, tilesX, tilesZ);
-  const replaced = replaceableBuildingIndices(buildingPlacementMode, cornerX, cornerZ);
   const placing = buildingPlacementMode;
-  if (!withoutOwnedBuildings(replaced.map((i) => currentRun.buildings[i]!), () => canPlaceBuildingAt(placing.buildingId, cornerX, cornerZ, placing.movingIndex ?? undefined, placing.rotationY))) return false;
+  if (!canPlaceBuildingAt(placing.buildingId, cornerX, cornerZ, placing.movingIndex ?? undefined)) return false;
 
   if (buildingPlacementMode.movingIndex !== null) {
     const owned = currentRun.buildings[buildingPlacementMode.movingIndex];
@@ -7812,11 +7239,7 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   }
   currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
   payBuildingResources(buildingPlacementMode.buildingId);
-  // Porte posee sur deux cases de mur : elle les remplace (prix de la porte,
-  // murs retires sans remboursement) et reprend leur orientation (meme
-  // exterieur).
-  const rotationY = replaced.length > 0 ? currentRun.buildings[replaced[0]!]!.rotationY ?? buildingPlacementMode.rotationY : buildingPlacementMode.rotationY;
-  for (const i of [...replaced].sort((a, b) => b - a)) currentRun.buildings.splice(i, 1);
+  const rotationY = buildingPlacementMode.rotationY;
   // CHANTIER (direction Hero RTS) : le Heros le construit en bataille.
   currentRun.buildings.push({
     buildingId: def.id,
@@ -7840,38 +7263,296 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   return true;
 }
 
-/** Clic en mode Muraille (trace continu, core/wallTrace.ts) : le premier
- *  fixe la case de depart ; chacun des suivants construit la PORTION de
- *  l'ancre au curseur si elle est posable et payable (tout ou rien : une
- *  portion invalide ne pose rien, le reste du trace reste intact), puis son
- *  extremite devient la nouvelle ancre. Un clic sur la case de depart ferme
- *  l'enceinte et termine le trace ; le mode reste actif pour la suivante. */
-function confirmWallLine(x: number, z: number): boolean {
-  const mode = buildingPlacementMode;
-  if (!mode) return false;
-  const net = wallNetworkOf(currentRun.buildings);
-  if (!mode.trace) {
-    // Premier clic : sur une extremite existante, reprise de cette muraille ;
-    // sinon, depart sur une case libre seulement.
-    const snapped = wallEndNear(joinableWallEnds(net, null), x, z);
-    const cell = traceCellAt(x, z);
-    if (snapped) mode.trace = resumeTraceAt(net, snapped);
-    else if (canPlaceBuildingAt(getBuilding(mode.buildingId).traceHalf ?? mode.buildingId, cell.x, cell.z, undefined, 0)) mode.trace = startWallTrace(cell);
-    updateBuildingPlacementGhost(x, z);
-    return false;
+// --- Murs V2 : Palissade (2026-11-02) ---------------------------------------
+//
+// Pose RTS classique, sans grille (core/wallLine.ts, data/walls.ts) : choisir
+// « Palissade » dans le menu Construire, clic gauche = point A (aimante a un
+// mur proche), apercu de la ligne A -> curseur (segments, vert / rouge,
+// longueur, cout), second clic = point B. Chaque segment est un chantier
+// (World.spawnWallLine) que le Heros bâtit de A vers B. « Porte de
+// palissade » : clic sur un segment, il est remplace par une porte (chantier).
+// Cout preleve sur le STOCK depose uniquement, jamais sur le sac.
+
+/** Choix du menu Construire : `wall:<famille>` (trace), `wallgate:<famille>` (porte). */
+const WALL_CHOICE_PREFIX = 'wall:';
+const WALL_GATE_CHOICE_PREFIX = 'wallgate:';
+/** Duree de l'animation des battants (rendu seul). */
+const DOOR_ANIMATION_SECONDS = 0.35;
+
+interface WallPlacementMode {
+  wallType: string;
+  /** Vrai : pose d'une porte sur un segment existant. */
+  gate: boolean;
+  /** Point A une fois pose (trace), null avant. */
+  start: WallPoint | null;
+  /** Cle du dernier apercu construit (pas de reconstruction inutile). */
+  ghostKey: string;
+}
+
+let wallPlacement: WallPlacementMode | null = null;
+const wallPlacementGroup = new THREE.Group();
+renderer.scene.add(wallPlacementGroup);
+let lastWallGhostX = 0;
+let lastWallGhostZ = 0;
+
+/** Vues des pieces de mur en jeu (segments, portes) : groupe 3D, vue de
+ *  batiment (flash, chantier, fumee, effondrement) et ouverture affichee. */
+const wallViews = new Map<number, { group: THREE.Group; view: BuildingView; openness: number }>();
+
+function addWallPieceView(entity: Entity): void {
+  const w = entity.wall!;
+  const group = buildWallPieceView(w, w.door !== null);
+  renderer.scene.add(group);
+  const view = new BuildingView(group, buildingVfxGroup);
+  view.setConstruction(entity.construction ? entity.construction.progress : null);
+  const openness = w.door?.open ? 1 : 0;
+  view.setDoorOpenness(openness);
+  wallViews.set(entity.id, { group, view, openness });
+  buildingViewsByEntityId.set(entity.id, view);
+}
+
+function removeWallPieceView(entityId: number): void {
+  const v = wallViews.get(entityId);
+  if (!v) return;
+  renderer.scene.remove(v.group);
+  v.view.dispose();
+  disposeWallPieceView(v.group);
+  wallViews.delete(entityId);
+  buildingViewsByEntityId.delete(entityId);
+}
+
+function clearWallViews(): void {
+  for (const id of [...wallViews.keys()]) removeWallPieceView(id);
+}
+
+/** Murs de la carte courante (MapDef.walls) : bâtis, portes fermees. */
+function spawnMapWalls(): void {
+  for (const line of currentMap.walls ?? []) {
+    if (!WALL_TYPES[line.type]) continue;
+    for (const e of world.spawnWallLine(line.team ?? 'player', line.type, line, { gates: line.gates })) addWallPieceView(e);
   }
-  const join = wallJoinAt(net, mode.trace, x, z);
-  const plan = planTracedWallLeg(mode.buildingId, mode.trace, x, z, playerArrowOrigin, 'player', join?.path ?? null);
-  const status = wallLineStatus(mode.buildingId, plan.step);
-  if (!plan.leg.usable || !status.placeable || !status.affordable) return false;
-  // Pieces nouvelles et re-appariees, creneaux de TOUT le trace vers
-  // l'exterieur (seules rotation et variante de virage changent pour les
-  // pieces deja posees), or de l'etape.
-  applyOwnedWallStep(plan.step);
-  mode.trace = advanceWallTrace(mode.trace, plan.leg);
-  refreshOwnedBuildingViews();
-  updateBuildingPlacementGhost(x, z);
-  return true;
+}
+
+/** Longueur d'une piece de mur (cout de reparation), undefined sinon. */
+function wallPieceLength(e: Entity): number | undefined {
+  return e.wall ? wallLength(e.wall) : undefined;
+}
+
+/** Choix « Palissade » et « Porte de palissade » du menu Construire. */
+function wallChoices(): BuildChoice[] {
+  return Object.values(WALL_TYPES).flatMap((type) => {
+    const perTile = type.costPerTile.wood ?? 0;
+    const minimum = wallLineCost(type, type.minLength);
+    const gate = wallGateCost(type);
+    const lineOk = currentRun.resources.wood >= minimum.wood && currentRun.resources.stone >= minimum.stone;
+    const gateOk = currentRun.resources.wood >= gate.wood && currentRun.resources.stone >= gate.stone;
+    const hasWall = world.entities.some((e) => e.alive && e.team === 'player' && e.wall && !e.wall.door && e.wall.wallType === type.id);
+    return [
+      { id: WALL_CHOICE_PREFIX + type.id, name: type.displayName, cost: `${String(perTile).replace('.', ',')} bois / case`, enabled: lineOk, hint: lineOk ? undefined : 'Bois déposé insuffisant', description: 'Tracé libre : clic au départ, clic à l’arrivée' },
+      { id: WALL_GATE_CHOICE_PREFIX + type.id, name: `Porte de ${type.displayName.toLowerCase()}`, cost: `${gate.wood} bois`, enabled: gateOk && hasWall, hint: !hasWall ? `Construisez d’abord une ${type.displayName.toLowerCase()}` : gateOk ? undefined : 'Bois déposé insuffisant', description: 'Remplace un segment d’une palissade' },
+    ];
+  });
+}
+
+function startWallPlacement(wallType: string, gate: boolean): void {
+  if (!WALL_TYPES[wallType] || !inBattlePhase()) return;
+  disarmItem();
+  if (buildingPlacementMode) cancelBuildingPlacement();
+  wallPlacement = { wallType, gate, start: null, ghostKey: '' };
+  buildingRotationHint.setVisible(true);
+  updateWallPlacementGhost(lastWallGhostX, lastWallGhostZ);
+}
+
+function cancelWallPlacement(): void {
+  if (!wallPlacement) return;
+  wallPlacement = null;
+  clearWallGhost();
+  buildingRotationHint.setVisible(false);
+}
+
+/** Echap / clic droit : annule le trace en cours (point A), sinon quitte le mode. */
+function cancelWallTraceOrMode(): void {
+  if (wallPlacement?.start) {
+    wallPlacement.start = null;
+    wallPlacement.ghostKey = '';
+    updateWallPlacementGhost(lastWallGhostX, lastWallGhostZ);
+    return;
+  }
+  cancelWallPlacement();
+}
+
+function clearWallGhost(): void {
+  for (const child of [...wallPlacementGroup.children]) {
+    wallPlacementGroup.remove(child);
+    disposeWallPieceView(child);
+  }
+}
+
+/** Ce que la pose d'un mur lit du jeu : cases de la carte, eau, falaises,
+ *  arbres debout, structures bloquantes et gros gisements, batiments et
+ *  chantiers (Baliste comprise), murs existants, corps des unites. Memes
+ *  regles que l'editeur (core/wallLine.ts, checkWallLine). */
+function runtimeWallContext(): WallPlacementContext {
+  const trees = [...world.treeCells].map((k) => {
+    const [x, z] = k.split(',').map(Number) as [number, number];
+    return { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
+  });
+  const blocking = currentMap.obstacles.filter(isBlockingMapObstacle).map(obstacleBounds);
+  // Gros gisements de pierre encore debout : la ligne ne les traverse pas.
+  const deposits = [...world.resourceNodes.values()].filter((n) => n.resource === 'stone' && !world.depletedResourceNodes.has(n.id) && currentMap.obstacles[n.id]).map((n) => obstacleBounds(currentMap.obstacles[n.id]!));
+  return {
+    isCell: (x, z) => isMapTile(x, z),
+    isWater: (x, z) => isWaterTile(x, z),
+    crossesCliff: (s) => crossesTerrainCliff(s.ax, s.az, s.bx, s.bz, world.obstacles),
+    obstacles: [...trees, ...blocking, ...deposits],
+    buildings: world.entities.filter((e) => e.alive && e.isBuilding && !e.wall && e.footprintObstacle).map((e) => obstacleBounds(e.footprintObstacle!)),
+    walls: world.entities.filter((e) => e.alive && e.wall).map((e) => e.wall!),
+    bodies: world.entities.filter((e) => e.alive && !e.isBuilding).map((e) => ({ x: e.x, z: e.z, r: e.stats.radius })),
+  };
+}
+
+/** Ligne proposee de A au curseur (meme calcul pour l'apercu et la pose). */
+function planRuntimeWall(x: number, z: number): WallLinePlan | null {
+  const mode = wallPlacement;
+  if (!mode?.start) return null;
+  return planWallLine(mode.start, { x, z }, getWallType(mode.wallType), runtimeWallContext());
+}
+
+/** Segment de mur du joueur vise pour une porte (a moins de 0,6 case de sa
+ *  ligne, pas deja une porte), ou null. */
+function wallSegmentForGate(x: number, z: number): Entity | null {
+  const candidates = world.entities.filter((e) => e.alive && e.team === 'player' && e.wall && !e.wall.door && e.wall.wallType === wallPlacement?.wallType);
+  const i = wallSegmentAt(x, z, candidates.map((e) => e.wall!), 0.6);
+  return i >= 0 ? candidates[i]! : null;
+}
+
+function canAffordWood(cost: { wood: number; stone: number }): boolean {
+  return currentRun.resources.wood >= cost.wood && currentRun.resources.stone >= cost.stone;
+}
+
+/** Apercu : avant le point A, un poteau sous le curseur ; ensuite toute la
+ *  ligne (segments internes reels) en vert ou rouge, et l'indication
+ *  (longueur, cout, raison d'un refus). Porte : le segment vise. */
+function updateWallPlacementGhost(x: number, z: number): void {
+  const mode = wallPlacement;
+  if (!mode) return;
+  lastWallGhostX = x;
+  lastWallGhostZ = z;
+  const type = getWallType(mode.wallType);
+  if (mode.gate) {
+    const target = wallSegmentForGate(x, z);
+    const cost = wallGateCost(type);
+    const affordable = canAffordWood(cost);
+    const key = `gate|${target?.id ?? -1}|${affordable}`;
+    if (key !== mode.ghostKey) {
+      mode.ghostKey = key;
+      clearWallGhost();
+      if (target) {
+        const ghost = buildWallPieceView(target.wall!, true);
+        tintWallGhost(ghost, affordable);
+        wallPlacementGroup.add(ghost);
+      }
+    }
+    buildingRotationHint.setText(target ? `Porte de ${type.displayName.toLowerCase()} — ${cost.wood} bois${affordable ? '' : ' · bois déposé insuffisant'} · clic — construire · clic droit / Échap — quitter` : `Porte : survolez un segment de ${type.displayName.toLowerCase()} · clic droit / Échap — quitter`);
+    return;
+  }
+  if (!mode.start) {
+    // Avant le point A : poteau sous le curseur (aimante a un mur proche).
+    const a = planWallLine({ x, z }, { x, z }, type, runtimeWallContext()).line;
+    const valid = isMapTile(a.ax, a.az) && !isWaterTile(a.ax, a.az);
+    const key = `start|${a.ax.toFixed(2)}|${a.az.toFixed(2)}|${valid}`;
+    if (key !== mode.ghostKey) {
+      mode.ghostKey = key;
+      clearWallGhost();
+      const ghost = buildWallPieceView({ ax: a.ax - 0.01, az: a.az, bx: a.ax + 0.01, bz: a.az }, false);
+      tintWallGhost(ghost, valid);
+      wallPlacementGroup.add(ghost);
+    }
+    buildingRotationHint.setText(`${type.displayName} : clic — point de départ · clic droit / Échap — quitter`);
+    return;
+  }
+  const plan = planRuntimeWall(x, z)!;
+  const cost = wallLineCost(type, plan.length);
+  const affordable = canAffordWood(cost);
+  const valid = plan.issue === null && affordable;
+  const l = plan.line;
+  const key = `line|${l.ax.toFixed(2)},${l.az.toFixed(2)},${l.bx.toFixed(2)},${l.bz.toFixed(2)}|${valid}`;
+  if (key !== mode.ghostKey) {
+    mode.ghostKey = key;
+    clearWallGhost();
+    if (plan.length > 0.05) {
+      for (const s of segmentWallLine(l, type.segmentLength)) {
+        const ghost = buildWallPieceView(s, false);
+        tintWallGhost(ghost, valid);
+        wallPlacementGroup.add(ghost);
+      }
+    }
+  }
+  const length = plan.length.toFixed(1).replace('.', ',');
+  const issue = plan.issue ? ` · ${WALL_ISSUE_LABELS[plan.issue]}` : !affordable ? ' · bois déposé insuffisant' : '';
+  const join = plan.snappedB ? ' · jonction' : '';
+  buildingRotationHint.setText(`${type.displayName} : ${length} cases — ${cost.wood} bois${join}${issue} · clic — construire · clic droit / Échap — annuler le tracé`);
+}
+
+/** Clic gauche du mode Mur : point A, puis point B (pose si la ligne est
+ *  valide et payable : stock seulement), ou porte sur le segment vise. */
+function confirmWallPlacement(event: MouseEvent): void {
+  const mode = wallPlacement;
+  if (!mode) return;
+  setRaycasterFromEvent(event);
+  if (!intersectTerrain(raycaster.ray, groundHit)) return;
+  const x = groundHit.x;
+  const z = groundHit.z;
+  const type = getWallType(mode.wallType);
+  const hero = world.entities.find((e) => e.hero && e.alive && e.team === 'player');
+  if (mode.gate) {
+    const target = wallSegmentForGate(x, z);
+    const cost = wallGateCost(type);
+    if (!target || !canAffordWood(cost)) return;
+    const gate = world.replaceWallSegmentWithGate(target.id);
+    if (!gate) return;
+    payWallCost(cost);
+    removeWallPieceView(target.id);
+    addWallPieceView(gate);
+    if (hero) world.issueCommand({ kind: 'build', entityIds: [hero.id], targetEntityId: gate.id });
+    cancelWallPlacement();
+    return;
+  }
+  if (!mode.start) {
+    const a = planWallLine({ x, z }, { x, z }, type, runtimeWallContext()).line;
+    if (!isMapTile(a.ax, a.az) || isWaterTile(a.ax, a.az)) return;
+    mode.start = { x: a.ax, z: a.az };
+    mode.ghostKey = '';
+    updateWallPlacementGhost(x, z);
+    return;
+  }
+  const plan = planRuntimeWall(x, z)!;
+  const cost = wallLineCost(type, plan.length);
+  if (plan.issue !== null || !canAffordWood(cost)) return;
+  payWallCost(cost);
+  const pieces = world.spawnWallLine('player', type.id, plan.line, { construction: true });
+  for (const e of pieces) addWallPieceView(e);
+  // Le Heros bâtit la ligne de A vers B (World : segment suivant d'abord).
+  if (hero && pieces[0]) world.issueCommand({ kind: 'build', entityIds: [hero.id], targetEntityId: pieces[0].id });
+  // Le mode reste actif pour une nouvelle ligne.
+  mode.start = null;
+  mode.ghostKey = '';
+  updateWallPlacementGhost(x, z);
+}
+
+/** Preleve un cout de mur sur le stock depose (jamais sur le sac). */
+function payWallCost(cost: { wood: number; stone: number }): void {
+  currentRun.resources.wood = Math.max(0, currentRun.resources.wood - cost.wood);
+  currentRun.resources.stone = Math.max(0, currentRun.resources.stone - cost.stone);
+}
+
+/** Action « Ouvrir / Fermer » de la fiche d'une porte bâtie du joueur. */
+function doorAction(): EntityInfoAction | null {
+  const e = inspectedPlayerBuilding();
+  const door = e?.wall?.door;
+  if (!e || !door || e.construction) return null;
+  if (door.open && !door.wantOpen) return { id: 'toggleDoor', payload: 'open', label: 'Fermeture en attente — passage occupé', enabled: true, hint: 'La porte se ferme dès que l’ouverture est libre. Clic : la laisser ouverte' };
+  return door.wantOpen ? { id: 'toggleDoor', payload: 'close', label: 'Fermer la porte', enabled: true, hint: 'Fermée : personne ne passe' } : { id: 'toggleDoor', payload: 'open', label: 'Ouvrir la porte', enabled: true, hint: 'Ouverte : vos unités passent, les ennemis restent bloqués' };
 }
 
 /** Deplacement d'unites sur la grille, pret a etre affiche (apercu) ou
@@ -8087,6 +7768,9 @@ let lastRealTime = performance.now();
 
 const loop = new Loop(
   (dt) => {
+    // Droits de recolte (Scierie, Camp de mineur termines) d'apres les
+    // batiments du monde, avant chaque pas (run/harvestPermissions.ts).
+    world.harvestPermissions = harvestPermissionsOf(world.entities);
     world.step(dt);
     logPathDiagnostics();
     stepSurvivalWaves();
@@ -8346,7 +8030,7 @@ const loop = new Loop(
       if (r.command.kind === 'repair' && r.rejection !== null) settleRepair(r.command.repairId, 1, false);
     }
     handleProductionUpgrades();
-    handleFelledTrees();
+    handleDepletedResources();
     for (const event of world.productionSpawnEvents) {
       // Niveau de production lu ICI, au spawn : les unites deja produites
       // gardent le leur (voir rememberPlayerUnitLevel).
@@ -8832,21 +8516,27 @@ const loop = new Loop(
         // ce garde-fou, laissant leur barre figee a son dernier etat affiche
         // (quasi vide juste avant la mort) pour toujours, jamais masquee.
         buildings.push({ entity, radius: def.radius, hpBarHeight: def.hpBarHeight });
-        // Porte de muraille : battants d'apres l'etat de la simulation.
-        if (entity.gate) view.setGateOpenness(entity.gate.prevOpenness + (entity.gate.openness - entity.gate.prevOpenness) * alpha);
         // Fumee selon les PV restants, effondrement a la destruction ; figes
         // pendant la pause (render/buildingDamageFx.ts).
-        // Case de muraille d'une paire visuelle qui tombe : les deux cases
-        // repassent d'abord en modele d'une case (render/wallVisuals.ts).
-        if (!entity.alive) splitBattleWallPair(entityId);
         const current = buildingViewsByEntityId.get(entityId) ?? view;
+        // Porte de palissade : battants animes vers l'etat de la simulation.
+        const wallView = entity.wall?.door ? wallViews.get(entityId) : undefined;
+        if (wallView && loop.timeScale !== 0) {
+          const target = entity.wall!.door!.open ? 1 : 0;
+          wallView.openness += Math.sign(target - wallView.openness) * Math.min(Math.abs(target - wallView.openness), realDt / DOOR_ANIMATION_SECONDS);
+          current.setDoorOpenness(wallView.openness);
+        }
         current.setConstruction(entity.construction ? entity.construction.progress : null);
-        current.setHealthFraction(entity.alive ? entity.hp / entity.stats.maxHp : 0);
+        // Chantier de mur V2 : ses PV bas sont l'avancement, pas des degats
+        // (pas de fumee sur une ligne en construction).
+        current.setHealthFraction(!entity.alive ? 0 : entity.wall && entity.construction ? 1 : entity.hp / entity.stats.maxHp);
         current.tick(realDt, loop.timeScale === 0);
         if (!entity.alive) current.playDestroy();
       }
       combatOverlay.syncBuildings(buildings, (e) => ({ x: e.x, z: e.z }), isHealthBarShown);
     }
+    // Montee de niveau : effet 3D (temps reel, fige en pause).
+    levelUpVfx.tick(realDt, loop.timeScale === 0);
     // Barres de PV pendant le placement (demande d'Antoine, 2026-08-09) : le
     // joueur doit voir l'etat de sante de son armee avant de valider, pas
     // seulement pendant la bataille. Meme regle qu'en bataille : blesse, ou
@@ -9446,10 +9136,6 @@ window.addEventListener('keydown', (event) => {
     if (brushStroke) endBrushStroke();
     if (surfaceStroke) endSurfaceStroke();
     if (forestStroke) endForestStroke();
-    if ((event.key === 'z' || event.key === 'Z' || event.key === 'y' || event.key === 'Y') && editorWallTrace) {
-      editorWallTrace = null;
-      clearEditorGhost();
-    }
     if (event.key === 'z' || event.key === 'Z') {
       event.preventDefault();
       if (event.shiftKey) editorHistory.redo();
@@ -9509,8 +9195,7 @@ window.addEventListener('keydown', (event) => {
       // reinitialiser la camera (voir CLAUDE.md, conflit identifie des
       // l'etape 2) — la camera reste pilotable normalement par ailleurs.
       if (inEditorMode) {
-        if (editorState?.rotateBuildingTool()) updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
-        else rotateSelectedObstacleBy(Math.PI / 2);
+        rotateSelectedObstacleBy(Math.PI / 2);
       } else {
         renderer.resetCamera();
       }
@@ -9532,7 +9217,8 @@ window.addEventListener('keydown', (event) => {
       // depuis le 2026-11-01 (Heros <-> Baliste) : il perd le focus d'abord.
       if (document.activeElement instanceof HTMLButtonElement) document.activeElement.blur();
       if (inEditorMode || inTestMode) resetEditorCamera();
-      else toggleHeroCamera();
+      // Espace (2026-11-02) : retour au Heros (selection, centrage, suivi).
+      else followHero(true);
       break;
     case 'Delete':
     case 'Backspace':
@@ -9544,13 +9230,13 @@ window.addEventListener('keydown', (event) => {
         // renverrait au menu principal et romprait le cycle editer/tester) —
         // le brouillon reste intact (voir returnToEditorAfterTest).
         returnToEditorAfterTest();
-      } else if (inEditorMode && editorState && activeEditorWallTrace()) {
-        // Trace de murailles en cours : Echap le termine (extremites
-        // construites) ; l'outil reste actif.
-        finishEditorWallTrace();
-        clearEditorGhost();
       } else if (inEditorMode && editorState) {
-        if (editorState.tool.type !== 'select') {
+        if (editorState.tool.type === 'place-wall' && editorState.tool.start) {
+          // Trace de mur en cours : Echap annule le point A, l'outil reste.
+          editorState.setTool({ type: 'place-wall', wallType: editorState.tool.wallType });
+          clearEditorGhost();
+          refreshEditorObjects();
+        } else if (editorState.tool.type !== 'select') {
           editorState.setTool({ type: 'select' });
           clearEditorGhost();
           refreshEditorObjects();
@@ -9570,10 +9256,9 @@ window.addEventListener('keydown', (event) => {
         heroInventory.close();
       } else if (buildMenu.isOpen()) {
         buildMenu.close();
-      } else if (buildingPlacementMode?.trace) {
-        // Trace de murailles en cours : Echap n'annule que la portion
-        // non construite (apercu, case en attente) ; le mode reste actif.
-        cancelWallTrace();
+      } else if (wallPlacement) {
+        // Mur V2 : Echap annule le trace en cours, puis quitte le mode.
+        cancelWallTraceOrMode();
       } else if (buildingPlacementMode || buildingClickCandidate) {
         // Mode placement d'un BATIMENT achete (2026-08-17, point 10 de la
         // demande : "Escape ou clic droit -> annule le placement, aucun
@@ -9735,7 +9420,9 @@ canvas.addEventListener('mousedown', (event) => {
   // le curseur de visée, il faut pouvoir appuyer sur clic droit pour sortir
   // de la visée du parchemin") — meme effet que Echap (disarmItem, ne
   // consomme JAMAIS l'objet).
-  const disarmedItem = armedItemIndex !== null || spellTargeting !== null;
+  // Trace de mur en cours : le clic droit l'annule (puis quitte le mode).
+  const disarmedItem = armedItemIndex !== null || spellTargeting !== null || wallPlacement !== null;
+  if (wallPlacement) cancelWallTraceOrMode();
   if (armedItemIndex !== null) disarmItem();
   if (spellTargeting) cancelSpellTargeting();
   if (rallyTargeting) cancelRallyTargeting();
@@ -9757,8 +9444,7 @@ canvas.addEventListener('mousedown', (event) => {
   // plus survivre a un clic droit — sinon un mousemove ulterieur sans
   // rapport pourrait a tort declencher un deplacement.
   buildingClickCandidate = null;
-  if (buildingPlacementMode?.trace) cancelWallTrace();
-  else if (buildingPlacementMode) cancelBuildingPlacement();
+  if (buildingPlacementMode) cancelBuildingPlacement();
 
   // Editeur de maps (2026-08-16, demande d'Antoine) : clic droit dans le vide
   // annule d'abord le PLACEMENT en cours ("objet/unité/prop en main"), sinon
@@ -9769,9 +9455,10 @@ canvas.addEventListener('mousedown', (event) => {
   // `contextmenu` sur `document.body` plus haut), donc rien de plus à faire
   // ici pour "ne pas ouvrir le menu contextuel".
   if (inEditorMode && editorState) {
-    if (activeEditorWallTrace()) {
-      finishEditorWallTrace();
+    if (editorState.tool.type === 'place-wall' && editorState.tool.start) {
+      editorState.setTool({ type: 'place-wall', wallType: editorState.tool.wallType });
       clearEditorGhost();
+      refreshEditorObjects();
     } else if (editorState.tool.type !== 'select') {
       editorState.setTool({ type: 'select' });
       clearEditorGhost();
@@ -9885,6 +9572,11 @@ canvas.addEventListener('mousedown', (event) => {
 
 canvas.addEventListener('mousedown', (event) => {
   if (event.button !== 0 || inEditorMode || leftClickReservedForCamera(event) || !inBattlePhase()) return;
+  // Temps reel : un mur V2 en cours de pose prend le clic (point A, B, porte).
+  if (wallPlacement) {
+    confirmWallPlacement(event);
+    return;
+  }
   // Temps reel : un batiment en cours de pose prend le clic (chantier).
   if (buildingPlacementMode) {
     confirmBuildingPlacement(event);
@@ -10161,6 +9853,14 @@ window.addEventListener('mousemove', (event) => {
   setRaycasterFromEvent(event);
   if (!intersectTerrain(raycaster.ray, groundHit)) return;
   updateBuildingPlacementGhost(groundHit.x, groundHit.z);
+});
+
+// Apercu d'un mur V2 en cours de pose (ligne A -> curseur, ou porte).
+window.addEventListener('mousemove', (event) => {
+  if (!wallPlacement) return;
+  setRaycasterFromEvent(event);
+  if (!intersectTerrain(raycaster.ray, groundHit)) return;
+  updateWallPlacementGhost(groundHit.x, groundHit.z);
 });
 
 // Relachement en fin de glisser d'un bâtiment DEJA POSSEDE (2026-08-18) —

@@ -1,4 +1,6 @@
 import { MELEE_CONTACT_RANGE, obstacleBounds, type ObstacleBounds, type ObstacleDef } from '../config/constants';
+import { distanceToSegment, segmentDistance, segmentHitsCapsule } from '../core/wallLine';
+import { canUnitPassGate } from './relations';
 import type { UnitStats } from '../data/units';
 
 /**
@@ -42,25 +44,16 @@ function cachedTeamList(obstacles: ObstacleDef[], key: string, isPassage: (o: Ob
   return list;
 }
 
-/** Obstacles dont les TRAJETS d'une unite du camp `team` doivent tenir
- *  compte (A*, ligne droite, contournement) : tous, sauf les portes de ce
- *  camp (`passableForTeam === team`), comptees comme un passage meme
- *  fermees — l'unite y va, la porte s'ouvre a son approche. Renvoie le
- *  tableau d'origine s'il n'y a rien a retirer. `crossesWater`
- *  (UnitStats.canTraverseWater) : l'eau (`terrainWater`) est retiree aussi. */
-export function obstaclesBlockingTeam(obstacles: ObstacleDef[], team: string, crossesWater = false): ObstacleDef[] {
-  if (crossesWater) return cachedTeamList(obstacles, 'path-water:' + team, (o) => o.passableForTeam === team || o.terrainWater === true);
-  return cachedTeamList(obstacles, 'path:' + team, (o) => o.passableForTeam === team);
-}
-
-/** Obstacles qui arretent PHYSIQUEMENT une unite du camp `team` (collision,
- *  ruee de Charge) : tous, sauf les portes de ce camp assez ouvertes
- *  (`passageOpen`). Une porte qui s'ouvre ou se ferme remplace
- *  World.obstacles (World.setGatePassage) : le cache reste exact.
- *  `crossesWater` : comme obstaclesBlockingTeam. */
-export function obstaclesCollidingTeam(obstacles: ObstacleDef[], team: string, crossesWater = false): ObstacleDef[] {
-  if (crossesWater) return cachedTeamList(obstacles, 'body-water:' + team, (o) => (o.passableForTeam === team && o.passageOpen === true) || o.terrainWater === true);
-  return cachedTeamList(obstacles, 'body:' + team, (o) => o.passableForTeam === team && o.passageOpen === true);
+/** Obstacles qui arretent une unite (trajets A*, ligne droite,
+ *  contournement, collision, ruee de Charge) : tous, sauf l'eau
+ *  (`terrainWater`) pour une unite qui la traverse
+ *  (UnitStats.canTraverseWater) et les portes de mur V2 qu'elle peut
+ *  franchir (ouvertes et alliees, sim/relations.ts canUnitPassGate) : une
+ *  porte ouverte reste un obstacle pour les hostiles. Liste en cache par
+ *  tableau et par camp ; une porte qui s'ouvre ou se ferme remplace
+ *  World.obstacles. Renvoie le tableau d'origine s'il n'y a rien a retirer. */
+export function obstaclesForUnit(obstacles: ObstacleDef[], unit: { team: string }, crossesWater = false): ObstacleDef[] {
+  return cachedTeamList(obstacles, (crossesWater ? 'water:' : 'land:') + unit.team, (o) => (crossesWater && o.terrainWater === true) || (o.door !== undefined && canUnitPassGate(unit, o.door)));
 }
 
 /** Obstacles du TERRAIN (2026-11-02) : la liste sans les emprises
@@ -168,6 +161,38 @@ export function bodyPathNearTerrainCliff(ax: number, az: number, bx: number, bz:
   return false;
 }
 
+/** Distance d'un point a une cible, pour la portee (aggro, attaque,
+ *  arret de poursuite) : jusqu'a son centre, ou jusqu'a la LIGNE d'une piece
+ *  de mur V2 (Entity.wall) — un segment de 2 cases se frappe sur toute sa
+ *  longueur, pas seulement en son milieu. Le rayon de la cible s'ajoute
+ *  ensuite comme pour toute entite (BuildingDef.radius). */
+export function targetDistance(x: number, z: number, target: { x: number; z: number; wall: { ax: number; az: number; bx: number; bz: number } | null }): number {
+  return target.wall ? distanceToSegment(x, z, target.wall) : Math.hypot(target.x - x, target.z - z);
+}
+
+/** Murs V2 : vrai si le CORPS (rayon `radius`) qui suivrait le segment
+ *  (ax, az) -> (bx, bz) toucherait une palissade (capsule), `ignore` excepte
+ *  (la cible elle-meme). La ligne de visee seule (findBlockingObstacle) peut
+ *  passer dans un interstice plus etroit que l'unite, entre deux murs : le
+ *  deplacement passe alors par A* plutot que de s'y coincer. Meme marge que
+ *  les falaises. */
+const wallLinesCache = new WeakMap<ObstacleDef[], ObstacleDef[]>();
+
+export function bodyPathNearWall(ax: number, az: number, bx: number, bz: number, radius: number, obstacles: ObstacleDef[], ignore: ObstacleDef | null = null): boolean {
+  let walls = wallLinesCache.get(obstacles);
+  if (!walls) {
+    walls = obstacles.filter((o) => o.line !== undefined);
+    wallLinesCache.set(obstacles, walls);
+  }
+  const m = Math.max(0, radius - CLIFF_BODY_CLEARANCE_SLACK);
+  const path = { ax, az, bx, bz };
+  for (const o of walls) {
+    if (o === ignore) continue;
+    if (segmentDistance(path, o.line!) < o.line!.halfWidth + m) return true;
+  }
+  return false;
+}
+
 /** Attaque de corps a corps, qui exige un contact physique (voir
  *  MELEE_CONTACT_RANGE). Seul point de decision. */
 export function isMeleeAttack(stats: Pick<UnitStats, 'attackRange'>): boolean {
@@ -237,7 +262,7 @@ export function segmentIntersectsBox(
  * absent : comportement inchange, aucun obstacle exclu.
  *
  * `forShot` : test d'une LIGNE DE TIR (attaque, capacite) plutot que d'un
- * trajet ; les obstacles `blocksShots === false` (murailles) sont alors
+ * trajet ; les obstacles `blocksShots === false` (pieces de mur, eau, arbres) sont alors
  * transparents. Absent : tout obstacle bloque (deplacement, poursuite).
  */
 export function findBlockingObstacle(
@@ -257,8 +282,15 @@ export function findBlockingObstacle(
     if (ignore && obstacles[i] === ignore) continue;
     if (forShot && obstacles[i]!.blocksShots === false) continue;
     const bounds = boundsList[i]!;
-    const hit = segmentIntersectsBox(ax, az, dx, dz, bounds);
+    let hit = segmentIntersectsBox(ax, az, dx, dz, bounds);
     if (hit === null) continue;
+    // Piece de mur V2 : la boite n'est qu'un premier filtre, la capsule
+    // decide (une diagonale ne bloque pas tout son rectangle).
+    const line = obstacles[i]!.line;
+    if (line) {
+      hit = segmentHitsCapsule({ ax, az, bx, bz }, line, line.halfWidth);
+      if (hit === null) continue;
+    }
 
     return {
       impactX: ax + dx * hit,

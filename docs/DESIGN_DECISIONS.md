@@ -77,7 +77,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Forge et Or, niveau de production des unités) / Remplacée (Runes, améliorations permanentes, amélioration globale de la Mine et de la Caserne, absence de surcoût de production) |
 | D6 | Améliorations de la Mine et de la Caserne propres à chaque bâtiment | Active |
 | D7 | Départ de run, population et bâtiments de recrutement | Active |
-| D8 | Murailles du joueur | Active (mécanique) / Ouverte (coût) |
+| D8 | Murailles du joueur (Wall V1) | Abandonnée le 2026-11-02, remplacée par G23 |
 | E1 | Manipulation directe pendant le placement | Active |
 | E2 | Collision des décors : emprise rectangulaire, props traversables | Remplacée (décors bloquants) / Active (emprise rectangulaire des obstacles) |
 | E3 | Rotation des décors dans l'éditeur | Remplacée (W/E) / Active (anneau et Ctrl+molette) |
@@ -88,6 +88,8 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | E8 | Décors purement visuels, traversables, adaptatifs au relief | Active / Remplacée pour les arbres (G11) |
 | F1 | Intégration audio mise en pause après expérimentation | Historique / Ouverte |
 | G11 | Arbres bloquants, ressources rares, vagues reliées au camp, Mine toutes les 60 s | Active (valeurs provisoires) |
+| G23 | Palissade V2 : murs géométriques A → B, sans grille | Active (valeurs provisoires) |
+| G24 | VFX de montée de niveau du Héros | Active (provisoire, remplaçable) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -770,7 +772,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### D8 — Murailles du joueur
 
-- **Statut** : Active (mécanique). Ouverte : le coût par case.
+- **Statut** : **Abandonnée** le 2026-11-02 (décision d'Antoine : système
+  devenu trop complexe et incohérent). Tout le code du Wall V1 est supprimé
+  et remplacé par la Palissade V2 (G23) ; les anciens murs des cartes sont
+  ignorés au chargement, jamais convertis. Ce qui suit est **historique**.
 - **2026-11-01 — unité canonique d'une case** (demande d'Antoine, migration
   choisie par lui) : **1 segment logique = 1 case** (données, PV, pose,
   sauvegarde, sélection, destruction) ; 25 PV et 0,5 or par case (même
@@ -821,9 +826,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   battants du modèle sont tournés par code (décision d'Antoine, `ASSETS.md`).
 - **À ne pas faire** : ne pas ajouter d'attaque, d'aura ou d'effet aux
   murailles sans nouvelle décision.
-- **Sources** : `data/buildings.ts`, `core/wallTrace.ts`, `main.ts` (mode
-  Muraille), `sim/systems/gates.ts`, `sim/geometry.ts`, `CURRENT_STATE.md`
-  §6.
+- **Sources** (supprimées le 2026-11-02) : `core/wallTrace.ts`,
+  `render/wallVisuals.ts`, `sim/systems/gates.ts`, mode Muraille de
+  `main.ts`.
 
 ---
 
@@ -1013,8 +1018,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     parallèles forment une rampe large ; une diagonale n'est franchissable
     que si les quatre arêtes autour du coin se raccordent ;
   - **pas de corps à corps à travers une falaise**, même critère d'arête ;
-  - bâtiments, murailles, portes et Baliste seulement sur une emprise plate
-    à un seul niveau ; une portion de muraille ne change pas de niveau ;
+  - bâtiments et Baliste seulement sur une emprise plate à un seul niveau ;
+    une palissade (G23) suit le relief mais ne franchit pas une falaise ;
   - **aucun avantage de hauteur** et **ligne de tir 2D** : le combat est
     inchangé, seule la trajectoire visuelle des projectiles suit le relief ;
   - pas de pont, d'escalier ni de chute ;
@@ -1262,7 +1267,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     (faux par défaut pour toutes les unités actuelles) : trajets,
     destination d'un ordre, IA, apparitions ;
   - ne bloque **jamais** les tirs ni la ligne de vue ;
-  - aucune unité, aucun bâtiment, aucune muraille, pas de Baliste sur
+  - aucune unité, aucun bâtiment, aucun mur, pas de Baliste sur
     l'eau (règles centrales de pose étendues).
 - **Conséquence** : la règle « une surface ne bloque rien » (E7) a désormais
   une exception, l'eau ; la simulation lit les cases d'eau de la carte
@@ -1473,7 +1478,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   puis **90 s** après chaque vague ; **tout en temps réel**, quelle que soit
   la carte (E4 désactivé partout en Survie) ; améliorations, Forge et Église
   **sur la fiche, en direct** (écran Forge / Église = jeu en pause) ;
-  **murailles reportées**.
+  **murailles reportées** (faites le 2026-11-02 : Palissade V2, G23).
 - **Règles de la passe** : construction = commandes du Héros (fiche),
   chantier payé et créé en direct ; production = commandes du bâtiment
   (fiche), une à la fois, durée par unité (`data/production.ts`) ; la
@@ -1582,7 +1587,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Statut** : Active ; valeurs **provisoires**.
 - **Demande d'Antoine** (2026-11-02) : barils destructibles à butin, Mine
   3 × 3, sortie devant les producteurs, point de ralliement, murailles
-  diagonales étanches, réparation payante par le Héros, Baliste détruite =
+  diagonales étanches (supprimées avec le Wall V1, G23), réparation payante par le Héros, Baliste détruite =
   défaite, HUD final (économie haut droit, Héros bas gauche, barre d'action
   centrée).
 - **Choix de la passe** :
@@ -1600,7 +1605,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   décisive ; les barils ajoutent un peu de ressources dans les camps.
 - **Sources** : `data/buildings.ts`, `data/loot.ts`, `sim/world.ts`,
   `sim/systems/buildingProduction.ts`, `sim/systems/hero.ts`,
-  `core/wallTrace.ts`, `run/buildingRepair.ts`, `render/destructibleViews.ts`,
+  `core/wallTrace.ts` (supprimé depuis), `run/buildingRepair.ts`, `render/destructibleViews.ts`,
   `render/rallyMarkers.ts`, `ui/actionProgress.ts`, `main.ts`.
 
 ### G17 — HUD officiel verrouillé, outil de calibration conservé
@@ -1675,7 +1680,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - chaque nouveau bâtiment est relié au **plus proche** des bâtiments déjà
     posés (à 20 cases ou moins), pas à tous : un réseau en arbre plutôt
     qu'une toile de chemins ;
-  - Baliste comprise ; murailles et portes exclues ;
+  - Baliste comprise ; pièces de mur exclues ;
   - chemin en ligne droite de cases reliées par un côté, qui saute l'eau ;
   - anneau aux coins arrondis ; terre battue gardée après une destruction,
     jusqu'à la run suivante ; purement visuel.
@@ -1711,6 +1716,91 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Sources** : `data/resources.ts`, `data/units.ts`, `data/production.ts`,
   `sim/world.ts`, `sim/systems/hero.ts`, `sim/systems/buildingProduction.ts`,
   `run/buildingUpgrades.ts`, `render/toonUnitRig.ts`, `main.ts`.
+
+### G22 — Scierie et Camp de mineur
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-02) : mettre en jeu la Scierie (coupe des
+  arbres) et le Camp de mineur (gros gisements), gisements finis (40 pierre),
+  même philosophie que l'arbre ; progression petits tas → dépôt → Scierie /
+  Camp de mineur → grosses ressources.
+- **Choix de la passe** :
+  - 10 or + 8 bois (Scierie), 10 or + 6 bois + 4 pierre (Camp de mineur),
+    3 × 3, 15 PV, 8 s ; modèles KayKit « lumbermill » et « workshop » ;
+  - droits recalculés avant chaque pas d'après les bâtiments terminés du
+    monde (une seule règle pour toutes les cartes) ;
+  - droit perdu (dernier bâtiment détruit) : l'unité en cours d'extraction
+    est finie, puis arrêt ; en chemin : arrêt immédiat ;
+  - sources factorisées (`HARVEST_NODE_KINDS` : quantité, bâtiment requis,
+    geste) ; gisement vidé : gravats, rien à débloquer (rochers non
+    bloquants, KI-41) ;
+  - pas de dépôt local : la Baliste reste le seul dépôt.
+- **Sources** : `data/resources.ts`, `data/buildings.ts`,
+  `run/harvestPermissions.ts`, `sim/world.ts`, `sim/systems/hero.ts`,
+  `main.ts`.
+
+### G23 — Palissade V2 : murs géométriques A → B, sans grille
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-02) : abandonner complètement la muraille
+  V1 (trop complexe, incohérente) et repartir de zéro ; première famille :
+  **Palissade en bois**, posée comme dans un RTS classique (clic A, aperçu,
+  clic B), à n'importe quel angle, avec une porte ; constructible en Survie
+  temps réel et dans l'éditeur, même architecture ; carte enregistrée de
+  façon géométrique ; anciens murs ignorés, sans convertisseur ; format
+  extensible (pierre, fortifié…).
+- **Choix de la passe** :
+  - **collision en capsule** (segment + demi-épaisseur 0,15), exacte à tout
+    angle ; segments voisins à extrémités partagées (barrière continue aux
+    jonctions) ; A* : cases couvertes par la ligne et son épaisseur ;
+  - **segment nominal de 2 cases** (⌊L / 2⌋ segments égaux, 2 à 4 cases) :
+    une brèche d'un segment laisse passer un Cavalier (rayon 0,7) ; avec
+    1 case, la brèche serait plus étroite que la plupart des unités ;
+  - **chantier par segment**, le Héros bâtit de A vers B ;
+  - **porte = un segment remplacé** (même géométrie), ouverture / fermeture
+    manuelles ; porte bâtie **fermée** ; fermeture différée tant qu'un allié
+    occupe l'ouverture ;
+  - **porte ouverte = passage pour le propriétaire et ses alliés seulement**
+    (correctif d'Antoine, 2026-11-02, remplace « tout le monde passe ») :
+    elle bloque toujours les hostiles, vagues comprises, qui contournent ou
+    l'attaquent. Règle générique de relation (`sim/relations.ts` :
+    `areAllied`, `canUnitPassGate`), sans camp codé en dur, compatible
+    avec de futures factions ; l'ancien `passableForTeam` du V1 n'est pas
+    réintroduit. Pas d'ouverture ni de fermeture automatique pour l'instant ;
+  - tirs **traversants** (comme l'ancienne muraille) ;
+  - coût **0,5 bois / case** (longueur au dixième, arrondi au-dessus), porte
+    4 bois, stock déposé seulement ; 15 PV / case (porte 20) ; 1,5 s / case
+    (porte 4 s) ;
+  - jonctions bout à bout, en T et prolongement acceptées ; croisement franc
+    et chevauchement refusés ; arbres, gros gisements, eau, falaises,
+    bâtiments (écart 0,15) et corps d'unités refusés ;
+  - portée jusqu'à la **ligne** d'une pièce de mur (`targetDistance`) ;
+  - rendu procédural (aucun asset adapté), un mesh par segment.
+- **Effets d'équilibrage** : les enceintes deviennent possibles en temps
+  réel et bon marché en bois ; les vagues les percent (fragiles) ; une
+  porte ouverte ne profite qu'au joueur.
+- **Sources** : `core/wallLine.ts`, `data/walls.ts`, `data/buildings.ts`,
+  `config/mapDef.ts`, `sim/world.ts`, `sim/systems/doors.ts`, `sim/relations.ts`,
+  `sim/geometry.ts`, `sim/pathfinding.ts`, `sim/systems/movement.ts`,
+  `render/palisade.ts`, `editor/editorState.ts`, `main.ts`.
+
+### G24 — VFX de montée de niveau du Héros
+
+- **Statut** : Active ; **provisoire** (sera probablement remplacé par un
+  VFX acheté).
+- **Demande d'Antoine** (2026-11-02) : rendre la montée de niveau
+  immédiatement perceptible (flash, onde au sol, particules, colonne de
+  lumière, étincelles dorées), 1 à 1,5 s, dans le monde 3D, plus une
+  réaction discrète du badge ; remplaçable sans toucher au système d'XP.
+- **Choix de la passe** : effet de 1,3 s qui **suit** le Héros pendant sa
+  durée ; **agrégation** (un seul effet par Héros : plusieurs niveaux d'un
+  même pas = un effet, niveau final ; un niveau pendant l'effet le relance) ;
+  Héros à terre : badge seulement ; l'ancien bandeau « Héros : niveau N ! »
+  est remplacé par « NIVEAU N » au-dessus du portrait. Interface
+  `LevelUpEffect` (rendu) séparée du déclenchement (événement de
+  simulation `levelUp`).
+- **Sources** : `render/levelUpVfx.ts`, `ui/heroHud.ts`, `ui/style.css`,
+  `main.ts` (`playLevelUps`).
 
 ---
 
@@ -1791,7 +1881,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - garantie de départ : au moins 10 bois et 6 pierres à 9–18 cases ;
   - passe corrective (2026-11-02) : rampes de 3 cases (KI-39), 34 à 36 tas
     (au moins trois fois plus rares), et une case d'arbre refuse aussi toute
-    pose (bâtiment, chantier, muraille, Baliste, unité) ;
+    pose (bâtiment, chantier, mur, Baliste, unité) ;
   - forêt : goulet d'une case comblé dans une forêt, élargi ailleurs ;
     poche isolée de moins de 8 cases comblée, sinon couloir de 2 cases.
 - **Effets d'équilibrage à surveiller** : la Mine rapporte bien moins

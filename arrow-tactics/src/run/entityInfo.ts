@@ -67,7 +67,7 @@ export interface EntityInfoAction {
    *  Tour, Eglise). `toggleBallistaMode` : bascule la Baliste AUTO / MANUEL
    *  (bataille). `healArmy` : soin de l'armee a l'Eglise selectionnee ;
    *  `openChurchUpgrades` : ameliorations de run accessibles a l'Eglise. */
-  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'openChurchUpgrades' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding';
+  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'openChurchUpgrades' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding' | 'toggleDoor';
   /** `buildStructure` : batiment a poser ; `produceUnit` : unite a produire
    *  (fiche d'un batiment), Survie en temps reel. */
   payload?: string;
@@ -575,6 +575,12 @@ function populationBonusRows(buildingId: string): EntityInfoRow[] {
   return bonus ? [{ label: 'Population', value: `+${bonus}` }] : [];
 }
 
+/** Recolte debloquee (Scierie, Camp de mineur, 2026-11-02) : son effet. */
+function harvestUnlockRows(buildingId: string): EntityInfoRow[] {
+  const def = getBuilding(buildingId);
+  return def.unlocksHarvest ? [{ label: 'Effet', value: def.description ?? (def.unlocksHarvest === 'trees' ? 'Coupe des arbres' : 'Exploitation des gisements') }] : [];
+}
+
 /** Lignes de production d'un batiment possede selon SON niveau. */
 function ownedBuildingRows(buildingId: string, level: number): EntityInfoRow[] {
   const def = getBuilding(buildingId);
@@ -582,7 +588,7 @@ function ownedBuildingRows(buildingId: string, level: number): EntityInfoRow[] {
   if (def.production) return productionRows(def.id, level);
   if (def.attack) return attackRows(effectiveBuildingAttackDamage(def.id, level), def.attack.rangeTiles, def.attack.cooldownSeconds);
   if (def.armyHeal) return [...armyHealRows(def.id, level), ...recruitmentUnlockRows(def.id)];
-  return populationBonusRows(def.id);
+  return [...populationBonusRows(def.id), ...harvestUnlockRows(def.id)];
 }
 
 /** Effet du prochain niveau, en une ligne (Mine, Caserne, Camp d'archerie,
@@ -695,7 +701,7 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
   } else if (def.armyHeal) {
     // Le soin de l'armee ne se declenche qu'en preparation.
     rows = [...armyHealRows(def.id, ownedLevel ?? 0), { label: 'Soin de l’armée', value: 'En préparation uniquement' }, ...recruitmentUnlockRows(def.id)];
-  } else rows = populationBonusRows(def.id);
+  } else rows = [...populationBonusRows(def.id), ...harvestUnlockRows(def.id)];
   rows.push(...footprintRows(def.id));
   // Batiment de production d'un scenario de l'editeur (non possede) : Niv. 1.
   const level = isUpgradableBuilding(def.id) ? (def.production ? (ownedLevel ?? 0) : ownedLevel) : playerLevel(entity.team, progress.upgrades, def.id);

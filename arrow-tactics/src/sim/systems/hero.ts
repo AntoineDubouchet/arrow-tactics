@@ -1,8 +1,9 @@
 import type { ObstacleBounds } from '../../config/constants';
 import type { ResourceNode } from '../../config/resourceNodes';
-import { CARRIED_RESOURCES, type CarriedResource } from '../../data/resources';
+import { CARRIED_RESOURCES, HARVEST_NODE_KINDS, type CarriedResource } from '../../data/resources';
 import { addItem, addResource, carriedResourceTotal, removeOneResource, resourceCount, roomFor } from '../inventory';
 import { getBuilding } from '../../data/buildings';
+import { distanceToSegment } from '../../core/wallLine';
 import {
   BUILD_CHAIN_RADIUS,
   BUILD_REACH,
@@ -102,11 +103,14 @@ export interface ResourcePile {
  *  petits tas au sol (World). */
 export interface HeroWorkContext {
   nodes: ReadonlyMap<number, ResourceNode>;
-  /** Bois restant de chaque arbre (World.resourceNodeAmounts), decompte ici ;
-   *  source absente : inepuisable (rocher). */
+  /** Quantite restante de chaque source (World.resourceNodeAmounts : bois
+   *  d'un arbre, pierre d'un gisement), decomptee ici. */
   nodeAmounts: Map<number, number>;
-  /** Arbres arrives a 0 pendant ce pas (World : abattage, cases debloquees). */
+  /** Sources arrivees a 0 pendant ce pas (World : source retiree). */
   depleted: number[];
+  /** Droit de recolte d'une ressource (Scierie / Camp de mineur termine,
+   *  World.harvestPermissions). */
+  canHarvest(resource: 'wood' | 'stone'): boolean;
   piles: readonly ResourcePile[];
   drops: readonly ItemDrop[];
   /** Coffres (World.chests), verrou (camp pas nettoye) et ouverture (tirage
@@ -138,6 +142,11 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
   if (order.type === 'harvest') {
     const node = work.nodes.get(order.nodeId);
     if (!node) return null;
+    // Droit perdu (derniere Scierie / dernier Camp de mineur detruit,
+    // 2026-11-02) : plus de travail, sauf l'unite en cours d'extraction, que
+    // le Heros finit avant de s'arreter (heroWorkSystem).
+    const extracting = e.hero !== null && e.hero.workTimer > 0 && e.hero.working === HARVEST_NODE_KINDS[node.resource].working;
+    if (!work.canHarvest(node.resource) && !extracting) return null;
     // Arbre (cases bloquantes, 2026-11-02) : portee mesuree jusqu'a ses cases,
     // le Heros ne pouvant plus en approcher le centre.
     const reach = node.block ? distanceToBox(e, node.block) : Math.hypot(node.x - e.x, node.z - e.z);
@@ -165,9 +174,11 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
   return { x: target.x, z: target.z, reached: distanceToSite(e, target) <= e.stats.radius + BUILD_REACH, target };
 }
 
-/** Distance du centre de `e` a l'emprise d'un batiment (ou a son centre, rayon deduit). */
+/** Distance du centre de `e` a l'emprise d'un batiment (ou a son centre, rayon deduit).
+ *  Piece de mur V2 : jusqu'a sa capsule (ligne moins la demi-epaisseur). */
 function distanceToSite(e: Entity, site: Entity): number {
   const f = site.footprintObstacle;
+  if (f?.line) return Math.max(0, distanceToSegment(e.x, e.z, f.line) - f.line.halfWidth);
   if (!f) return Math.max(0, Math.hypot(site.x - e.x, site.z - e.z) - site.stats.radius);
   return distanceToBox(e, { minX: site.x - (f.tilesX / 2), maxX: site.x + (f.tilesX / 2), minZ: site.z - (f.tilesZ / 2), maxZ: site.z + (f.tilesZ / 2) });
 }
@@ -249,8 +260,10 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
     }
     if (e.order.type === 'harvest') {
       const node = work.nodes.get(e.order.nodeId)!;
-      h.working = node.resource === 'wood' ? 'chop' : 'mine';
+      const allowed = work.canHarvest(node.resource);
+      h.working = HARVEST_NODE_KINDS[node.resource].working;
       h.workTimer += dt;
+      let finished = false;
       while (h.workTimer >= HARVEST_INTERVAL && roomFor(h.inventory, node.resource) > 0 && (work.nodeAmounts.get(node.id) ?? 1) > 0) {
         h.workTimer -= HARVEST_INTERVAL;
         const left = work.nodeAmounts.get(node.id);
@@ -260,9 +273,14 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
         }
         h.inventory = addResource(h.inventory, node.resource, 1).inventory;
         events.push({ type: 'harvest', heroId: e.id, resource: node.resource, amount: 1, nodeId: node.id });
+        // Droit perdu : l'unite en cours est finie, puis le travail s'arrete.
+        if (!allowed) {
+          finished = true;
+          break;
+        }
       }
-      // Arbre epuise : le travail s'arrete (le Heros passe en Garde).
-      if ((work.nodeAmounts.get(node.id) ?? 1) <= 0) {
+      // Source epuisee ou droit perdu : le Heros passe en Garde.
+      if (finished || (work.nodeAmounts.get(node.id) ?? 1) <= 0) {
         e.order = { type: 'guard' };
         h.working = null;
         h.workTimer = 0;
@@ -351,10 +369,18 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
     site.construction = null;
     site.countsForDefeat = getBuilding(site.unitId).countsForDefeat;
     events.push({ type: 'built', heroId: e.id, buildingId: site.id });
-    // Chantier inacheve le plus proche (murailles case par case), sinon Garde.
+    // Chantier inacheve le plus proche, sinon Garde. Ligne de mur V2 : le
+    // segment suivant de la meme ligne d'abord (construction de A vers B).
     let next: Entity | null = null;
     let best = BUILD_CHAIN_RADIUS;
-    for (const o of entities) {
+    const line = site.wall;
+    if (line) {
+      for (const o of entities) {
+        if (!o.alive || !o.construction || o.team !== e.team || o.wall?.lineId !== line.lineId) continue;
+        if (!next || Math.abs(o.wall.index - line.index) < Math.abs(next.wall!.index - line.index) || (Math.abs(o.wall.index - line.index) === Math.abs(next.wall!.index - line.index) && o.wall.index > next.wall!.index)) next = o;
+      }
+    }
+    for (const o of next ? [] : entities) {
       if (!o.alive || !o.construction || o.team !== e.team) continue;
       const d = Math.hypot(o.x - site.x, o.z - site.z);
       if (d <= best) {

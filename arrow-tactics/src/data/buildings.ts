@@ -69,25 +69,6 @@ export interface BuildingAttackConfig {
   launchOutset: number;
 }
 
-/** Porte de muraille fonctionnelle (voir sim/systems/gates.ts) : SOURCE
- *  UNIQUE des reglages d'ouverture automatique. Les unites du camp de la
- *  porte la comptent toujours comme un passage dans leurs trajets ; elles ne
- *  la franchissent physiquement qu'une fois assez ouverte. Les hostiles la
- *  trouvent toujours fermee. */
-export interface GateConfig {
-  /** Distance (cases) entre une unite alliee et l'emprise de la porte a
-   *  partir de laquelle la porte s'ouvre (et reste ouverte). */
-  triggerRangeTiles: number;
-  /** Duree (secondes de simulation) d'une ouverture complete ; la fermeture
-   *  prend la meme duree. */
-  openDurationSeconds: number;
-  /** Delai (secondes) sans allie proche avant que la porte se referme. */
-  closeDelaySeconds: number;
-  /** Ouverture (0 a 1) a partir de laquelle les allies traversent
-   *  physiquement : en dessous, les battants bloquent encore. */
-  passableOpenness: number;
-}
-
 /** Soin de l'armee contre de l'or (Eglise) — voir run/churchHeal.ts.
  *  Efficacite en PV AFFICHES (points) rendus par piece d'or. */
 export interface ArmyHealConfig {
@@ -129,10 +110,10 @@ export interface BuildingDef {
    *  l'affichage (ui/screens.ts) et la transaction réelle (main.ts). */
   cost?: number;
   /** Cout en BOIS / PIERRE (2026-11-01, direction Hero RTS), en plus de
-   *  l'or ; muraille : par case. PROVISOIRE. Absent = aucun. */
+   *  l'or. PROVISOIRE. Absent = aucun. */
   resourceCost?: Partial<Record<ResourceKind, number>>;
-  /** Duree de construction (s) d'un chantier par le Heros (sim/systems/hero.ts) ;
-   *  muraille : par case. PROVISOIRE. Absent = DEFAULT_BUILD_TIME. */
+  /** Duree de construction (s) d'un chantier par le Heros (sim/systems/hero.ts).
+   *  PROVISOIRE. Absent = DEFAULT_BUILD_TIME. */
   buildTime?: number;
   /** Clé du modèle KayKit (voir render/assetLibrary.ts, EnvironmentAssets.buildingsByName)
    *  — TOUJOURS teinté bleu (`blue_...`) : seul le camp JOUEUR peut acheter
@@ -168,58 +149,26 @@ export interface BuildingDef {
   /** Depot de ressources (2026-11-01, Hero RTS) : le Heros y vide son sac,
    *  et seul ce depot remplit le stock de bois et de pierre de la run. */
   resourceDepot?: boolean;
-  /** Recolte avancee debloquee par ce batiment, une fois bati : coupe des
-   *  arbres (`trees`, future Scierie) ou exploitation des gros gisements de
-   *  pierre (`deposits`, futur Camp de mineur). Lu par
-   *  run/harvestPermissions.ts. Aucun batiment ne le porte encore. */
+  /** Recolte avancee debloquee par ce batiment, une fois TERMINE : coupe des
+   *  arbres (`trees`, Scierie) ou exploitation des gros gisements de pierre
+   *  (`deposits`, Camp de mineur). Lu par run/harvestPermissions.ts. */
   unlocksHarvest?: 'trees' | 'deposits';
+  /** Description courte du menu Construire (« Débloque la coupe des
+   *  arbres »). Absent : aucune. */
+  description?: string;
   /** Facteur de taille VISUELLE du modele par rapport a son emprise (voir
    *  ObstacleDef.scale) ; l'emprise de collision et de placement ne change
    *  pas. Absent = 1. */
   modelScale?: number;
-  /** Vrai : l'emprise tourne avec le batiment par quarts de tour (2x1 debout
-   *  devient 1x2 a 90°) et la rotation se fait par pas de 90° ; voir
-   *  buildingFootprintTiles. Absent : emprise fixe, rotation visuelle par pas
-   *  de 45° (batiments carres). */
-  footprintFollowsRotation?: boolean;
-  /** Faux : l'emprise bloque le deplacement mais pas les tirs (muraille,
-   *  voir ObstacleDef.blocksShots). Absent = bloque aussi les tirs. */
+  /** Faux : l'emprise bloque le deplacement mais pas les tirs (piece de
+   *  mur, voir ObstacleDef.blocksShots). Absent = bloque aussi les tirs. */
   blocksShots?: boolean;
-  /** Porte fonctionnelle (wall_gate) : passage pour les unites de son camp,
-   *  ouverture automatique (GateConfig). Absent : l'emprise bloque tout le
-   *  monde (muraille et tous les autres batiments). */
-  gate?: GateConfig;
-  /** Vrai : la face +Z native du modele est sa face EXTERIEURE (creneaux de
-   *  la muraille KayKit, chemin de ronde a l'arriere) ; elle est tournee vers
-   *  le cote d'ou viennent les hostiles du camp proprietaire (forwardDir),
-   *  voir ObstacleDef.modelFacingYaw. Purement visuel : emprise, collision et
-   *  rotation enregistree inchangees. Absent : modele pose tel quel. */
-  outerFaceTowardHostiles?: boolean;
-  /** 'line' : pose par TRACE continu de segments (enceinte avec virages,
-   *  core/wallTrace.ts), en preparation et dans l'editeur. Absent : pose a
-   *  l'unite. */
-  placementMode?: 'line';
-  /** Peut se poser EXACTEMENT a la place d'un batiment de ce type (meme
-   *  emprise, meme axe) : il le remplace (porte dans une ligne de murs). */
-  placeOverBuildingId?: string;
-  /** Muraille posee par trace : batiments VIRAGES (une case) choisis
-   *  automatiquement a chaque changement de direction (core/wallTrace.ts) —
-   *  `outside` quand le trace tourne autour de son interieur (creneaux sur
-   *  le cote bombe), `inside` pour un virage rentrant. */
-  traceCorners?: { outside: string; inside: string };
-  /** Muraille posee par trace : batiment DEMI-SEGMENT (une case) qui complete
-   *  un troncon droit de longueur impaire (core/wallTrace.ts). */
-  traceHalf?: string;
-  /** Longueur VISUELLE du modele le long de son axe X, rapportee a l'emprise :
-   *  le modele est cale sur une emprise 1/k fois plus longue puis comprime
-   *  de k (demi-segment : k = 0,5). Absent = 1. */
-  modelLengthScale?: number;
-  /** Modele pose a son echelle NATIVE (jamais cale sur l'emprise) : origine
-   *  du modele a (offsetX, offsetZ) du centre de l'emprise, tourne de
-   *  `yaw`, dans le repere du batiment avant `rotationY`. Virage de
-   *  muraille : arc KayKit de 120° ajuste dans la case de coin. */
-  nativeModelPose?: { yaw: number; offsetX: number; offsetZ: number };
-  /** Groupe du catalogue de l'editeur (« Murailles »...). Absent :
+  /** Piece d'un mur V2 (data/walls.ts, famille `wallType`) : segment ou
+   *  porte. Emprise geometrique (ObstacleDef.line), jamais une grille ;
+   *  posee par une ligne A -> B (core/wallLine.ts), jamais a l'unite ni
+   *  achetee en boutique. Absent : batiment ordinaire. */
+  wallPiece?: { wallType: string; role: 'segment' | 'gate' };
+  /** Groupe du catalogue de l'editeur (« Murs »...). Absent :
    *  « Bâtiments ». */
   editorGroup?: string;
 }
@@ -455,198 +404,99 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     armyHeal: { hpPerGold: 5, hpPerGoldPerLevel: 2 },
     recruitmentUnlock: { unitIds: ['mage', 'oracle', 'vengeur'], missingBuildingHint: 'Nécessite une Église' },
   },
-  // Muraille : construction d'un camp (modele KayKit du dossier « neutral »,
-  // visuel neutre, jamais teinte). Seul role : bloquer le deplacement de
-  // TOUTES les unites, son camp compris (on passe par une porte ou on
-  // contourne ; les tirs passent, blocksShots). 50 PV, aucune attaque, aucun effet, aucune
-  // population, aucune amelioration. Ne compte pas pour la defaite : un mur
-  // seul ne maintient pas le camp en vie. UNITE CANONIQUE (2026-11-01) :
-  // un segment = UNE case (donnees, PV, pose, sauvegarde, selection,
-  // destruction ; core/wallTrace.ts). Memes PV et meme prix par case
-  // qu'avant (25 PV et 0,5 or par case ; un ancien segment 2 x 1 valait 50 PV
-  // et 1 or). Rendu : modele droit KayKit comprime a une case, ou modele long
-  // natif sur deux cases voisines d'une meme ligne (appariement visuel,
-  // render/wallVisuals.ts). Pose par lignes (placementMode). Cout PROVISOIRE.
-  wall: {
-    id: 'wall',
-    displayName: 'Muraille',
-    maxHp: 25 * HP_PER_PIP,
-    radius: 0.5,
+  // Scierie (2026-11-02, demande d'Antoine) : debloque la coupe des arbres
+  // (une fois terminee ; plusieurs : il en suffit d'une). Pas un depot (la
+  // Baliste reste le seul). Emprise 3 x 3 comme la Mine, modele KayKit de
+  // scierie (structure bois, scie, rondins). Valeurs PROVISOIRES : accessible
+  // tot, mais demande les petits tas de bois deposes.
+  sawmill: {
+    id: 'sawmill',
+    displayName: 'Scierie',
+    description: 'Débloque la coupe des arbres',
+    maxHp: 15 * HP_PER_PIP,
+    radius: 1.5,
     targetable: true,
-    countsForDefeat: false,
-    hpBarHeight: 1.5,
-    cost: 0.5,
-    resourceCost: { stone: 1 },
-    buildTime: 1.2,
-    buildingModel: 'neutral_wall_straight',
-    footprintTilesX: 1,
-    footprintTilesZ: 1,
-    blocksShots: false,
-    outerFaceTowardHostiles: true,
-    modelLengthScale: 0.5,
-    traceCorners: { outside: 'wall_corner_outside', inside: 'wall_corner_inside' },
-    placementMode: 'line',
-    editorGroup: 'Murailles',
+    countsForDefeat: true,
+    hpBarHeight: 2.4,
+    cost: 10,
+    resourceCost: { wood: 8 },
+    buildTime: 8,
+    buildingModel: 'blue_lumbermill',
+    footprintTilesX: 3,
+    footprintTilesZ: 3,
+    unlocksHarvest: 'trees',
   },
-  // Porte de muraille : memes PV, cout et emprise que le segment droit, mais
-  // PORTE fonctionnelle (gate) : les unites de son camp la franchissent (elle
-  // s'ouvre a leur approche, battants du modele KayKit animes par le rendu),
-  // les hostiles la trouvent toujours fermee et doivent la detruire. Pose a
-  // l'unite (ou a la place d'un segment de mur), rotation par 90°.
-  wall_gate: {
-    id: 'wall_gate',
-    displayName: 'Porte de muraille',
-    maxHp: 50 * HP_PER_PIP,
-    radius: 1.0,
+  // Camp de mineur (2026-11-02, demande d'Antoine) : debloque l'exploitation
+  // des gros gisements de pierre (une fois termine). Distinct de la Mine
+  // (or automatique toutes les 60 s) : il n'extrait rien lui-meme. Pas un
+  // depot. Emprise 3 x 3, modele KayKit d'atelier (abri, outils). Valeurs
+  // PROVISOIRES : demande du bois et un peu de pierre des petits tas.
+  miner_camp: {
+    id: 'miner_camp',
+    displayName: 'Camp de mineur',
+    description: 'Débloque l’exploitation des gisements',
+    maxHp: 15 * HP_PER_PIP,
+    radius: 1.5,
     targetable: true,
-    countsForDefeat: false,
-    hpBarHeight: 1.8,
-    cost: 1,
-    resourceCost: { wood: 3 },
-    buildTime: 3,
-    buildingModel: 'neutral_wall_straight_gate',
-    footprintTilesX: 2,
-    footprintTilesZ: 1,
-    footprintFollowsRotation: true,
-    blocksShots: false,
-    outerFaceTowardHostiles: true,
-    placeOverBuildingId: 'wall',
-    gate: {
-      triggerRangeTiles: 1.5,
-      openDurationSeconds: 0.5,
-      closeDelaySeconds: 1.0,
-      passableOpenness: 0.6,
-    },
-    editorGroup: 'Murailles',
+    countsForDefeat: true,
+    hpBarHeight: 2.4,
+    cost: 10,
+    resourceCost: { wood: 6, stone: 4 },
+    buildTime: 8,
+    buildingModel: 'blue_workshop',
+    footprintTilesX: 3,
+    footprintTilesZ: 3,
+    unlocksHarvest: 'deposits',
   },
-  // Demi-segment de muraille : pose UNIQUEMENT par le trace, pour qu'une
-  // portion couvre exactement la longueur demandee (troncon de longueur
-  // impaire, extremite d'un trace ouvert). Le pack n'a aucun mur d'une case :
-  // segment droit KayKit comprime a la moitie de sa longueur (creneaux
-  // tasses). Meme densite de PV qu'un segment (25 PV pour une case, 50 pour
-  // les deux cases d'un segment) ; memes regles ; facture une demi-piece.
-  wall_half: {
-    id: 'wall_half',
-    displayName: 'Muraille',
-    maxHp: 25 * HP_PER_PIP,
-    radius: 0.5,
+  // Palissade V2 (2026-11-02) : pieces d'une ligne de palissade en bois
+  // (data/walls.ts, famille 'palisade'). PV, cout et duree par LONGUEUR
+  // (WALL_TYPES) : maxHp n'est que la valeur d'un segment nominal (fiche,
+  // repli). Bloquent tout le monde, les tirs passent (blocksShots). Ne
+  // comptent pas pour la defaite. Valeurs PROVISOIRES.
+  palisade: {
+    id: 'palisade',
+    displayName: 'Palissade',
+    maxHp: 30 * HP_PER_PIP,
+    // Portee : mesuree jusqu'a la ligne du segment (sim/geometry.ts,
+    // targetDistance), pas jusqu'a son centre.
+    radius: 0.25,
     targetable: true,
     countsForDefeat: false,
-    hpBarHeight: 1.5,
-    buildingModel: 'neutral_wall_straight',
-    footprintTilesX: 1,
-    footprintTilesZ: 1,
+    hpBarHeight: 1.4,
     blocksShots: false,
-    outerFaceTowardHostiles: true,
-    modelLengthScale: 0.5,
+    wallPiece: { wallType: 'palisade', role: 'segment' },
+    editorGroup: 'Murs',
   },
-  // Virages de muraille : poses UNIQUEMENT par le trace (aucun cout propre,
-  // donc ni en boutique ni dans le catalogue de l'editeur ; le trace les
-  // facture comme un segment de mur). Memes PV et memes regles qu'un mur
-  // (bloque les deux camps, tirs traversants, ne compte pas pour la defaite).
-  // Emprise : la seule case de jonction. Modele : arc KayKit « B » (virage
-  // de 120°, rayon 0,58) pose dans cette case, extremites a ±15° des segments
-  // voisins et 0,2 case sous eux ; reference : bras vers -X et +Z, arc bombe
-  // vers le nord-est (rotation 75°, origine a (sin 15°, -sin 15°) du centre).
-  // `outside` : creneaux sur le cote bombe ; `inside` : cote concave.
-  wall_corner_outside: {
-    id: 'wall_corner_outside',
-    displayName: 'Angle de muraille',
-    maxHp: 50 * HP_PER_PIP,
-    radius: 0.5,
+  palisade_gate: {
+    id: 'palisade_gate',
+    displayName: 'Porte de palissade',
+    maxHp: 40 * HP_PER_PIP,
+    radius: 0.25,
     targetable: true,
     countsForDefeat: false,
-    hpBarHeight: 1.5,
-    buildingModel: 'neutral_wall_corner_B_outside',
-    footprintTilesX: 1,
-    footprintTilesZ: 1,
+    hpBarHeight: 1.7,
     blocksShots: false,
-    nativeModelPose: { yaw: (75 * Math.PI) / 180, offsetX: Math.sin(Math.PI / 12), offsetZ: -Math.sin(Math.PI / 12) },
-  },
-  wall_corner_inside: {
-    id: 'wall_corner_inside',
-    displayName: 'Angle de muraille',
-    maxHp: 50 * HP_PER_PIP,
-    radius: 0.5,
-    targetable: true,
-    countsForDefeat: false,
-    hpBarHeight: 1.5,
-    buildingModel: 'neutral_wall_corner_B_inside',
-    footprintTilesX: 1,
-    footprintTilesZ: 1,
-    blocksShots: false,
-    nativeModelPose: { yaw: (75 * Math.PI) / 180, offsetX: Math.sin(Math.PI / 12), offsetZ: -Math.sin(Math.PI / 12) },
+    wallPiece: { wallType: 'palisade', role: 'gate' },
+    editorGroup: 'Murs',
   },
 };
 
-/** Vrai si `rotationY` est un quart de tour impair (90°, 270°). */
-function isOddQuarterTurn(rotationY: number): boolean {
-  return Math.abs(Math.round(rotationY / (Math.PI / 2))) % 2 === 1;
-}
-
-/** Emprise reelle (cases) du batiment `buildingId` tourne de `rotationY` :
- *  inversee a 90° / 270° quand l'emprise suit la rotation
- *  (BuildingDef.footprintFollowsRotation), sinon toujours celle des donnees. */
-export function buildingFootprintTiles(buildingId: string, rotationY = 0): { tilesX: number; tilesZ: number } {
+/** Emprise (cases) du batiment `buildingId` : celle de ses donnees, quelle
+ *  que soit sa rotation (rotation purement visuelle, par pas de 45°). */
+export function buildingFootprintTiles(buildingId: string): { tilesX: number; tilesZ: number } {
   const def = getBuilding(buildingId);
-  const tilesX = def.footprintTilesX ?? 1;
-  const tilesZ = def.footprintTilesZ ?? 1;
-  return def.footprintFollowsRotation && isOddQuarterTurn(rotationY) ? { tilesX: tilesZ, tilesZ: tilesX } : { tilesX, tilesZ };
+  return { tilesX: def.footprintTilesX ?? 1, tilesZ: def.footprintTilesZ ?? 1 };
 }
 
-/** Pas de rotation du batiment en placement : 90° si son emprise suit la
- *  rotation, sinon 45° (rotation visuelle). */
-/** Duree de construction d'un chantier sans BuildingDef.buildTime (virages
- *  de muraille, poses par le trace). */
+/** Pas de rotation d'un batiment en placement (rotation visuelle). */
+export const BUILDING_ROTATION_STEP = Math.PI / 4;
+
+/** Duree de construction d'un chantier sans BuildingDef.buildTime. */
 export const DEFAULT_BUILD_TIME = 1.2;
 
 /** Duree de construction (s) d'un chantier de `buildingId`. */
 export function buildTimeOf(buildingId: string): number {
   return getBuilding(buildingId).buildTime ?? DEFAULT_BUILD_TIME;
-}
-
-/** Cases de mur que `buildingId` (porte, BuildingDef.placeOverBuildingId)
- *  remplacerait, coin d'emprise (cornerX, cornerZ) : chacune de ses cases doit
- *  porter un mur d'une case aligne sur son axe (porte de 2 cases posee sur
- *  deux cases de mur, 2026-11-01) ; sinon liste vide. */
-export function replacedWallCells<T extends { buildingId: string; x: number; z: number; rotationY?: number }>(buildingId: string, cornerX: number, cornerZ: number, rotationY: number, placed: readonly T[]): T[] {
-  const over = getBuilding(buildingId).placeOverBuildingId;
-  if (!over) return [];
-  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
-  const alongX = tilesX >= tilesZ;
-  const inside = placed.filter((b) => b.buildingId === over && b.x > cornerX && b.x < cornerX + tilesX && b.z > cornerZ && b.z < cornerZ + tilesZ);
-  return inside.length === tilesX * tilesZ && inside.every((b) => !isOddQuarterTurn(b.rotationY ?? 0) === alongX) ? inside : [];
-}
-
-/** Murailles d'une ANCIENNE carte (avant le 2026-11-01) dans l'unite
- *  canonique d'une case : un segment `wall` de 2 cases devient deux cases
- *  `wall` (memes rotation et camp ; PV partages s'il en porte), un
- *  demi-segment `wall_half` une case `wall`. Un ancien segment se reconnait
- *  a son centre, sur une ligne de grille le long de son axe (celui d'une case
- *  tombe au milieu d'une case). Portes et virages inchanges. Pur et
- *  idempotent. */
-export function migrateLegacyWalls<T extends { buildingId: string; x: number; z: number; rotationY?: number; hp?: number }>(placed: readonly T[]): T[] {
-  return placed.flatMap((b): T[] => {
-    if (b.buildingId === 'wall_half') return [{ ...b, buildingId: 'wall' }];
-    if (b.buildingId !== 'wall') return [b];
-    const alongX = !isOddQuarterTurn(b.rotationY ?? 0);
-    const axis = alongX ? b.x : b.z;
-    if (Math.abs(axis - Math.round(axis)) > 1e-6) return [b];
-    const hp = b.hp !== undefined ? { hp: Math.min(BUILDINGS['wall']!.maxHp, b.hp / 2) } : {};
-    return [-0.5, 0.5].map((d) => ({ ...b, ...hp, ...(alongX ? { x: b.x + d } : { z: b.z + d }) }));
-  });
-}
-
-/** Vrai si deux batiments centres en (ax, az) et (bx, bz) ont exactement la
- *  meme emprise (memes cases) — remplacement d'un mur par une porte. */
-export function sameBuildingFootprint(aId: string, ax: number, az: number, aRotationY: number, bId: string, bx: number, bz: number, bRotationY: number): boolean {
-  const a = buildingFootprintTiles(aId, aRotationY);
-  const b = buildingFootprintTiles(bId, bRotationY);
-  return a.tilesX === b.tilesX && a.tilesZ === b.tilesZ && Math.abs(ax - bx) < 1e-6 && Math.abs(az - bz) < 1e-6;
-}
-
-export function buildingRotationStep(buildingId: string): number {
-  return getBuilding(buildingId).footprintFollowsRotation ? Math.PI / 2 : Math.PI / 4;
 }
 
 /** Ids de bâtiments réellement ACHETABLES en boutique de run (2026-08-17) —

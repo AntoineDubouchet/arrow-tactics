@@ -1,7 +1,8 @@
 import { isGroundTextureId, type SurfaceCellDef } from '../config/groundSurfaces';
-import type { MapBuildingPlacement, MapDef } from '../config/mapDef';
+import { dropLegacyWalls, type MapBuildingPlacement, type MapDef, type WallLineDef } from '../config/mapDef';
 import { SLOPE_SHAPES, TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type SlopeShape, type TerrainElevationCellDef } from '../config/terrainElevation';
-import { BUILDINGS, migrateLegacyWalls } from '../data/buildings';
+import { BUILDINGS } from '../data/buildings';
+import { WALL_TYPES } from '../data/walls';
 import type { TerritoryCell } from '../config/territory';
 import type { EditorState } from './editorState';
 
@@ -53,6 +54,9 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
     ...(state.buildings.length > 0
       ? { buildings: state.buildings.map(({ buildingId, team, x, z, rotationY }) => ({ buildingId, team, x, z, ...(rotationY ? { rotationY } : {}) })) }
       : {}),
+    // Murs V2 (MapDef.walls) : geometrie de chaque ligne (A, B, famille,
+    // portes), jamais ses segments ; champ absent sans mur.
+    ...(state.walls.length > 0 ? { walls: state.walls.map(({ id: _id, ...line }) => ({ ...line, ...(line.gates && line.gates.length > 0 ? { gates: [...line.gates] } : {}) })) } : {}),
     // Relief (MapDef.elevationCells) ecrit seulement s'il existe : une carte
     // plate reste identique a avant ce champ.
     ...(state.elevationCells.length > 0 ? { elevationCells: state.elevationCells } : {}),
@@ -126,6 +130,8 @@ export async function loadMapDefFromFile(file: File): Promise<MapDef> {
     // `buildings` OPTIONNEL (voir MapDef.buildings) : absent -> aucun
     // batiment de scenario ; entrees invalides ecartees.
     ...(Array.isArray(data.buildings) ? { buildings: readBuildings(data.buildings) } : {}),
+    // `walls` OPTIONNEL (MapDef.walls, murs V2).
+    ...(Array.isArray(data.walls) ? { walls: readWalls(data.walls) } : {}),
     // `elevationCells` OPTIONNEL (voir MapDef.elevationCells) : absent ->
     // carte plate ; entrees invalides ecartees.
     ...(Array.isArray(data.elevationCells) ? { elevationCells: readElevation(data.elevationCells) } : {}),
@@ -187,20 +193,39 @@ function readElevation(entries: unknown[]): TerrainElevationCellDef[] {
 
 /** Batiments de scenario valides : batiment gameplay connu et posable (emprise
  *  definie), camp joueur ou ennemi, centre fini. */
-function readBuildings(entries: unknown[]): MapBuildingPlacement[] {
+function readBuildings(source: unknown[]): MapBuildingPlacement[] {
   const buildings: MapBuildingPlacement[] = [];
+  // Wall V1 supprime (2026-11-02) : ses pieces sont retirees avant tout,
+  // avec un journal de migration (dropLegacyWalls).
+  const entries = dropLegacyWalls(source.map((e) => (typeof e === 'object' && e !== null ? (e as { buildingId: string }) : { buildingId: '' })));
   for (const entry of entries) {
     if (typeof entry !== 'object' || entry === null) continue;
     const { buildingId, team, x, z, rotationY } = entry as Record<string, unknown>;
     if (typeof buildingId !== 'string' || BUILDINGS[buildingId]?.footprintTilesX === undefined) continue;
     if ((team !== 'player' && team !== 'enemy') || !isFinitePoint({ x, z })) continue;
-    // Rotation optionnelle (muraille) : ignoree si elle n'est pas un nombre fini.
+    // Rotation optionnelle : ignoree si elle n'est pas un nombre fini.
     const rotation = typeof rotationY === 'number' && Number.isFinite(rotationY) && rotationY !== 0 ? { rotationY } : {};
     buildings.push({ buildingId, team, x: x as number, z: z as number, ...rotation });
   }
   if (buildings.length < entries.length) console.warn(`Bâtiments : ${entries.length - buildings.length} entrée(s) invalide(s) ignorée(s).`);
-  // Anciennes murailles (segments de 2 cases) : unite canonique d'une case.
-  return migrateLegacyWalls(buildings);
+  return buildings;
+}
+
+/** Lignes de mur valides : famille connue (data/walls.ts), extremites
+ *  finies, camp connu ou absent, rangs de porte entiers. */
+function readWalls(entries: unknown[]): WallLineDef[] {
+  const walls: WallLineDef[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { type, ax, az, bx, bz, team, gates } = entry as Record<string, unknown>;
+    if (typeof type !== 'string' || !WALL_TYPES[type]) continue;
+    if (!isFinitePoint({ x: ax, z: az }) || !isFinitePoint({ x: bx, z: bz })) continue;
+    if (team !== undefined && team !== 'player' && team !== 'enemy') continue;
+    const gateList = Array.isArray(gates) ? gates.filter((g): g is number => Number.isInteger(g) && (g as number) >= 0) : [];
+    walls.push({ type, ax: ax as number, az: az as number, bx: bx as number, bz: bz as number, ...(team ? { team } : {}), ...(gateList.length > 0 ? { gates: gateList } : {}) });
+  }
+  if (walls.length < entries.length) console.warn(`Murs : ${entries.length - walls.length} ligne(s) invalide(s) ignorée(s).`);
+  return walls;
 }
 
 /** Garde les seules entrees bien formees (x/z entiers, camp connu), copiees

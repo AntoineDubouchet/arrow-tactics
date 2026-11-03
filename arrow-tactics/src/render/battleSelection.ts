@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Entity } from '../sim/entity';
 import { isCommandable } from '../sim/orders';
+import { distanceToSegment } from '../core/wallLine';
 import { createUnitSelectionRing, placeUnitSelectionRing } from './unitSelectionRing';
 
 /** Tolerance minimale du clic de selection, en pixels, quand l'unite parait
@@ -9,6 +10,8 @@ const PICK_MIN_RADIUS_PX = 18;
 /** Facteur applique au rayon projete de l'unite : la silhouette deborde
  *  largement de son rayon de collision au sol. */
 const PICK_RADIUS_FACTOR = 1.8;
+/** Une unite collee a une palissade garde la priorite au clic. */
+const WALL_PICK_PENALTY_PX = 6;
 
 type ScreenProjector = (x: number, z: number) => { x: number; y: number };
 type RenderedPosition = (entityId: number) => { x: number; z: number } | null;
@@ -32,6 +35,18 @@ export function pickEntityAtScreen(
 
   for (const e of entities) {
     if (!e.alive) continue;
+    // Piece de mur V2 : cliquable sur toute sa longueur (distance a son
+    // segment projete), un peu derriere une unite au meme endroit.
+    if (e.wall) {
+      const a = project(e.wall.ax, e.wall.az);
+      const b = project(e.wall.bx, e.wall.bz);
+      const d = distanceToSegment(clientX, clientY, { ax: a.x, az: a.y, bx: b.x, bz: b.y }) + WALL_PICK_PENALTY_PX;
+      if (d <= PICK_MIN_RADIUS_PX + WALL_PICK_PENALTY_PX && d < bestDist) {
+        bestDist = d;
+        best = e;
+      }
+      continue;
+    }
     const pos = renderedPosition(e.id) ?? { x: e.x, z: e.z };
     const center = project(pos.x, pos.z);
     // Rayon a l'ecran mesure sur les deux axes du sol : la camera est

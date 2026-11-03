@@ -6,9 +6,9 @@ import { obstacleBounds, obstacleCenter, type ObstacleBounds, type ObstacleDef }
  * un arbre donne du bois, un rocher de la pierre. Les decors restent
  * purement visuels pour tout le reste (isBlockingMapObstacle), SAUF les
  * arbres, dont les cases bloquent le deplacement depuis le 2026-11-02
- * (treeFootprintCells). Arbres : quantite finie (TREE_WOOD_AMOUNT,
- * data/resources.ts, decomptee par la simulation) ; rochers inepuisables
- * (PROVISOIRE).
+ * (treeFootprintCells). Quantite finie pour toutes les sources (arbres 20
+ * bois, gros gisements 40 pierre : HARVEST_NODE_KINDS, data/resources.ts,
+ * decomptee par la simulation). PROVISOIRE.
  */
 export type ResourceKind = 'wood' | 'stone';
 export const RESOURCE_KINDS: readonly ResourceKind[] = ['wood', 'stone'];
@@ -75,7 +75,7 @@ export function treeFootprintCells(o: ObstacleDef): { x: number; z: number }[] {
 /** Cases bloquees par les arbres d'une liste de decors (cles `x,z`, format
  *  de cellKey), en cache par tableau. REGLE UNIQUE des cases d'arbre
  *  (2026-11-02) : deplacement (World.setMap) et construction (main.ts,
- *  isValidPlacementTile : ni batiment, ni chantier, ni muraille, ni Baliste,
+ *  isValidPlacementTile : ni batiment, ni chantier, ni mur, ni Baliste,
  *  ni unite posee). Couper un arbre, plus tard : le retirer de la liste. */
 const treeCellsCache = new WeakMap<readonly ObstacleDef[], ReadonlySet<string>>();
 

@@ -1,4 +1,5 @@
 import { obstacleBounds, TILE, type ObstacleDef } from '../config/constants';
+import { wallLineCells } from '../core/wallLine';
 
 /**
  * Pathfinding en grille (2026-08-10, voir CLAUDE.md, "Correctif de
@@ -50,6 +51,18 @@ export function buildPathGrid(obstacles: ObstacleDef[], boardWidth: number, boar
   const edges = new Uint8Array(boardWidth * boardHeight);
 
   for (const obstacle of obstacles) {
+    // Piece de mur V2 : cases couvertes par sa ligne et son epaisseur
+    // (core/wallLine.ts, wallLineCells) — une diagonale ne bloque pas tout son
+    // rectangle, la chaine de cases reste etanche pour un A* sans coupe de
+    // coin, et un couloir rogne par le mur n'est pas propose.
+    if (obstacle.line) {
+      for (const c of wallLineCells(obstacle.line, obstacle.line.halfWidth)) {
+        const tx = Math.floor(c.x + halfW);
+        const tz = Math.floor(c.z + halfH);
+        if (tx >= 0 && tx < boardWidth && tz >= 0 && tz < boardHeight) blocked[tz * boardWidth + tx] = 1;
+      }
+      continue;
+    }
     const b = obstacleBounds(obstacle);
     if (obstacle.terrainCliff) {
       blockCliffEdges(edges, b, boardWidth, boardHeight, halfW, halfH);

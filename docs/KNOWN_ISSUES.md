@@ -58,17 +58,20 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-44 | Équipement : casque, épaulières, torse, bras, jambes sans visuel en jeu (modèle du Héros fusionné) | Limite assumée |
 | KI-46 | Camps neutres : état non sauvegardé si le monde était reconstruit en cours de run | Hypothèse (pas de cas aujourd'hui) |
 | KI-47 | Or au sol non ramassé : les tas restent toute la run (aucune disparition) | Voulu (Antoine) ; fusion des tas proches à envisager |
-| KI-49 | Murailles (diagonales comprises) absentes du menu Construire du temps réel | Limite assumée |
-| KI-50 | Muraille diagonale : fermeture et reprise d'une extrémité diagonale non gérées ; pas de coin aux virages diagonaux | Limite assumée |
 | KI-51 | Baril : pas encore posable dans l'éditeur de maps (`MapDef.destructibles` prêt) | À faire |
 | KI-52 | Éditeur : ni camps, ni niveaux, ni `survivalRules` modifiables ; seul le niveau des unités est conservé | À faire |
 | KI-53 | Sol du plateau en morceaux : ~35 morceaux (169 meshes) ; repeinte de 25 à 47 ms à la pose d'un bâtiment | Limite assumée (à surveiller) |
+| KI-55 | Palissade : les vagues frappent le premier mur ou la première porte rencontrés (une porte ouverte les bloque aussi), sans choisir leur cible ; un mur ennemi de carte les bloquerait sans être attaqué | Limite assumée |
+| KI-56 | Palissade : éditeur sans retrait d'une porte ni édition partielle d'une ligne (supprimer la ligne entière) ; aucun mur en préparation (legacy) | À faire (si besoin) |
+| KI-57 | Palissade : sur un terrain irrégulier, les traverses vont droit d'un bout à l'autre du segment (pieux au sol) ; pas d'ombre de contact au pied | Limite assumée (visuel provisoire) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
 KI-25 et KI-45, butin couché depuis le 2026-11-02 ; KI-48, comportement
 voulu par Antoine : une unité militaire sélectionnée reçoit les ordres ;
-KI-54, arbre épuisé : abattu, souche, cases libérées depuis le 2026-11-02).
+KI-54, arbre épuisé : abattu, souche, cases libérées depuis le 2026-11-02 ;
+KI-49 et KI-50, sans objet depuis la suppression du Wall V1 le 2026-11-02 :
+la Palissade V2 est au menu Construire du temps réel, à tout angle).
 
 Retirées lors de la refonte de l'éditeur, résolues côté code :
 
@@ -122,8 +125,9 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 ### KI-01 — Cache des bornes d'obstacles et emprises de bâtiments modifiées en place
 
-- **Statut** : **Résolu** (confirmé puis corrigé avec les murailles : une
-  muraille détruite continuait de repousser les unités). `spawnBuilding` et
+- **Statut** : **Résolu** (confirmé puis corrigé avec les murailles du Wall
+  V1 : une muraille détruite continuait de repousser les unités ; même
+  mécanisme pour les pièces de la Palissade V2). `spawnBuilding` et
   `releaseDeadBuildingFootprints` remplacent désormais le tableau
   `World.obstacles`. Entrée conservée pour l'historique ci-dessous ; à
   retirer au prochain tri.
@@ -498,20 +502,6 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   mesurable aux volumes actuels ; à revoir (fusion des tas proches,
   disparition, aimant) si les vagues grossissent.
 
-### KI-49 — Murailles absentes du menu Construire
-
-- **Statut** : limite assumée (2026-11-02).
-- **Constat** : le menu Construire du temps réel exclut les murailles
-  (pose par tracé). Les diagonales sont donc posables dans l'éditeur et en
-  préparation, pas encore par le Héros en temps réel.
-
-### KI-50 — Diagonales : fermeture, reprise, virages
-
-- **Statut** : limite assumée (2026-11-02).
-- **Constat** : une enceinte ne se ferme que par une portion droite ; la
-  reprise d'une extrémité diagonale n'est pas vérifiée ; un virage avec une
-  diagonale n'a pas de pièce de coin (la case du sommet est un segment).
-
 ### KI-51 — Baril dans l'éditeur
 
 - **Statut** : à faire (2026-11-02).
@@ -537,6 +527,32 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   tenant. Une pose de bâtiment reconstruit 2 à 4 morceaux, 25 à 47 ms
   mesurés (Edge, machine de test). Ni la fréquence d'images en partie ni
   l'à-coup ressenti n'ont été mesurés sur la machine d'Antoine.
+
+### KI-55 — Vagues et portes de palissade
+
+- **Statut** : limite assumée (2026-11-02).
+- **Constat** : la marche des vagues vers le camp ignore les emprises
+  d'entités (`terrainObstacles`) : elles foncent tout droit, butent sur la
+  première palissade ou la première porte et la frappent jusqu'à la
+  brèche. Depuis le 2026-11-02, une porte **ouverte** du joueur les bloque
+  comme le mur (elle ne laisse passer que ses alliés) ; elles ne choisissent
+  pas pour autant la porte plutôt qu'un segment, ni un détour. Un mur du
+  camp ennemi posé sur une carte (`MapDef.walls`, `team: 'enemy'`) les
+  arrêterait sans être attaqué (aucune carte n'en a).
+
+### KI-56 — Palissade : édition fine
+
+- **Statut** : à faire si besoin (2026-11-02).
+- **Constat** : dans l'éditeur, une porte ne se retire pas seule et une
+  ligne ne se modifie pas en partie (déplacer A ou B) : il faut la
+  supprimer et la retracer. Le mode Préparation (legacy) n'a plus aucun mur.
+
+### KI-57 — Palissade : rendu sur relief
+
+- **Statut** : limite assumée (2026-11-02), visuel provisoire.
+- **Constat** : chaque pieu est posé à la hauteur du sol sous lui, mais les
+  deux traverses vont en ligne droite d'un bout du segment à l'autre : sur
+  une pente irrégulière, elles peuvent flotter ou entrer un peu dans le sol.
 
 ### KI-46 — État des camps non sauvegardé
 

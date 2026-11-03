@@ -245,53 +245,25 @@ ligne), sauf 4 versions différentes **non remplacées** : ponts A/B et moulin
     **120°** (angle intérieur 60°), rayon ≈ 0,58, corde 1,0.
   - `*_outside` : créneaux sur le côté **bombé** ; `*_inside` : créneaux sur
     le côté **concave** (face bombée lisse).
-  - Aucun coin à 90° (ni « turn », ni « 90 »). **Virage du tracé** : arc
-    **B** posé dans la case de jonction, symétrique, extrémités sur l'axe
-    des murs voisins (±15° de cassure, 0,2 case sous les segments droits) :
-    rotation 75°, origine à (sin 15°, −sin 15°) du centre de la case, pour la
-    pose de référence (bras vers −X et +Z) ; les trois autres poses sont des
-    quarts de tour (table `CORNER_ROTATION_BY_ARMS`, `core/wallTrace.ts`).
-    Demi-segment `wall_half` (tronçon impair) : `wall_straight` calé sur deux
-    cases puis comprimé de moitié le long de son axe
-    (`BuildingDef.modelLengthScale` = 0,5) : même hauteur et même épaisseur,
-    créneaux tassés.
-    Bâtiments `wall_corner_outside` / `wall_corner_inside`
-    (`BuildingDef.nativeModelPose` : échelle native, jamais calé sur
-    l'emprise).
+  - Aucun coin à 90° (ni « turn », ni « 90 »). Ces arcs servaient de
+    virages au Wall V1, **supprimé le 2026-11-02**.
   - **A non utilisé** : sa corde (1,73) le fait entrer de ~0,7 case dans
-    chaque segment droit voisin (créneaux doublés sous l'arc) pour une
-    emprise de jonction d'une case.
+    chaque segment droit voisin.
   - Les angles restent posables comme décors dans l'éditeur.
-  - Anciennes cartes (virages en deux segments droits) : raccord visuel
-    conservé (`ObstacleDef.wallJoin`).
 - **Porte (`wall_straight_gate`)** : le pack ne contient **aucune animation**
   (aucun bloc `animations` dans les 625 `.gltf`, aucun `AnimationStack` ni
   `AnimationCurve` dans les 1 250 `.fbx` des packs FREE et EXTRA). Le modèle
   a deux nœuds séparés, `wall_straight_gate_door_left` (pivot x = +0,45) et
   `wall_straight_gate_door_right` (pivot x = −0,45), pivots sur les gonds :
-  `BuildingView.setGateOpenness` les tourne d'un quart de tour vers
-  l'intérieur (−Z natif), courbe adoucie, fermeture = même courbe à l'envers
-  (animation maison, validée par Antoine).
-- **Face extérieure des murailles jouables** (segment droit et porte) : dans
-  le modèle, les créneaux sont du côté **+Z** natif et le chemin de ronde à
-  l'arrière. `BuildingDef.outerFaceTowardHostiles` tourne cette face vers le
-  côté d'où viennent les hostiles du camp (`forwardDir`) : demi-tour visuel
-  pour le joueur (`ObstacleDef.modelFacingYaw` = π, posé par
-  `gameplayBuildingObstacle` dans `main.ts`), modèle tel quel pour l'ennemi
-  (lacet de base, compensé quand le tracé enregistre une orientation).
-  Ce lacet s'applique au seul groupe d'orientation du modèle
-  (`render/buildings.ts`). Il ne change ni l'emprise, ni la collision, ni la
-  `rotationY` enregistrée. Un segment vertical (90°) suit la même règle :
-  créneaux vers −X pour le joueur, vers +X pour l'ennemi.
-- **Tracé** : chaque pièce a ses créneaux tournés vers l'**extérieur**
-  (`traceInteriorSign` / `wallPieceFacing`, `core/wallTrace.ts` ; enceinte
-  fermée = intérieur du polygone, tracé ouvert = côté de la Baliste).
-  L'orientation est **enregistrée dans `rotationY`** (segment : quart de
-  tour de même parité que son axe, donc même emprise ; virage : rotation de
-  la table) et le **type** de virage dans `buildingId` : une carte
-  sauvegardée garde exactement ses pièces. Une porte posée à la place d'un
-  mur reprend sa `rotationY` : ses battants s'ouvrent toujours vers
-  l'intérieur.
+  ils étaient animés par code pour la porte du Wall V1 (supprimé le
+  2026-11-02) ; le modèle reste un décor.
+- **Murs jouables** (2026-11-02) : la **Palissade V2** n'utilise **aucun**
+  asset KayKit. Rendu **procédural** (`render/palisade.ts`) : pieux taillés,
+  traverses, poteaux d'extrémité, porte à deux battants de planches dont les
+  nœuds `palisade_door_left` / `palisade_door_right` (pivots sur les gonds)
+  sont tournés par `BuildingView.setDoorOpenness` (quart de tour adouci).
+  Un futur asset acheté se branche en remplaçant ce fichier (mêmes noms de
+  nœuds pour les battants).
 
 ### 3.6 Bâtiments KayKit (`models/buildings/`)
 

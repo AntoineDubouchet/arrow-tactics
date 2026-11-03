@@ -1,5 +1,6 @@
 import { dist } from '../../core/math';
 import { applyDamageToEntity } from '../damage';
+import { targetDistance } from '../geometry';
 import type { Entity } from '../entity';
 
 /**
@@ -41,7 +42,7 @@ function isValidTarget(attacker: Entity, e: Entity | undefined): e is Entity {
 }
 
 function inRange(attacker: Entity, target: Entity, rangeTiles: number): boolean {
-  return dist(attacker.x, attacker.z, target.x, target.z) <= rangeTiles + target.stats.radius;
+  return targetDistance(attacker.x, attacker.z, target) <= rangeTiles + target.stats.radius;
 }
 
 export function buildingAttackSystem(

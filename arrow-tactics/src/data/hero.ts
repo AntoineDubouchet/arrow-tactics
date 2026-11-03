@@ -127,7 +127,8 @@ export const HARVEST_REACH = 0.7;
 export const BUILD_REACH = 0.8;
 export const CONSTRUCTION_START_HP_FRACTION = 0.25;
 /** Le Heros enchaine sur le chantier inacheve le plus proche dans ce rayon
- *  (cases) quand il en termine un (murailles case par case). */
+ *  (cases) quand il en termine un (une ligne de mur V2 passe d'abord au
+ *  segment suivant de la meme ligne, sim/systems/hero.ts). */
 export const BUILD_CHAIN_RADIUS = 3;
 
 /** Transport (2026-11-01) : le Heros porte au plus HERO_CARRY_CAPACITY

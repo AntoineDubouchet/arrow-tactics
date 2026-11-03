@@ -55,7 +55,7 @@ Le dépôt a deux niveaux :
 
 | Dossier | Rôle |
 |---|---|
-| `core/` | Boucle à pas fixe, petites maths, RNG à graine, calcul pur du déplacement d'unités sur la grille (`gridGroupMove.ts`), découpage pur du tracé de murailles (`wallTrace.ts`) |
+| `core/` | Boucle à pas fixe, petites maths, RNG à graine, calcul pur du déplacement d'unités sur la grille (`gridGroupMove.ts`), géométrie pure des murs V2 (`wallLine.ts` : découpage A → B, capsules, cases A*, aimantation, vérification de pose) |
 | `config/` | Constantes de réglage, types `ObstacleDef`, format de map `MapDef`, territoire par cases (`territory.ts`), arène du Mode survie (`maps/survivalArena.ts`) |
 | `data/` | Définitions déclaratives : unités, bâtiments, objets, talents, capacités, upgrades (avec quelques lookups et calculs purs) |
 | `sim/` | Simulation de bataille |
@@ -80,7 +80,7 @@ Dépendances observées dans le code :
 | `editor/` | `config`, `data` (catalogue des unités), `render` (fabriques de meshes), types de `sim` |
 | `workshop/` | `three` (et ses addons), `data/units` (noms des unités), `render/toonUnitRig` (matériau teinté, textures, presets fixes) |
 | `audio/` | `run/userSettings` |
-| `main.ts` | tout, dont `core/gridGroupMove.ts` pour le déplacement d'unités de l'éditeur et de la préparation, et `core/wallTrace.ts` pour le tracé de murailles |
+| `main.ts` | tout, dont `core/gridGroupMove.ts` pour le déplacement d'unités de l'éditeur et de la préparation, et `core/wallLine.ts` pour la pose des murs (jeu et éditeur) |
 
 Règle forte, vérifiée : **`sim/` n'importe jamais `three`, `render/`, `ui/`,
 `editor/` ni `audio/`**. Elle n'accède ni au DOM, ni à `localStorage`, ni à
@@ -500,56 +500,27 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   retrait **remplacent** le tableau `World.obstacles` (jamais de mutation en
   place) : les bornes sont mises en cache par identité de tableau
   (`sim/geometry.ts`).
-  - `blocksShots: false` (muraille) : l'emprise bloque le déplacement mais pas
-    la ligne de tir (`findBlockingObstacle(..., forShot)`, utilisé par
-    `combatSystem` ; la trajectoire de Charge et la poursuite restent
-    bloquées).
-  - `passableForTeam` / `passageOpen` (porte de muraille, `BuildingDef.gate`) :
-    `World.spawnBuilding` pose le camp de la porte ; `gateSystem`
-    (`sim/systems/gates.ts`, au pas fixe avant le mouvement) fait évoluer
-    `Entity.gate` (fermée / ouverture / ouverte / fermeture, `openness`) et
-    ouvre ou ferme le passage par `World.setGatePassage`, qui **remplace**
-    `World.obstacles`. Deux listes par camp, en cache par identité de
-    tableau (`sim/geometry.ts`) :
-    - `obstaclesBlockingTeam` (trajets : A*, ligne droite, contournement) :
-      sans les portes du camp, même fermées ;
-    - `obstaclesCollidingTeam` (collision, trajectoire de Charge) : sans les
-      portes du camp seulement si `passageOpen`.
-    Sans porte, les deux camps partagent la même liste. Les murs n'ont aucun
-    passage : ils bloquent tout le monde.
-  - `footprintFollowsRotation` (muraille) : `tilesX` / `tilesZ` sont l'emprise
-    déjà tournée par quarts de tour (`buildingFootprintTiles`) ; le rendu
-    cale le modèle sur l'emprise d'origine avant de le tourner.
-  - Orientation du tracé : `traceInteriorSign` (polygone fermé, sinon
-    Baliste) et `wallPieceFacing` (`core/wallTrace.ts`) ; `main.ts`
-    (`planTracedWallLeg`, `reorientTracedBuildings`) l'enregistre dans
-    `rotationY` et dans le `buildingId` du virage — préparation et éditeur
-    (même entrée d'historique que la portion).
-  - `nativeModelPose` (virage de muraille) : modèle à échelle native et pose
-    fixe dans la case, au lieu d'être calé sur l'emprise.
-  - Champs purement visuels d'une muraille : `modelFacingYaw` (face
-    extérieure vers les hostiles) et `wallJoin` (raccord des virages,
-    `wallEndJoins` de `core/wallTrace.ts`), posés par
-    `gameplayBuildingObstacle` (`main.ts`). Les battants d'une porte sont
-    animés par `BuildingView.setGateOpenness` d'après `Entity.gate`
-    (interpolé entre deux pas).
-- **Tracé de murailles** : `core/wallTrace.ts` (pur) calcule la disposition
-  COMPLÈTE d'un tracé (`traceLayout` : virages, segments 2 × 1,
-  demi-segments, cases en attente ; modes `open`, `final`, `closed`) ;
-  valider une portion ou terminer le tracé (`finalizeWallTrace`) = passer
-  d'une disposition à l'autre (`main.ts` : `wallTraceStep`, pièces retirées
-  / posées, coût par case). Utilisé par le mode Muraille de la préparation
-  et par l'éditeur.
-  - **Reprise** : `wallNetPiece` donne les deux connecteurs (case +
-    direction) d'une pièce posée d'après son emprise et sa `rotationY` ;
-    `openWallEnds` les extrémités ouvertes ; `wallChainTo` la chaîne
-    jusqu'à son autre bout ; `resumeWallTrace` / `joinWallPath` en font un
-    tracé dont l'état courant (`WallTrace.current`) est l'existant réel
-    (`startFixed` : départ déjà construit). Un virage d'extrémité devient
-    une portion de longueur nulle ; deux virages sur une case
-    (`TraceLayout.conflict`) rendent la portion invalide. `main.ts`
-    (`wallNetworkOf`, `wallEndNear`, `wallJoinAt`) branche le tout sur la
-    préparation (PV en pourcentage, `applyOwnedWallStep`) et l'éditeur.
+  - `blocksShots: false` (pièces de mur, eau, arbres) : l'emprise bloque le
+    déplacement mais pas la ligne de tir (`findBlockingObstacle(..., forShot)`,
+    utilisé par `combatSystem` ; la trajectoire de Charge et la poursuite
+    restent bloquées).
+  - `line` (pièce de mur V2, 2026-11-02) : emprise en **capsule** (segment
+    A → B, demi-épaisseur), `x`/`z`/`tilesX`/`tilesZ` = sa boîte
+    englobante (caches, tests grossiers). Lue exactement par la collision
+    des corps (`movementSystem`, `pushOutOfCapsule`), la ligne dégagée
+    (`findBlockingObstacle` → `segmentHitsCapsule`), la grille A*
+    (`buildPathGrid` → `wallLineCells` : ligne et épaisseur, sans les bouts
+    arrondis) et le test « corps contre mur » de la ligne droite
+    (`bodyPathNearWall`). Voir §13 octies.
+  - `door` (porte de mur V2) : propriétaire et état, même objet que
+    `Entity.wall.door` ; l'emprise reste **toujours** dans
+    `World.obstacles`. `obstaclesForUnit(obstacles, unit, crossesWater)`
+    (en cache par tableau et par camp) retire l'eau pour une unité qui la
+    traverse et les portes qu'elle peut franchir :
+    `canUnitPassGate(unit, door)` (`sim/relations.ts`) = porte ouverte ET
+    `areAllied(unit.team, door.owner)`. Aucun camp codé en dur :
+    `areAllied` (même camp aujourd'hui) est le point d'extension des
+    factions / alliances.
 - **Ciblage** : un bâtiment n'acquiert jamais de cible (`targetingSystem`) ;
   la Tour tire par `buildingAttack`.
 - **Survie d'un camp** : `countsForDefeat` (porté par la `BuildingDef`) fait
@@ -1192,9 +1163,9 @@ L'orchestration reste dans `main.ts` :
   (`isCellOccupied` : bâtiment, Baliste, obstacle / structure, unité) ; `canPlaceBuildingAt`,
   `canPlaceBallistaAt` et `canPlaceObstacleFootprintAt` (décor de plus d'une
   case) exigent une emprise plate (`flatLevelOver`) ; `mapShapeSnapshot`
-  inclut le relief. Murailles : `wallStepSplitsLevels` (`main.ts`) refuse
-  une étape de tracé qui ne tient pas sur un seul niveau plat, en
-  préparation comme dans l'éditeur ;
+  inclut le relief. Murs V2 : les cases de leur ligne verrouillent le relief
+  (`isCellOccupied`) ; une ligne ne franchit jamais une falaise
+  (`checkWallLine`, `crossesCliff`) ;
 - pinceaux (Territoire, + Case, − Case) : un seul mécanisme de trait
   (`startBrushStroke`, `brushAt`, `endBrushStroke`). Chaque case survolée est
   traitée une fois par trait, le plateau n'est reconstruit que si une case
@@ -1310,7 +1281,7 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
   `arrowEconomy` (console). `run/userSettings.ts` : vitesse caméra (clé
   propre). `config/maps/blankMap.ts` : carte vierge de l'éditeur.
 
-## 13 sexies. Destructibles, production, réparation, murailles diagonales
+## 13 sexies. Destructibles, production, réparation
 
 - Barils : `BUILDINGS.barrel`, `World.addDestructible` (entité bâtiment
   de l'équipe adverse, `Entity.destructible`), butin `DESTRUCTIBLE_LOOT`
@@ -1324,9 +1295,7 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
   événement `repairEnd`), coût `run/buildingRepair.ts`, paiement et
   remboursement dans `main.ts` (registre par `repairId`, refus de commande
   remboursé).
-- Murailles : `core/wallTrace.ts` (portions diagonales, connecteurs),
-  `outwardRotationY` (huitième de tour), `render/buildings.ts` (étirement
-  à 45 degrés), `render/wallVisuals.ts` (`isDiagonalRotation`).
+- Murailles diagonales : supprimées avec le Wall V1 (2026-11-02, §13 octies).
 - Défaite : `World.isBaseLost`. HUD : `ui/actionProgress.ts`.
 
 ## 13 septies. Niveau d'unité, règles de survie, sol du village, HUD officiel
@@ -1371,6 +1340,15 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
   `resourceNodeAtClick` : feuillage à l'écran puis sol, anneau
   `DepotTargetRing`) ; clic droit sur une source verrouillée : ordre de
   déplacement vers `resourceApproachPoint` (`issueRightClickOrder`).
+- Sources de ressources (2026-11-02) : `HARVEST_NODE_KINDS`, `canHarvestResource`,
+  `STONE_DEPOSIT_AMOUNT` (`data/resources.ts`) ; droits d'après les bâtiments
+  terminés du monde, avant chaque pas (`harvestPermissionsOf(world.entities)`,
+  `run/harvestPermissions.ts`, `main.ts`) ; `HeroWorkContext.canHarvest`
+  (`workGoal` : droit perdu = arrêt, sauf l'unité en cours d'extraction) ;
+  épuisement générique `World.depleteResourceNode` (arbre : `fellTree` ;
+  gisement : rien à débloquer, rochers non bloquants) →
+  `World.resourceDepletedEvents` → `main.ts` (`handleDepletedResources` :
+  souche ou gravats).
 - Arbres abattus : `World.fellTree` (appelé quand la récolte vide un arbre,
   `HeroWorkContext.depleted`) → `World.felledTrees`, `World.treeCells` (cases
   d'arbre debout : construction dans `main.ts`), obstacles `terrainTree`
@@ -1392,6 +1370,48 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
   et niveau appliqué : `main.ts` (`productionPayments`,
   `handleProductionUpgrades`, `applyOwnedBuildingUpgrade` dans
   `run/buildingUpgrades.ts`).
+
+## 13 octies. Murs V2 (Palissade) et VFX de montée de niveau
+
+**Wall V1 supprimé** (2026-11-02) : `core/wallTrace.ts`,
+`render/wallVisuals.ts`, `sim/systems/gates.ts`, les bâtiments `wall*`,
+les champs `placementMode`, `placeOverBuildingId`, `traceCorners`,
+`traceHalf`, `modelLengthScale`, `nativeModelPose`,
+`outerFaceTowardHostiles`, `footprintFollowsRotation`, `gate`
+(`BuildingDef`), `passableForTeam`, `passageOpen`, `modelFacingYaw`,
+`wallJoin` (`ObstacleDef`), `Entity.gate`, le mode Muraille de la
+préparation et le tracé de l'éditeur. Les modèles KayKit `neutral_wall_*`
+restent comme décors (« Obstacles / structures »).
+
+**Palissade V2, géométrique et sans grille** :
+
+| Couche | Rôle |
+|---|---|
+| `core/wallLine.ts` | pur : `segmentWallLine` (n = ⌊L / nominal⌋ segments égaux), `wallSegmentObstacle` (capsule), distances et intersections, `wallLineCells` (cases A*), `snapWallPoint` / `planWallLine` / `checkWallLine` (aimantation, refus), `wallSegmentAt` (porte, sélection). Aucune donnée de jeu : longueurs et épaisseurs en paramètres. |
+| `data/walls.ts` | familles (`WALL_TYPES`, `WallTypeDef`) : épaisseur, segment nominal, longueurs, PV, coût et durée par case, porte. Extensible (pierre, fortifié…) sans code propre. |
+| `data/buildings.ts` | pièces `palisade` / `palisade_gate` (`BuildingDef.wallPiece`), pour tout le générique bâtiment (fiche, PV, ciblage, réparation, mort). Sans `cost` : jamais en boutique. |
+| `config/mapDef.ts` | `MapDef.walls` (`WallLineDef` : famille, A, B, camp, rangs des portes) ; `dropLegacyWalls` retire les pièces V1 au chargement (journal `[map] anciens murs ignorés`). |
+| `sim/world.ts` | `spawnWallLine` (une entité par segment, `Entity.wall` : ligne, rang, A, B, porte), `replaceWallSegmentWithGate`, `setDoorWanted` (camp demandeur allié du propriétaire), `refreshDoorPassages` (nouveau tableau d'obstacles, même contenu). |
+| `sim/systems/doors.ts` | portes au pas fixe, avant le mouvement : ouverture immédiate ; fermeture différée tant qu'un corps allié touche la capsule ; chaque changement remplace `World.obstacles` (caches par camp). |
+| `sim/relations.ts` | `areAllied` (relation entre camps, extensible) et `canUnitPassGate` (porte ouverte et alliée). |
+| `sim/geometry.ts` | `targetDistance` (portée jusqu'à la ligne d'une pièce de mur, ciblage / combat / Tour / engagement), `bodyPathNearWall`, capsule dans `findBlockingObstacle`. |
+| `sim/systems/movement.ts` | collision capsule ; `findPathFrom` (départ A* hors d'une case bloquée, du bon côté) ; `wallApproachPoint` (poursuite d'une pièce de mur : point du mur le plus proche, de son côté, loin des jonctions). |
+| `sim/systems/hero.ts` | portée de chantier jusqu'à la capsule ; enchaînement sur le segment suivant de la même ligne (A → B). |
+| `render/palisade.ts` | rendu procédural (un mesh fusionné par segment, porte : cadre + deux battants `*_door_left/right`, animés par `BuildingView.setDoorOpenness`), aperçu teinté (`tintWallGhost`). |
+| `main.ts` | menu Construire (`wallChoices`), mode de pose (`wallPlacement`, `runtimeWallContext`, aperçu, paiement sur le stock), vues (`wallViews`), `spawnMapWalls`, fiche « Ouvrir / Fermer » (`doorAction`, action `toggleDoor`) ; éditeur : outils `place-wall` / `place-wall-gate`, groupe `editorWallsGroup`. |
+| `editor/editorState.ts` | `walls` (historique : `objectsSnapshot`), `wallPieces`, `wallPlacementContext`, `planWallTo`, `wallClick`, `placeGateAt`, sélection `wall`. Même `core/wallLine.ts` que le jeu. |
+| `run/buildingRepair.ts` | coût de réparation d'une pièce de mur au prorata de sa longueur. |
+| `render/battleSelection.ts` | clic sur une pièce de mur : distance au segment projeté. |
+
+**VFX de montée de niveau** (PROVISOIRE, remplaçable) : la simulation émet
+déjà `HeroEvent` `levelUp` (`gainHeroXp`) ; `main.ts`
+(`handleHeroEvents` → `playLevelUps`) agrège les niveaux d'un même pas
+par Héros, fait réagir le badge (`HeroHud.pulseLevelUp`) et lance
+`levelUpVfx.play` (Héros vivant seulement). `render/levelUpVfx.ts`
+expose l'interface `LevelUpEffect` (`play`, `tick`, `clear`) et une
+implémentation procédurale (`createProceduralLevelUpEffect`, `three`
+seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
+à l'XP ni à la simulation.
 
 ## 14. Audio
 

@@ -1,5 +1,6 @@
 import { dist } from '../../core/math';
 import type { Entity } from '../entity';
+import { targetDistance } from '../geometry';
 import { isWorkOrder, resetOrderProgress } from '../orders';
 import { SpatialGrid } from '../spatialGrid';
 
@@ -157,7 +158,7 @@ export function targetingSystem(entities: Entity[], dt: number): void {
 }
 
 function isInAggro(self: Entity, target: Entity): boolean {
-  return dist(self.x, self.z, target.x, target.z) <= self.stats.aggroRange;
+  return targetDistance(self.x, self.z, target) <= self.stats.aggroRange;
 }
 
 /** Cible automatique permise : dans la zone de chasse de `self` (vrai sans
@@ -176,7 +177,7 @@ function findAttackableEnemy(self: Entity, pool: Entity[]): Entity | null {
 
   for (const other of pool) {
     if (other.team === self.team || !other.alive || !inHuntZone(self, other)) continue;
-    const d = dist(self.x, self.z, other.x, other.z);
+    const d = targetDistance(self.x, self.z, other);
     if (d <= self.stats.attackRange + other.stats.radius && d < bestDist) {
       bestDist = d;
       best = other;
@@ -192,7 +193,7 @@ export function findNearestEnemy(self: Entity, pool: Entity[]): Entity | null {
 
   for (const other of pool) {
     if (other.team === self.team || !other.alive || !inHuntZone(self, other)) continue;
-    const d = dist(self.x, self.z, other.x, other.z);
+    const d = targetDistance(self.x, self.z, other);
     if (d < bestDist) {
       bestDist = d;
       best = other;

@@ -24,23 +24,25 @@ export interface BuildingAttackState {
   targetId: number | null;
 }
 
-/** Porte de muraille (BuildingDef.gate) — voir sim/systems/gates.ts.
- *  Reglages figes a l'apparition ; `phase`, `openness` et `closeTimer`
- *  evoluent au pas fixe. `prevOpenness` = valeur du pas precedent, pour
- *  l'interpolation du rendu (comme prevX/prevZ). */
-export interface GateState {
-  phase: 'closed' | 'opening' | 'open' | 'closing';
-  /** Ouverture des battants, 0 (fermee) a 1 (grande ouverte). */
-  openness: number;
-  prevOpenness: number;
-  /** Secondes ecoulees sans allie proche, porte ouverte. */
-  closeTimer: number;
-  /** Vrai quand les allies la franchissent physiquement. */
-  passable: boolean;
-  triggerRangeTiles: number;
-  openDurationSeconds: number;
-  closeDelaySeconds: number;
-  passableOpenness: number;
+/** Piece d'un mur V2 (2026-11-02, data/walls.ts, core/wallLine.ts) :
+ *  segment interne d'une ligne A -> B, extremites et rang depuis A (le Heros
+ *  construit dans cet ordre). Fige a l'apparition, sauf `door`. */
+export interface WallPieceState {
+  wallType: string;
+  /** Ligne d'origine (identifiant de pose, stable pendant la partie). */
+  lineId: number;
+  /** Rang du segment depuis le point A de sa ligne. */
+  index: number;
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  /** Porte : proprietaire, ouverte (passage pour le proprietaire et ses
+   *  allies, sim/relations.ts) ou fermee ; `wantOpen` = etat demande par le
+   *  joueur. Une fermeture attend qu'aucun corps n'occupe l'ouverture
+   *  (sim/systems/doors.ts). Meme objet que ObstacleDef.door de l'emprise.
+   *  null pour un segment. */
+  door: { owner: Team; open: boolean; wantOpen: boolean } | null;
 }
 
 /**
@@ -467,8 +469,8 @@ export interface Entity {
    *  autre entite. Distincte de targetId/attackTimer : le ciblage et le
    *  combat generiques des unites ne la lisent jamais. */
   buildingAttack: BuildingAttackState | null;
-  /** Porte de muraille, null pour toute autre entite. */
-  gate: GateState | null;
+  /** Piece de mur V2 (segment ou porte), null pour toute autre entite. */
+  wall: WallPieceState | null;
 }
 
 /** Direction d'avance : le joueur part du bas (+z) et monte vers -z. */

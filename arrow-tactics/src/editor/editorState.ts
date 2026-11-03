@@ -7,9 +7,11 @@ import {
   computeBallistaObstacle,
   computePlayerArrowOrigin,
   DEFAULT_MAP,
+  dropLegacyWalls,
   resolveMapCells,
   snapBallistaOrigin,
   type MapBuildingPlacement,
+  type WallLineDef,
   type MapDef,
   type MapUnitPlacement,
   type TerrainCellDef,
@@ -43,7 +45,11 @@ import {
   type TerritoryIndex,
   type TerritoryTeam,
 } from '../config/territory';
-import { buildingFootprintTiles, buildingRotationStep, getBuilding, migrateLegacyWalls, replacedWallCells } from '../data/buildings';
+import { buildingFootprintTiles } from '../data/buildings';
+import { getWallType } from '../data/walls';
+import { planWallLine, segmentBoxDistance, segmentWallLine, wallLineCells, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint, type WallSegment } from '../core/wallLine';
+import { treeCellKeys } from '../config/resourceNodes';
+import { computeCliffObstacles } from '../config/terrainElevation';
 import { getUnit } from '../data/units';
 import type { Team } from '../sim/entity';
 import { forestTreesForCell, type ForestBrushSize, type ForestDensity, type ForestTreeTypeId } from './forestBrush';
@@ -103,9 +109,14 @@ export interface EditorBuilding {
   team: Team;
   x: number;
   z: number;
-  /** Rotation d'un batiment dont l'emprise suit la rotation (muraille),
-   *  voir MapBuildingPlacement.rotationY. */
+  /** Rotation visuelle, voir MapBuildingPlacement.rotationY. */
   rotationY?: number;
+}
+
+/** Ligne de mur V2 du brouillon (MapDef.walls, WallLineDef) : la meme
+ *  geometrie que le jeu (core/wallLine.ts), un id d'edition en plus. */
+export interface EditorWallLine extends WallLineDef {
+  id: number;
 }
 
 /** Une selection d'UNITES est un ensemble ordonne d'unites, toujours
@@ -119,6 +130,8 @@ export type EditorSelection =
   | { kind: 'unit-group'; ids: number[] }
   /** Batiment gameplay de scenario. */
   | { kind: 'building'; id: number }
+  /** Ligne de mur V2 entiere. */
+  | { kind: 'wall'; id: number }
   /** La Baliste (unique, toujours presente) : deplacable, jamais supprimee
    *  ni tournee. */
   | { kind: 'ballista' }
@@ -166,6 +179,10 @@ export type EditorTool =
   | { type: 'place-unit'; unitId: string }
   /** Pose de batiments gameplay de scenario (reste actif, comme les unites). */
   | { type: 'place-building'; buildingId: string; rotationY?: number }
+  /** Mur V2 : premier clic = A, second = B (meme regle que le jeu) ;
+   *  `start` = A deja pose. Porte : clic sur un segment d'une ligne. */
+  | { type: 'place-wall'; wallType: string; start?: WallPoint }
+  | { type: 'place-wall-gate'; wallType: string }
   | { type: 'add-cell'; terrain: TerrainType }
   | { type: 'remove-cell' }
   /** Sculpture du relief (config/terrainElevation.ts, sculptRelief) :
@@ -223,21 +240,21 @@ export interface EditorObjectsSnapshot {
   obstacles: EditorObstacle[];
   units: EditorUnit[];
   buildings: EditorBuilding[];
+  walls: EditorWallLine[];
   selection: EditorSelection;
 }
 
 /** Centre cale sur la grille de l'emprise d'un batiment dont le centre
  *  tomberait pres de (x, z) : coin de case entier, centre = coin + taille / 2
- *  (meme convention que le placement des batiments en preparation). Emprise
- *  tournee selon `rotationY` quand elle suit la rotation (muraille). */
-export function snapBuildingCenter(buildingId: string, x: number, z: number, rotationY = 0): { x: number; z: number } {
-  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
+ *  (meme convention que le placement des batiments en preparation). */
+export function snapBuildingCenter(buildingId: string, x: number, z: number): { x: number; z: number } {
+  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId);
   return { x: Math.round(x - tilesX / 2) + tilesX / 2, z: Math.round(z - tilesZ / 2) + tilesZ / 2 };
 }
 
 /** Rectangle de l'emprise d'un batiment centre en (x, z). */
-export function buildingBoundsAt(buildingId: string, x: number, z: number, rotationY = 0): ObstacleBounds {
-  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
+export function buildingBoundsAt(buildingId: string, x: number, z: number): ObstacleBounds {
+  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId);
   return { minX: x - tilesX / 2, maxX: x + tilesX / 2, minZ: z - tilesZ / 2, maxZ: z + tilesZ / 2 };
 }
 
@@ -265,6 +282,8 @@ export class EditorState {
   units: EditorUnit[];
   /** Batiments gameplay de scenario (voir EditorBuilding). */
   buildings: EditorBuilding[];
+  /** Murs V2 (voir EditorWallLine). */
+  walls: EditorWallLine[];
   /** Taille du brouillon en cours d'edition (en cases) — independante de la
    *  taille du plateau reellement en jeu tant que la carte n'est pas
    *  sauvegardee/testee (voir main.ts, rebuildEditorBoard). Modifiable via
@@ -330,8 +349,9 @@ export class EditorState {
       ...source.playerUnits.map((u) => this.toEditorUnit(u, 'player')),
       ...source.enemyUnits.map((u) => this.toEditorUnit(u, 'enemy')),
     ];
-    // Anciennes murailles (segments de 2 cases) : une case par segment.
-    this.buildings = migrateLegacyWalls(source.buildings ?? []).map((b) => this.toEditorBuilding(b));
+    // Wall V1 supprime (2026-11-02) : ses pieces ne sont jamais reprises.
+    this.buildings = dropLegacyWalls(source.buildings ?? []).map((b) => this.toEditorBuilding(b));
+    this.walls = (source.walls ?? []).map((w) => ({ ...w, ...(w.gates ? { gates: [...w.gates] } : {}), id: this.nextId++ }));
     this.width = source.width;
     this.height = source.height;
     this.cellMap = buildCellIndex(resolveMapCells(source));
@@ -404,7 +424,7 @@ export class EditorState {
     if (this.heightField().flatLevelOver(b.minX, b.maxX, b.minZ, b.maxZ) === null) return false;
     if (this.boundsTouchWater(b)) return false;
     if (this.obstacles.some((o) => isBlockingMapObstacle(o) && boundsOverlap(b, obstacleBounds(o)))) return false;
-    if (this.buildings.some((bd) => boundsOverlap(b, buildingBoundsAt(bd.buildingId, bd.x, bd.z, bd.rotationY)))) return false;
+    if (this.buildings.some((bd) => boundsOverlap(b, buildingBoundsAt(bd.buildingId, bd.x, bd.z)))) return false;
     return !this.units.some((u) => u.x > b.minX && u.x < b.maxX && u.z > b.minZ && u.z < b.maxZ);
   }
 
@@ -491,16 +511,17 @@ export class EditorState {
   }
 
   /** Vrai si la case porte quelque chose dont la hauteur depend d'elle :
-   *  batiment de scenario (muraille, porte comprise), Baliste, obstacle /
-   *  structure BLOQUANT (centre dans la case ou emprise qui la chevauche) ou
-   *  unite de scenario. Regle du relief : une telle case ne change jamais
+   *  batiment de scenario, ligne de mur V2 (cases de sa ligne centrale),
+   *  Baliste, obstacle / structure BLOQUANT (centre dans la case ou emprise
+   *  qui la chevauche) ou unite de scenario. Regle du relief : une telle case ne change jamais
    *  d'altitude. Un DECOR ne verrouille rien : il suit la nouvelle surface
    *  (hauteur derivee du terrain a son point d'ancrage, jamais stockee). */
   isCellOccupied(x: number, z: number): boolean {
     const cell = { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
     if (this.isCellUnderBallista(x, z)) return true;
-    if (this.buildings.some((b) => boundsOverlap(cell, buildingBoundsAt(b.buildingId, b.x, b.z, b.rotationY)))) return true;
+    if (this.buildings.some((b) => boundsOverlap(cell, buildingBoundsAt(b.buildingId, b.x, b.z)))) return true;
     if (this.units.some((u) => Math.floor(u.x) === x && Math.floor(u.z) === z)) return true;
+    if (this.wallPieces().some((p) => wallLineCells(p.segment).some((c) => c.x === x && c.z === z))) return true;
     return this.obstacles.some((o) => {
       if (!isBlockingMapObstacle(o)) return false;
       const center = obstacleCenter(o);
@@ -671,7 +692,7 @@ export class EditorState {
     const result = sculptRelief(this.reliefContext(start), new Set([...painted, ...core]), delta);
     if (result.blocked) {
       const where = `case ${result.blocked.x}, ${result.blocked.z}`;
-      return refuse(`case occupée : bâtiment, muraille, porte, Baliste, unité ou obstacle (${where})`);
+      return refuse(`case occupée : bâtiment, mur, Baliste, unité ou obstacle (${where})`);
     }
     return { originX, originZ, core, cells: result.cells, bridged: result.bridged, logic: result.logic, levels, status: { ok: true } };
   }
@@ -699,7 +720,7 @@ export class EditorState {
   }
 
   /** Vrai si la case (x, z) est peinte d'une surface d'eau (isWaterSurface) :
-   *  aucune unite, aucun batiment ni muraille, pas de Baliste. */
+   *  aucune unite, aucun batiment ni mur, pas de Baliste. */
   isWaterCell(x: number, z: number): boolean {
     return isWaterSurface(this.surfaceMap.get(cellKey(x, z)));
   }
@@ -743,7 +764,7 @@ export class EditorState {
     // Case necessaire sous la Baliste ou sous un batiment de scenario.
     if (this.isCellUnderBallista(x, z)) return false;
     const cell = { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
-    if (this.buildings.some((b) => boundsOverlap(cell, buildingBoundsAt(b.buildingId, b.x, b.z, b.rotationY)))) return false;
+    if (this.buildings.some((b) => boundsOverlap(cell, buildingBoundsAt(b.buildingId, b.x, b.z)))) return false;
 
     const occupiedByUnit = this.units.some((u) => Math.floor(u.x) === x && Math.floor(u.z) === z);
     if (occupiedByUnit) return false;
@@ -1116,7 +1137,7 @@ export class EditorState {
   buildingAt(x: number, z: number): EditorBuilding | null {
     return (
       this.buildings.find((b) => {
-        const r = buildingBoundsAt(b.buildingId, b.x, b.z, b.rotationY);
+        const r = buildingBoundsAt(b.buildingId, b.x, b.z);
         return x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ;
       }) ?? null
     );
@@ -1129,8 +1150,8 @@ export class EditorState {
    *  chevauche, et aucune unite n'a son centre dedans. Pas de regle de
    *  territoire : l'editeur cree des scenarios librement. SOURCE UNIQUE de la
    *  pose et de son apercu. */
-  canPlaceBuildingAt(buildingId: string, x: number, z: number, ignoreBuildingId?: number, rotationY = 0): boolean {
-    const r = buildingBoundsAt(buildingId, x, z, rotationY);
+  canPlaceBuildingAt(buildingId: string, x: number, z: number, ignoreBuildingId?: number): boolean {
+    const r = buildingBoundsAt(buildingId, x, z);
     for (let cz = Math.floor(r.minZ); cz < r.maxZ; cz++) {
       for (let cx = Math.floor(r.minX); cx < r.maxX; cx++) {
         if (!this.hasCellAt(cx, cz)) return false;
@@ -1140,10 +1161,93 @@ export class EditorState {
     // pente ni a cheval sur une falaise).
     if (this.heightField().flatLevelOver(r.minX, r.maxX, r.minZ, r.maxZ) === null) return false;
     if (this.boundsTouchWater(r)) return false;
-    if (this.buildings.some((b) => b.id !== ignoreBuildingId && boundsOverlap(r, buildingBoundsAt(b.buildingId, b.x, b.z, b.rotationY)))) return false;
+    if (this.buildings.some((b) => b.id !== ignoreBuildingId && boundsOverlap(r, buildingBoundsAt(b.buildingId, b.x, b.z)))) return false;
     if (boundsOverlap(r, this.ballistaBoundsAt(this.ballista.x, this.ballista.z))) return false;
     if (this.obstacles.some((o) => isBlockingMapObstacle(o) && boundsOverlap(r, obstacleBounds(o)))) return false;
+    // Murs V2 : jamais un batiment sur une ligne de mur.
+    if (this.wallPieces().some((p) => segmentBoxDistance(p.segment, r) < getWallType(p.line.type).halfWidth)) return false;
     return !this.units.some((u) => u.x > r.minX && u.x < r.maxX && u.z > r.minZ && u.z < r.maxZ);
+  }
+
+  /** Segments internes de tous les murs du brouillon (meme decoupage que le
+   *  jeu, core/wallLine.ts) : ligne, rang depuis A, geometrie. */
+  wallPieces(): { line: EditorWallLine; index: number; segment: WallSegment; gate: boolean }[] {
+    return this.walls.flatMap((line) =>
+      segmentWallLine(line, getWallType(line.type).segmentLength).map((segment, index) => ({ line, index, segment, gate: line.gates?.includes(index) === true })),
+    );
+  }
+
+  /** Ce que la pose d'un mur lit du brouillon : cases, eau, falaises, arbres
+   *  et structures bloquantes, batiments et Baliste, murs, unites. MEMES
+   *  regles qu'en jeu (core/wallLine.ts, checkWallLine). */
+  wallPlacementContext(): WallPlacementContext {
+    const field = this.heightField();
+    const cliffs = computeCliffObstacles(field, (x, z) => this.hasCellAt(x, z), this.cells).map(obstacleBounds);
+    const trees = [...treeCellKeys(this.obstacles)].map((k) => {
+      const [x, z] = k.split(',').map(Number) as [number, number];
+      return { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
+    });
+    return {
+      isCell: (x, z) => this.hasCellAt(Math.floor(x), Math.floor(z)),
+      isWater: (x, z) => this.isWaterCell(Math.floor(x), Math.floor(z)),
+      crossesCliff: (s) => cliffs.some((b) => segmentBoxDistance(s, b) === 0),
+      obstacles: [...trees, ...this.obstacles.filter(isBlockingMapObstacle).map(obstacleBounds)],
+      buildings: [...this.buildings.map((b) => buildingBoundsAt(b.buildingId, b.x, b.z)), this.ballistaBoundsAt(this.ballista.x, this.ballista.z)],
+      walls: this.wallPieces().map((p) => p.segment),
+      bodies: this.units.map((u) => ({ x: u.x, z: u.z, r: getUnit(u.unitId).stats.radius })),
+    };
+  }
+
+  /** Ligne proposee de A a (x, z) pour l'outil Mur actif (apercu et pose). */
+  planWallTo(x: number, z: number): WallLinePlan | null {
+    if (this.tool.type !== 'place-wall' || !this.tool.start) return null;
+    const type = getWallType(this.tool.wallType);
+    return planWallLine(this.tool.start, { x, z }, type, this.wallPlacementContext());
+  }
+
+  /** Clic de l'outil Mur : le premier fixe A (aimante a un mur proche), le
+   *  second pose la ligne si elle est valide (pas de cout dans l'editeur) et
+   *  l'outil repart pour une nouvelle ligne. Renvoie la ligne posee, sinon
+   *  null (A fixe ou pose refusee). */
+  wallClick(x: number, z: number): EditorWallLine | null {
+    if (this.tool.type !== 'place-wall') return null;
+    if (!this.tool.start) {
+      const a = planWallLine({ x, z }, { x, z }, getWallType(this.tool.wallType), this.wallPlacementContext()).line;
+      this.tool = { ...this.tool, start: { x: a.ax, z: a.az } };
+      return null;
+    }
+    const plan = this.planWallTo(x, z);
+    if (!plan || plan.issue) return null;
+    const line: EditorWallLine = { id: this.nextId++, type: this.tool.wallType, ax: plan.line.ax, az: plan.line.az, bx: plan.line.bx, bz: plan.line.bz };
+    this.walls.push(line);
+    this.tool = { type: 'place-wall', wallType: this.tool.wallType };
+    return line;
+  }
+
+  /** Segment de mur sous (x, z) pour l'outil Porte (a moins de 0,6 case de
+   *  sa ligne), ou null. */
+  wallPieceAt(x: number, z: number): { line: EditorWallLine; index: number; segment: WallSegment; gate: boolean } | null {
+    const pieces = this.wallPieces();
+    const i = wallSegmentAt(x, z, pieces.map((p) => p.segment), 0.6);
+    return i >= 0 ? pieces[i]! : null;
+  }
+
+  /** Outil Porte : le segment sous (x, z) devient une porte. Faux si aucun
+   *  segment n'est vise ou si c'est deja une porte. */
+  placeGateAt(x: number, z: number): boolean {
+    if (this.tool.type !== 'place-wall-gate') return false;
+    const piece = this.wallPieceAt(x, z);
+    if (!piece || piece.gate) return false;
+    // Nouvel objet ligne : l'historique garde l'ancien (sans cette porte).
+    const updated: EditorWallLine = { ...piece.line, gates: [...(piece.line.gates ?? []), piece.index].sort((a, b) => a - b) };
+    this.walls = this.walls.map((w) => (w === piece.line ? updated : w));
+    return true;
+  }
+
+  get selectedWall(): EditorWallLine | null {
+    const sel = this.selection;
+    if (sel?.kind !== 'wall') return null;
+    return this.walls.find((w) => w.id === sel.id) ?? null;
   }
 
   /** Pose un batiment de l'outil actif, centre cale pres de (x, z). L'outil
@@ -1153,67 +1257,17 @@ export class EditorState {
     if (this.tool.type !== 'place-building') return null;
     const buildingId = this.tool.buildingId;
     const rotationY = this.tool.rotationY ?? 0;
-    const center = snapBuildingCenter(buildingId, x, z, rotationY);
-    const replaced = this.replaceableBuildingsAt(buildingId, center.x, center.z, rotationY);
-    const valid = replaced.length > 0 ? this.canReplaceBuildingPieces(replaced.map((b) => b.id), [{ buildingId, x: center.x, z: center.z, rotationY }], []) : this.canPlaceBuildingAt(buildingId, center.x, center.z, undefined, rotationY);
-    if (!valid) return null;
-    // Porte posee sur deux cases de mur alignees : elle les remplace et
-    // reprend leur orientation (meme exterieur).
-    if (replaced.length > 0) this.buildings = this.buildings.filter((b) => !replaced.includes(b));
-    const finalRotationY = replaced.length > 0 ? replaced[0]!.rotationY ?? 0 : rotationY;
-    const building: EditorBuilding = { id: this.nextId++, buildingId, team: 'player', x: center.x, z: center.z, ...(finalRotationY ? { rotationY: finalRotationY } : {}) };
+    const center = snapBuildingCenter(buildingId, x, z);
+    if (!this.canPlaceBuildingAt(buildingId, center.x, center.z)) return null;
+    const building: EditorBuilding = { id: this.nextId++, buildingId, team: 'player', x: center.x, z: center.z, ...(rotationY ? { rotationY } : {}) };
     this.buildings.push(building);
     return building;
-  }
-
-  /** Batiments que `buildingId` centre en (x, z) REMPLACERAIT
-   *  (BuildingDef.placeOverBuildingId : porte de 2 cases posee sur deux
-   *  cases de mur alignees, replacedWallCells), sinon liste vide. */
-  replaceableBuildingsAt(buildingId: string, x: number, z: number, rotationY = 0): EditorBuilding[] {
-    const { tilesX, tilesZ } = buildingFootprintTiles(buildingId, rotationY);
-    return replacedWallCells(buildingId, x - tilesX / 2, z - tilesZ / 2, rotationY, this.buildings);
-  }
-
-  /** Vrai si, une fois les batiments `removeIds` retires (pieces d'un trace
-   *  re-appariees), toutes les pieces `add` et les emplacements `free` (cases
-   *  en attente) sont posables. Centres deja cales. */
-  canReplaceBuildingPieces(removeIds: readonly number[], add: readonly { buildingId: string; x: number; z: number; rotationY: number }[], free: readonly { buildingId: string; x: number; z: number; rotationY: number }[]): boolean {
-    const saved = this.buildings;
-    this.buildings = saved.filter((b) => !removeIds.includes(b.id));
-    try {
-      return [...add, ...free].every((p) => this.canPlaceBuildingAt(p.buildingId, p.x, p.z, undefined, p.rotationY));
-    } finally {
-      this.buildings = saved;
-    }
-  }
-
-  /** Etape d'un trace de murailles (core/wallTrace.ts) : retire `removeIds`
-   *  (pieces re-appariees) et pose `add` (segments, demi-segments, virages),
-   *  tout ou rien. Faux (rien ne change) si une seule piece, ou un
-   *  emplacement `free` (case en attente), est invalide. */
-  replaceBuildingPieces(removeIds: readonly number[], add: readonly { buildingId: string; x: number; z: number; rotationY: number }[], free: readonly { buildingId: string; x: number; z: number; rotationY: number }[]): boolean {
-    if (!this.canReplaceBuildingPieces(removeIds, add, free)) return false;
-    this.buildings = this.buildings.filter((b) => !removeIds.includes(b.id));
-    for (const p of add) {
-      this.buildings.push({ id: this.nextId++, buildingId: p.buildingId, team: 'player', x: p.x, z: p.z, ...(p.rotationY ? { rotationY: p.rotationY } : {}) });
-    }
-    return true;
   }
 
   get selectedBuilding(): EditorBuilding | null {
     const sel = this.selection;
     if (sel?.kind !== 'building') return null;
     return this.buildings.find((b) => b.id === sel.id) ?? null;
-  }
-
-  /** Tourne d'un pas l'outil de pose de batiment, si l'emprise du batiment
-   *  suit la rotation (muraille : quarts de tour). Faux sinon (rien ne
-   *  change). */
-  rotateBuildingTool(): boolean {
-    if (this.tool.type !== 'place-building' || !getBuilding(this.tool.buildingId).footprintFollowsRotation) return false;
-    const next = ((this.tool.rotationY ?? 0) + buildingRotationStep(this.tool.buildingId)) % (Math.PI * 2);
-    this.tool = { ...this.tool, rotationY: next };
-    return true;
   }
 
   private toEditorBuilding(b: MapBuildingPlacement): EditorBuilding {
@@ -1299,7 +1353,7 @@ export class EditorState {
 
   /** Voir EditorObjectsSnapshot. */
   objectsSnapshot(): EditorObjectsSnapshot {
-    return { obstacles: [...this.obstacles], units: [...this.units], buildings: [...this.buildings], selection: copySelection(this.selection) };
+    return { obstacles: [...this.obstacles], units: [...this.units], buildings: [...this.buildings], walls: [...this.walls], selection: copySelection(this.selection) };
   }
 
   /** Remet les objets et la selection exactement dans un etat capture par
@@ -1308,6 +1362,7 @@ export class EditorState {
     this.obstacles = [...snapshot.obstacles];
     this.units = [...snapshot.units];
     this.buildings = [...snapshot.buildings];
+    this.walls = [...snapshot.walls];
     this.selection = copySelection(snapshot.selection);
   }
 
@@ -1351,6 +1406,8 @@ export class EditorState {
       this.units = this.units.filter((u) => u.id !== sel.id);
     } else if (sel.kind === 'building') {
       this.buildings = this.buildings.filter((b) => b.id !== sel.id);
+    } else if (sel.kind === 'wall') {
+      this.walls = this.walls.filter((w) => w.id !== sel.id);
     } else {
       const ids = new Set(sel.ids);
       this.units = this.units.filter((u) => !ids.has(u.id));

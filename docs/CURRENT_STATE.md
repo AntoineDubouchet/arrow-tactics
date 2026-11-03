@@ -23,8 +23,9 @@ contient ni intentions de design ni décisions futures.
 6 ter. Équipement, items et butin du Héros
 6 quater. Camps neutres et coffres
 6 quinquies. Inventaire unique, or physique, HUD et contrôles
-6 sexies. Barils, production, ralliement, réparation, murailles diagonales
+6 sexies. Barils, production, ralliement, réparation
 6 septies. Niveau d'unité, cartes de survie, sol du village
+6 octies. Palissade V2 (murs géométriques)
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -589,99 +590,13 @@ Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
   PV. Un bâtiment détruit en bataille disparaît de la run à la fin de la
   vague. Plusieurs exemplaires de chaque bâtiment sont possibles.
 - **Survie du camp** : ces bâtiments comptent pour la défaite
-  (`countsForDefeat`), comme les unités et la Baliste — sauf les murailles.
+  (`countsForDefeat`), comme les unités et la Baliste — sauf les pièces de
+  mur (Palissade, §6 octies).
 
-**Murailles** (`wall`, `wall_gate` dans `data/buildings.ts` ; modèles KayKit
-du dossier « neutral », visuel neutre non teinté, mais constructions du
-**joueur**) :
+**Murs** : le **Wall V1** (muraille case par case, porte KayKit, virages,
+tracé sur grille) est **supprimé** depuis le 2026-11-02. Le seul mur jouable
+est la **Palissade V2**, géométrique et sans grille : voir §6 octies.
 
-- **Unité canonique : une case = un segment de mur** (2026-11-01) : données,
-  PV, pose, sauvegarde, sélection et destruction se font par case.
-  **Muraille** : 25 PV, emprise 1 × 1, coût **provisoire** 0,5 or par case
-  (même densité et même prix qu'avant). **Porte de muraille** : seule pièce
-  de 2 cases (modèle à battants), 50 PV, 1 or, posée sur **deux cases de mur
-  alignées**, qu'elle remplace. Rendu : deux cases voisines d'une même ligne
-  (même orientation, même camp) affichent ensemble le modèle KayKit à sa
-  longueur native ; une case seule, le modèle comprimé à une case
-  (`render/wallVisuals.ts`). Une case d'une paire qui tombe : les deux sont
-  redessinées seules. Anciennes cartes : un segment de 2 cases est migré en
-  deux cases au chargement (`migrateLegacyWalls`, PV partagés).
-  Aucune attaque, aucun effet, aucune population, aucune amélioration ; ne
-  comptent pas pour la défaite.
-- **Muraille** : bloque le déplacement de **toutes** les unités, son camp
-  compris (contourner ou passer par une porte). Les **tirs passent**
-  par-dessus (`blocksShots: false`), pour le mur comme pour la porte.
-- **Porte de muraille** (`BuildingDef.gate`, `sim/systems/gates.ts`) : vraie
-  porte de son camp.
-  - Ses unités la comptent toujours comme un passage dans leurs trajets, même
-    fermée (pas de détour) ; elle s'ouvre quand l'une d'elles est à moins de
-    **1,5 case** de son emprise, en **0,5 s** ; les unités ne la franchissent
-    physiquement qu'à partir de **60 %** d'ouverture (avant, elles attendent
-    contre les battants) ; elle reste ouverte tant qu'une unité alliée est
-    proche ou dedans, puis se referme **1 s** après le dernier passage (en
-    0,5 s), jamais sur une unité. Réglages centralisés dans `data/buildings.ts`.
-  - États fermée / ouverture / ouverte / fermeture, au pas fixe, sans hasard :
-    la simulation décide, le rendu anime les deux battants du modèle.
-  - Pour le camp adverse, elle reste **toujours fermée**, même ouverte pour un
-    allié : il ne peut que l'attaquer. Détruite (0 PV), le passage est libre
-    pour tout le monde.
-- **Ennemis** : un mur ou une porte est ciblable comme tout bâtiment (cible
-  la plus proche dans l'aggro) ; une enceinte fermée est donc attaquée,
-  jamais un blocage éternel. Détruit (0 PV), il disparaît et sa case
-  redevient franchissable.
-- **Tracé continu** (mode Muraille de la préparation ; même tracé dans
-  l'éditeur, voir `EDITOR.md`) : choisir « Muraille » en boutique ; le
-  premier clic fixe le point de départ, chaque clic suivant construit la
-  **portion** de l'ancre au point cliqué (horizontale ou verticale selon
-  l'**axe dominant**, jamais de diagonale) puis son extrémité devient la
-  nouvelle ancre : A, B, C, D, A trace un carré fermé à 4 virages.
-  - **Structure** : tronçons droits et **virages** (une case, vraie pièce
-    de coin KayKit) à chaque changement de direction : `ligne — virage —
-    ligne`. Un carré fermé = 4 côtés + 4 virages.
-  - **Longueur exacte** : une portion couvre exactement les cases demandées
-    (clic de A à B = toutes les cases de A à B), une case par segment. Un
-    second clic sur la case de départ pose une muraille d'une case.
-  - **Cases en attente** (contour sans modèle) pendant le tracé : l'ancre
-    (virage ou prolongement droit, décidé au clic suivant), le point de
-    départ (virage à la fermeture). Elles sont payées avec leur portion.
-  - **Fin du tracé sans fermeture** (Échap, clic droit, autre bâtiment choisi
-    en boutique, sortie du mode, début de bataille) : les cases en attente
-    deviennent des pièces droites — une ligne, un L ou un U ouverts restent
-    complets.
-  - **Reprise d'une muraille existante** : en mode Muraille, chaque
-    extrémité ouverte des murailles du joueur porte un petit repère doré.
-    Un premier clic sur l'extrémité (ou sur la case libre juste après) s'y
-    aimante (« reprendre la muraille ici ») : le tracé repart de là, avec la
-    direction et l'orientation de la muraille existante. Prolonger tout
-    droit la continue sans jonction ; tourner pose un vrai virage à la place
-    de la pièce terminale. Le dernier clic peut aussi s'aimanter sur
-    l'extrémité d'une AUTRE muraille (« relie les murailles ») ou sur l'autre
-    bout de la muraille reprise (« ferme l'enceinte »).
-  - La disposition est recalculée sur la chaîne COMPLÈTE (même découpage
-    qu'un tracé fait en une fois : à géométrie égale, résultat identique) ;
-    seules les pièces qui changent sont recomposées. **Coût net** :
-    nouvelles pièces − valeur des pièces remplacées (½ or par case droite,
-    1 or par virage), affiché dans l'aperçu (« dont X or de raccord »). **PV**
-    : une pièce recomposée garde le pourcentage de PV des cases qu'elle
-    reprend (jamais de réparation gratuite) ; une case neuve part à 100 %.
-  - **Refusés** : démarrer ou passer sur une muraille ailleurs qu'à une
-    extrémité, une jonction en T au milieu d'un segment, et tout raccord qui
-    transformerait une **porte** (il faut prolonger droit d'abord). Un
-    virage existant en extrémité ne se prolonge que dans l'axe de son bras
-    libre.
-  - Aperçu de la portion **avant** le clic : segments, virage qui prendra la
-    jonction précédente (et virages D et A à la fermeture), cases en
-    attente ; vert ou rouge, nombre de cases et coût. Tout ou rien par
-    portion : une portion invalide (hors territoire, obstacle, bâtiment,
-    unité, or insuffisant) ne pose rien, le reste du tracé est intact.
-  - **Fermeture** : un clic sur le point de départ ou une case voisine (si
-    l'ancre lui est alignée) se cale sur lui, pose le dernier côté et les
-    virages D et A, et termine le tracé (« ferme l'enceinte ») ; le mode
-    reste actif. Elle exige un virage en A (sinon aperçu rouge).
-  - **Coût** (provisoire) : ½ or par case droite (case en attente comprise),
-    1 or par virage. La finalisation d'un tracé ouvert ne coûte rien de
-    plus. Un virage a 50 PV, une case droite 25 PV ; tous deux bloquent les
-    deux camps, laissent passer les tirs ; emprise 1 × 1.
 - **Dégâts et destruction des bâtiments** (2026-11-01,
   `render/buildingDamageFx.ts`, rendu seul) : fumée légère à 75 % de PV ou
   moins, épaisse et sombre à 40 % ou moins ; foyers, débit et taille des
@@ -693,22 +608,6 @@ du dossier « neutral », visuel neutre non teinté, mais constructions du
   affaissement, nuage de poussière, débris low-poly, puis disparition (la
   simulation a déjà retiré le bâtiment). Hasard visuel à graine ; flash,
   fumée et effondrement figés pendant la pause.
-  - **Créneaux vers l'extérieur** : un seul côté intérieur pour tout le
-    tracé (continuité). Enceinte fermée : l'intérieur du polygone (dans les
-    deux sens de dessin). Tracé ouvert : le côté de la **Baliste** par
-    rapport à la portion la plus proche d'elle. Les segments droits ont leurs
-    créneaux à l'opposé ; un virage qui tourne autour de l'intérieur prend
-    la variante `outside` (créneaux sur le côté bombé), un virage rentrant la
-    variante `inside`. Tout le tracé est réorienté à chaque portion validée
-    (seules rotation et variante de virage changent). Une porte posée sur un
-    mur reprend son orientation (`ASSETS.md` §3.5).
-  - **Échap / clic droit** pendant un tracé : termine le tracé (aperçu de la
-    portion suivante abandonné, cases en attente construites) ; le mode
-    reste actif. Sans tracé en cours, Échap / clic droit quittent le mode.
-- **Porte** : outil séparé, posée à l'unité (Ctrl + molette : 90°). Posée
-  **exactement** sur un segment de mur (même emprise), elle le **remplace** :
-  mur — porte — mur sans trou ; on paie la porte, le mur n'est pas remboursé.
-
 | | Mine | Caserne | Camp d'archerie | Maison | Forge | Tour | Église |
 |---|---|---|---|---|---|---|---|
 | Coût en partie | 20 | 15 | 15 | 5 | 10 | 20 | 35 |
@@ -874,6 +773,17 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   Totaux : niveau 10, 97,5 PV et 7,9 dégâts ; 25, 157,5 et 12,4 ; 50, 207,5
   et 16,15 ; 100, 257,5 et 20,15. Médaillon du portrait : rond jusqu'à 99,
   pilule un peu plus large à 100 ;
+- **montée de niveau** (2026-11-02, VFX **provisoire**,
+  `render/levelUpVfx.ts`) : effet 3D d'environ 1,3 s sur le Héros (flash
+  blanc-doré, onde au sol dorée et bleue, colonne de lumière, particules
+  qui montent, étincelles), qui suit sa position affichée ; le médaillon
+  pulse, la barre d'XP brille et « NIVEAU N » apparaît brièvement au-dessus
+  du portrait (rien n'interrompt la partie ; l'ancien bandeau « Héros :
+  niveau N ! » est retiré). **Agrégation** : plusieurs niveaux d'un même pas
+  = un seul effet, niveau final ; un niveau pendant l'effet le relance (un
+  seul effet par Héros). Héros à terre : badge seulement, pas d'effet 3D.
+  Déclenché par l'événement de simulation `levelUp` existant ; le rendu
+  est remplaçable sans toucher à l'XP (`LevelUpEffect`) ;
 - **XP en zone partagée** : chaque unité adverse (pas un bâtiment) morte à
   6 cases ou moins du Héros vivant lui donne max(4, coût × 4) XP, **30 au
   plus par mort**, quel que soit le tueur (Maraudeur 8, Traqueur 12,
@@ -970,20 +880,35 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   message invite à déposer. Le sac est gardé à la mort et entre les manches ;
 - **constructions** : elles se paient avec le stock **déposé**, jamais avec
   le sac ;
-- **récolte avancée verrouillée** : couper les vrais arbres
-  (`canHarvestTrees`) et exploiter les gros rochers (`canMineDeposits`)
-  demande une Scierie / un Camp de mineur. **Clic droit sur un arbre ou un
+- **récolte avancée** : couper les vrais arbres (`canHarvestTrees`)
+  demande une **Scierie** terminée, exploiter les gros gisements de pierre
+  (`canMineDeposits`) un **Camp de mineur** terminé (2026-11-02, menu
+  Construire). Un chantier ne débloque rien ; il suffit d'un bâtiment
+  terminé ; les droits sont recalculés avant chaque pas d'après les
+  bâtiments du joueur présents dans le monde (Survie générée, carte
+  dessinée, « Tester le scénario »). Dernier bâtiment détruit pendant une
+  récolte : le Héros finit l'unité en cours d'extraction, puis s'arrête ; en
+  chemin, il s'arrête aussitôt ; tout nouvel ordre de récolte est refusé.
+  Ni la Scierie ni le Camp de mineur ne sont des dépôts (la Baliste reste le
+  seul). Le Camp de mineur n'a aucun lien avec la **Mine** (or toutes les
+  60 s, inchangée). **Clic droit sur un arbre ou un
   rocher verrouillé** (2026-11-02, règle d'Antoine : « interaction reconnue +
   déplacement autorisé », jamais « clic consommé ») : la source est
   sélectionnée (anneau jaune, étiquette), la raison est rappelée (« il faut
   une Scierie / un Camp de mineur »), et le Héros **va au pied de la
   ressource** (point d'approche de son côté) sans la récolter. Avec le droit
   de récolte : même sélection, puis déplacement à portée et récolte
-  automatique. Un bâtiment **bâti**
-  dont la fiche porte `unlocksHarvest` (`trees` ou `deposits`) les ouvrira ;
-  aucun n'existe encore. Une fois débloquée, la coupe remplit le sac
-  (1 unité / 1,5 s), comme le reste ; un arbre étant bloquant, sa portée se
-  mesure jusqu'à sa case ;
+  automatique (hache pour un arbre, pioche pour un gisement). La récolte
+  remplit le sac (1 unité / 1,5 s, piles de 5), jamais le stock ; sac plein :
+  seulement ce qui entre, rien n'est perdu (la source garde le reste) ; un
+  arbre étant bloquant, sa portée se mesure jusqu'à sa case ;
+- **gros gisements de pierre** (2026-11-02) : **40 pierre** chacun
+  (`STONE_DEPOSIT_AMOUNT`, provisoire ; inépuisables avant), même logique que
+  les arbres (`HARVEST_NODE_KINDS`, `data/resources.ts`). Sélection :
+  « **Gisement de pierre — 40 pierre** » (quantité restante). À 0 : extraction
+  arrêtée, rocher retiré, **gravats** décoratifs à sa place. Les rochers ne
+  sont pas des obstacles de la simulation (KI-41) : ni case à libérer, ni
+  pathfinding à refaire ; la construction y était déjà possible ;
 - **arbres** (2026-11-02) : chaque arbre (arbre isolé ou bosquet) vaut
   **20 bois** en tout (`TREE_WOOD_AMOUNT`, provisoire), décomptés par la
   simulation à chaque unité coupée (`World.resourceNodeAmounts`). **À 0,
@@ -993,11 +918,10 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   constructibles ; le pathfinding en tient compte dès le pas suivant
   (`World.fellTree`). Volontaire : abattre une forêt peut ouvrir un chemin,
   aux vagues aussi. Une case partagée par deux arbres reste bloquée tant que
-  l'autre est debout. Aucune coupe n'est encore possible en partie sans
-  Scierie. Les rochers restent inépuisables. **Sélection** : clic gauche sur un arbre
+  l'autre est debout. **Sélection** : clic gauche sur un arbre
   exploré (tronc ou feuillage) → **anneau jaune** autour (même anneau que le
-  dépôt et les tas) et « **Arbre — 20 bois** » (bois restant) ; rocher
-  exploré : même anneau, « **Rocher — pierre** » ; un second clic, un clic
+  dépôt et les tas) et « **Arbre — 20 bois** » (bois restant) ; gisement
+  exploré : même anneau, « **Gisement de pierre — 40 pierre** » ; un second clic, un clic
   ailleurs ou une nouvelle sélection d'unités le retire (le clic droit du
   Héros sélectionné le garde) ;
 - seul le Héros ramasse et dépose, et seulement en bataille.
@@ -1013,8 +937,10 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
 | Maison | 6 | — | 5 s |
 | Tour | 5 | 10 | 10 s |
 | Église | 10 | 10 | 12 s |
-| Muraille (par case) | — | 1 | 1,2 s |
-| Porte de muraille | 3 | — | 3 s |
+| Scierie (10 or, 3 × 3, 15 PV) | 8 | — | 8 s |
+| Camp de mineur (10 or, 3 × 3, 15 PV) | 6 | 4 | 8 s |
+| Palissade (par case de longueur) | 0,5 | — | 1,5 s |
+| Porte de palissade | 4 | — | 4 s |
 
 **Chantiers** : posés en temps réel depuis le bouton **Construire** (ci-dessous),
 25 % de leurs PV, semi-transparents, sans aucune fonction tant que le Héros
@@ -1041,7 +967,7 @@ sur le chantier voisin (3 cases).
   créée. Le Fantassin (0,5), le Héros (0,6), le Cavalier (0,7) et un groupe
   montent et descendent toutes les collines (mesuré, 3 graines) ;
 - **construction** : une case d'arbre refuse toute pose (bâtiment,
-  chantier, muraille, porte, Baliste, unité) : règle unique
+  chantier, palissade, Baliste, unité) : règle unique
   `treeCellKeys` (`config/resourceNodes.ts`), partagée avec la simulation ;
 - **arbres bloquants** (2026-11-02) : les forêts forment des massifs pleins
   séparés par des **sentiers** naturels et des clairières ; un goulet d'une
@@ -1091,12 +1017,15 @@ lu par la simulation) :
   ne sont pas dessinés du tout (plus de silhouettes noires) ; ils
   apparaissent à l'exploration (`render/decorInstancing.ts`).
 
-**Espace** (en jeu) : bascule **Héros ↔ Baliste**. Côté Héros : sélection du
-Héros, caméra centrée et **suivi**. Côté Baliste : suivi lâché, caméra sur la
-Baliste. Déplacer la caméra à la main (glisser, clavier) lâche le suivi ; le
-prochain appui ramène alors au Héros. Le bouton qui gardait le focus le perd
-d'abord (KI-24). Dans l'éditeur, Espace recadre comme avant ; R garde la
-caméra par défaut.
+**Caméra centrée sur le Héros** (2026-11-02, demande d'Antoine) : dès le
+lancement d'une run, la caméra est centrée sur le Héros et le **suit**
+(position affichée interpolée : fluide, sans à-coup). Un déplacement manuel
+de la caméra (défilement aux bords, glisser) lâche le suivi : la caméra
+reste libre. **Espace** (en jeu) : retour au Héros — sélection, centrage et
+suivi repris ; il ne bascule plus vers la Baliste (ancien comportement
+retiré). Le **portrait** du HUD fait de même. Le bouton qui gardait le focus
+le perd d'abord (KI-24). Dans l'éditeur et « Tester le scénario », Espace
+recadre comme avant ; R garde la caméra par défaut.
 
 **Orientation des unités** (rendu) : une unité regarde dans le sens réel de
 son déplacement (virage progressif), garde ce cap à l'arrêt, se tourne vers
@@ -1143,8 +1072,8 @@ horizon) derrière la carte ronde ; même rendu dans l'éditeur.
   case d'arbre, un obstacle bloquant, un bâtiment ou chantier, une unité,
   un sol non plat (pente, rampe). Les gros rochers, décors non bloquants,
   l'acceptent (règle du 2026-10-28, inchangée). La fiche du Héros n'a plus
-  la liste « Construire : … ». **Murailles et portes reportées** (absentes
-  du menu, choix d'Antoine) ;
+  la liste « Construire : … ». **Palissade** et **Porte de palissade** au
+  menu depuis le 2026-11-02 (tracé A → B, §6 octies) ;
 - **production** (`data/production.ts`) : la fiche d'un bâtiment bâti
   propose « Produire : <unité> — or · durée » pour les unités qu'il
   débloque (Caserne : Piquier, + Homme d'armes au Niv. 2 ; Camp d'archerie :
@@ -1177,7 +1106,7 @@ horizon) derrière la carte ronde ; même rendu dans l'éditeur.
   par le camp du joueur (vision gameplay `sim/vision.ts`, mêmes rayons que
   le brouillard, positions simulées). Sa vision (18) égale sa portée (18).
   Un carreau déjà tiré poursuit sa course ;
-- **Espace** : même bascule Héros ↔ Baliste en permanence ;
+- **Espace** : retour au Héros et suivi (2026-11-02 ; plus de bascule vers la Baliste) ;
 - **décors instanciés** (KI-34) : sur la carte générée, arbres, rochers et
   petits décors sont regroupés par modèle et par morceau de 32 cases.
 
@@ -1369,8 +1298,8 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
   commandent le Héros, même quand un bâtiment est inspecté (sa fiche reste
   ouverte) ; son anneau reste affiché ; Construire est disponible. Une
   unité militaire sélectionnée explicitement garde la main jusqu'à ce que
-  la sélection soit vidée. Portrait : sélectionne le Héros et recentre la
-  caméra ;
+  la sélection soit vidée. Portrait : sélectionne le Héros, recentre la
+  caméra et reprend le suivi (comme Espace) ;
 - **caméra** : défilement par les bords (4 bords, coins), temps réel,
   limites de la caméra ; jamais sur un panneau d'interface, ni avec
   l'inventaire, un menu ou les Paramètres ouverts. Paramètres > Caméra :
@@ -1388,7 +1317,7 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
   la carte Hero RTS, herbe plate, rien d'autre que la Baliste au centre) ;
   les anciennes cartes restent chargeables.
 
-## 6 sexies. Barils, production, ralliement, réparation, murailles diagonales
+## 6 sexies. Barils, production, ralliement, réparation
 
 Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G16) :
 
@@ -1413,13 +1342,8 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G16) :
   marche. Gardé jusqu'à un nouveau point, « Retirer le ralliement » ou la
   destruction du bâtiment. Drapeau au sol et ligne pointillée quand le
   bâtiment est sélectionné, marqueur très discret sinon ;
-- **murailles diagonales** : le tracé accepte les portions à 45 degrés
-  (NE, NO, SE, SO) en plus de l'horizontal et du vertical ; chaque case
-  reste une emprise bloquante de 1 × 1, les cases d'une diagonale se
-  touchant par un coin (aucun passage, anti-coupe-de-coin du pathfinding) ;
-  modèle tourné à 45 degrés et étiré de racine de 2 pour une ligne continue.
-  Pas de pièce de coin aux virages avec une diagonale. Les murailles restent
-  absentes du menu Construire du temps réel (éditeur, préparation) ;
+- **murailles diagonales** : supprimées avec tout le Wall V1 le
+  2026-11-02 (remplacé par la Palissade V2, §6 octies) ;
 - **réparation** : bouton « Réparer — coût » sur la fiche d'un bâtiment
   allié bâti et endommagé (Baliste comprise). Coût : 50 % du prix de
   construction pour 100 % des PV, proportionnel aux PV manquants (or au
@@ -1476,13 +1400,96 @@ G20) :
   battue d'une case de large (cases reliées par un côté) relie chaque
   nouveau bâtiment au plus proche des bâtiments déjà posés, s'il est à
   **20 cases** ou moins. Jamais sur l'eau ni hors de la carte (un chemin
-  saute les cases d'eau) ; murailles et portes : ni terre battue ni chemin.
+  saute les cases d'eau) ; palissades et portes : ni terre battue ni chemin.
   Purement visuel (ni simulation, ni pathfinding, ni `MapDef`). Un bâtiment
   détruit garde sa terre battue jusqu'à la run suivante. Plateau de la
   Survie seulement (ni éditeur, ni « Tester le scénario »). Le sol du
   plateau est désormais découpé en morceaux de 16 × 16 cases
   (`Board.terrain`, comme dans l'éditeur) : une pose ne reconstruit que
   les morceaux touchés (25 à 47 ms mesurés, 2 à 4 morceaux ; KI-53).
+
+## 6 octies. Palissade V2 (murs géométriques)
+
+Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G23). Le
+Wall V1 (muraille et porte KayKit case par case, virages, diagonales, tracé
+sur grille) est supprimé ; ses anciens murs ne sont jamais convertis.
+
+- **Familles** (`data/walls.ts`, `WALL_TYPES`) : une seule aujourd'hui, la
+  **Palissade** en bois. Pièces : `palisade` (segment) et `palisade_gate`
+  (porte), bâtiments de `data/buildings.ts` (`BuildingDef.wallPiece`).
+- **Pose en jeu** (menu **Construire**, Héros sélectionné) : « Palissade »,
+  puis clic gauche au point **A** (aimanté à moins de 0,6 case d'une
+  extrémité ou d'un flanc de palissade existante), aperçu de toute la ligne
+  **A → curseur** (segments réels, vert ou rouge, indication « L cases — N
+  bois », « jonction », raison d'un refus), second clic au point **B**. Tout
+  angle, sans grille ni directions cardinales. Le mode reste actif pour une
+  nouvelle ligne ; clic droit / Échap annulent le point A, puis quittent le
+  mode.
+- **Segmentation interne** (`core/wallLine.ts`, `segmentWallLine`) :
+  n = max(1, ⌊L / 2⌋) segments égaux (2 à 4 cases ; une ligne de moins de
+  2 cases = un segment). Chaque segment est une entité (PV, chantier,
+  destruction, réparation) ; le joueur voit une ligne continue.
+- **Coût** : 0,5 bois par case de longueur (longueur au dixième, arrondi
+  au-dessus sur la ligne entière), prélevé sur le **stock déposé**
+  uniquement (jamais le sac). Porte : 4 bois. Aucun or.
+- **Chantiers** : chaque segment est un chantier (25 % des PV, 1,5 s par
+  case) ; le Héros reçoit l'ordre de bâtir le segment de A, puis enchaîne
+  sur le segment suivant de la même ligne (A → B), puis sur le chantier
+  voisin. Un chantier bloque déjà le passage (sans fumée de dégâts).
+- **PV** : 15 PV par case (segment nominal de 2 cases : 30 PV) ; porte :
+  20 PV par case. Ne compte pas pour la défaite.
+- **Collision** (`ObstacleDef.line`, capsule de demi-épaisseur 0,15) :
+  vrai obstacle terrestre pour tous (Héros, infanterie, Cavalier, ennemis,
+  vagues), à tout angle ; deux segments voisins partagent leur extrémité,
+  la barrière est continue aux jonctions et aux angles. Les **tirs
+  passent** par-dessus (`blocksShots: false`). Grille A* : cases couvertes
+  par la ligne et son épaisseur ; une unité collée au mur repart du bon
+  côté ; un passage plus étroit que l'unité entre deux murs est contourné.
+- **Portée** : une pièce de mur se frappe sur toute sa longueur (distance
+  à sa ligne, `targetDistance`) ; on la poursuit vers le point du mur le
+  plus proche, de son côté.
+- **Brèche** : un segment détruit disparaît seul (effondrement), son
+  emprise est retirée, le passage et le pathfinding s'ouvrent aussitôt
+  (une brèche de 2 cases laisse passer un Cavalier).
+- **Vagues** : elles marchent sur le camp en ignorant les murs, butent sur
+  la palissade ou une porte (même ouverte), les ciblent, ouvrent une brèche
+  et entrent.
+- **Porte** : « Porte de palissade » au menu (une palissade doit exister),
+  puis clic sur un segment : il est remplacé par une porte de même
+  géométrie, en chantier. Porte bâtie : **fermée** (bloque tout le monde,
+  comme le mur) ; fiche « **Ouvrir la porte** » / « **Fermer la porte** ».
+  **Ouverte** : passage pour son **propriétaire et ses alliés** seulement ;
+  elle reste un obstacle pour les **hostiles** (vagues comprises), qui la
+  contournent si une route existe, sinon l'attaquent comme la palissade
+  (`sim/relations.ts`, `canUnitPassGate`). Un ennemi peut donc être bloqué
+  par une porte visuellement ouverte (prototype). Détruite : vraie brèche,
+  tout le monde passe. Fermeture demandée avec un allié dans l'ouverture :
+  elle **attend** (« Fermeture en attente — passage occupé ») et se fait au
+  premier pas libre, sans écraser ni pousser personne ; un hostile plaqué
+  contre la porte ne la retient pas. Ni ouverture ni fermeture
+  automatiques. Battants animés (0,35 s).
+- **Refus de pose** : moins d'une case ou plus de 30, hors carte, eau,
+  falaise, arbre debout, gros gisement de pierre, structure bloquante, à
+  moins de 0,15 case d'un bâtiment ou chantier (Baliste comprise), corps
+  d'une unité sur le tracé, **croisement** franc d'une palissade,
+  **chevauchement** (ligne trop proche d'une autre ailleurs qu'à une
+  jonction). Jonctions acceptées : bout à bout, en T, prolongement (angle
+  d'au moins ~18°). Les bâtiments ne se posent pas sur une palissade.
+- **Réparation** : bouton « Réparer » générique (50 % du prix du segment ou
+  de la porte pour 100 % des PV).
+- **Rendu** (`render/palisade.ts`, procédural) : pieux taillés en pointe
+  (hauteurs légèrement variées), deux traverses côté intérieur, poteau plus
+  massif à chaque extrémité (partagé aux jonctions) ; porte à deux battants
+  de planches, linteau. Un mesh par segment (trois par porte).
+- **Carte** : `MapDef.walls` enregistre chaque ligne de façon géométrique
+  (famille, A, B, camp, rangs des portes) ; la segmentation est
+  reconstruite au chargement. Posées bâties (portes fermées) en Survie et
+  dans « Tester le scénario ».
+- **Anciennes cartes** : les pièces du Wall V1 (`wall`, `wall_gate`,
+  `wall_half`, virages) sont retirées au chargement avec le journal
+  « [map] anciens murs ignorés : système de muraille V1 supprimé » ; la
+  carte se charge normalement.
+- **Préparation (legacy)** : aucun mur.
 
 ## 7. Économie d'or
 
@@ -1655,7 +1662,7 @@ accessible par `?map=arena`, sur laquelle E4 reste actif.
   ni les tirs ni le placement (changement d'équilibrage de l'arène, voir
   `DESIGN_DECISIONS.md` E8). Exception depuis le 2026-11-02 : la case d'un
   **arbre** bloque le passage (pas les tirs), ici aussi, et la pose de
-  bâtiments, chantiers, murailles et unités. `SURVIVAL_ARENA_MAP` est la carte complète ;
+  bâtiments, chantiers, palissades et unités. `SURVIVAL_ARENA_MAP` est la carte complète ;
   `SURVIVAL_BASE_MAP` est la même, sans unités de scénario.
 - Le Mode survie en lit le terrain (`cells`), les décors (`obstacles`), le
   territoire dessiné (`territory`) et la position de la Baliste
@@ -1782,9 +1789,9 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   trajectoire visuelle seulement ajustée aux hauteurs de départ et
   d'arrivée.
 - **Pose** : tous les bâtiments (Maison, Mine, Caserne, Camp d'archerie,
-  Forge, Tour, Église, murailles, portes) et la Baliste exigent une emprise
-  plate à un seul niveau (ni pente, ni falaise sous l'emprise) ; une portion
-  de muraille reste sur un seul niveau. Les unités se posent sur n'importe
+  Forge, Tour, Église) et la Baliste exigent une emprise plate à un seul
+  niveau (ni pente, ni falaise sous l'emprise) ; une palissade suit le
+  relief (chaque pieu au niveau du sol) mais ne franchit jamais une falaise. Les unités se posent sur n'importe
   quelle case, pente comprise. Une unité produite n'apparaît jamais de
   l'autre côté d'une falaise collée à son bâtiment.
 - **Flanc de pente** : une unité qui entre de biais au pied ne bute pas ; une
@@ -1870,9 +1877,9 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   - destination d'un ordre de déplacement sur l'eau refusée
     (`invalid-destination`) ; une destination de groupe tombée dans l'eau
     est ramenée au point sec le plus proche (`sim/orders.ts`) ;
-  - pose refusée sur l'eau : unités, bâtiments et murailles en préparation
-    (`isValidPlacementTile`), et dans l'éditeur unités, bâtiments,
-    murailles, Baliste ; l'éditeur ne peint jamais d'eau sous une unité, un
+  - pose refusée sur l'eau : unités et bâtiments en préparation
+    (`isValidPlacementTile`), palissades (`checkWallLine`), et dans
+    l'éditeur unités, bâtiments, palissades, Baliste ; l'éditeur ne peint jamais d'eau sous une unité, un
     bâtiment, une structure bloquante ou la Baliste ;
   - `UnitStats.canTraverseWater` (absent = faux pour toutes les unités
     actuelles) retire l'eau des trajets, de la collision et du refus de
@@ -2227,7 +2234,8 @@ méta-progression à zéro, après confirmation. Les réglages sont conservés.
 Accessible depuis le menu principal ; le détail d'usage est dans
 `EDITOR.md`. 2026-11-01 (suite) : section **Neutres** du bestiaire (cinq
 unités posables, toujours du camp Neutre), outils **Monter une case**,
-**Descendre une case** et **Pente** restaurés, murailles d'une case.
+**Descendre une case** et **Pente** restaurés, murailles d'une case (Wall V1,
+supprimé le 2026-11-02).
 2026-11-01 : pinceau **Forêt** (et gomme à arbres),
 section **Eau** de l'outil Surface, bestiaire en deux sections (Humains ;
 Barbares — aperçu, cinq fiches non posables). Une run ne charge aucune carte enregistrée depuis l'éditeur :

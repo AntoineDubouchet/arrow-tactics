@@ -464,7 +464,7 @@ export interface ObstacleDef {
   /** Faux : l'obstacle bloque le deplacement mais PAS les tirs (ligne de tir
    *  des attaques et capacites, voir sim/geometry.ts, findBlockingObstacle).
    *  Absent = bloque aussi les tirs (comportement de tout obstacle
-   *  collidable). Muraille du joueur (BuildingDef.blocksShots). */
+   *  collidable). Pieces de mur (BuildingDef.blocksShots). */
   blocksShots?: boolean;
   /** Falaise synthetique (config/terrainElevation.ts, computeCliffObstacles),
    *  injectee par World.setMap, jamais dans MapDef.obstacles ni rendue :
@@ -483,42 +483,40 @@ export interface ObstacleDef {
    *  World.setMap, jamais dans MapDef.obstacles ni rendues. Bloque collision
    *  et trajets, jamais les tirs (`blocksShots: false`). */
   terrainTree?: boolean;
-  /** Porte de muraille (BuildingDef.gate) : camp pour lequel l'obstacle est
-   *  un PASSAGE. Ses trajets (A*, ligne droite, contournement) le traversent
-   *  toujours, meme ferme ; il ne le franchit physiquement que si
-   *  `passageOpen`. Toujours bloquant pour l'autre camp. Pose par
-   *  World.spawnBuilding. Absent : bloque toutes les unites. */
-  passableForTeam?: 'player' | 'enemy';
-  /** Porte assez ouverte pour que `passableForTeam` la franchisse
-   *  physiquement (sim/systems/gates.ts). Ne change que par
-   *  World.setGatePassage, qui remplace alors World.obstacles (caches par
-   *  identite de tableau, sim/geometry.ts). */
-  passageOpen?: boolean;
-  /** Vrai : `tilesX`/`tilesZ` sont deja l'emprise APRES rotation (par
-   *  quarts de tour), et le modele est cale sur l'emprise d'origine avant
-   *  d'etre tourne (voir render/buildings.ts). Absent : rotation purement
-   *  visuelle, emprise inchangee (tous les autres obstacles). */
-  footprintFollowsRotation?: boolean;
-  /** Lacet VISUEL ajoute au modele seul, apres `rotationY` (render/
-   *  buildings.ts) : oriente la face exterieure d'une muraille selon son camp
-   *  (BuildingDef.outerFaceTowardHostiles). N'agit ni sur l'emprise, ni sur
-   *  la collision, ni sur `rotationY`. Absent = 0. */
-  modelFacingYaw?: number;
-  /** Modele a echelle native et pose fixe (BuildingDef.nativeModelPose,
-   *  virage de muraille) au lieu d'etre cale sur l'emprise. Purement visuel. */
-  nativeModelPose?: { yaw: number; offsetX: number; offsetZ: number };
-  /** Longueur visuelle du modele le long de X rapportee a l'emprise
-   *  (BuildingDef.modelLengthScale, demi-segment de muraille). Absent = 1. */
-  modelLengthScale?: number;
-  /** Extremites d'un segment de muraille qui butent contre le flanc d'un
-   *  segment perpendiculaire (core/wallTrace.ts, wallEndJoins) : le rendu y
-   *  allonge le modele pour fermer visuellement le virage. Purement visuel. */
-  wallJoin?: { minEnd: boolean; maxEnd: boolean };
+  /** Emprise GEOMETRIQUE d'une piece de mur V2 (2026-11-02, core/wallLine.ts) :
+   *  capsule autour du segment (ax, az) -> (bx, bz), de demi-epaisseur
+   *  `halfWidth`, a n'importe quel angle. `x`/`z`/`tilesX`/`tilesZ` en sont
+   *  alors la boite englobante (caches, tests grossiers : contournement local,
+   *  pose) ; la collision des corps, la ligne degagee et la grille A* lisent
+   *  la capsule elle-meme (sim/geometry.ts, sim/pathfinding.ts). */
+  line?: WallLineShape;
+  /** Porte d'un mur V2 (2026-11-02) : proprietaire et etat, MEME objet que
+   *  Entity.wall.door. Son emprise reste toujours dans World.obstacles :
+   *  sim/relations.ts (canUnitPassGate) decide quelles unites la franchissent
+   *  (ouverte : proprietaire et allies ; fermee : personne). */
+  door?: WallDoorState;
   /** Graine d'aspect figée (orientation sans rotationY, forme d'un rocher,
    *  hauteur d'un arbre). Absente : dérivée de la position, voir
    *  obstacleAppearanceSeed. Écrite par l'agrandissement de la carte quand
    *  il déplace un décor, pour qu'il garde le même aspect. */
   appearanceSeed?: number;
+}
+
+/** Etat d'une porte de mur V2 (ObstacleDef.door, Entity.wall.door). `owner` :
+ *  camp proprietaire (identifiant de faction). */
+export interface WallDoorState {
+  owner: string;
+  open: boolean;
+}
+
+/** Capsule d'une piece de mur V2 (ObstacleDef.line) : segment de A a B et
+ *  demi-epaisseur, en cases. */
+export interface WallLineShape {
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  halfWidth: number;
 }
 
 /** Graine de l'aspect d'un décor : `appearanceSeed` s'il est fixé, sinon un
@@ -720,7 +718,7 @@ export const ORBIT_PROGRESS_THRESHOLD = 0.15;
 
 /** Repli pathfinding pour la MARCHE NEUTRE (2026-08-16, bug remonte par
  *  Antoine : unites pres du bord d'une grande carte, ou bloquees par une
- *  muraille dont l'unique ouverture est loin sur le cote). Avant une cible
+ *  palissade dont l'unique ouverture est loin sur le cote). Avant une cible
  *  verrouillee, une unite ne fait qu'un evitement REACTIF local
  *  (findSteeringPoint, movement.ts) — suffisant pour un decor clairseme mais
  *  structurellement incapable de contourner un obstacle qui s'etend bien

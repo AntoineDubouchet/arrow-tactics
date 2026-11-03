@@ -3778,6 +3778,39 @@ canvas.canvas--spell-target { cursor: default; }
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7);
   pointer-events: none;
 }
+/* Montee de niveau (2026-11-02, PROVISOIRE) : pulse dore du medaillon, eclat
+   de la barre d'XP et « NIVEAU N » bref au-dessus du portrait. */
+.hero-level-badge.is-level-up { animation: hero-level-pulse 0.9s ease-out; }
+@keyframes hero-level-pulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 211, 107, 0.9); border-color: #ffd36b; }
+  30% { transform: scale(1.45); box-shadow: 0 0 14px 6px rgba(255, 211, 107, 0.75); border-color: #fff3c4; }
+  100% { transform: scale(1); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+}
+.hero-xp.is-level-up .hero-xp-fill { animation: hero-xp-shine 1s ease-out; }
+@keyframes hero-xp-shine {
+  0% { filter: brightness(2.2) saturate(1.4); }
+  100% { filter: none; }
+}
+.hero-level-up-text {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #ffe08a;
+  text-shadow: 0 0 6px rgba(255, 196, 64, 0.8), 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+.hero-level-up-text.is-level-up { animation: hero-level-text 1.4s ease-out forwards; }
+@keyframes hero-level-text {
+  0% { opacity: 0; transform: translate(-50%, 6px) scale(0.9); }
+  15% { opacity: 1; transform: translate(-50%, 0) scale(1.08); }
+  70% { opacity: 1; transform: translate(-50%, -4px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -10px) scale(1); }
+}
 .hero-panel { bottom: var(--hud-bottom-row); }
 .hero-actions { bottom: calc(var(--hud-bottom-row) + 74px); }
 .action-progress { bottom: var(--hud-bottom-row); width: clamp(220px, 30vw, 420px); height: 16px; }

@@ -14,6 +14,8 @@ export interface BuildChoice {
   enabled: boolean;
   /** Raison d'indisponibilite. */
   hint?: string;
+  /** Description courte (« Débloque la coupe des arbres »). */
+  description?: string;
 }
 
 export class BuildMenu {
@@ -94,6 +96,12 @@ export class BuildMenu {
       cost.className = 'build-menu-cost';
       cost.textContent = choice.cost;
       item.append(name, cost);
+      if (choice.description) {
+        const description = document.createElement('span');
+        description.className = 'build-menu-hint build-menu-description';
+        description.textContent = choice.description;
+        item.appendChild(description);
+      }
       if (!choice.enabled && choice.hint) {
         const hint = document.createElement('span');
         hint.className = 'build-menu-hint';

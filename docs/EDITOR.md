@@ -214,7 +214,7 @@ main : la sculpture les produit automatiquement.
     théorique hors de la carte ne compte pas.
   - **Refus** : un tampon est refusé (aperçu rouge, raison et case dans la
     ligne d'état) si une case dont la surface devrait changer — liaison
-    diagonale comprise — porte un bâtiment, une muraille, une porte, la
+    diagonale comprise — porte un bâtiment, un mur (palissade), la
     Baliste, une unité ou un obstacle / structure. Le vide (hors carte,
     trou) n'est jamais une contrainte. Un tampon refusé est simplement
     sauté : le reste du trait est conservé.
@@ -227,7 +227,7 @@ main : la sculpture les produit automatiquement.
   - Un trait = une seule entrée d'historique (Ctrl+Z / Ctrl+Y), quel que
     soit le nombre de cases, pentes, coins et décors touchés, même le long
     de tout un bord.
-- **Case occupée** (bâtiment de scénario, muraille ou porte, Baliste,
+- **Case occupée** (bâtiment de scénario, case d'une ligne de mur, Baliste,
   obstacle / structure dont le centre est sur la case ou dont l'emprise la
   chevauche, unité) : son relief ne change jamais (Surélever et Abaisser
   refusés), pour ne jamais laisser un objet flotter ou
@@ -241,10 +241,9 @@ main : la sculpture les produit automatiquement.
   raccordent pas aux deux extrémités (niveaux différents, flanc d'une pente
   contre un plat). Les unités ne la franchissent pas et ne frappent pas au
   corps à corps à travers (« Tester le scénario ») ; les tirs passent.
-- **Pose sur le relief** : bâtiments, murailles, portes et Baliste exigent
-  une emprise **plate à un seul niveau** (aperçu rouge sinon) ; une portion
-  de muraille ne change jamais de niveau (le tracé devient rouge s'il
-  franchit une falaise ou une pente). Un obstacle / structure de plus d'une
+- **Pose sur le relief** : bâtiments et Baliste exigent une emprise
+  **plate à un seul niveau** (aperçu rouge sinon) ; une palissade suit le
+  relief mais son aperçu devient rouge si elle franchit une falaise. Un obstacle / structure de plus d'une
   case exige aussi une emprise plate. Un décor se pose partout, quelle que
   soit sa taille : il suit la hauteur sous son point d'ancrage, sans
   inclinaison. Les unités se posent sur toute case, pente comprise.
@@ -284,7 +283,7 @@ surface lue par la simulation.
   - **Eau** : toutes les variantes d'eau (aujourd'hui une seule, « Eau »).
     Une case d'eau est **infranchissable** pour les unités (trajets,
     destination d'un ordre, contournement par l'IA), **interdite à la pose**
-    (unité, bâtiment, muraille, Baliste) et **transparente aux tirs** ;
+    (unité, bâtiment, mur, Baliste) et **transparente aux tirs** ;
   - **Expérimental** : Terre strates, dessinée pour les flancs. Sur le dessus
     d'une case, elle forme des rayures (infobulle).
   - Rendu `?groundLook=living` (direction retenue), `rich` et `organic` : palette
@@ -303,7 +302,7 @@ surface lue par la simulation.
   de trou, même si la souris va vite. Il peut commencer ou passer hors de la
   carte et au-dessus d'un trou : ces cases sont ignorées, le trait continue.
   Une case trou ne reçoit jamais de surface.
-- **Objets** : la peinture passe sous les décors, bâtiments, murailles, la
+- **Objets** : la peinture passe sous les décors, bâtiments, murs, la
   Baliste et les unités, sans être refusée ni rien déplacer. On peut donc
   peindre une cour en terre sous et autour d'une Caserne. **Sauf l'eau** :
   elle n'est jamais peinte sous une unité, un bâtiment, une structure
@@ -873,46 +872,31 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
     survie ne lit pas ce champ.
   - **La Baliste n'y figure pas** : unique et toujours présente, elle garde
     son outil dédié ci-dessous et sa seule source, `ballista`.
-- **Murailles** (groupe **« Murailles »**, juste après « Bâtiments » ; groupe
-  lu dans `BuildingDef.editorGroup`) : Muraille (une case par segment,
-  2026-11-01) et Porte de muraille (2 cases, posée sur deux cases de mur
-  alignées qu'elle remplace), les constructions jouables du joueur. Deux
-  cases voisines d'une ligne sont dessinées avec le modèle long ; un clic
-  sur l'une ou l'autre moitié sélectionne bien sa case. Une ancienne carte
-  (segments de 2 cases) est migrée au chargement.
-  - **Muraille** : **tracé continu**, comme en préparation
-    (`CURRENT_STATE.md` §6) — premier clic = point de départ, chaque clic
-    pose une portion (axe dominant, tout ou rien), clic sur le point de
-    départ (ou une case voisine alignée) = enceinte fermée. Mêmes virages
-    KayKit automatiques, longueur exacte (une case par segment) et orientation
-    (côté de la Baliste du brouillon tant que le tracé est ouvert) qu'en
-    préparation. Échap, clic droit, changement d'outil et « Tester le
-    scénario » terminent le tracé (extrémités construites, une entrée
-    d'historique). Pas de règle de territoire ni d'or dans l'éditeur.
-  - **Reprise** : comme en préparation (`CURRENT_STATE.md` §6), sur les
-    murailles du camp joueur du brouillon, y compris après un rechargement
-    (extrémités dérivées des pièces) ; chaque portion de reprise est une
-    entrée d'historique normale (Ctrl+Z rend l'extrémité d'origine, même
-    type et même rotation).
-  - **Historique** : **une entrée par portion validée** (Ctrl+Z retire la
-    dernière portion seule, Ctrl+Y la rétablit), plus une pour la
-    finalisation d'un tracé ouvert. Ctrl+Z / Ctrl+Y pendant un tracé
-    abandonnent d'abord la portion non construite (cases en attente
-    comprises, sans les construire) ; Échap une seconde fois revient à
-    l'outil Sélection.
-  - **Enceinte fermée** : créneaux de toutes ses pièces vers l'extérieur
-    (dans les deux sens de dessin), enregistrés dans `rotationY` (90, 180 ou
-    270° possibles) ; virages `wall_corner_outside` / `wall_corner_inside`
-    enregistrés par leur `buildingId`. L'entrée d'historique d'une portion
-    inclut ses virages et la réorientation du tracé (Ctrl+Z retire la
-    fermeture et rend l'orientation du tracé ouvert).
-  - **Porte de muraille** : pose à l'unité ; **R** tourne l'outil d'un quart
-    de tour (2×1 ↔ 1×2). Posée exactement sur un segment de mur, elle le
-    remplace en reprenant son orientation (une seule entrée d'historique). La rotation est enregistrée
-    (`rotationY` dans `MapDef.buildings`, écrite seulement si elle n'est pas
-    nulle : les anciennes cartes restent identiques).
-  - Dans « Tester le scénario » : vrais murs et portes (50 PV, camp de la
-    carte, collision, ouverture des portes, destruction).
+- **Murs** (groupe **« Murs »**, juste après « Bâtiments », 2026-11-02) :
+  la **Palissade V2**, mêmes règles et même code que le jeu
+  (`core/wallLine.ts`, `CURRENT_STATE.md` §6 octies). Le Wall V1
+  (muraille case par case, porte KayKit, tracé sur grille) est supprimé.
+  - **Palissade** : premier clic = point **A** (aimanté à moins de 0,6 case
+    d'une palissade existante), aperçu de la ligne A → curseur (segments
+    réels, vert / rouge), second clic = point **B** ; l'outil repart pour
+    une nouvelle ligne. Tout angle, sans grille. Refus : comme en jeu (hors
+    carte, eau, falaise, arbre, structure bloquante, bâtiment ou Baliste
+    trop proche, unité sur le tracé, croisement, chevauchement), sans coût.
+    Échap / clic droit : annule le point A, puis revient à la Sélection.
+    Une ligne posée = une entrée d'historique.
+  - **Porte — palissade** : clic sur un segment (à moins de 0,6 case de sa
+    ligne) : il devient une porte (aperçu vert sur le segment visé).
+  - **Sélection** : un clic sur un mur sélectionne sa **ligne entière**
+    (propriétés : longueur, segments, portes, extrémités) ; Suppr la
+    retire (annulable).
+  - **Enregistrement** : `MapDef.walls`, une entrée par ligne (famille,
+    A, B, camp, rangs des portes), jamais les segments ; la segmentation
+    est reconstruite au chargement. Posées bâties (portes fermées) en
+    Survie et dans « Tester le scénario ».
+  - **Ancienne carte** avec des murailles V1 : elles sont retirées au
+    chargement (console : « [map] anciens murs ignorés : système de
+    muraille V1 supprimé ») ; le reste de la carte se charge normalement.
+  - Le relief ne se sculpte pas sous une ligne de mur (case occupée).
 - **Décors du pack KayKit complet** (chargés à la demande au premier choix) :
   catégories « Relief et forêts » (buttes, collines, montagnes, bosquets),
   « Murailles et clôtures » (angles de muraille, décoratifs car pensés pour
@@ -1095,7 +1079,7 @@ Les raccourcis clavier sont **ignorés pendant la saisie dans un champ**
 |---|---|
 | V | Outil Sélection |
 | 1 / 2 / 3 | Territoire Joueur / Ennemi / Neutre (outil Territoire actif) |
-| R | +90° au décor sélectionné (sans effet sur la Baliste) ; outil de pose d'une muraille ou d'une porte : orientation suivante |
+| R | +90° au décor sélectionné (sans effet sur la Baliste) |
 | Suppr / Retour arrière | Supprimer la sélection (sans effet sur la Baliste) |
 | Échap | Revenir à l'outil Sélection, sinon désélectionner ; pendant un test, revenir à l'éditeur |
 | Ctrl+Z | Annuler |

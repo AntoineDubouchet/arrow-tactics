@@ -8,7 +8,8 @@ import { Rng, randomSeed } from '../core/rng';
 import { getBuilding, type BuildingDef } from '../data/buildings';
 import { getUnit, type UnitStats } from '../data/units';
 import { NO_EQUIPMENT_BONUS, type ConstructionState, type Entity, type HeroEquipmentBonus, type ProductionOrder, type Team } from './entity';
-import { heroStatsForLevel } from '../data/hero';
+import { CONSTRUCTION_START_HP_FRACTION, heroStatsForLevel } from '../data/hero';
+import { areAllied } from './relations';
 import { ENEMY_LOOT_TABLES, LOOT_TABLES, rollLoot } from '../data/loot';
 import { applyInventoryAction, createHeroInventory, resolveEquipmentBonus, type HeroInventory, type InventoryAction } from './inventory';
 import { DESTRUCTIBLE_LOOT, ENEMY_GOLD_DROPS } from '../data/loot';
@@ -17,7 +18,7 @@ import { campClearSystem, campSystem, isChestLocked, type CampEvent, type CampSp
 import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
 import { DEFAULT_HERO_ID, heroKit, type HeroKit } from '../data/heroes';
 import { DEFAULT_UNIT_LEVEL, normalizeUnitLevel } from '../data/unitLevels';
-import { TREE_WOOD_AMOUNT } from '../data/resources';
+import { canHarvestResource, HARVEST_NODE_KINDS } from '../data/resources';
 import { applyCommands, resolveOrders, type CommandResult, type OrderEndEvent, type PlayerCommand } from './orders';
 import {
   createPlayerArrowState,
@@ -33,7 +34,9 @@ import { PRODUCTION_QUEUE_MAX } from '../data/production';
 import { buildingAttackSystem, type BuildingAttackEvent, type BuildingProjectile } from './systems/buildingAttack';
 import { combatSystem, type CombatEvent } from './systems/combat';
 import { deathSystem } from './systems/death';
-import { gateSystem } from './systems/gates';
+import { doorSystem } from './systems/doors';
+import { segmentWallLine, wallLength, wallSegmentObstacle, type WallSegment } from '../core/wallLine';
+import { getWallType, wallPieceBuildTime, wallPieceMaxHp } from '../data/walls';
 import {
   createEnemyReinforcementState,
   pendingEnemyGroupCount,
@@ -193,19 +196,21 @@ export class World {
   /** Sources de ressources de la carte (decors exploitables par le Heros,
    *  config/resourceNodes.ts), par id. */
   resourceNodes: ReadonlyMap<number, ResourceNode> = new Map();
-  /** Bois restant de chaque arbre (id de source -> quantite), TREE_WOOD_AMOUNT
-   *  au chargement de la carte, decompte par la recolte (2026-11-02). Les
-   *  rochers n'y figurent pas : inepuisables. */
+  /** Quantite restante de chaque source (id -> quantite) : bois d'un arbre,
+   *  pierre d'un gros gisement (data/resources.ts, HARVEST_NODE_KINDS) au
+   *  chargement de la carte, decomptee par la recolte (2026-11-02). */
   readonly resourceNodeAmounts = new Map<number, number>();
+  /** Sources epuisees (arbres abattus et gisements vides), id de source. */
+  readonly depletedResourceNodes = new Set<number>();
   /** Arbres abattus (2026-11-02, id de source) : 0 bois, plus d'obstacle,
    *  cases constructibles ; vide au chargement d'une carte. */
   readonly felledTrees = new Set<number>();
   /** Cases encore occupees par un arbre debout (cles cellKey) : deplacement
    *  (obstacles `terrainTree`) et construction (main.ts). */
   treeCells: ReadonlySet<string> = new Set();
-  /** Arbres abattus pendant ce pas : position et cases liberees (rendu :
-   *  souche a la place de l'arbre). */
-  treeFelledEvents: { nodeId: number; x: number; z: number; cells: { x: number; z: number }[] }[] = [];
+  /** Sources epuisees pendant ce pas : ressource, position et cases liberees
+   *  (rendu : souche a la place d'un arbre, gravats a la place d'un gisement). */
+  resourceDepletedEvents: { nodeId: number; resource: 'wood' | 'stone'; x: number; z: number; cells: { x: number; z: number }[] }[] = [];
   /** Donnees de la carte pour recalculer les obstacles d'arbre a l'abattage. */
   private treeContext: { obstacles: readonly ObstacleDef[]; water: ReadonlySet<string>; cellIndex: Map<string, unknown>; bounds: MapBounds } | null = null;
   /** Arbres arrives a 0 pendant le pas en cours (heroWorkSystem). */
@@ -358,7 +363,8 @@ export class World {
     // Arbres (2026-11-02) : leurs cases aussi (computeTreeObstacles).
     this.resourceNodes = new Map(resourceNodesOf(map.obstacles).map((n) => [n.id, n]));
     this.resourceNodeAmounts.clear();
-    for (const n of this.resourceNodes.values()) if (n.resource === 'wood') this.resourceNodeAmounts.set(n.id, TREE_WOOD_AMOUNT);
+    for (const n of this.resourceNodes.values()) this.resourceNodeAmounts.set(n.id, HARVEST_NODE_KINDS[n.resource].amount);
+    this.depletedResourceNodes.clear();
     this.resourcePiles = (map.resourcePiles ?? []).map((p, id) => ({ id, x: p.x, z: p.z, resource: p.resource, amount: p.amount }));
     this.itemDrops = [];
     this.camps = [];
@@ -385,6 +391,7 @@ export class World {
     const tree = ctx?.obstacles[nodeId];
     if (!ctx || !tree || this.felledTrees.has(nodeId) || this.resourceNodes.get(nodeId)?.resource !== 'wood') return;
     this.felledTrees.add(nodeId);
+    this.depletedResourceNodes.add(nodeId);
     this.resourceNodeAmounts.set(nodeId, 0);
     const standing = ctx.obstacles.filter((_, i) => !this.felledTrees.has(i));
     const trees = computeTreeObstacles(standing, ctx.water, ctx.cellIndex, ctx.bounds);
@@ -393,7 +400,26 @@ export class World {
     this.treeCells = treeCellKeys(standing);
     const cells = treeFootprintCells(tree).filter((c) => before.has(cellKey(c.x, c.z)) && !this.treeCells.has(cellKey(c.x, c.z)));
     const node = this.resourceNodes.get(nodeId)!;
-    this.treeFelledEvents.push({ nodeId, x: node.x, z: node.z, cells });
+    this.resourceDepletedEvents.push({ nodeId, resource: 'wood', x: node.x, z: node.z, cells });
+  }
+
+  /**
+   * Source epuisee (2026-11-02) : un arbre est abattu (fellTree) ; un gros
+   * gisement de pierre est retire (0 pierre, plus jamais recoltable). Les
+   * rochers ne sont pas des obstacles de la simulation (decors non
+   * bloquants, KI-41) : ni case ni pathfinding a liberer, la construction y
+   * etait deja possible. Evenement pour le rendu (gravats).
+   */
+  depleteResourceNode(nodeId: number): void {
+    const node = this.resourceNodes.get(nodeId);
+    if (!node || this.depletedResourceNodes.has(nodeId)) return;
+    if (node.resource === 'wood') {
+      this.fellTree(nodeId);
+      return;
+    }
+    this.depletedResourceNodes.add(nodeId);
+    this.resourceNodeAmounts.set(nodeId, 0);
+    this.resourceDepletedEvents.push({ nodeId, resource: node.resource, x: node.x, z: node.z, cells: [] });
   }
 
   /** Vrai si le point (x, z) est sur une case d'eau de la carte chargee. */
@@ -512,7 +538,7 @@ export class World {
       productionOrders: [],
       productionWaitingForPopulation: false,
       buildingAttack: null,
-      gate: null,
+      wall: null,
     };
     this.entities.push(entity);
     this.entityById.set(entity.id, entity);
@@ -677,20 +703,8 @@ export class World {
             targetId: null,
           }
         : null,
-      // Porte de muraille : fermee a l'apparition (sim/systems/gates.ts).
-      gate: def.gate
-        ? {
-            phase: 'closed',
-            openness: 0,
-            prevOpenness: 0,
-            closeTimer: 0,
-            passable: false,
-            triggerRangeTiles: def.gate.triggerRangeTiles,
-            openDurationSeconds: def.gate.openDurationSeconds,
-            closeDelaySeconds: def.gate.closeDelaySeconds,
-            passableOpenness: def.gate.passableOpenness,
-          }
-        : null,
+      // Piece de mur V2 : renseignee par spawnWallPiece.
+      wall: null,
     };
     this.entities.push(entity);
     this.entityById.set(entity.id, entity);
@@ -701,23 +715,74 @@ export class World {
       this.obstacles = [...this.obstacles, footprint];
       this.buildingFootprints.set(entity.id, footprint);
     }
-    // Porte de muraille : passage pour son camp (trajets toujours, collision
-    // seulement ouverte, voir ObstacleDef.passableForTeam / passageOpen).
-    if (footprint && def.gate) {
-      footprint.passableForTeam = team;
-      footprint.passageOpen = false;
-    }
     return entity;
   }
 
-  /** Ouvre ou ferme physiquement le passage d'une porte pour son camp (voir
-   *  sim/systems/gates.ts). Remplace World.obstacles par un nouveau tableau,
-   *  jamais une mutation seule : les listes par camp et leurs bornes sont en
-   *  cache par identite de tableau (sim/geometry.ts, KI-01). */
-  setGatePassage(entity: Entity, open: boolean): void {
-    const footprint = entity.footprintObstacle;
-    if (!footprint || footprint.passageOpen === open) return;
-    footprint.passageOpen = open;
+  /** Prochain identifiant de ligne de mur (Entity.wall.lineId). */
+  private nextWallLineId = 1;
+
+  /** Pose une ligne de mur V2 de A a B (data/walls.ts, core/wallLine.ts) :
+   *  segments internes egaux, chacun une entite (PV selon sa longueur,
+   *  emprise en capsule), dans l'ordre depuis A. `gates` : rangs des
+   *  segments poses en porte. `construction` : chaque piece est un chantier
+   *  (le Heros les bâtit, de A vers B) ; sinon elles sont bâties (cartes).
+   *  `openGates` : portes bâties posees ouvertes. */
+  spawnWallLine(team: Team, wallType: string, line: WallSegment, opts: { construction?: boolean; gates?: readonly number[]; openGates?: boolean } = {}): Entity[] {
+    const type = getWallType(wallType);
+    const lineId = this.nextWallLineId++;
+    return segmentWallLine(line, type.segmentLength).map((s, index) => this.spawnWallPiece(team, wallType, lineId, index, s, opts.gates?.includes(index) === true, opts.construction === true, opts.openGates === true));
+  }
+
+  /** Piece d'une ligne de mur : segment ou porte, chantier ou bâtie. */
+  private spawnWallPiece(team: Team, wallType: string, lineId: number, index: number, s: WallSegment, gate: boolean, construction: boolean, open: boolean): Entity {
+    const type = getWallType(wallType);
+    const role = gate ? 'gate' : 'segment';
+    const def = getBuilding(gate ? type.gateBuildingId : type.segmentBuildingId);
+    const length = wallLength(s);
+    const maxHp = wallPieceMaxHp(type, role, length);
+    const site = construction ? { progress: 0, buildTime: wallPieceBuildTime(type, role, length) } : undefined;
+    const hp = construction ? Math.max(1, Math.round(maxHp * CONSTRUCTION_START_HP_FRACTION)) : maxHp;
+    const footprint = wallSegmentObstacle(s, type.halfWidth);
+    // Porte : son etat est partage par l'entite et son emprise (toujours
+    // dans World.obstacles ; ouverte, elle ne laisse passer que les allies).
+    const opened = gate && open && !construction;
+    const door = gate ? { owner: team, open: opened, wantOpen: opened } : null;
+    if (door) footprint.door = door;
+    const e = this.spawnBuilding(def, team, (s.ax + s.bx) / 2, (s.az + s.bz) / 2, footprint, hp, maxHp, undefined, undefined, site);
+    e.wall = { wallType, lineId, index, ax: s.ax, az: s.az, bx: s.bx, bz: s.bz, door };
+    return e;
+  }
+
+  /** Remplace le segment `entityId` (bati ou chantier) par une PORTE de
+   *  meme geometrie, en chantier (porte de palissade, pose en jeu). Le
+   *  segment quitte la partie sans etre "detruit" (aucun PV a 0) ; renvoie
+   *  la porte, ou null si `entityId` n'est pas un segment vivant. */
+  replaceWallSegmentWithGate(entityId: number): Entity | null {
+    const old = this.entityById.get(entityId);
+    if (!old || !old.alive || !old.wall || old.wall.door) return null;
+    const w = old.wall;
+    old.alive = false;
+    this.releaseDeadBuildingFootprints();
+    return this.spawnWallPiece(old.team, w.wallType, w.lineId, w.index, w, true, true, false);
+  }
+
+  /** Porte : etat voulu par le camp `issuer` (allie du proprietaire,
+   *  sim/relations.ts), applique au prochain pas (sim/systems/doors.ts ; une
+   *  fermeture attend que l'ouverture soit libre). Faux si `entityId` n'est
+   *  pas une porte vivante de ce camp ou d'un allie. */
+  setDoorWanted(entityId: number, open: boolean, issuer: Team): boolean {
+    const e = this.entityById.get(entityId);
+    const door = e?.wall?.door;
+    if (!e || !door || !e.alive || !areAllied(issuer, door.owner)) return false;
+    door.wantOpen = open;
+    return true;
+  }
+
+  /** Une porte s'est ouverte ou fermee : NOUVEAU tableau d'obstacles (meme
+   *  contenu), pour que les listes par camp, leurs bornes et les grilles A*,
+   *  en cache par identite de tableau (sim/geometry.ts, KI-01), suivent son
+   *  etat. */
+  private refreshDoorPassages(): void {
     this.obstacles = [...this.obstacles];
   }
 
@@ -968,6 +1033,7 @@ export class World {
       nodes: this.resourceNodes,
       nodeAmounts: this.resourceNodeAmounts,
       depleted: this.depletedTrees,
+      canHarvest: (resource) => canHarvestResource(this.harvestPermissions, resource),
       piles: this.resourcePiles,
       drops: this.itemDrops,
       chests: this.chests,
@@ -1059,7 +1125,7 @@ export class World {
     this.shadowProjectileEvents = [];
     this.productionSpawnEvents = [];
     this.productionUpgradeEvents = [];
-    this.treeFelledEvents = [];
+    this.resourceDepletedEvents = [];
     this.enemyReinforcements = null;
     this.enemyReinforcementSpawns = [];
     this.assaultGoal = null;
@@ -1164,7 +1230,7 @@ export class World {
     const hasHero = this.entities.some((e) => e.hero);
     const aliveBefore = hasHero ? new Set(this.entities.filter((e) => e.alive).map((e) => e.id)) : null;
     this.heroEvents = [];
-    this.treeFelledEvents = [];
+    this.resourceDepletedEvents = [];
 
     // Ordres manuels (sim/orders.ts) : appliques a une frontiere de pas fixe,
     // jamais au moment de l'evenement d'entree. Une unite sans ordre manuel
@@ -1183,8 +1249,7 @@ export class World {
           const node = this.resourceNodes.get(id);
           // Arbre epuise : plus rien a couper.
           if (!node || (this.resourceNodeAmounts.get(id) ?? 1) <= 0) return 'missing';
-          const allowed = node.resource === 'wood' ? this.harvestPermissions.canHarvestTrees : this.harvestPermissions.canMineDeposits;
-          return allowed ? 'ok' : 'locked';
+          return canHarvestResource(this.harvestPermissions, node.resource) ? 'ok' : 'locked';
         },
         hasPile: (id) => (this.resourcePiles[id]?.amount ?? 0) > 0,
         hasDrop: (id) => this.itemDrops[id]?.taken === false,
@@ -1238,8 +1303,8 @@ export class World {
     this.lootEvents = [];
     campSystem(this.camps, this.entities, this.entityById, dt, this.campEvents);
     targetingSystem(this.entities, dt);
-    // Portes de muraille : etat d'ouverture du pas, avant tout deplacement.
-    gateSystem(this.entities, dt, (gate, open) => this.setGatePassage(gate, open));
+    // Portes des murs V2 : ouverture / fermeture demandee, avant tout deplacement.
+    doorSystem(this.entities, (door) => getWallType(door.wall!.wallType).halfWidth, () => this.refreshDoorPassages());
     // Avant movementSystem : une charge qui vient de se declencher (ou qui se
     // poursuit) doit controler entierement x/z ce tick — movementSystem se
     // contente ensuite de l'ignorer (voir son garde-fou `if (e.dash) continue`).
@@ -1251,9 +1316,10 @@ export class World {
     this.pathFailures = [];
     movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents, this.heroWork(), this.assaultGoal ? { goal: this.assaultGoal, failures: this.pathFailures } : null);
     if (hasHero) heroWorkSystem(this.entities, this.heroWork(), dt, this.heroEvents);
-    // Arbres epuises pendant ce pas : abattus (passage ouvert des le pas suivant).
+    // Sources epuisees pendant ce pas : retirees (arbre abattu : passage
+    // ouvert des le pas suivant).
     if (this.depletedTrees.length > 0) {
-      for (const id of this.depletedTrees) this.fellTree(id);
+      for (const id of this.depletedTrees) this.depleteResourceNode(id);
       this.depletedTrees.length = 0;
     }
     this.combatEvents = combatSystem(this.entities, dt, this.rng, this.obstacles);

@@ -1,4 +1,5 @@
 import { getBuilding } from '../data/buildings';
+import { getWallType, wallGateCost, wallLineCost } from '../data/walls';
 
 /**
  * Reparation payante des batiments (2026-11-02) : formule PROVISOIRE.
@@ -19,15 +20,21 @@ export interface RepairCost {
   stone: number;
 }
 
-export function repairBaseCost(buildingId: string): RepairCost {
+export function repairBaseCost(buildingId: string, wallLengthTiles?: number): RepairCost {
   if (buildingId === 'ballista') return { ...BALLISTA_REPAIR_BASE };
   const def = getBuilding(buildingId);
+  // Piece de mur V2 : son prix reel (longueur du segment, ou porte).
+  if (def.wallPiece) {
+    const type = getWallType(def.wallPiece.wallType);
+    const cost = def.wallPiece.role === 'gate' ? wallGateCost(type) : wallLineCost(type, wallLengthTiles ?? type.segmentLength);
+    return { gold: 0, wood: cost.wood, stone: cost.stone };
+  }
   return { gold: def.cost ?? 0, wood: def.resourceCost?.wood ?? 0, stone: def.resourceCost?.stone ?? 0 };
 }
 
 /** Cout pour reparer `missingFraction` (0..1) des PV max. */
-export function repairCost(buildingId: string, missingFraction: number): RepairCost {
-  const base = repairBaseCost(buildingId);
+export function repairCost(buildingId: string, missingFraction: number, wallLengthTiles?: number): RepairCost {
+  const base = repairBaseCost(buildingId, wallLengthTiles);
   const k = REPAIR_COST_FRACTION * Math.min(1, Math.max(0, missingFraction));
   return { gold: Math.ceil(base.gold * k * 2) / 2, wood: Math.round(base.wood * k), stone: Math.round(base.stone * k) };
 }

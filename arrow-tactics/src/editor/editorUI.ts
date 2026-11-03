@@ -5,6 +5,8 @@ import type { TerrainType } from '../config/mapDef';
 import { TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type ReliefBrushSize, type ReliefDelta } from '../config/terrainElevation';
 import type { TerritoryTeam } from '../config/territory';
 import { getBuilding, listBuyableBuildingIds } from '../data/buildings';
+import { getWallType, WALL_TYPES } from '../data/walls';
+import { segmentWallLine, wallLength } from '../core/wallLine';
 import { HERO_UNIT_ID } from '../data/hero';
 import { UNITS } from '../data/units';
 import { groundLookIsLiving, groundSwatchUrl } from '../render/groundLook';
@@ -12,7 +14,7 @@ import { groundTextureUrl } from '../render/textures';
 import { toonUnitThumbnail } from '../render/toonThumbnail';
 import { toonFactionKind, type ToonUnitKind } from '../render/toonUnitRig';
 import { teamColor } from '../render/unitSelectionRing';
-import type { CellReliefOp, EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, PlacementTemplate } from './editorState';
+import type { CellReliefOp, EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, EditorWallLine, PlacementTemplate } from './editorState';
 import { FOREST_BRUSH_SIZES, FOREST_DENSITIES, FOREST_TREE_TYPES, type ForestBrushSize, type ForestDensity, type ForestTreeTypeId } from './forestBrush';
 
 export interface EditorUIHandlers {
@@ -26,6 +28,8 @@ export interface EditorUIHandlers {
   onSelectUnit: (unitId: string) => void;
   /** Bâtiment gameplay choisi dans l'onglet « Bâtiments » (pose continue). */
   onSelectBuilding: (buildingId: string) => void;
+  /** Mur V2 (groupe « Murs ») : tracé A -> B, ou porte sur un segment (`gate`). */
+  onSelectWallTool: (wallType: string, gate: boolean) => void;
   /** Outil "Ajouter case" (2026-08-16, chantier map irrégulière) — reste
    *  actif après chaque clic (tampon répétable), contrairement au placement
    *  d'obstacle/unité (voir EditorState.addCell). */
@@ -323,8 +327,8 @@ const KAYKIT_PROP_ASSETS: AssetEntry[] = [
  * elements sans camp : ponts, ruine, échafaudage, estrades, parcelles de
  * terre/céréales, projectile de catapulte — "ils sont neutres ceux-là").
  * Murs et clotures du meme dossier source (`wall_*`/`fence_*`) : voir
- * WALL_DECOR_ASSETS/FENCE_ASSETS (decors) et le groupe « Murailles »
- * (constructions de scenario, data/buildings.ts).
+ * WALL_DECOR_ASSETS/FENCE_ASSETS (decors). Les murs JOUABLES sont les murs V2
+ * du groupe « Murs » (data/walls.ts).
  */
 function building(label: string, buildingModel: string, tilesX: number, tilesZ: number): AssetEntry {
   return { label, template: { kind: 'building', tilesX, tilesZ, buildingModel } };
@@ -401,8 +405,7 @@ const RED_BUILDING_ASSETS: AssetEntry[] = [
 /** Pack KayKit complet (EXTRA) : pieces de murailles du dossier « neutral »
  *  pensees pour des bords d'hexagone. Les angles (120°) ne se raccordent
  *  pas a angle droit sur la grille carree : poses comme DECORS bloquants,
- *  sans PV ni camp. Le segment droit et la porte sont de vraies
- *  constructions (groupe « Murailles », data/buildings.ts). */
+ *  sans PV ni camp. Les murs jouables sont les murs V2 (groupe « Murs »). */
 const WALL_DECOR_ASSETS: AssetEntry[] = [
   building('Angle de muraille A — intérieur', 'neutral_wall_corner_A_inside', 2, 2),
   building('Angle de muraille A — extérieur', 'neutral_wall_corner_A_outside', 2, 2),
@@ -653,7 +656,8 @@ export type PropertiesSubject =
   /** `territory` : proprietaire actuel de la case de chaque unite. */
   | { kind: 'units'; units: { unit: EditorUnit; territory: TerritoryTeam | null }[] }
   | { kind: 'ballista'; x: number; z: number }
-  | { kind: 'building'; building: EditorBuilding };
+  | { kind: 'building'; building: EditorBuilding }
+  | { kind: 'wall'; wall: EditorWallLine };
 
 interface PropertiesView {
   name: string;
@@ -669,7 +673,7 @@ function teamName(team: TerritoryTeam | null): string {
 }
 
 /** Bulle d'aide d'une surface d'eau. */
-const WATER_HINT = 'Eau : infranchissable pour les unités (déplacement, destination, pose), sans bloquer les tirs ; aucun bâtiment, muraille ni Baliste dessus.';
+const WATER_HINT = 'Eau : infranchissable pour les unités (déplacement, destination, pose), sans bloquer les tirs ; aucun bâtiment, mur ni Baliste dessus.';
 
 /** Nom d'une surface : celui de la palette simplifiee en
  *  `?groundLook=living`, sinon son libelle complet. */
@@ -764,6 +768,23 @@ function describeProperties(subject: PropertiesSubject): PropertiesView {
             rows: [['Taille', `${def.footprintTilesX ?? 1}×${def.footprintTilesZ ?? 1}`]],
             notes: ['Vrai bâtiment au niveau 1 dans « Tester le scénario » ; ignoré par le Mode survie.'],
           },
+        ],
+        actions: ['delete'],
+      };
+    }
+    case 'wall': {
+      const w = subject.wall;
+      const type = getWallType(w.type);
+      const length = wallLength(w);
+      const segments = segmentWallLine(w, type.segmentLength).length;
+      const gates = w.gates?.length ?? 0;
+      return {
+        name: type.displayName,
+        kind: 'Mur du scénario',
+        technicalId: w.type,
+        sections: [
+          { label: 'Tracé', rows: [['Longueur', `${formatCoord(length)} cases`], ['Segments', `${segments}`], ['Portes', `${gates}`]], notes: ['Ligne A → B, segmentée au chargement ; posée en Survie et dans « Tester le scénario ».'] },
+          { label: 'Extrémités', rows: [['A', `${formatCoord(w.ax)} ; ${formatCoord(w.az)}`], ['B', `${formatCoord(w.bx)} ; ${formatCoord(w.bz)}`]], notes: [] },
         ],
         actions: ['delete'],
       };
@@ -887,6 +908,8 @@ export class EditorUI {
   private surfaceValue: GroundTextureId | null = 'herbe-classique';
   private readonly unitCards = new Map<string, HTMLButtonElement>();
   private readonly buildingCards = new Map<string, HTMLButtonElement>();
+  /** Cartes du groupe « Murs » : `<famille>:line` et `<famille>:gate`. */
+  private readonly wallCards = new Map<string, HTMLButtonElement>();
   private readonly assetCards = new Map<PlacementTemplate, { button: HTMLButtonElement; label: string }>();
   /** Camp que reprend le bouton "Peindre le territoire" : le dernier choisi. */
   private territoryValue: TerritoryTeam | null = 'player';
@@ -1168,8 +1191,8 @@ export class EditorUI {
     // Batiments GAMEPLAY du scenario (jamais des decors) : ceux qu'un joueur
     // peut construire, lus dans data/buildings.ts. La Baliste garde son outil
     // dedie (unique, toujours presente, MapDef.ballista).
-    // Groupe de chaque construction : BuildingDef.editorGroup (« Murailles »),
-    // « Bâtiments » par defaut, dans l'ordre des donnees.
+    // Groupe de chaque construction : BuildingDef.editorGroup, « Bâtiments »
+    // par defaut, dans l'ordre des donnees.
     const buildingGroups = new Map<string, string[]>();
     for (const buildingId of listBuyableBuildingIds()) {
       const group = getBuilding(buildingId).editorGroup ?? 'Bâtiments';
@@ -1178,6 +1201,18 @@ export class EditorUI {
     for (const [group, ids] of buildingGroups) {
       browser.appendChild(this.groupHeader(group));
       for (const buildingId of ids) browser.appendChild(this.buildingAssetCard(buildingId, handlers.onSelectBuilding));
+    }
+    // Murs V2 (data/walls.ts) : trace A -> B et porte, memes regles qu'en jeu.
+    browser.appendChild(this.groupHeader('Murs'));
+    for (const type of Object.values(WALL_TYPES)) {
+      const line = this.toolCard(type.displayName, () => handlers.onSelectWallTool(type.id, false));
+      line.title = 'Clic : point A · second clic : point B';
+      this.wallCards.set(`${type.id}:line`, line);
+      browser.appendChild(line);
+      const gate = this.toolCard(`Porte — ${type.displayName.toLowerCase()}`, () => handlers.onSelectWallTool(type.id, true));
+      gate.title = 'Clic sur un segment : il devient une porte';
+      this.wallCards.set(`${type.id}:gate`, gate);
+      browser.appendChild(gate);
     }
 
     // Obstacles / structures : seuls objets poses qui bloquent.
@@ -1339,6 +1374,21 @@ export class EditorUI {
         if (card) active.push(card);
         const def = getBuilding(tool.buildingId);
         status = `Outil : Bâtiment — ${def.displayName} (${def.footprintTilesX ?? 1}×${def.footprintTilesZ ?? 1}) · Clic : poser (l'outil reste actif) · Clic droit ou Échap : Sélection`;
+        break;
+      }
+      case 'place-wall': {
+        const card = this.wallCards.get(`${tool.wallType}:line`);
+        if (card) active.push(card);
+        const name = getWallType(tool.wallType).displayName;
+        status = tool.start
+          ? `Outil : ${name} — point A posé · Clic : point B (ligne verte seulement) · Clic droit ou Échap : annuler le tracé`
+          : `Outil : ${name} — Clic : point A (s’aimante à un mur proche) · second clic : point B · Clic droit ou Échap : Sélection`;
+        break;
+      }
+      case 'place-wall-gate': {
+        const card = this.wallCards.get(`${tool.wallType}:gate`);
+        if (card) active.push(card);
+        status = `Outil : Porte — ${getWallType(tool.wallType).displayName} · Clic sur un segment : il devient une porte · Clic droit ou Échap : Sélection`;
         break;
       }
       case 'place-obstacle': {
@@ -1846,6 +1896,8 @@ function selectStatus(selection: EditorSelection): string {
     }
     case 'building':
       return 'Outil : Sélection — bâtiment du scénario · Suppr : supprimer · Échap : désélectionner';
+    case 'wall':
+      return 'Outil : Sélection — mur (ligne entière) · Suppr : supprimer · Échap : désélectionner';
     case 'ballista':
       return 'Outil : Sélection — Baliste · Clic au sol : déplacer (3×3 en territoire joueur) · Échap : désélectionner';
   }

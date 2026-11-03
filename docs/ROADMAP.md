@@ -92,7 +92,8 @@ systèmes de progression.
 
 - **Objectif** : traiter en priorité les entrées de `KNOWN_ISSUES.md` qui
   influencent la planification :
-  - KI-01 : résolu avec les murailles ;
+  - KI-01 : résolu avec les murailles (Wall V1, supprimé depuis ; même
+    mécanisme pour la Palissade V2) ;
   - KI-09, avant d'agrandir l'arbre de talents ;
   - KI-16, qui alourdit chaque build.
 - **Pourquoi** : éviter de construire de nouveaux systèmes sur une base
@@ -406,7 +407,6 @@ construire avant une décision explicite d'Antoine :
 La Survie n'emprunte plus la préparation (`DESIGN_DECISIONS.md` G10). Reste
 à convertir ou à retirer :
 
-- **murailles et portes** en temps réel (tracé, paires, recomposition) ;
 - **Boutique** : parchemins de bataille (plus achetables en Survie),
   recrutement direct, « Vendre » ; à remplacer par des commandes de
   bâtiment ou du Héros, puis retirer la Boutique ;
@@ -429,12 +429,39 @@ La Survie n'emprunte plus la préparation (`DESIGN_DECISIONS.md` G10). Reste
 
 Construit le 2026-11-02 (`DESIGN_DECISIONS.md` G16). À faire :
 
-- murailles dans le menu Construire du temps réel (KI-49), virages et
-  fermetures diagonales (KI-50) ;
 - barils dans l'éditeur, ruines et autres destructibles (KI-51) ;
 - ralliement sur une cible (ressource, unité), plusieurs points ;
 - réparation par d'autres unités (ouvriers) ;
 - fusion des tas d'or proches (KI-47).
+
+## 6 decies. Murs V2 (Palissade) — suites
+
+Wall V1 supprimé et Palissade V2 construite le 2026-11-02
+(`DESIGN_DECISIONS.md` G23). À voir :
+
+- autres familles (`data/walls.ts`) : mur de pierre, mur fortifié, avec
+  leurs propres PV, coût (pierre), épaisseur et rendu ; amélioration
+  palissade → pierre ;
+- porte : ouverture automatique pour les alliés, verrouillage, passage
+  réservé à un camp ; vagues qui cherchent une porte ouverte ou un détour
+  (KI-55) ;
+- éditeur : retirer une porte, déplacer une extrémité (KI-56) ;
+- visuel définitif (asset acheté ou modélisé) ; traverses qui suivent le
+  relief (KI-57) ; instancing si les murs se comptent par centaines
+  (aujourd'hui un mesh par segment, mesuré à 100 segments) ;
+- tirs bloqués ou non par certains murs (aujourd'hui tous traversants) ;
+- tours et chemins de ronde sur les murs.
+
+## 6 nonies. Scierie et Camp de mineur — suites
+
+Construits le 2026-11-02 (`DESIGN_DECISIONS.md` G22). À voir :
+
+- visuel dédié du Camp de mineur (aujourd'hui l'atelier KayKit : outils,
+  sans pierre) ;
+- dépôt local (Scierie, Camp de mineur) si la marche jusqu'à la Baliste
+  devient pénible ;
+- gros rochers bloquants ou non (KI-41) ;
+- ouvriers / récolte par d'autres unités que le Héros.
 
 ## 6 octies. Niveaux, cartes de survie, village — suites
 

@@ -734,7 +734,7 @@ export class Screens {
       // Bois / pierre (BuildingDef.resourceCost, PROVISOIRE) a cote du nom.
       const res = def.resourceCost ?? {};
       const resText = [res.wood ? `${res.wood} bois` : '', res.stone ? `${res.stone} pierre` : ''].filter(Boolean).join(', ');
-      const label = resText ? `${def.displayName} (${resText}${def.placementMode === 'line' ? ' / case' : ''})` : def.displayName;
+      const label = resText ? `${def.displayName} (${resText})` : def.displayName;
       const button = this.shopItemButton(label, def.cost ?? 0, () => handlers.onRequestPlaceBuilding(buildingId), buildingId);
       this.shopBuildingButtons.set(buildingId, button);
       // Description en TOOLTIP flottant (2026-08-17), pas un paragraphe
@@ -1348,12 +1348,6 @@ export class Screens {
       return `${costLine} Permettra d’améliorer l’armée.`;
     }
     const def = getBuilding(buildingId);
-    // Muraille, porte : bloquent le deplacement, laissent passer les tirs.
-    if (def.blocksShots === false) {
-      const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
-      const placement = def.placementMode === 'line' ? ' Pose en ligne : un clic de départ, un clic de fin (coût par segment).' : ' Battants fermés : bloque comme un mur.';
-      return `${costLine} Bloque le déplacement ; les tirs passent par-dessus. ${size} · ${formatGold(def.maxHp / HP_PER_PIP)} PV.${placement}`;
-    }
     // Caserne, Camp d'archerie : unite debloquee et production de niveau 1.
     if (def.production) {
       const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;

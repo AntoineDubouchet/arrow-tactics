@@ -93,7 +93,7 @@ const WATER_IDS: ReadonlySet<string> = new Set(WATER_SURFACE_IDS);
 
 /** Vrai pour une surface d'eau : case infranchissable pour toute unite sans
  *  `UnitStats.canTraverseWater`, interdite a la pose (unites, batiments,
- *  murailles, Baliste), transparente aux tirs. SOURCE UNIQUE de la regle,
+ *  murs, Baliste), transparente aux tirs. SOURCE UNIQUE de la regle,
  *  lue par la simulation (World.setMap), l'editeur et la preparation. */
 export function isWaterSurface(id: string | undefined): boolean {
   return id !== undefined && WATER_IDS.has(id);

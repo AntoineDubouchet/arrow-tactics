@@ -37,10 +37,37 @@ export interface MapBuildingPlacement {
   team: 'player' | 'enemy';
   x: number;
   z: number;
-  /** Rotation (radians, quarts de tour) d'un batiment dont l'emprise suit
-   *  la rotation (muraille, BuildingDef.footprintFollowsRotation). Absente
-   *  = 0 ; jamais ecrite pour 0 (cartes existantes inchangees). */
+  /** Rotation visuelle (radians). Absente = 0 ; jamais ecrite pour 0
+   *  (cartes existantes inchangees). */
   rotationY?: number;
+}
+
+/** Ligne de mur V2 (2026-11-02, data/walls.ts, core/wallLine.ts) : enregistree
+ *  de facon GEOMETRIQUE (A, B, famille), jamais case par case ; la
+ *  segmentation interne est reconstruite au chargement (segmentWallLine).
+ *  `gates` : rangs (depuis A) des segments qui sont des portes. `team` :
+ *  absent = joueur. */
+export interface WallLineDef {
+  type: string;
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  team?: 'player' | 'enemy';
+  gates?: number[];
+}
+
+/** Batiments du Wall V1 (muraille case par case, porte, demi-segment,
+ *  virages), supprime le 2026-11-02 : jamais convertis. */
+const LEGACY_WALL_BUILDING_IDS: ReadonlySet<string> = new Set(['wall', 'wall_gate', 'wall_half', 'wall_corner_outside', 'wall_corner_inside']);
+
+/** Retire d'une liste de batiments de carte les murs du Wall V1 (rupture
+ *  propre, pas de conversion vers la V2) ; journal de migration explicite
+ *  s'il y en avait. La carte se charge normalement. */
+export function dropLegacyWalls<T extends { buildingId: string }>(buildings: readonly T[]): T[] {
+  const kept = buildings.filter((b) => !LEGACY_WALL_BUILDING_IDS.has(b.buildingId));
+  if (kept.length < buildings.length) console.info(`[map] anciens murs ignorés : système de muraille V1 supprimé (${buildings.length - kept.length} pièce(s))`);
+  return kept;
 }
 
 /** Types de terrain disponibles pour une cellule — herbe/terre pour
@@ -105,6 +132,9 @@ export interface MapDef {
   /** Batiments gameplay de scenario (voir MapBuildingPlacement). OPTIONNEL :
    *  absent = aucun batiment de scenario (toute map anterieure). */
   buildings?: MapBuildingPlacement[];
+  /** Murs V2 (voir WallLineDef), poses en Survie comme dans « Tester le
+   *  scénario ». OPTIONNEL : absent = aucun mur. */
+  walls?: WallLineDef[];
   /** Relief 2.5D (2026-10-28, voir config/terrainElevation.ts) : altitude ou
    *  pente des cases qui ne sont pas plates au niveau 0, meme convention de
    *  coordonnees que `cells`. OPTIONNEL et SPARSE : absent sur toute map

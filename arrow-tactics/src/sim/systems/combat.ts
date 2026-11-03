@@ -1,8 +1,7 @@
 import { SIDESTEP_DURATION, type ObstacleDef } from '../../config/constants';
-import { dist } from '../../core/math';
 import type { Rng } from '../../core/rng';
 import { applyDamageToEntity } from '../damage';
-import { crossesTerrainCliff, findBlockingObstacle, isMeleeAttack } from '../geometry';
+import { crossesTerrainCliff, findBlockingObstacle, isMeleeAttack, targetDistance } from '../geometry';
 import type { Entity } from '../entity';
 
 export type CombatEvent =
@@ -67,7 +66,7 @@ export function combatSystem(entities: Entity[], dt: number, rng: Rng, obstacles
     const target = byId.get(e.targetId);
     if (!target || !target.alive) continue;
 
-    const inRange = dist(e.x, e.z, target.x, target.z) <= e.stats.attackRange + target.stats.radius;
+    const inRange = targetDistance(e.x, e.z, target) <= e.stats.attackRange + target.stats.radius;
     if (!inRange) continue;
     // Relief : aucun contact de corps a corps a travers une falaise (arete
     // dont les hauteurs ne se raccordent pas). L'attaque reste prete ; le
@@ -127,7 +126,7 @@ function advancePendingAttack(e: Entity, byId: Map<number, Entity>, dt: number, 
   if (pending.remaining > 1e-6) return;
   e.pendingAttack = null;
   const target = byId.get(pending.targetId);
-  if (!target || !target.alive || dist(e.x, e.z, target.x, target.z) > e.stats.attackRange + target.stats.radius + WINDUP_REACH_TOLERANCE) {
+  if (!target || !target.alive || targetDistance(e.x, e.z, target) > e.stats.attackRange + target.stats.radius + WINDUP_REACH_TOLERANCE) {
     events.push({ attackerId: e.id, targetId: pending.targetId, result: 'cancelled' });
     return;
   }
