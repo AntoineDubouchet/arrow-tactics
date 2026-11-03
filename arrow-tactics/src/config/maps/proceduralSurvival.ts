@@ -525,18 +525,27 @@ export function generateSurvivalMap(seed: number): MapDef {
   }
   // Cases praticables reliees au camp (tas de ressources).
   const reached = reachableCells({ inMap, water, hill, ramps, rampSlopes, trees });
-  let rocks = 0;
-  for (let attempt = 0; attempt < 400 && rocks < 26; attempt++) {
+  // Gros gisements 2 x 2 (2026-11-02 : BLOQUANTS, comme les arbres) : jamais
+  // dans un goulet — leurs 12 cases voisines doivent etre libres (on peut
+  // toujours en faire le tour, aucune zone n'est coupee). Pierre (26), puis
+  // or (6, plus loin du camp ; GOLD_DEPOSIT_AMOUNT). Valeurs PROVISOIRES.
+  const freeForDeposit = (k: string) => inMap.has(k) && !water.has(k) && !ramps.has(k) && !hill.has(k) && !occupied.has(k);
+  const placeDeposit = (dMin: number, dMax: number, ore?: 'gold'): boolean => {
     const a = rng.next() * Math.PI * 2;
-    const d = CLEAR_RADIUS + 5 + rng.next() * (MAP_RADIUS - CLEAR_RADIUS - 8);
+    const d = dMin + rng.next() * (dMax - dMin);
     const x = Math.round(Math.cos(a) * d), z = Math.round(Math.sin(a) * d);
-    const foot = [key(x, z), key(x + 1, z), key(x, z + 1), key(x + 1, z + 1)];
-    if (foot.some((k) => !inMap.has(k) || water.has(k) || ramps.has(k) || hill.has(k) || occupied.has(k))) continue;
-    if (inSpawnRing(d)) continue;
-    obstacles.push({ kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: x, cornerZ: z });
-    for (const k of foot) occupied.add(k);
-    rocks++;
-  }
+    if (inSpawnRing(d)) return false;
+    const around: string[] = [];
+    for (let dz = -1; dz <= 2; dz++) for (let dx = -1; dx <= 2; dx++) around.push(key(x + dx, z + dz));
+    if (!around.every(freeForDeposit)) return false;
+    obstacles.push({ kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: x, cornerZ: z, ...(ore ? { ore } : {}) });
+    for (const k of [key(x, z), key(x + 1, z), key(x, z + 1), key(x + 1, z + 1)]) occupied.add(k);
+    return true;
+  };
+  let rocks = 0;
+  for (let attempt = 0; attempt < 500 && rocks < 26; attempt++) if (placeDeposit(CLEAR_RADIUS + 5, MAP_RADIUS - 3)) rocks++;
+  let golds = 0;
+  for (let attempt = 0; attempt < 400 && golds < 6; attempt++) if (placeDeposit(CLEAR_RADIUS + 14, MAP_RADIUS - 4, 'gold')) golds++;
   for (const c of cells) {
     const d = centerDistance(c.x, c.z);
     if (d <= 3 || blockedForDecor(c.x, c.z) || occupied.has(key(c.x, c.z))) continue;

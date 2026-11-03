@@ -3657,6 +3657,17 @@ body.debug-mode .debug-panel { display: block; top: auto; bottom: 150px; }
   gap: 6px;
   margin-top: 4px;
 }
+/* Or du joueur (monnaie, 2026-11-02) sous la grille du sac. */
+.hero-inventory-gold {
+  margin-top: 8px;
+  padding: 4px 8px;
+  align-self: flex-end;
+  text-align: right;
+  font-weight: 700;
+  font-size: 14px;
+  color: #f2c94c;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
 .inventory-cell {
   position: relative;
   width: 52px;

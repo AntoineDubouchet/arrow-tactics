@@ -1,7 +1,7 @@
 import { BOARD_H, BOARD_W, isBlockingMapObstacle, obstacleBounds, OBSTACLES, TILE, type ObstacleDef } from '../config/constants';
 import { buildCellIndex, cellKey, computeMapCellBounds, resolveMapCells, type MapBounds, type MapDef } from '../config/mapDef';
 import { waterCellKeys } from '../config/groundSurfaces';
-import { resourceNodesOf, treeCellKeys, treeFootprintCells, type ResourceNode } from '../config/resourceNodes';
+import { resourceNodeCellKeys, resourceNodeCells, resourceNodesOf, type ResourceNode } from '../config/resourceNodes';
 import { computeCliffObstacles, resolveMapHeightField } from '../config/terrainElevation';
 import { dist } from '../core/math';
 import { Rng, randomSeed } from '../core/rng';
@@ -13,9 +13,11 @@ import { areAllied } from './relations';
 import { ENEMY_LOOT_TABLES, LOOT_TABLES, rollLoot } from '../data/loot';
 import { applyInventoryAction, createHeroInventory, resolveEquipmentBonus, type HeroInventory, type InventoryAction } from './inventory';
 import { DESTRUCTIBLE_LOOT, ENEMY_GOLD_DROPS } from '../data/loot';
-import type { CarriedResource } from '../data/resources';
+import { NO_HARVEST_TOOLS, type CarriedResource, type HarvestPermissions } from '../data/resources';
+import type { NodeResource } from '../config/resourceNodes';
 import { campClearSystem, campSystem, isChestLocked, type CampEvent, type CampSpec, type CampState, type Chest, type LootDropEvent } from './systems/camps';
 import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
+import { workerSystem, type WorkerDepositEvent } from './systems/workers';
 import { DEFAULT_HERO_ID, heroKit, type HeroKit } from '../data/heroes';
 import { DEFAULT_UNIT_LEVEL, normalizeUnitLevel } from '../data/unitLevels';
 import { canHarvestResource, HARVEST_NODE_KINDS } from '../data/resources';
@@ -106,20 +108,21 @@ function computeWaterObstacles(water: ReadonlySet<string>, cellIndex: Map<string
 }
 
 /**
- * Arbres de la carte (decors de bois : arbres, arbres isoles KayKit,
- * bosquets) en obstacles synthetiques `terrainTree` (2026-11-02, demande
- * d'Antoine) : chaque case d'un arbre (treeCellKeys) bloque le deplacement et
- * les trajets des unites terrestres, jamais les tirs. Le decor reste rendu
- * tel quel (map.obstacles). Cases hors carte ou d'eau ignorees (deja
- * bloquees). Meme fusion par rangee.
+ * Sources de ressources debout de la carte (arbres, bosquets, gros gisements
+ * de pierre et d'or) en obstacles synthetiques `terrainResource` (arbres :
+ * 2026-11-02 ; gisements : 2026-11-02, remplace KI-41) : chaque case d'une
+ * source (resourceNodeCellKeys) bloque le deplacement et les trajets des
+ * unites terrestres, jamais les tirs. Le decor reste rendu tel quel
+ * (map.obstacles). Cases hors carte ou d'eau ignorees (deja bloquees). Meme
+ * fusion par rangee.
  */
-function computeTreeObstacles(obstacles: readonly ObstacleDef[], water: ReadonlySet<string>, cellIndex: Map<string, unknown>, bounds: MapBounds): ObstacleDef[] {
-  const trees = treeCellKeys(obstacles);
-  if (trees.size === 0) return [];
+function computeResourceObstacles(obstacles: readonly ObstacleDef[], water: ReadonlySet<string>, cellIndex: Map<string, unknown>, bounds: MapBounds): ObstacleDef[] {
+  const cells = resourceNodeCellKeys(obstacles);
+  if (cells.size === 0) return [];
   return rowSpanObstacles(
     bounds,
-    (x, z) => trees.has(cellKey(x, z)) && cellIndex.has(cellKey(x, z)) && !water.has(cellKey(x, z)),
-    (cornerX, cornerZ, tilesX) => ({ kind: 'tree', cornerX, cornerZ, tilesX, tilesZ: 1, terrainTree: true, blocksShots: false }),
+    (x, z) => cells.has(cellKey(x, z)) && cellIndex.has(cellKey(x, z)) && !water.has(cellKey(x, z)),
+    (cornerX, cornerZ, tilesX) => ({ kind: 'tree', cornerX, cornerZ, tilesX, tilesZ: 1, terrainResource: true, blocksShots: false }),
   );
 }
 
@@ -200,21 +203,27 @@ export class World {
    *  pierre d'un gros gisement (data/resources.ts, HARVEST_NODE_KINDS) au
    *  chargement de la carte, decomptee par la recolte (2026-11-02). */
   readonly resourceNodeAmounts = new Map<number, number>();
-  /** Sources epuisees (arbres abattus et gisements vides), id de source. */
+  /** Sources epuisees (arbres abattus, gisements vides), id de source : plus
+   *  d'obstacle, cases constructibles ; vide au chargement d'une carte. */
   readonly depletedResourceNodes = new Set<number>();
-  /** Arbres abattus (2026-11-02, id de source) : 0 bois, plus d'obstacle,
-   *  cases constructibles ; vide au chargement d'une carte. */
-  readonly felledTrees = new Set<number>();
-  /** Cases encore occupees par un arbre debout (cles cellKey) : deplacement
-   *  (obstacles `terrainTree`) et construction (main.ts). */
-  treeCells: ReadonlySet<string> = new Set();
+  /** Cases encore occupees par une source debout (arbre, gros gisement ;
+   *  cles cellKey) : deplacement (obstacles `terrainResource`) et
+   *  construction (main.ts). */
+  resourceCells: ReadonlySet<string> = new Set();
   /** Sources epuisees pendant ce pas : ressource, position et cases liberees
    *  (rendu : souche a la place d'un arbre, gravats a la place d'un gisement). */
-  resourceDepletedEvents: { nodeId: number; resource: 'wood' | 'stone'; x: number; z: number; cells: { x: number; z: number }[] }[] = [];
-  /** Donnees de la carte pour recalculer les obstacles d'arbre a l'abattage. */
-  private treeContext: { obstacles: readonly ObstacleDef[]; water: ReadonlySet<string>; cellIndex: Map<string, unknown>; bounds: MapBounds } | null = null;
-  /** Arbres arrives a 0 pendant le pas en cours (heroWorkSystem). */
-  private depletedTrees: number[] = [];
+  resourceDepletedEvents: { nodeId: number; resource: NodeResource; x: number; z: number; cells: { x: number; z: number }[] }[] = [];
+  /** Donnees de la carte pour recalculer les obstacles des sources. */
+  private resourceContext: { obstacles: readonly ObstacleDef[]; water: ReadonlySet<string>; cellIndex: Map<string, unknown>; bounds: MapBounds } | null = null;
+  /** Sources arrivees a 0 pendant le pas en cours (travail du Heros, des
+   *  Villageois). */
+  private depletedThisStep: number[] = [];
+  /** Or extrait d'un gisement pendant ce pas (monnaie, 2026-11-02) : credite
+   *  par l'orchestration (RunState.gold), jamais mis dans un sac. */
+  goldMinedEvents: { entityId: number; nodeId: number; amount: number }[] = [];
+  /** Bois et pierre verses au depot par des Villageois pendant le dernier
+   *  pas (2026-11-03) : la run les ajoute a son stock (main.ts). */
+  workerDepositEvents: WorkerDepositEvent[] = [];
   /** Petits tas au sol de la carte (MapDef.resourcePiles), indice = id ;
    *  `amount` baisse au ramassage. Remis a plein par setMap ; la run
    *  reapplique ses quantites (applyResourcePileAmounts). */
@@ -229,10 +238,10 @@ export class World {
   campEvents: CampEvent[] = [];
   /** Items tombes au sol au dernier pas (coffre, ennemi abattu). */
   lootEvents: LootDropEvent[] = [];
-  /** Droits de recolte deja RESOLUS par l'orchestration (run/
+  /** Outils de recolte deja RESOLUS par l'orchestration (run/
    *  harvestPermissions.ts) : la simulation ne sait pas d'ou ils viennent
-   *  (Scierie, Camp de mineur...). Faux par defaut. */
-  harvestPermissions: { canHarvestTrees: boolean; canMineDeposits: boolean } = { canHarvestTrees: false, canMineDeposits: false };
+   *  (la Forge aujourd'hui). Aucun par defaut. */
+  harvestPermissions: HarvestPermissions = NO_HARVEST_TOOLS;
   /** Renforts ennemis de la vague en cours (mini-vagues du Mode survie),
    *  null hors Mode survie (« Tester le scénario ») — voir
    *  sim/systems/enemyReinforcements.ts. */
@@ -371,55 +380,36 @@ export class World {
     this.chests = [];
     this.waterCells = waterCellKeys(map.surfaceCells);
     const water = computeWaterObstacles(this.waterCells, cellIndex, paddedBounds);
-    const trees = computeTreeObstacles(map.obstacles, this.waterCells, cellIndex, paddedBounds);
-    this.obstacles = [...map.obstacles.filter(isBlockingMapObstacle), ...computeVoidObstacles(cellIndex, paddedBounds), ...cliffs, ...water, ...trees];
-    this.felledTrees.clear();
-    this.treeContext = { obstacles: map.obstacles, water: this.waterCells, cellIndex, bounds: paddedBounds };
-    this.treeCells = treeCellKeys(map.obstacles);
+    const sources = computeResourceObstacles(map.obstacles, this.waterCells, cellIndex, paddedBounds);
+    this.obstacles = [...map.obstacles.filter(isBlockingMapObstacle), ...computeVoidObstacles(cellIndex, paddedBounds), ...cliffs, ...water, ...sources];
+    this.resourceContext = { obstacles: map.obstacles, water: this.waterCells, cellIndex, bounds: paddedBounds };
+    this.resourceCells = resourceNodeCellKeys(map.obstacles);
   }
 
   /**
-   * Abat l'arbre `nodeId` (2026-11-02, demande d'Antoine) : plus de bois, ses
-   * cases ne bloquent plus (sauf celles d'un autre arbre debout) et
-   * redeviennent constructibles. Les obstacles d'arbre sont recalcules et
-   * `this.obstacles` remplace : grille de pathfinding, collisions et cases
-   * reliees au camp suivent des le pas suivant (caches par tableau).
-   * Volontaire : abattre une foret peut ouvrir un chemin, aux vagues aussi.
-   */
-  fellTree(nodeId: number): void {
-    const ctx = this.treeContext;
-    const tree = ctx?.obstacles[nodeId];
-    if (!ctx || !tree || this.felledTrees.has(nodeId) || this.resourceNodes.get(nodeId)?.resource !== 'wood') return;
-    this.felledTrees.add(nodeId);
-    this.depletedResourceNodes.add(nodeId);
-    this.resourceNodeAmounts.set(nodeId, 0);
-    const standing = ctx.obstacles.filter((_, i) => !this.felledTrees.has(i));
-    const trees = computeTreeObstacles(standing, ctx.water, ctx.cellIndex, ctx.bounds);
-    this.obstacles = [...this.obstacles.filter((o) => !o.terrainTree), ...trees];
-    const before = this.treeCells;
-    this.treeCells = treeCellKeys(standing);
-    const cells = treeFootprintCells(tree).filter((c) => before.has(cellKey(c.x, c.z)) && !this.treeCells.has(cellKey(c.x, c.z)));
-    const node = this.resourceNodes.get(nodeId)!;
-    this.resourceDepletedEvents.push({ nodeId, resource: 'wood', x: node.x, z: node.z, cells });
-  }
-
-  /**
-   * Source epuisee (2026-11-02) : un arbre est abattu (fellTree) ; un gros
-   * gisement de pierre est retire (0 pierre, plus jamais recoltable). Les
-   * rochers ne sont pas des obstacles de la simulation (decors non
-   * bloquants, KI-41) : ni case ni pathfinding a liberer, la construction y
-   * etait deja possible. Evenement pour le rendu (gravats).
+   * Source epuisee (arbre abattu, gisement de pierre ou d'or vide,
+   * 2026-11-02) : plus de ressource, ses cases ne bloquent plus (sauf celles
+   * d'une autre source debout) et redeviennent constructibles. Les obstacles
+   * des sources sont recalcules et `this.obstacles` remplace : grille de
+   * pathfinding, collisions et cases reliees au camp suivent des le pas
+   * suivant (caches par tableau). Volontaire : vider un gisement ou abattre
+   * une foret peut ouvrir un chemin, aux vagues aussi. Evenement pour le
+   * rendu (souche, gravats).
    */
   depleteResourceNode(nodeId: number): void {
+    const ctx = this.resourceContext;
     const node = this.resourceNodes.get(nodeId);
-    if (!node || this.depletedResourceNodes.has(nodeId)) return;
-    if (node.resource === 'wood') {
-      this.fellTree(nodeId);
-      return;
-    }
+    const source = ctx?.obstacles[nodeId];
+    if (!ctx || !node || !source || this.depletedResourceNodes.has(nodeId)) return;
     this.depletedResourceNodes.add(nodeId);
     this.resourceNodeAmounts.set(nodeId, 0);
-    this.resourceDepletedEvents.push({ nodeId, resource: node.resource, x: node.x, z: node.z, cells: [] });
+    const standing = ctx.obstacles.filter((_, i) => !this.depletedResourceNodes.has(i));
+    const sources = computeResourceObstacles(standing, ctx.water, ctx.cellIndex, ctx.bounds);
+    this.obstacles = [...this.obstacles.filter((o) => !o.terrainResource), ...sources];
+    const before = this.resourceCells;
+    this.resourceCells = resourceNodeCellKeys(standing);
+    const cells = resourceNodeCells(source).filter((c) => before.has(cellKey(c.x, c.z)) && !this.resourceCells.has(cellKey(c.x, c.z)));
+    this.resourceDepletedEvents.push({ nodeId, resource: node.resource, x: node.x, z: node.z, cells });
   }
 
   /** Vrai si le point (x, z) est sur une case d'eau de la carte chargee. */
@@ -524,6 +514,7 @@ export class World {
       neutralProgressZ: z,
       neutralStuckTimer: 0,
       hero: null,
+      worker: def.worker ? { carry: null, capacity: def.worker.carryCapacity, nodeId: null, working: null, workTimer: 0 } : null,
       construction: null,
       isBuilding: false,
       // Une unite normale compte TOUJOURS pour la survie de sa faction —
@@ -676,6 +667,7 @@ export class World {
       neutralProgressZ: z,
       neutralStuckTimer: 0,
       hero: null,
+      worker: null,
       construction: construction ? { ...construction } : null,
       isBuilding: true,
       // Un chantier ne compte jamais pour la defaite (sim/systems/hero.ts).
@@ -918,7 +910,7 @@ export class World {
         if (loot && this.rng.next() < loot.chance && loot.entries.length > 0) {
           const entry = loot.entries[Math.min(loot.entries.length - 1, Math.floor(this.rng.next() * loot.entries.length))]!;
           const amount = entry.min + Math.floor(this.rng.next() * (entry.max - entry.min + 1));
-          const dropId = this.dropResource(entry.resource, e.x, e.z, amount);
+          const dropId = entry.resource === 'gold' ? this.dropGold(e.x, e.z, amount) : this.dropResource(entry.resource, e.x, e.z, amount);
           this.lootEvents.push({ source: 'destructible', sourceId: e.id, itemId: entry.resource, dropId, amount });
         }
         continue;
@@ -961,18 +953,33 @@ export class World {
     this.rallyQueue.push({ entityId, point: point ? { x: point.x, z: point.z } : null });
   }
 
-  /** Tas d'or au sol (ennemi abattu, camp nettoye), ramasse comme un tas de
-   *  la carte. Renvoie son id. */
+  /** Tas d'or au sol (ennemi abattu, camp nettoye, baril). L'or est une
+   *  MONNAIE (2026-11-02) : il se ramasse d'un clic (collectGoldPile), jamais
+   *  par le sac. Renvoie son id. */
   dropGold(x: number, z: number, amount: number): number {
-    return this.dropResource('gold', x, z, amount);
+    const id = this.resourcePiles.length;
+    this.resourcePiles.push({ id, x, z, resource: 'gold', amount });
+    return id;
   }
 
-  /** Tas de ressource au sol (butin : or, bois, pierre), jamais retire avant
-   *  d'etre ramasse. Renvoie son id. */
+  /** Tas de ressource physique au sol (butin : bois, pierre), ramasse par le
+   *  Heros dans son sac. Renvoie son id. */
   dropResource(resource: CarriedResource, x: number, z: number, amount: number): number {
     const id = this.resourcePiles.length;
     this.resourcePiles.push({ id, x, z, resource, amount });
     return id;
+  }
+
+  /** Ramassage IMMEDIAT d'un tas d'or (2026-11-02) : le tas disparait,
+   *  son montant est renvoye (credite par l'orchestration a la monnaie du
+   *  joueur). Ni deplacement, ni sac, ni depot. 0 si ce n'est pas un tas
+   *  d'or encore present. Appele entre deux pas (clic du joueur). */
+  collectGoldPile(pileId: number): number {
+    const pile = this.resourcePiles[pileId];
+    if (!pile || pile.resource !== 'gold' || pile.amount <= 0) return 0;
+    const amount = pile.amount;
+    pile.amount = 0;
+    return amount;
   }
 
   /** Objet neutre destructible (baril) sur la case de (x, z) : une case
@@ -1032,7 +1039,8 @@ export class World {
     return {
       nodes: this.resourceNodes,
       nodeAmounts: this.resourceNodeAmounts,
-      depleted: this.depletedTrees,
+      depleted: this.depletedThisStep,
+      goldMined: this.goldMinedEvents,
       canHarvest: (resource) => canHarvestResource(this.harvestPermissions, resource),
       piles: this.resourcePiles,
       drops: this.itemDrops,
@@ -1231,6 +1239,8 @@ export class World {
     const aliveBefore = hasHero ? new Set(this.entities.filter((e) => e.alive).map((e) => e.id)) : null;
     this.heroEvents = [];
     this.resourceDepletedEvents = [];
+    this.goldMinedEvents = [];
+    this.workerDepositEvents = [];
 
     // Ordres manuels (sim/orders.ts) : appliques a une frontiere de pas fixe,
     // jamais au moment de l'evenement d'entree. Une unite sans ordre manuel
@@ -1316,11 +1326,12 @@ export class World {
     this.pathFailures = [];
     movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents, this.heroWork(), this.assaultGoal ? { goal: this.assaultGoal, failures: this.pathFailures } : null);
     if (hasHero) heroWorkSystem(this.entities, this.heroWork(), dt, this.heroEvents);
+    if (this.entities.some((e) => e.worker)) workerSystem(this.entities, this.heroWork(), dt, this.workerDepositEvents);
     // Sources epuisees pendant ce pas : retirees (arbre abattu : passage
     // ouvert des le pas suivant).
-    if (this.depletedTrees.length > 0) {
-      for (const id of this.depletedTrees) this.depleteResourceNode(id);
-      this.depletedTrees.length = 0;
+    if (this.depletedThisStep.length > 0) {
+      for (const id of this.depletedThisStep) this.depleteResourceNode(id);
+      this.depletedThisStep.length = 0;
     }
     this.combatEvents = combatSystem(this.entities, dt, this.rng, this.obstacles);
     this.buildingAttackEvents = buildingAttackSystem(this.entities, lookup, this.buildingProjectiles, dt, () => this.nextBuildingProjectileId++);

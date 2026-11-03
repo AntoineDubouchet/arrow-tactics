@@ -19,7 +19,7 @@ import { churchHealCost, churchHealHpPerGold } from './churchHeal';
 import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isBuildingAtMaxLevel, isUpgradableBuilding } from './buildingUpgrades';
 import { BODY_LAYOUT, EQUIPMENT_SLOTS, EQUIPMENT_TYPES, getEquipment, RARITIES, type EquipmentSlot } from '../data/equipment';
-import { RESOURCE_ITEMS } from '../data/resources';
+import { HARVEST_TOOLS, RESOURCE_ITEMS } from '../data/resources';
 import { describeEquipment } from './heroEquipment';
 import { freeSlotCount, resourceCount, type HeroInventory } from '../sim/inventory';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
@@ -67,7 +67,7 @@ export interface EntityInfoAction {
    *  Tour, Eglise). `toggleBallistaMode` : bascule la Baliste AUTO / MANUEL
    *  (bataille). `healArmy` : soin de l'armee a l'Eglise selectionnee ;
    *  `openChurchUpgrades` : ameliorations de run accessibles a l'Eglise. */
-  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'openChurchUpgrades' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding' | 'toggleDoor';
+  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'openShrineUpgrades' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding' | 'toggleDoor';
   /** `buildStructure` : batiment a poser ; `produceUnit` : unite a produire
    *  (fiche d'un batiment), Survie en temps reel. */
   payload?: string;
@@ -332,7 +332,7 @@ export function placementUnitInfo(slot: PlacementUnitSource, progress: PlayerPro
  *  vague pour un ennemi, carte pour un garde de camp, progression pour le
  *  Heros). */
 export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number): UnitInfo {
-  return buildUnitInfo({
+  const info = buildUnitInfo({
     unitId: entity.unitId,
     team: entity.team,
     hp: entity.hp,
@@ -348,6 +348,11 @@ export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number): Un
     // Niveau d'unite >= 1 (titleWithLevel affiche niveau + 1).
     upgradeLevel: entity.level - 1,
   });
+  // Villageois (2026-11-03) : charge portee vers le depot.
+  const w = entity.worker;
+  if (!w) return info;
+  const carried = w.carry && w.carry.amount > 0 ? `${w.carry.amount} ${w.carry.resource === 'wood' ? 'bois' : 'pierre'}` : 'rien';
+  return { ...info, rows: [...info.rows, { label: 'Porté', value: `${carried} (max ${w.capacity})` }] };
 }
 
 // --- Feuille du Heros (inventaire) -----------------------------------------
@@ -387,6 +392,9 @@ export interface HeroSheetInfo {
   /** Cases du sac, dans l'ordre. */
   cells: HeroSheetCell[];
   capacity: string;
+  /** Monnaie du joueur (RunState.gold, 2026-11-02), affichee sous le sac :
+   *  la meme donnee que le HUD economique, jamais une case du sac. */
+  gold?: number;
 }
 
 function sheetItem(itemId: string): HeroSheetItem {
@@ -409,7 +417,7 @@ export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: num
   if (s.dodgeChance > 0) rows.push({ label: 'Esquive', value: `${Math.round(s.dodgeChance * 100)} %` });
   rows.push(
     { label: 'Expérience', value: nextLevelXp === null ? `${h.xp} XP (niveau max)` : `${h.xp} / ${nextLevelXp} XP` },
-    { label: 'Porté', value: `bois ${resourceCount(inventory, 'wood')}, pierre ${resourceCount(inventory, 'stone')}, or ${resourceCount(inventory, 'gold')}` },
+    { label: 'Porté', value: `bois ${resourceCount(inventory, 'wood')}, pierre ${resourceCount(inventory, 'stone')}` },
   );
   return {
     title: `${heroName} — Niv. ${h.level}`,
@@ -575,10 +583,10 @@ function populationBonusRows(buildingId: string): EntityInfoRow[] {
   return bonus ? [{ label: 'Population', value: `+${bonus}` }] : [];
 }
 
-/** Recolte debloquee (Scierie, Camp de mineur, 2026-11-02) : son effet. */
+/** Outils de recolte donnes par le batiment (Forge, 2026-11-02). */
 function harvestUnlockRows(buildingId: string): EntityInfoRow[] {
-  const def = getBuilding(buildingId);
-  return def.unlocksHarvest ? [{ label: 'Effet', value: def.description ?? (def.unlocksHarvest === 'trees' ? 'Coupe des arbres' : 'Exploitation des gisements') }] : [];
+  const tools = getBuilding(buildingId).unlocksTools ?? [];
+  return tools.length > 0 ? [{ label: 'Outils', value: tools.map((t) => HARVEST_TOOLS[t].name).join(', ') }] : [];
 }
 
 /** Lignes de production d'un batiment possede selon SON niveau. */
@@ -651,7 +659,7 @@ export function placementBuildingInfo(
     const enabled = gold >= cost;
     actions.push({ id: 'upgradeBuilding', label: `${UPGRADE_LABELS[def.id] ?? 'Améliorer'} — ${formatNumber(cost)} or`, enabled, hint: enabled ? undefined : 'Or insuffisant' });
   }
-  if (def.armyHeal) actions.push({ id: 'openChurchUpgrades', label: 'Améliorations de l’Église', enabled: true });
+  if (def.runUpgradeSite === 'shrine') actions.push({ id: 'openShrineUpgrades', label: 'Parchemins du Sanctuaire', enabled: true });
   const title = titleWithLevel(def.displayName, upgradable ? level : playerLevel('player', progress.upgrades, def.id));
   return {
     kind: 'building',

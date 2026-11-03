@@ -1,134 +1,95 @@
 import * as THREE from 'three';
-import { clamp } from '../core/math';
 import { obstacleCenter, TILE, type ObstacleDef } from '../config/constants';
-import { cloneScaledTo, pickRandom, type EnvironmentAssets } from './assetLibrary';
+import { cloneScaledTo, type EnvironmentAssets } from './assetLibrary';
 
-/** Marge de securite : la masse du rocher reste legerement en retrait de
- *  l'emprise reelle pour que la hitbox (voir OBSTACLES) corresponde toujours
- *  a ce que le joueur voit occupe, jamais un bloc qui deborderait
- *  visuellement de sa case. */
-const FOOTPRINT_INSET = 0.92;
+/** Modele du gros gisement (2026-11-02, demande d'Antoine : « Rocher E » du
+ *  catalogue Nature de l'editeur). */
+export const DEPOSIT_ROCK_MODEL = 'kaykit_rock_single_E';
 
-/**
- * Place `mesh` a cote de `anchor` (meme niveau de sol, jamais empile dessus)
- * a une distance et un angle donnes, en restant dans l'emprise autorisee.
- * `cloneScaledTo` a deja recentre `mesh` sur (0,0) et pose son pied a y=0 :
- * on ajoute simplement le decalage voulu par-dessus.
- */
-function placeBeside(mesh: THREE.Group, anchor: THREE.Group, angle: number, dist: number, halfW: number, halfD: number, random: () => number): void {
-  const x = clamp(anchor.position.x + Math.cos(angle) * dist, -halfW, halfW);
-  const z = clamp(anchor.position.z + Math.sin(angle) * dist, -halfD, halfD);
-  mesh.position.x += x;
-  mesh.position.z += z;
-  mesh.rotation.y = random() * Math.PI * 2;
+/** Largeur du rocher rapportee a l'emprise (un peu plus present que l'ancien
+ *  amas, sans deborder de ses cases bloquantes). */
+const DEPOSIT_WIDTH_RATIO = 0.95;
+
+const goldOre = new THREE.MeshStandardMaterial({ color: 0xf2c24a, metalness: 0.65, roughness: 0.35, emissive: 0x3d2800, flatShading: true });
+const goldVein = new THREE.MeshStandardMaterial({ color: 0xd9a52e, metalness: 0.5, roughness: 0.45, emissive: 0x2a1a00, flatShading: true });
+
+/** Petit hachage deterministe (aspect stable d'un gisement donne). */
+function seeded(seed: number): () => number {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-/** Petites pierres eparpillees au pied du rocher, comme sur la photo de
- *  reference : contrairement a la masse principale, elles peuvent deborder
- *  legerement de l'emprise (meme logique que la cime d'un arbre, voir
- *  createTreeObstacle) — purement decoratives, elles ne bloquent rien de
- *  plus que ce que le rocher bloque deja. */
-function scatterBaseStones(rock: THREE.Group, width: number, depth: number, debrisModels: THREE.Group[], random: () => number): void {
-  const count = 2 + Math.floor(random() * 4);
-  const halfW = width / 2;
-  const halfD = depth / 2;
-
+/** Veines et pepites d'or posees SUR le rocher : on vise la surface depuis
+ *  l'exterieur (rayon), a mi-hauteur et vers le haut, pour des morceaux
+ *  dores lisibles de loin sans transformer le rocher en objet brillant. */
+function addGoldOre(rock: THREE.Object3D, seed: number): void {
+  rock.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(rock);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const meshes: THREE.Mesh[] = [];
+  rock.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
+  });
+  const raycaster = new THREE.Raycaster();
+  const rand = seeded(seed);
+  const radius = Math.max(size.x, size.z);
+  const ore = new THREE.Group();
+  const count = 9;
   for (let i = 0; i < count; i++) {
-    const angle = random() * Math.PI * 2;
-    const ringDist = Math.max(halfW, halfD) * (0.85 + random() * 0.35);
-    const size = 0.25 + random() * 0.3;
-
-    const stone = cloneScaledTo(pickRandom(debrisModels, random), size, 'width');
-    stone.position.x += Math.cos(angle) * ringDist;
-    stone.position.z += Math.sin(angle) * ringDist;
-    stone.rotation.y = random() * Math.PI * 2;
-    rock.add(stone);
+    const a = (i / count) * Math.PI * 2 + rand() * 0.6;
+    const h = box.min.y + size.y * (0.25 + rand() * 0.6);
+    const from = new THREE.Vector3(center.x + Math.cos(a) * radius * 1.5, h, center.z + Math.sin(a) * radius * 1.5);
+    raycaster.set(from, new THREE.Vector3(center.x, h, center.z).sub(from).normalize());
+    const hit = raycaster.intersectObjects(meshes, false)[0];
+    if (!hit) continue;
+    const s = radius * (0.05 + rand() * 0.04);
+    const nugget = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), i % 3 === 0 ? goldVein : goldOre);
+    nugget.position.copy(hit.point);
+    nugget.scale.set(1.3, 0.8 + rand() * 0.5, 1);
+    nugget.rotation.set(rand() * 3, rand() * 3, rand() * 3);
+    nugget.castShadow = true;
+    ore.add(nugget);
+    // Veine : un second morceau aplati juste a cote, le long de la paroi.
+    if (i % 2 === 0) {
+      const vein = new THREE.Mesh(new THREE.IcosahedronGeometry(s * 0.7, 0), goldVein);
+      vein.position.copy(hit.point).addScaledVector(new THREE.Vector3(-Math.sin(a), 0.35, Math.cos(a)), s * 1.4);
+      vein.scale.set(1.6, 0.45, 0.9);
+      vein.rotation.y = a;
+      ore.add(vein);
+    }
   }
+  // Coordonnees du rocher seul (sans parent) -> son repere local.
+  const inverse = new THREE.Matrix4().copy(rock.matrixWorld).invert();
+  for (const piece of ore.children) piece.applyMatrix4(inverse);
+  rock.add(ore);
 }
 
 /**
- * Rocher : composition HORIZONTALE, pas empilee — revirement du 2026-08-08
- * apres que la structure precedente (plusieurs "tiers" de blocs empiles du
- * bas vers le haut, y compris avec de vrais modeles .glb) ait quand meme
- * produit un look de "totem"/colonne verticale. Antoine a demande d'abandonner
- * l'empilement en hauteur : une masse principale posee au sol (70-80 % du
- * plus petit cote de l'emprise), une masse secondaire ACCOLEE LATERALEMENT au
- * meme niveau (jamais dessus), parfois une troisieme plus petite, puis des
- * debris au pied. La hauteur finale vient uniquement des proportions
- * naturelles des modeles choisis (voir assetLibrary.ts, ROCK_MASS_MODELS —
- * deliberement filtre aux modeles mesures larges/bas, jamais les rock_tall*),
- * jamais d'un empilement artificiel.
- *
- * Suite (meme jour) : cette premiere version lisait "trop plate, comme des
- * dalles" — la masse principale et la secondaire piochent maintenant en
- * priorite dans ROCK_TALL_MASS_MODELS (sous-ensemble de ROCK_MASS_MODELS
- * naturellement le plus haut, ratio largeur/hauteur mesure 0.42-0.53) plutot
- * que dans tout le pool (qui descendait jusqu'a 0.26) — cible d'Antoine :
- * hauteur visuelle finale autour de 40-60 % de la largeur de la masse
- * principale. Toujours aucun scale non-uniforme : on choisit le bon modele
- * au depart plutot que de deformer un modele plat pour le faire paraitre haut.
- *
- * La silhouette suit l'emprise exacte de l'obstacle de simulation (voir
- * OBSTACLES) pour que ce qu'on voit et ce qui bloque les tirs soient toujours
- * le meme objet — seules les masses principale/secondaire/tertiaire y sont
- * contraintes ; les petites pierres au pied peuvent deborder legerement,
- * purement decoratif.
+ * Gros gisement (`kind: 'rock'`, 2026-11-02) : le « Rocher E » KayKit,
+ * calé sur l'emprise (DEPOSIT_WIDTH_RATIO), orientation fixée par la graine
+ * d'aspect ou `rotationY`. Gisement d'or (`ore: 'gold'`) : même rocher, avec
+ * des veines et pépites dorées (procédurales, aucun asset dédié). Remplace
+ * l'ancien amas de rochers.
  */
 export function createRock(def: ObstacleDef, assets: EnvironmentAssets, random: () => number): THREE.Group {
-  const rock = new THREE.Group();
   const width = def.tilesX * TILE;
   const depth = def.tilesZ * TILE;
   const { x: centerX, z: centerZ } = obstacleCenter(def);
-  const minSide = Math.min(width, depth);
-  const halfInsetW = (width * FOOTPRINT_INSET) / 2;
-  const halfInsetD = (depth * FOOTPRINT_INSET) / 2;
-
-  const mainSize = minSide * (0.7 + random() * 0.1);
-  const main = cloneScaledTo(pickRandom(assets.rockTallMasses, random), mainSize, 'width');
-  main.position.x += clamp((random() - 0.5) * (halfInsetW * 2 - mainSize), -halfInsetW, halfInsetW);
-  main.position.z += clamp((random() - 0.5) * (halfInsetD * 2 - mainSize), -halfInsetD, halfInsetD);
-  main.rotation.y = random() * Math.PI * 2;
-  rock.add(main);
-
-  // Secondaire : puise dans le pool "haut" une fois sur deux pour renforcer
-  // la presence verticale globale (demande d'Antoine), sinon dans le pool
-  // complet ou les dalles plates pour garder un peu de variete de silhouette.
-  const secondarySize = mainSize * (0.4 + random() * 0.15);
-  const secondaryRoll = random();
-  const secondaryPrototype =
-    secondaryRoll < 0.4
-      ? pickRandom(assets.rockTallMasses, random)
-      : secondaryRoll < 0.7
-        ? pickRandom(assets.rockMasses, random)
-        : pickRandom(assets.rockFlatAccents, random);
-  const secondary = cloneScaledTo(secondaryPrototype, secondarySize, 'width');
-  const angle1 = random() * Math.PI * 2;
-  // Distance choisie pour un leger chevauchement (les deux masses se
-  // touchent/fusionnent), plutot que d'etre simplement posees cote a cote
-  // sans contact visuel.
-  const dist1 = (mainSize + secondarySize) * 0.32;
-  placeBeside(secondary, main, angle1, dist1, halfInsetW, halfInsetD, random);
-  rock.add(secondary);
-
-  if (random() < 0.5) {
-    const tertiarySize = mainSize * (0.22 + random() * 0.13);
-    const tertiary = cloneScaledTo(pickRandom(assets.rockMasses, random), tertiarySize, 'width');
-    const angle2 = angle1 + Math.PI * (0.6 + random() * 0.8);
-    const dist2 = (mainSize + tertiarySize) * 0.32;
-    placeBeside(tertiary, main, angle2, dist2, halfInsetW, halfInsetD, random);
-    rock.add(tertiary);
-  }
-
-  scatterBaseStones(rock, width, depth, assets.rockDebris, random);
-
-  // Rotation d'ensemble optionnelle (voir ObstacleDef.rotationY) : tourne
-  // tout le cluster compose (main+secondaire+tertiaire+debris) autour de son
-  // propre centre, par-dessus les rotations aleatoires internes de chaque
-  // sous-partie — utilisee par l'editeur de maps pour que la rotation
-  // choisie par Antoine survive au lieu d'etre re-tiree au hasard. Absente
-  // par defaut : comportement inchange (pas de rotation d'ensemble).
-  if (def.rotationY !== undefined) rock.rotation.y = def.rotationY;
-
-  rock.position.set(centerX, 0, centerZ);
-  return rock;
+  const prototype = assets.propsByName[DEPOSIT_ROCK_MODEL];
+  const root = new THREE.Group();
+  if (!prototype) throw new Error(`Rocher inconnu : ${DEPOSIT_ROCK_MODEL}`);
+  const rock = cloneScaledTo(prototype, Math.min(width, depth) * DEPOSIT_WIDTH_RATIO * (def.scale ?? 1), 'width');
+  const yaw = def.rotationY ?? random() * Math.PI * 2;
+  rock.rotation.y = yaw;
+  root.add(rock);
+  if (def.ore === 'gold') addGoldOre(rock, Math.round(centerX * 73 + centerZ * 131) >>> 0);
+  root.position.set(centerX, 0, centerZ);
+  return root;
 }

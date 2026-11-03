@@ -149,6 +149,8 @@ export class HeroInventoryPanel {
       this.statKey = statKey;
       this.renderStats(info);
     }
+    const goldText = `🪙 ${Math.floor(info.gold ?? 0)}`;
+    if (this.gold.textContent !== goldText) this.gold.textContent = goldText;
     const bagKey = JSON.stringify([info.body, info.cells, info.capacity]);
     if (bagKey !== this.shown && !this.drag) {
       this.shown = bagKey;
@@ -164,13 +166,16 @@ export class HeroInventoryPanel {
   private readonly spells = el('div', 'hero-inventory-stats');
   private readonly bagTitle = el('div', 'hero-inventory-section');
   private readonly grid = el('div', 'inventory-grid');
+  /** Or du joueur (monnaie, 2026-11-02) : sous la grille, jamais une case. */
+  private readonly gold = el('div', 'hero-inventory-gold');
 
   private build(): void {
     this.built = true;
     const left = el('div', 'hero-inventory-character');
     left.append(el('div', 'hero-inventory-section', 'Équipement'), this.doll, el('div', 'hero-inventory-section', 'Statistiques'), this.stats, el('div', 'hero-inventory-section', 'Sorts'), this.spells);
     const right = el('div', 'hero-inventory-bag');
-    right.append(this.bagTitle, this.grid, el('div', 'hero-inventory-detail hero-inventory-hint', 'Glisser-déposer : ranger, fusionner, équiper. Double-clic : équiper / retirer. Bois, pierre et or se déposent à la Baliste.'));
+    this.gold.title = 'Or du joueur (monnaie) : même valeur que le HUD en haut à droite';
+    right.append(this.bagTitle, this.grid, this.gold, el('div', 'hero-inventory-detail hero-inventory-hint', 'Glisser-déposer : ranger, fusionner, équiper. Double-clic : équiper / retirer. Bois et pierre se déposent à la Baliste ; l’or est une monnaie.'));
     this.body.replaceChildren(left, right);
     // Fin d'un glisser hors d'une case : la grille peut de nouveau suivre.
     document.addEventListener('dragend', () => (this.drag = null));

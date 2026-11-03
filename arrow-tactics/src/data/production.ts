@@ -15,6 +15,8 @@ const UNIT_PRODUCTION_SECONDS: Readonly<Record<string, number>> = {
   mage: 14,
   oracle: 14,
   vengeur: 16,
+  cavalier: 12,
+  villageois: 8,
 };
 const DEFAULT_PRODUCTION_SECONDS = 10;
 

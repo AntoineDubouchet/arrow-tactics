@@ -477,12 +477,15 @@ export interface ObstacleDef {
    *  bloque collision et trajets des unites sans
    *  `UnitStats.canTraverseWater`, jamais les tirs (`blocksShots: false`). */
   terrainWater?: boolean;
-  /** Arbre synthetique (2026-11-02, demande d'Antoine : une case contenant
-   *  un arbre bloque les unites terrestres) : cases des arbres de la carte
-   *  (config/resourceNodes.ts, treeFootprintCells), injectees par
+  /** Source de ressource synthetique (2026-11-02 : arbres, puis gros
+   *  gisements de pierre et d'or) : cases des sources debout de la carte
+   *  (config/resourceNodes.ts, resourceNodeCells), injectees par
    *  World.setMap, jamais dans MapDef.obstacles ni rendues. Bloque collision
    *  et trajets, jamais les tirs (`blocksShots: false`). */
-  terrainTree?: boolean;
+  terrainResource?: boolean;
+  /** Rocher (`kind: 'rock'`, gros gisement) : minerai. `gold` : gisement
+   *  d'or (2026-11-02). Absent : gisement de pierre. */
+  ore?: 'gold';
   /** Emprise GEOMETRIQUE d'une piece de mur V2 (2026-11-02, core/wallLine.ts) :
    *  capsule autour du segment (ax, az) -> (bx, bz), de demi-epaisseur
    *  `halfWidth`, a n'importe quel angle. `x`/`z`/`tilesX`/`tilesZ` en sont

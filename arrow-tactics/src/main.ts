@@ -236,7 +236,7 @@ import { HeroInventoryPanel } from './ui/heroInventory';
 import { ItemEditor } from './itemEditor/itemEditorUI';
 import { equippedHandVisuals } from './run/heroEquipment';
 import { carriedResourceTotal, createHeroInventory, inventoryItems, type InventoryAction } from './sim/inventory';
-import { canHarvestResource, HARVEST_NODE_KINDS, RESOURCE_ITEMS } from './data/resources';
+import { canHarvestResource, HARVEST_NODE_KINDS, HARVEST_TOOLS, RESOURCE_ITEMS } from './data/resources';
 import { EconomyHud } from './ui/economyHud';
 import { ActionProgressBar } from './ui/actionProgress';
 import { EQUIPMENT, type EquipmentSlot } from './data/equipment';
@@ -637,18 +637,19 @@ function clearOwnedBuildingViews(): void {
  *  quelconque dans sa zone, pas necessairement alignee sur un coin de bloc
  *  pair). */
 function ownedBuildingObstacle(owned: OwnedBuilding): ObstacleDef {
-  return gameplayBuildingObstacle(owned.buildingId, owned.x, owned.z, owned.rotationY ?? 0);
+  return gameplayBuildingObstacle(owned.buildingId, owned.x, owned.z, owned.rotationY ?? 0, owned.modelVariant);
 }
 
 /** Emprise de collision et modele d'un batiment GAMEPLAY centre en (x, z) :
  *  la meme pour un batiment possede, un batiment de scenario de l'editeur
  *  et son instance dans « Tester le scénario ». */
-function gameplayBuildingObstacle(buildingId: string, x: number, z: number, rotationY = 0): ObstacleDef {
+function gameplayBuildingObstacle(buildingId: string, x: number, z: number, rotationY = 0, modelVariant?: number): ObstacleDef {
   const def = getBuilding(buildingId);
   const { tilesX, tilesZ } = buildingFootprintTiles(buildingId);
   return {
     kind: 'building',
-    buildingModel: def.buildingModel,
+    // Variante visuelle (Maison A/B, 2026-11-03) : meme batiment de jeu.
+    buildingModel: (modelVariant !== undefined ? def.modelVariants?.[modelVariant] : undefined) ?? def.buildingModel,
     tilesX,
     tilesZ,
     x,
@@ -1891,8 +1892,8 @@ function onValidatePlacement(): void {
   // Entity associee, resterait bloque pour toujours meme apres destruction.
   world.setMap(currentMap);
 
-  // Recolte avancee (Scierie, Camp de mineur) resolue cote run ; tas au sol
-  // deja entames pendant les manches precedentes.
+  // Outils de recolte (Forge) resolus avant chaque pas ; tas au sol deja
+  // entames pendant les manches precedentes.
   world.applyResourcePileAmounts(currentRun.resourcePileAmounts);
   for (const slot of placementSlots) {
     if (slot.x === null || slot.z === null) continue;
@@ -2036,6 +2037,7 @@ function clearScenarioBuildingMeshes(): void {
 
 function forgetBattleBuildings(): void {
   ballistaEntityId = null;
+  harvestToolsAnnounced = false;
   levelUpVfx.clear();
   cancelWallPlacement();
   clearWallViews();
@@ -2555,7 +2557,7 @@ function heroSheet(): ReturnType<typeof heroSheetInfo> | null {
   const hero = playerHero();
   if (!hero?.hero || !inBattlePhase() || inTestMode) return null;
   const next = HERO_LEVELS.find((l) => l.level === hero.hero!.level + 1);
-  return heroSheetInfo(hero, getHero(hero.hero.heroId).name, next ? next.xp : null);
+  return { ...heroSheetInfo(hero, getHero(hero.hero.heroId).name, next ? next.xp : null), gold: currentRun.gold };
 }
 
 /** Anneau du depot `entity` : centre et rayon couvrant son emprise. */
@@ -2617,10 +2619,10 @@ function updateHeroUi(): void {
   resourceSelectionRing.animate(0);
   if (selectedPileId !== null && pile) {
     const at = worldToScreen(pile.x, pile.z);
-    pileLabel.show(`${RESOURCE_ITEMS[pile.resource].name} — ${pile.amount}`, at.x, at.y - 22);
+    pileLabel.show(`${pile.resource === 'gold' ? 'Or' : RESOURCE_ITEMS[pile.resource].name} — ${pile.amount}`, at.x, at.y - 22);
   } else if (shownSource) {
     const at = worldToScreen(shownSource.x, shownSource.z);
-    pileLabel.show(`${HARVEST_NODE_KINDS[shownSource.resource].name} — ${sourceLeft ?? 0} ${shownSource.resource === 'wood' ? 'bois' : 'pierre'}`, at.x, at.y - 22);
+    pileLabel.show(`${HARVEST_NODE_KINDS[shownSource.resource].name} — ${sourceLeft ?? 0} ${HARVEST_NODE_KINDS[shownSource.resource].unit}`, at.x, at.y - 22);
   } else {
     pileLabel.hide();
   }
@@ -2878,8 +2880,9 @@ function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
     const time = i === 0 ? `${Math.ceil(order.remaining)} s` : 'en attente';
     actions.push({ id: 'cancelProduction', payload: String(order.id), label: `${i + 1}. ${what} — ${time} ✕`, enabled: true, hint: 'Clic : annuler (or rendu)' });
   });
-  // Point de ralliement (2026-11-02) : batiment producteur.
-  if (getBuilding(owned.buildingId).production) {
+  // Point de ralliement (2026-11-02) : batiment producteur (toute unite
+  // produite par sa file : Caserne, Sanctuaire, Ecurie, Eglise... 2026-11-03).
+  if (producibleUnits(owned.buildingId, level).length > 0) {
     actions.push({ id: 'setRally', label: entity.rally ? 'Ralliement : déplacer' : 'Ralliement', enabled: true, hint: 'Puis clic sur le terrain : les unités produites y marchent' });
     if (entity.rally) actions.push({ id: 'clearRally', label: 'Retirer le ralliement', enabled: true });
   }
@@ -3033,13 +3036,62 @@ function applyOwnedLevelToEntity(entity: Entity, owned: OwnedBuilding): void {
  *  bloquants (jamais dans la simulation ni dans la carte). PROVISOIRE. */
 const STUMP_MODEL = 'stump_roundDetailed';
 const STUMP_SCALE = 0.55;
-const RUBBLE_SCALE = 0.3;
+const RUBBLE_SCALE = 0.45;
+/** Gravats d'un gisement epuise (pierre, or) : petit rocher KayKit, decor
+ *  non bloquant (2026-11-02). */
+const RUBBLE_MODEL = 'kaykit_rock_single_B';
 
 /** Sources epuisees (apres chaque pas, World.resourceDepletedEvents) : l'arbre
  *  ou le rocher disparait du plateau (decor instancie, ou maillage d'une carte
  *  dessinee) ; une souche decorative remplace l'arbre (une par case liberee
  *  d'un bosquet), un petit rocher (gravats) le gisement. Rendu seulement :
  *  cases et pathfinding sont deja a jour dans la simulation. */
+// --- Or monnaie (2026-11-02) ------------------------------------------------
+
+/** Tas d'or ramasse d'un clic : credit IMMEDIAT de la monnaie du joueur, le
+ *  tas disparait (World.collectGoldPile). Tout or au sol (ennemis, camps,
+ *  barils) suit cette regle. */
+function collectGoldPile(pileId: number): void {
+  const pile = world.resourcePiles[pileId];
+  const amount = world.collectGoldPile(pileId);
+  if (amount <= 0 || !pile) return;
+  if (!inTestMode) {
+    currentRun.gold = roundGold(currentRun.gold + amount);
+    recordGoldEarned(battleSummary, amount);
+    currentRun.resourcePileAmounts[pileId] = 0;
+  }
+  if (selectedPileId === pileId) selectedPileId = null;
+  spawnCoinPopup(screens.shopGoldElement, amount);
+  waveIndicator.flash(`+${formatGold(amount)} or`);
+}
+
+/** Or extrait d'un gisement pendant le dernier pas (Heros, Villageois) :
+ *  credite a la monnaie du joueur, jamais dans un sac. */
+function creditMinedGold(): void {
+  const amount = world.goldMinedEvents.reduce((sum, ev) => sum + ev.amount, 0);
+  if (amount <= 0 || inTestMode) return;
+  currentRun.gold = roundGold(currentRun.gold + amount);
+  recordGoldEarned(battleSummary, amount);
+}
+
+/** Bois et pierre verses au depot par les Villageois pendant le dernier pas
+ *  (2026-11-03) : ajoutes au stock de la run, comme un depot du Heros. */
+function creditWorkerDeposits(): void {
+  if (inTestMode) return;
+  for (const ev of world.workerDepositEvents) currentRun.resources[ev.resource] += ev.amount;
+}
+
+/** Outils de la Forge deja annonces pendant cette partie (une seule fois,
+ *  meme apres la perte puis la reconstruction d'une Forge). */
+let harvestToolsAnnounced = false;
+
+/** Premiere Forge terminee : « Nouveaux outils disponibles » (une fois). */
+function announceHarvestTools(): void {
+  if (harvestToolsAnnounced || world.harvestPermissions.tools.length === 0 || !inBattlePhase()) return;
+  harvestToolsAnnounced = true;
+  waveIndicator.flash(`Nouveaux outils disponibles : ${world.harvestPermissions.tools.map((t) => HARVEST_TOOLS[t].name).join(' et ')}.`);
+}
+
 function handleDepletedResources(): void {
   for (const depleted of world.resourceDepletedEvents) {
     if (!board.decor?.hide(depleted.x, depleted.z)) {
@@ -3050,7 +3102,7 @@ function handleDepletedResources(): void {
     for (const spot of spots) {
       const remains: ObstacleDef = depleted.resource === 'wood'
         ? { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: STUMP_MODEL, scale: STUMP_SCALE, x: spot.x, z: spot.z }
-        : { kind: 'rock', tilesX: 1, tilesZ: 1, scale: RUBBLE_SCALE, x: spot.x, z: spot.z };
+        : { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: RUBBLE_MODEL, scale: RUBBLE_SCALE, x: spot.x, z: spot.z };
       const mesh = buildObstacleMesh(remains, environmentAssets);
       placeObstacleMesh(mesh, remains);
       mesh.userData[depleted.resource === 'wood' ? 'stump' : 'rubble'] = depleted.nodeId;
@@ -3073,7 +3125,7 @@ function handleProductionUpgrades(): void {
 }
 
 /** Amelioration, Forge, Eglise depuis la fiche, en temps reel. */
-function realtimeBuildingAction(id: 'upgradeBuilding' | 'healArmy' | 'openForge' | 'openChurchUpgrades'): void {
+function realtimeBuildingAction(id: 'upgradeBuilding' | 'healArmy' | 'openForge' | 'openShrineUpgrades'): void {
   const inspected = inspectedOwnedBuilding();
   if (!inspected || inspected.entity.construction || pauseMenuOpen || buildingPlacementMode) return;
   const { entity, index, owned } = inspected;
@@ -3097,7 +3149,7 @@ function realtimeBuildingAction(id: 'upgradeBuilding' | 'healArmy' | 'openForge'
     currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
     for (const e of world.entities) if (e.alive && e.team === 'player' && !e.isBuilding) e.hp = e.stats.maxHp;
   } else {
-    const site: RunUpgradeSite = id === 'openForge' ? 'forge' : 'church';
+    const site: RunUpgradeSite = id === 'openForge' ? 'forge' : 'shrine';
     if (owned.buildingId !== site || screens.isForgeOpen()) return;
     disarmItem();
     forgePausedTimeScale = loop.timeScale;
@@ -3210,7 +3262,7 @@ function onEntityInfoAction(id: EntityInfoAction['id'], payload?: string): void 
     entityInfoSelectionKey = '';
     return;
   }
-  if (!inPlacementPhase && inBattlePhase() && (id === 'upgradeBuilding' || id === 'healArmy' || id === 'openForge' || id === 'openChurchUpgrades')) {
+  if (!inPlacementPhase && inBattlePhase() && (id === 'upgradeBuilding' || id === 'healArmy' || id === 'openForge' || id === 'openShrineUpgrades')) {
     realtimeBuildingAction(id);
     return;
   }
@@ -3228,7 +3280,7 @@ function onEntityInfoAction(id: EntityInfoAction['id'], payload?: string): void 
   }
   const selected = selectedBuildingIndex !== null ? currentRun.buildings[selectedBuildingIndex] : undefined;
   if (id === 'openForge' && selected?.buildingId === 'forge') openForge('forge');
-  if (id === 'openChurchUpgrades' && selected?.buildingId === 'church') openForge('church');
+  if (id === 'openShrineUpgrades' && selected?.buildingId === 'shrine') openForge('shrine');
 }
 
 /** "Soigner l'armée" depuis la fiche d'une Eglise : preparation uniquement,
@@ -6005,10 +6057,12 @@ function issueRightClickOrder(event: MouseEvent): void {
   const point = computeGroundPoint(event);
   if (!point) return;
   // Heros : chantier allie vise -> construire ; arbre ou rocher vise ->
-  // recolter. Les autres unites selectionnees s'y deplacent.
+  // recolter. Villageois (2026-11-03) : source visee -> recolter, depot vise
+  // -> deposer. Les autres unites selectionnees s'y deplacent.
   const heroIds = entityIds.filter((id) => world.getById(id)?.hero);
-  if (heroIds.length > 0) {
-    const others = entityIds.filter((id) => !heroIds.includes(id));
+  const workerIds = entityIds.filter((id) => world.getById(id)?.worker);
+  if (heroIds.length > 0 || workerIds.length > 0) {
+    const others = entityIds.filter((id) => !heroIds.includes(id) && !workerIds.includes(id));
     const depot = picked !== null && picked.team === 'player' && !picked.construction && picked.isBuilding && getBuilding(picked.unitId).resourceDepot ? picked : battleDepotAt(point.x, point.z);
     const site = depot ? null : picked !== null && picked.team === 'player' && picked.construction ? picked : battleChantierAt(point.x, point.z);
     const chest = depot || site ? null : chestNear(point.x, point.z);
@@ -6020,7 +6074,7 @@ function issueRightClickOrder(event: MouseEvent): void {
     const drop = depot || site || chest ? null : itemDropNear(point.x, point.z);
     const pile = depot || site || chest || drop ? null : resourcePileNear(point.x, point.z);
     const node = depot || site || chest || drop || pile ? null : resourceNodeAtClick(event.clientX, event.clientY, point);
-    const command: PlayerCommand | null = depot
+    const command: PlayerCommand | null = heroIds.length === 0 ? null : depot
       ? { kind: 'deposit', entityIds: heroIds, targetEntityId: depot.id }
       : site
         ? { kind: 'build', entityIds: heroIds, targetEntityId: site.id }
@@ -6033,25 +6087,41 @@ function issueRightClickOrder(event: MouseEvent): void {
           : node
             ? { kind: 'harvest', entityIds: heroIds, nodeId: node.id }
             : null;
-    if (command) {
+    const workerCommand: PlayerCommand | null = workerIds.length === 0 ? null
+      : depot ? { kind: 'deposit', entityIds: workerIds, targetEntityId: depot.id }
+      : node ? { kind: 'harvest', entityIds: workerIds, nodeId: node.id }
+      : null;
+    // Tas d'or (monnaie, 2026-11-02) : ramasse IMMEDIATEMENT, sans
+    // deplacement ni sac ni depot (le tas disparait, l'or est credite).
+    if (pile && pile.resource === 'gold' && (!fogActive() || fogOfWar!.isExplored(pile.x, pile.z))) {
+      collectGoldPile(pile.id);
+      return;
+    }
+    if (command || workerCommand) {
       if (node) {
         // Source visee : selectionnee (anneau jaune), recoltable ou non.
         selectedResourceNodeId = node.id;
         selectedPileId = null;
-        // Arbre sans Scierie, gros rocher sans Camp de mineur (2026-11-02,
-        // demande d'Antoine) : interaction reconnue ET deplacement autorise,
-        // jamais « clic consomme » — le Heros va voir la ressource, sans la
-        // recolter ; la raison est rappelee.
+        // Source sans l'outil (pas de Forge terminee, 2026-11-02) :
+        // interaction reconnue ET deplacement autorise, jamais « clic
+        // consomme » — le Heros va voir la ressource, sans la recolter ; la
+        // raison est rappelee.
         if (!canHarvestResource(world.harvestPermissions, node.resource)) {
-          waveIndicator.flash(node.resource === 'wood' ? 'Couper les arbres : il faut une Scierie' : 'Exploiter ce gisement : il faut un Camp de mineur');
-          const hero = world.getById(heroIds[0]!);
-          const approach = hero ? resourceApproachPoint(node, hero) : point;
-          world.issueCommand({ kind: 'move', entityIds: heroIds, x: approach.x, z: approach.z });
+          waveIndicator.flash(`${HARVEST_NODE_KINDS[node.resource].tool === 'axe' ? 'Couper les arbres' : 'Exploiter ce gisement'} : il faut une Forge (${HARVEST_TOOLS[HARVEST_NODE_KINDS[node.resource].tool].name})`);
+          // Heros et Villageois vont au pied de la source.
+          for (const ids of [heroIds, workerIds]) {
+            const first = ids.length > 0 ? world.getById(ids[0]!) : undefined;
+            if (!first) continue;
+            const approach = resourceApproachPoint(node, first);
+            world.issueCommand({ kind: 'move', entityIds: ids, x: approach.x, z: approach.z });
+          }
           if (others.length > 0) world.issueCommand({ kind: 'move', entityIds: others, x: point.x, z: point.z });
           return;
         }
       }
-      world.issueCommand(command);
+      if (command) world.issueCommand(command);
+      if (workerCommand) world.issueCommand(workerCommand);
+      else if (workerIds.length > 0) world.issueCommand({ kind: 'move', entityIds: workerIds, x: point.x, z: point.z });
       if (others.length > 0) world.issueCommand({ kind: 'move', entityIds: others, x: point.x, z: point.z });
       return;
     }
@@ -6079,8 +6149,8 @@ function battleDepotAt(x: number, z: number): Entity | null {
 
 /** Petit tas au sol encore present le plus proche de (x, z), a moins de
  *  0,8 case (clic facile sur un petit objet), ou null. */
-function resourcePileNear(x: number, z: number): { id: number } | null {
-  let best: { id: number } | null = null;
+function resourcePileNear(x: number, z: number): (typeof world.resourcePiles)[number] | null {
+  let best: (typeof world.resourcePiles)[number] | null = null;
   let bestD = 0.8;
   for (const p of world.resourcePiles) {
     if (p.amount <= 0) continue;
@@ -6125,8 +6195,8 @@ function itemDropNear(x: number, z: number): { id: number } | null {
 
 /** Source de ressource (arbre, rocher) la plus proche de (x, z) a moins d'une
  *  case, ou null. */
-function resourceNodeNear(x: number, z: number): { id: number; resource: ResourceKind } | null {
-  let best: { id: number; resource: ResourceKind } | null = null;
+function resourceNodeNear(x: number, z: number): ResourceNode | null {
+  let best: ResourceNode | null = null;
   let bestD = 1.1;
   for (const n of world.resourceNodes.values()) {
     // Arbre epuise : plus une source.
@@ -6229,14 +6299,10 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
       if (!inTestMode) currentRun.resourcePileAmounts[ev.pileId] = ev.remaining;
     } else if (ev.type === 'deposit') {
       // Depot a la Baliste : seul chemin du sac vers le stock utilisable
-      // (bois, pierre, or ; 2026-11-02).
+      // (bois, pierre ; l'or est une monnaie depuis le 2026-11-02).
       if (!inTestMode) {
         currentRun.resources.wood += ev.wood;
         currentRun.resources.stone += ev.stone;
-        if (ev.gold > 0) {
-          currentRun.gold = roundGold(currentRun.gold + ev.gold);
-          recordGoldEarned(battleSummary, ev.gold);
-        }
       }
       // Une unite a la fois (0,5 s chacune) : annonce a la fin du sac.
       if (ev.remaining === 0) waveIndicator.flash(`Dépôt terminé — stock : ${currentRun.resources.wood} bois, ${currentRun.resources.stone} pierre, ${formatGold(currentRun.gold)} or`);
@@ -6809,11 +6875,11 @@ function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: numb
   if (onObstacle) return false;
   // Eau (isWaterSurface) : ni unite, ni batiment, ni mur.
   if (isWaterTile(tileX, tileZ)) return false;
-  // Arbre (2026-11-02) : sa case bloque les unites terrestres, donc aussi
-  // toute pose (batiment, chantier, mur, Baliste, unite) — regle unique
-  // des cases d'arbre (config/resourceNodes.ts, treeCellKeys). Arbre abattu :
-  // sa case redevient constructible (World.treeCells, arbres debout).
-  if (world.treeCells.has(cellKey(Math.floor(tileX), Math.floor(tileZ)))) return false;
+  // Source debout (arbre, gros gisement de pierre ou d'or, 2026-11-02) : sa
+  // case bloque les unites terrestres, donc aussi toute pose (batiment,
+  // chantier, mur, Baliste, unite) — regle unique (config/resourceNodes.ts,
+  // resourceNodeCellKeys). Source epuisee : case de nouveau constructible.
+  if (world.resourceCells.has(cellKey(Math.floor(tileX), Math.floor(tileZ)))) return false;
 
   // Batiments (2026-11-02, demande d'Antoine) : plus de limite de
   // territoire, seulement une case de la carte (hors carte refuse).
@@ -7240,6 +7306,12 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
   payBuildingResources(buildingPlacementMode.buildingId);
   const rotationY = buildingPlacementMode.rotationY;
+  // Variante visuelle alternee (Maison A, B, A... ; 2026-11-03) : d'apres le
+  // nombre d'exemplaires deja POSES pendant la run, jamais d'apres ceux
+  // encore debout (une destruction ne change aucune autre Maison).
+  const placed = currentRun.placedBuildingCounts[def.id] ?? 0;
+  currentRun.placedBuildingCounts[def.id] = placed + 1;
+  const modelVariant = def.modelVariants ? placed % def.modelVariants.length : undefined;
   // CHANTIER (direction Hero RTS) : le Heros le construit en bataille.
   currentRun.buildings.push({
     buildingId: def.id,
@@ -7247,6 +7319,7 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
     z: cornerZ + tilesZ / 2,
     hp: Math.max(1, Math.round(def.maxHp * CONSTRUCTION_START_HP_FRACTION)),
     rotationY,
+    ...(modelVariant !== undefined ? { modelVariant } : {}),
     constructionProgress: 0,
   });
   spawnCoinPopup(screens.shopGoldElement, -cost);
@@ -7393,18 +7466,17 @@ function clearWallGhost(): void {
  *  chantiers (Baliste comprise), murs existants, corps des unites. Memes
  *  regles que l'editeur (core/wallLine.ts, checkWallLine). */
 function runtimeWallContext(): WallPlacementContext {
-  const trees = [...world.treeCells].map((k) => {
+  // Sources debout (arbres, gros gisements) : la ligne ne les traverse pas.
+  const sources = [...world.resourceCells].map((k) => {
     const [x, z] = k.split(',').map(Number) as [number, number];
     return { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
   });
   const blocking = currentMap.obstacles.filter(isBlockingMapObstacle).map(obstacleBounds);
-  // Gros gisements de pierre encore debout : la ligne ne les traverse pas.
-  const deposits = [...world.resourceNodes.values()].filter((n) => n.resource === 'stone' && !world.depletedResourceNodes.has(n.id) && currentMap.obstacles[n.id]).map((n) => obstacleBounds(currentMap.obstacles[n.id]!));
   return {
     isCell: (x, z) => isMapTile(x, z),
     isWater: (x, z) => isWaterTile(x, z),
     crossesCliff: (s) => crossesTerrainCliff(s.ax, s.az, s.bx, s.bz, world.obstacles),
-    obstacles: [...trees, ...blocking, ...deposits],
+    obstacles: [...sources, ...blocking],
     buildings: world.entities.filter((e) => e.alive && e.isBuilding && !e.wall && e.footprintObstacle).map((e) => obstacleBounds(e.footprintObstacle!)),
     walls: world.entities.filter((e) => e.alive && e.wall).map((e) => e.wall!),
     bodies: world.entities.filter((e) => e.alive && !e.isBuilding).map((e) => ({ x: e.x, z: e.z, r: e.stats.radius })),
@@ -7768,10 +7840,13 @@ let lastRealTime = performance.now();
 
 const loop = new Loop(
   (dt) => {
-    // Droits de recolte (Scierie, Camp de mineur termines) d'apres les
-    // batiments du monde, avant chaque pas (run/harvestPermissions.ts).
-    world.harvestPermissions = harvestPermissionsOf(world.entities);
+    // Outils de recolte (Forge terminee, 2026-11-02) d'apres les batiments
+    // du monde, avant chaque pas (run/harvestPermissions.ts).
+    world.harvestPermissions = harvestPermissionsOf(world.entities, RUN_OWNER_TEAM);
+    announceHarvestTools();
     world.step(dt);
+    creditMinedGold();
+    creditWorkerDeposits();
     logPathDiagnostics();
     stepSurvivalWaves();
     // Ordres acceptes pendant CE pas : commandResults est remplace a chaque

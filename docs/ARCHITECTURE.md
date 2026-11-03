@@ -340,9 +340,11 @@ voir §9.
 
 ### Arbres bloquants, marche des vagues (2026-11-02)
 
-- `World.setMap` ajoute un obstacle synthétique `terrainTree` par rangée de
-  cases d'arbres (`config/resourceNodes.ts`, `treeCellKeys` /
-  `treeFootprintCells` : cases dont le centre est dans l'emprise) :
+- `World.setMap` ajoute un obstacle synthétique `terrainResource` (ex-
+  `terrainTree`, 2026-11-03 : arbres ET gros gisements de pierre et d'or)
+  par rangée de cases de source (`config/resourceNodes.ts`,
+  `resourceNodeCellKeys` / `resourceNodeCells` : cases dont le centre est
+  dans l'emprise ; `World.resourceCells` = sources debout) :
   collision et trajets, jamais les tirs. La même règle refuse la pose
   (`main.ts`, `isValidPlacementTile`). Vide hors carte, eau et arbres
   passent par une seule fusion par rangée (`rowSpanObstacles`, KI-40).
@@ -1342,11 +1344,13 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
   déplacement vers `resourceApproachPoint` (`issueRightClickOrder`).
 - Sources de ressources (2026-11-02) : `HARVEST_NODE_KINDS`, `canHarvestResource`,
   `STONE_DEPOSIT_AMOUNT` (`data/resources.ts`) ; droits d'après les bâtiments
-  terminés du monde, avant chaque pas (`harvestPermissionsOf(world.entities)`,
-  `run/harvestPermissions.ts`, `main.ts`) ; `HeroWorkContext.canHarvest`
-  (`workGoal` : droit perdu = arrêt, sauf l'unité en cours d'extraction) ;
-  épuisement générique `World.depleteResourceNode` (arbre : `fellTree` ;
-  gisement : rien à débloquer, rochers non bloquants) →
+  terminés du monde, avant chaque pas (2026-11-03 : outils `{ tools }` des
+  bâtiments alliés terminés à `unlocksTools`, la Forge ;
+  `harvestPermissionsOf(world.entities, team)`, `run/harvestPermissions.ts`,
+  `main.ts`) ; `HeroWorkContext.canHarvest` (`workGoal` : outil perdu =
+  arrêt, sauf l'unité en cours d'extraction) ; épuisement générique
+  `World.depleteResourceNode` (toute source : obstacles recalculés depuis
+  les sources debout, cases libérées) →
   `World.resourceDepletedEvents` → `main.ts` (`handleDepletedResources` :
   souche ou gravats).
 - Arbres abattus : `World.fellTree` (appelé quand la récolte vide un arbre,
@@ -1412,6 +1416,38 @@ expose l'interface `LevelUpEffect` (`play`, `tick`, `clear`) et une
 implémentation procédurale (`createProceduralLevelUpEffect`, `three`
 seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
 à l'XP ni à la simulation.
+
+## 13 nonies. Or monnaie, outils de la Forge, variantes, Sanctuaire, Écurie (2026-11-03)
+
+- **Or** : `RunState.gold` seul. La simulation ne crédite jamais : elle
+  publie `World.goldMinedEvents` (gisement d'or, `HarvestNodeKind.currency`)
+  et retire un tas d'or avec `World.collectGoldPile` ; `main.ts`
+  (`creditMinedGold`, `collectGoldPile`) crédite la run. `ResourceKind`
+  (sac) = bois, pierre ; `NodeResource` / `PileResource` ajoutent l'or.
+- **Outils** : `data/resources.ts` (`HARVEST_TOOLS`, `HARVEST_NODE_KINDS`
+  : outil, geste, unité, quantité, monnaie) ; `BuildingDef.unlocksTools` ;
+  `run/harvestPermissions.ts` (alliés via `sim/relations.ts`,
+  `areAllied`) ; la simulation ne lit que `World.harvestPermissions`.
+  Annonce unique côté `main.ts` (`announceHarvestTools`).
+- **Gisement d'or** : `ObstacleDef.ore: 'gold'` sur un `rock` ; rendu
+  `render/rocks.ts` (Rocher E + pépites procédurales, graine = position).
+- **Variantes visuelles** : `BuildingDef.modelVariants`,
+  `OwnedBuilding.modelVariant`, `RunState.placedBuildingCounts` ;
+  `gameplayBuildingObstacle(…, modelVariant)` choisit le modèle.
+- **Sites d'améliorations de run** : `RunUpgradeSite` = `'forge' | 'shrine'`
+  (= id du bâtiment, `BuildingDef.runUpgradeSite`) ; action de fiche
+  `openShrineUpgrades`.
+- **Producteurs** : tout bâtiment à `recruitmentUnlock` produit par sa file
+  (`data/production.ts`) et reçoit le ralliement ; Sanctuaire, Écurie et
+  Auberge n'ajoutent aucun code de production.
+- **Villageois** : `UnitDef.worker` (`carryCapacity`) →
+  `Entity.worker` (`WorkerState` : charge, capacité, source de retour,
+  geste). `sim/systems/workers.ts` (`workerSystem`, après
+  `heroWorkSystem`) réutilise l'ordre `harvest` / `deposit`, `workGoal` et
+  `HeroWorkContext` (sources, quantités, outils, `goldMined`) ; dépôt allié
+  = tout bâtiment bâti à `resourceDepot` (futurs dépôts sans code).
+  `World.workerDepositEvents` → `main.ts` (`creditWorkerDeposits`).
+  `sim/orders.ts` accepte `harvest` et `deposit` des entités à `worker`.
 
 ## 14. Audio
 

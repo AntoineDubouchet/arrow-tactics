@@ -454,14 +454,22 @@ Wall V1 supprimé et Palissade V2 construite le 2026-11-02
 
 ## 6 nonies. Scierie et Camp de mineur — suites
 
-Construits le 2026-11-02 (`DESIGN_DECISIONS.md` G22). À voir :
+Construits le 2026-11-02 (`DESIGN_DECISIONS.md` G22). Depuis le 2026-11-03,
+ils ne contrôlent plus la récolte (Forge = outils, G25) : **nouvelle
+fonction à définir** (décision d'Antoine). À voir aussi :
 
 - visuel dédié du Camp de mineur (aujourd'hui l'atelier KayKit : outils,
   sans pierre) ;
 - dépôt local (Scierie, Camp de mineur) si la marche jusqu'à la Baliste
   devient pénible ;
-- gros rochers bloquants ou non (KI-41) ;
-- ouvriers / récolte par d'autres unités que le Héros.
+- ~~gros rochers bloquants ou non (KI-41)~~ : bloquants depuis le
+  2026-11-03 (G25) ;
+- ouvriers / récolte par d'autres unités que le Héros : Auberge et
+  Villageois faits le 2026-11-03 (G28) ; à suivre : modèle et gestes du
+  Villageois (KI-61), construction par les Villageois, dépôts locaux ;
+- amélioration de l'Écurie et du Sanctuaire plus parlante que +5 PV
+  (G26) ;
+- éditeur : génération procédurale (graine) et vue globale (G27).
 
 ## 6 octies. Niveaux, cartes de survie, village — suites
 

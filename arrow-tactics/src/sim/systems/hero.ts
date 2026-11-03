@@ -1,6 +1,6 @@
 import type { ObstacleBounds } from '../../config/constants';
 import type { ResourceNode } from '../../config/resourceNodes';
-import { CARRIED_RESOURCES, HARVEST_NODE_KINDS, type CarriedResource } from '../../data/resources';
+import { CARRIED_RESOURCES, HARVEST_NODE_KINDS, type CarriedResource, type HarvestResource, type PileResource } from '../../data/resources';
 import { addItem, addResource, carriedResourceTotal, removeOneResource, resourceCount, roomFor } from '../inventory';
 import { getBuilding } from '../../data/buildings';
 import { distanceToSegment } from '../../core/wallLine';
@@ -66,7 +66,7 @@ export type HeroEvent =
   | { type: 'chestLocked'; heroId: number; chestId: number }
   /** Unite versee au stock de la run (depot, une toutes les
    *  DEPOSIT_SECONDS_PER_ITEM s) ; `remaining` : unites encore portees. */
-  | { type: 'deposit'; heroId: number; wood: number; stone: number; gold: number; remaining: number }
+  | { type: 'deposit'; heroId: number; wood: number; stone: number; remaining: number }
   | { type: 'built'; heroId: number; buildingId: number }
   /** Fin d'une reparation : PV rendus sur le budget paye (remboursement du
    *  reste par l'orchestration). `reason` : terminee, ou interrompue (autre
@@ -95,7 +95,8 @@ export interface ResourcePile {
   id: number;
   x: number;
   z: number;
-  resource: CarriedResource;
+  /** Bois / pierre (sac du Heros) ou or (monnaie, ramasse d'un clic). */
+  resource: PileResource;
   amount: number;
 }
 
@@ -108,9 +109,12 @@ export interface HeroWorkContext {
   nodeAmounts: Map<number, number>;
   /** Sources arrivees a 0 pendant ce pas (World : source retiree). */
   depleted: number[];
-  /** Droit de recolte d'une ressource (Scierie / Camp de mineur termine,
+  /** Outil disponible pour une source (Forge terminee,
    *  World.harvestPermissions). */
-  canHarvest(resource: 'wood' | 'stone'): boolean;
+  canHarvest(resource: HarvestResource): boolean;
+  /** Or extrait d'un gisement pendant ce pas (monnaie : credite par
+   *  l'orchestration, jamais dans un sac). */
+  goldMined: { entityId: number; nodeId: number; amount: number }[];
   piles: readonly ResourcePile[];
   drops: readonly ItemDrop[];
   /** Coffres (World.chests), verrou (camp pas nettoye) et ouverture (tirage
@@ -142,10 +146,11 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
   if (order.type === 'harvest') {
     const node = work.nodes.get(order.nodeId);
     if (!node) return null;
-    // Droit perdu (derniere Scierie / dernier Camp de mineur detruit,
-    // 2026-11-02) : plus de travail, sauf l'unite en cours d'extraction, que
-    // le Heros finit avant de s'arreter (heroWorkSystem).
-    const extracting = e.hero !== null && e.hero.workTimer > 0 && e.hero.working === HARVEST_NODE_KINDS[node.resource].working;
+    // Outil perdu (derniere Forge detruite, 2026-11-02) : plus de travail,
+    // sauf l'unite en cours d'extraction, que le Heros finit avant de
+    // s'arreter (heroWorkSystem).
+    const worker = e.hero ?? e.worker;
+    const extracting = worker !== null && worker.workTimer > 0 && worker.working === HARVEST_NODE_KINDS[node.resource].working;
     if (!work.canHarvest(node.resource) && !extracting) return null;
     // Arbre (cases bloquantes, 2026-11-02) : portee mesuree jusqu'a ses cases,
     // le Heros ne pouvant plus en approcher le centre.
@@ -164,7 +169,8 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
   }
   if (order.type === 'pickup') {
     const pile = work.piles[order.pileId];
-    if (!pile || pile.amount <= 0) return null;
+    // Or (monnaie, 2026-11-02) : ramasse d'un clic par le joueur, jamais par le sac.
+    if (!pile || pile.amount <= 0 || pile.resource === 'gold') return null;
     return { x: pile.x, z: pile.z, reached: Math.hypot(pile.x - e.x, pile.z - e.z) <= e.stats.radius + PICKUP_REACH, target: null };
   }
   const target = byId.get(order.targetEntityId);
@@ -238,7 +244,7 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
         while (due-- > 0 && carriedAmount(h) > 0) {
           const kind = CARRIED_RESOURCES.find((r) => resourceCount(h.inventory, r) > 0)!;
           h.inventory = removeOneResource(h.inventory, kind)!;
-          events.push({ type: 'deposit', heroId: e.id, wood: kind === 'wood' ? 1 : 0, stone: kind === 'stone' ? 1 : 0, gold: kind === 'gold' ? 1 : 0, remaining: carriedAmount(h) });
+          events.push({ type: 'deposit', heroId: e.id, wood: kind === 'wood' ? 1 : 0, stone: kind === 'stone' ? 1 : 0, remaining: carriedAmount(h) });
         }
       }
       if (carriedAmount(h) === 0) {
@@ -250,7 +256,8 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
     }
     if (e.order.type === 'harvest' || e.order.type === 'pickup') {
       const resource = e.order.type === 'harvest' ? work.nodes.get(e.order.nodeId)!.resource : work.piles[e.order.pileId]!.resource;
-      if (roomFor(h.inventory, resource) === 0) {
+      // Or : monnaie, aucune place de sac requise.
+      if (resource !== 'gold' && roomFor(h.inventory, resource) === 0) {
         events.push({ type: 'carryFull', heroId: e.id });
         e.order = { type: 'guard' };
         h.working = null;
@@ -264,15 +271,20 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       h.working = HARVEST_NODE_KINDS[node.resource].working;
       h.workTimer += dt;
       let finished = false;
-      while (h.workTimer >= HARVEST_INTERVAL && roomFor(h.inventory, node.resource) > 0 && (work.nodeAmounts.get(node.id) ?? 1) > 0) {
+      const currency = HARVEST_NODE_KINDS[node.resource].currency;
+      while (h.workTimer >= HARVEST_INTERVAL && (currency || roomFor(h.inventory, node.resource as CarriedResource) > 0) && (work.nodeAmounts.get(node.id) ?? 1) > 0) {
         h.workTimer -= HARVEST_INTERVAL;
         const left = work.nodeAmounts.get(node.id);
         if (left !== undefined) {
           work.nodeAmounts.set(node.id, left - 1);
           if (left - 1 <= 0) work.depleted.push(node.id);
         }
-        h.inventory = addResource(h.inventory, node.resource, 1).inventory;
-        events.push({ type: 'harvest', heroId: e.id, resource: node.resource, amount: 1, nodeId: node.id });
+        // Or (monnaie, 2026-11-02) : credite directement, jamais dans le sac.
+        if (currency) work.goldMined.push({ entityId: e.id, nodeId: node.id, amount: 1 });
+        else {
+          h.inventory = addResource(h.inventory, node.resource as CarriedResource, 1).inventory;
+          events.push({ type: 'harvest', heroId: e.id, resource: node.resource as CarriedResource, amount: 1, nodeId: node.id });
+        }
         // Droit perdu : l'unite en cours est finie, puis le travail s'arrete.
         if (!allowed) {
           finished = true;
@@ -330,10 +342,10 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       if (h.workTimer < PICKUP_SECONDS) continue;
       // Tout ce que le sac peut prendre (piles entamees, puis cases libres) ;
       // le reste du tas reste au sol.
-      const { inventory, added } = addResource(h.inventory, pile.resource, pile.amount);
+      const { inventory, added } = addResource(h.inventory, pile.resource as CarriedResource, pile.amount);
       h.inventory = inventory;
       pile.amount -= added;
-      events.push({ type: 'pickup', heroId: e.id, resource: pile.resource, amount: added, pileId: pile.id, remaining: pile.amount });
+      events.push({ type: 'pickup', heroId: e.id, resource: pile.resource as CarriedResource, amount: added, pileId: pile.id, remaining: pile.amount });
       if (pile.amount > 0) events.push({ type: 'carryFull', heroId: e.id });
       e.order = { type: 'guard' };
       h.working = null;

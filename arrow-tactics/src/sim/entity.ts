@@ -131,6 +131,16 @@ export interface OnHitEffects {
 }
 
 /** Etat propre au Heros (Entity.hero). */
+/** Etat d'un Villageois : ce qu'il porte (bois ou pierre, jamais d'or),
+ *  sa capacite, la source a laquelle revenir apres un depot, son geste. */
+export interface WorkerState {
+  carry: { resource: 'wood' | 'stone'; amount: number } | null;
+  capacity: number;
+  nodeId: number | null;
+  working: 'chop' | 'mine' | 'deposit' | null;
+  workTimer: number;
+}
+
 export interface HeroState {
   /** XP totale de la run et niveau (data/hero.ts, HERO_LEVELS). */
   xp: number;
@@ -407,6 +417,9 @@ export interface Entity {
    *  resurrection, travail (recolte, construction). null pour toute autre
    *  entite. */
   hero: HeroState | null;
+  /** Villageois (2026-11-03, sim/systems/workers.ts) : charge portee et
+   *  boucle recolte -> depot. null pour toute autre entite. */
+  worker: WorkerState | null;
   /** Chantier : batiment pose mais pas encore construit (ni production, ni
    *  tir, ni porte, ne compte pas pour la defaite), construit par le Heros.
    *  null : batiment construit (et toute unite). */

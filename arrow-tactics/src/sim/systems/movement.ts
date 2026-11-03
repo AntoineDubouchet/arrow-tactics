@@ -142,7 +142,7 @@ export function movementSystem(
   /** Recoit les fins d'ordres manuels du pas (voir sim/orders.ts). */
   orderEvents: OrderEndEvent[] = [],
   /** Sources de ressources (ordres de recolte du Heros). */
-  heroWork: HeroWorkContext = { nodes: new Map(), nodeAmounts: new Map(), depleted: [], canHarvest: () => false, piles: [], drops: [], chests: [], chestLocked: () => true, openChest: () => ({ itemId: null, dropId: null }) },
+  heroWork: HeroWorkContext = { nodes: new Map(), nodeAmounts: new Map(), depleted: [], goldMined: [], canHarvest: () => false, piles: [], drops: [], chests: [], chestLocked: () => true, openChest: () => ({ itemId: null, dropId: null }) },
   /** Marche des vagues vers le camp (null : marche neutre historique). */
   march: MarchContext | null = null,
 ): void {

@@ -48,7 +48,7 @@ import {
 import { buildingFootprintTiles } from '../data/buildings';
 import { getWallType } from '../data/walls';
 import { planWallLine, segmentBoxDistance, segmentWallLine, wallLineCells, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint, type WallSegment } from '../core/wallLine';
-import { treeCellKeys } from '../config/resourceNodes';
+import { resourceNodeCellKeys } from '../config/resourceNodes';
 import { computeCliffObstacles } from '../config/terrainElevation';
 import { getUnit } from '../data/units';
 import type { Team } from '../sim/entity';
@@ -1164,6 +1164,9 @@ export class EditorState {
     if (this.buildings.some((b) => b.id !== ignoreBuildingId && boundsOverlap(r, buildingBoundsAt(b.buildingId, b.x, b.z)))) return false;
     if (boundsOverlap(r, this.ballistaBoundsAt(this.ballista.x, this.ballista.z))) return false;
     if (this.obstacles.some((o) => isBlockingMapObstacle(o) && boundsOverlap(r, obstacleBounds(o)))) return false;
+    // Sources debout (arbres, gros gisements, 2026-11-02) : bloquantes en jeu.
+    const sources = resourceNodeCellKeys(this.obstacles);
+    for (let cz = Math.floor(r.minZ); cz < r.maxZ; cz++) for (let cx = Math.floor(r.minX); cx < r.maxX; cx++) if (sources.has(`${cx},${cz}`)) return false;
     // Murs V2 : jamais un batiment sur une ligne de mur.
     if (this.wallPieces().some((p) => segmentBoxDistance(p.segment, r) < getWallType(p.line.type).halfWidth)) return false;
     return !this.units.some((u) => u.x > r.minX && u.x < r.maxX && u.z > r.minZ && u.z < r.maxZ);
@@ -1183,7 +1186,7 @@ export class EditorState {
   wallPlacementContext(): WallPlacementContext {
     const field = this.heightField();
     const cliffs = computeCliffObstacles(field, (x, z) => this.hasCellAt(x, z), this.cells).map(obstacleBounds);
-    const trees = [...treeCellKeys(this.obstacles)].map((k) => {
+    const trees = [...resourceNodeCellKeys(this.obstacles)].map((k) => {
       const [x, z] = k.split(',').map(Number) as [number, number];
       return { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
     });

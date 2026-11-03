@@ -1378,7 +1378,7 @@ export class Screens {
    *  showShop/showTalents). */
   showForge(run: RunState, progress: MetaProgress, site: RunUpgradeSite = 'forge'): void {
     this.upgradeShopSite = site;
-    this.forgeTitle.textContent = site === 'church' ? 'Église' : 'Forge';
+    this.forgeTitle.textContent = site === 'shrine' ? 'Sanctuaire' : 'Forge';
     this.refreshForge(run, progress);
     this.show('unitUpgradeShop');
   }

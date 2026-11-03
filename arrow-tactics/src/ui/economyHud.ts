@@ -26,7 +26,7 @@ export class EconomyHud {
     const entries: [key: 'wood' | 'stone' | 'gold' | 'pop', label: string, title: string][] = [
       ['wood', 'Bois', 'Bois stocké (déposé à la Baliste)'],
       ['stone', 'Pierre', 'Pierre stockée (déposée à la Baliste)'],
-      ['gold', 'Or', 'Or stocké : déposé à la Baliste ou produit par les Mines'],
+      ['gold', 'Or', 'Or du joueur (monnaie) : tas ramassés d’un clic, gisements d’or, Mines'],
       ['pop', 'Pop.', 'Population : unités du joueur / maximum (+5 par Maison)'],
     ];
     for (const [key, label, title] of entries) {

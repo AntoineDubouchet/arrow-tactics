@@ -438,7 +438,7 @@ est ouverte au départ) :
 
 | Catégorie | Contenu |
 |---|---|
-| Arbres et rochers | Rochers, arbres |
+| Arbres et rochers | Rochers, arbres ; « Gisement de pierre (2×2 / 3×3) » et « Gisement d’or (2×2) » (2026-11-03 : bloquants, Rocher E ; pas de bâtiment posable dessus) |
 | Végétation | Buissons et plantes, champignons |
 | Fleurs | Fleurs |
 | Bois | Bûches, souches |

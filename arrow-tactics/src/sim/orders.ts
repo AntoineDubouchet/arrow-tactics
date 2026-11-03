@@ -398,10 +398,13 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
       case 'openChest':
       case 'repair':
       case 'deposit': {
-        // Travail : Heros seulement ; source exploitable, chantier allie
-        // vivant, tas encore present ou depot allie vivant.
-        for (const e of accepted) if (e.hero === null) result.rejectedEntityIds.push(e.id);
-        accepted.splice(0, accepted.length, ...accepted.filter((e) => e.hero !== null));
+        // Travail : Heros seulement ; recolte et depot : Villageois aussi
+        // (2026-11-03). Source exploitable, chantier allie vivant, tas encore
+        // present ou depot allie vivant.
+        const worker = command.kind === 'harvest' || command.kind === 'deposit';
+        const canWork = (e: Entity): boolean => e.hero !== null || (worker && e.worker !== null);
+        for (const e of accepted) if (!canWork(e)) result.rejectedEntityIds.push(e.id);
+        accepted.splice(0, accepted.length, ...accepted.filter(canWork));
         if (accepted.length === 0) {
           result.rejection = 'no-commandable-entity';
           continue;

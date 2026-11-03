@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { CarriedResource } from '../data/resources';
+import type { PileResource } from '../data/resources';
 import { resourceCount, type HeroInventory } from '../sim/inventory';
 import { surfaceY } from './terrainSurface';
 import { loadVfxTexture } from './vfxTextures';
@@ -44,7 +44,7 @@ const coinGeometry = new THREE.CylinderGeometry(0.075, 0.075, 0.025, 12);
 const goldMaterial = new THREE.MeshStandardMaterial({ color: 0xf2c94c, metalness: 0.7, roughness: 0.3, emissive: 0x4a3200, flatShading: true });
 
 /** Modele d'un tas : `pieces` planches croisees, cailloux empiles ou pieces d'or. */
-export function buildResourcePileModel(resource: CarriedResource, pieces: number, seed: number): THREE.Group {
+export function buildResourcePileModel(resource: PileResource, pieces: number, seed: number): THREE.Group {
   const rand = seeded(seed);
   const group = new THREE.Group();
   if (resource === 'gold') {
@@ -87,7 +87,7 @@ export function buildResourcePileModel(resource: CarriedResource, pieces: number
 }
 
 /** Nombre de pieces affichees pour une quantite (lisibilite, borne). */
-function piecesFor(resource: CarriedResource, amount: number): number {
+function piecesFor(resource: PileResource, amount: number): number {
   return Math.min(resource === 'stone' ? 5 : 6, 2 + amount);
 }
 
@@ -95,14 +95,14 @@ interface PileSource {
   id: number;
   x: number;
   z: number;
-  resource: CarriedResource;
+  resource: PileResource;
   amount: number;
 }
 
 /** Taille AFFICHEE des tas au sol (2026-11-02, demande d'Antoine) : bois
  *  +40 %, pierre +60 %. Visuel seulement : quantite, case, ramassage et
  *  collision inchanges ; le contenu du sac du Heros garde sa taille. */
-const PILE_SCALE: Readonly<Record<CarriedResource, number>> = { wood: 1.4, stone: 1.6, gold: 1.5 };
+const PILE_SCALE: Readonly<Record<PileResource, number>> = { wood: 1.4, stone: 1.6, gold: 1.5 };
 
 /** Eclats d'un tas (2026-11-02, refaits puis renforces a la demande
  *  d'Antoine) : toutes les 0,9 a 2,2 s (tirage cosmetique), 2 ou 3 etoiles
@@ -115,7 +115,7 @@ const GLINT_LIFE = 0.55;
 const GLINT_FADE_IN = 0.09;
 const GLINT_DELAY_MIN = 0.9;
 const GLINT_DELAY_MAX = 2.2;
-const GLINT_HALO: Readonly<Record<CarriedResource, number>> = { wood: 0xffc65a, stone: 0xcfe8ff, gold: 0xffe27a };
+const GLINT_HALO: Readonly<Record<PileResource, number>> = { wood: 0xffc65a, stone: 0xcfe8ff, gold: 0xffe27a };
 /** Texture d'etoile en niveaux de gris : teinte au-dela de 1 pour un blanc
  *  franc (plafonne a l'affichage). */
 const GLINT_STAR = new THREE.Color(1.7, 1.65, 1.4);
@@ -149,7 +149,7 @@ function glintSprite(texture: THREE.Texture, color: THREE.ColorRepresentation, a
 
 interface PileView {
   object: THREE.Group;
-  resource: CarriedResource;
+  resource: PileResource;
   pieces: number;
   x: number;
   z: number;
@@ -434,8 +434,8 @@ export function updateCarryBundle(view: THREE.Object3D, inventory: HeroInventory
   let bag = view.userData['heroBag'] as HeroBag | undefined;
   const wood = inventory ? resourceCount(inventory, 'wood') : 0;
   const stone = inventory ? resourceCount(inventory, 'stone') : 0;
-  const gold = inventory ? resourceCount(inventory, 'gold') : 0;
-  if (wood + stone + gold === 0) {
+  // Or : monnaie (2026-11-02), jamais dans le sac.
+  if (wood + stone === 0) {
     if (bag) bag.root.visible = false;
     return;
   }
@@ -444,12 +444,12 @@ export function updateCarryBundle(view: THREE.Object3D, inventory: HeroInventory
     view.userData['heroBag'] = bag;
   }
   bag.root.visible = true;
-  const key = `${Math.min(wood, 3)},${Math.min(stone, 3)},${Math.min(gold, 3)}`;
+  const key = `${Math.min(wood, 3)},${Math.min(stone, 3)}`;
   if (bag.key === key) return;
   bag.key = key;
   // Plus le sac est plein, plus il est gros (capacite 6) ; +25 % des qu'il
   // porte quelque chose (2026-11-02, demande d'Antoine : BAG_CARRY_SCALE).
-  bag.sack.scale.setScalar(bag.base * BAG_CARRY_SCALE * (0.85 + 0.05 * Math.min(6, wood + stone + gold)));
+  bag.sack.scale.setScalar(bag.base * BAG_CARRY_SCALE * (0.85 + 0.05 * Math.min(6, wood + stone)));
   bag.contents.clear();
   if (wood > 0) {
     const planks = buildResourcePileModel('wood', Math.min(wood, 3) + 1, 7);
@@ -463,11 +463,5 @@ export function updateCarryBundle(view: THREE.Object3D, inventory: HeroInventory
     stones.scale.setScalar(1.6);
     stones.position.set(0.25, -0.05, 0);
     bag.contents.add(stones);
-  }
-  if (gold > 0) {
-    const coins = buildResourcePileModel('gold', Math.min(gold, 3) + 2, 13);
-    coins.scale.setScalar(1.7);
-    coins.position.set(0, 0.05, 0.12);
-    bag.contents.add(coins);
   }
 }

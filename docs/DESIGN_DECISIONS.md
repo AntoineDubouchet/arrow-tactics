@@ -90,6 +90,10 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G11 | Arbres bloquants, ressources rares, vagues reliées au camp, Mine toutes les 60 s | Active (valeurs provisoires) |
 | G23 | Palissade V2 : murs géométriques A → B, sans grille | Active (valeurs provisoires) |
 | G24 | VFX de montée de niveau du Héros | Active (provisoire, remplaçable) |
+| G25 | Or monnaie, Forge = outils, gisements bloquants | Active (valeurs provisoires) |
+| G26 | Maison A/B, Sanctuaire, Écurie | Active (valeurs provisoires) |
+| G27 | Éditeur : maps authored, procédurales et hybrides | Direction active (génération pas encore faite) |
+| G28 | Auberge et Villageois : première unité économique | Active (valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -1550,7 +1554,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### G15 — Inventaire unique, or physique, Héros permanent
 
-- **Statut** : Active ; valeurs **provisoires**.
+- **Statut** : Active ; valeurs **provisoires**. **Or physique remplacé** le
+  2026-11-03 : l’or est une monnaie (G25) ; le reste est inchangé.
 - **Demande d'Antoine** (2026-11-02) : un seul inventaire de 20 cases
   (ressources empilables par 5, équipements, butin), or trouvé physique
   (sol → sac → dépôt → stock), seul le stock se dépense, Mine au stock
@@ -1719,7 +1724,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### G22 — Scierie et Camp de mineur
 
-- **Statut** : Active ; valeurs **provisoires**.
+- **Statut** : **Remplacée** le 2026-11-03 par G25 pour les droits de
+  récolte (la Forge donne les outils) ; Scierie et Camp de mineur restent
+  constructibles, en attente d'une nouvelle fonction.
 - **Demande d'Antoine** (2026-11-02) : mettre en jeu la Scierie (coupe des
   arbres) et le Camp de mineur (gros gisements), gisements finis (40 pierre),
   même philosophie que l'arbre ; progression petits tas → dépôt → Scierie /
@@ -1801,6 +1808,77 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   simulation `levelUp`).
 - **Sources** : `render/levelUpVfx.ts`, `ui/heroHud.ts`, `ui/style.css`,
   `main.ts` (`playLevelUps`).
+
+### G25 — Or monnaie, Forge = outils, gisements bloquants
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-03) :
+  - **Or = monnaie** : plus un objet du sac ; tas ramassés d'un clic,
+    instantanément ; gisement d'or extrait à la pioche, crédité
+    directement ; Mine inchangée ;
+  - **Forge = déblocage des outils** : une Forge terminée donne la Hache de
+    bûcheron et la Pioche de mineur ; message unique ; sans Forge :
+    sélection, message, déplacement, pas d'extraction ; dernière Forge
+    détruite : l'unité en cours est finie, puis arrêt ;
+  - **Scierie / Camp de mineur ne contrôlent plus les permissions** (en
+    attente d'une nouvelle fonction) ;
+  - gros gisements (pierre « Rocher E », or) **bloquants** pour le
+    déplacement et la construction (remplace KI-41).
+- **Choix de la passe** : gisement d'or 25 or, 2 × 2 ; 6 gisements d'or et
+  26 de pierre sur la carte générée (bloc 4 × 4 libre autour de chacun) ;
+  annonce « Nouveaux outils disponibles » une fois par partie ; pépites
+  d'or procédurales (aucun asset dédié).
+- **Sources** : `data/resources.ts`, `data/buildings.ts`,
+  `run/harvestPermissions.ts`, `config/resourceNodes.ts`, `sim/world.ts`,
+  `sim/systems/hero.ts`, `render/rocks.ts`, `main.ts`.
+
+### G26 — Maison A/B, Sanctuaire, Écurie
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-03) : Maison alternée A/B (déterministe,
+  stockée) ; Sanctuaire = magie (Mage, parchemins), l'Église garde Oracle,
+  Vengeur et le soin ; Écurie = Cavalier léger (unité existante),
+  amélioration testée dans la file.
+- **Choix de la passe** :
+  - alternance d'après les Maisons **posées** dans la run (pas celles encore
+    debout) : une destruction ne change rien aux autres ;
+  - Sanctuaire 25 or + 8 bois + 8 pierre, 2 × 2, 20 PV, 10 s ; Écurie
+    20 or + 12 bois, 3 × 3, 25 PV, 10 s ; Cavalier léger 12 s ;
+    amélioration Niv. 2 de chacun : +5 PV du bâtiment (provisoire, sert
+    surtout à éprouver unité → amélioration → unité) ;
+  - ralliement proposé à tout producteur par file (Église comprise).
+- **Rappel** : le Cavalier avait été retiré du recrutement ; il revient ici
+  **sur demande explicite** d'Antoine (Écurie).
+- **Sources** : `data/buildings.ts`, `data/production.ts`,
+  `run/runState.ts`, `run/runUpgrades.ts`, `run/entityInfo.ts`, `main.ts`.
+
+### G28 — Auberge et Villageois : première unité économique
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-03) : Auberge (producteur standard) qui
+  produit le Villageois ; récolte bois, pierre et or avec la permission de
+  la Forge ; transport simple (≈ 5) au dépôt, retour à la ressource ; or
+  crédité directement ; pas d'inventaire RPG, d'XP ni de mana ; pas de
+  grosse IA autonome.
+- **Choix de la passe** :
+  - Villageois 5 or, 8 s, 2,5 PV, 0,2 dégât, vitesse 2,2, population 1,
+    charge 5 ; Auberge 15 or + 8 bois, 2 × 2, 20 PV ;
+  - dépôt au dépôt allié **le plus proche** (`resourceDepot`), une unité
+    / 0,5 s ; source épuisée : même type à 6 cases au plus, sinon Garde ;
+  - **asymétrie provisoire** : l'or n'est jamais porté (monnaie), le bois
+    et la pierre le sont ;
+  - aucun modèle de paysan : modèle du Piquier en attendant.
+- **Sources** : `data/units.ts`, `data/buildings.ts`,
+  `sim/systems/workers.ts`, `sim/orders.ts`, `sim/world.ts`, `main.ts`.
+
+### G27 — Éditeur : maps authored, procédurales et hybrides
+
+- **Statut** : Direction **active** (demande d'Antoine, 2026-11-03) ;
+  génération procédurale dans l'éditeur **pas encore faite**.
+- **Direction** : l'éditeur doit permettre une carte dessinée (authored),
+  une carte générée (procédurale, le vrai générateur de la Survie, graine
+  modifiable) et une carte générée puis retouchée à la main (hybride) ; la
+  carte vide, le chargement et l'édition manuelle restent.
 
 ---
 

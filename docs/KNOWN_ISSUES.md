@@ -52,7 +52,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-38 | Objet tenu en miroir dans la main gauche : gestes de bouclier des clips | Limite assumée (observé dans l'Atelier) |
 | KI-39 | Rampe d'une case : infranchissable pour un corps de rayon > 0,5 (Héros, Cavalier) | Corrigé (2026-11-02) |
 | KI-40 | Carte générée : ~2 000 cases vides en obstacles 1 × 1, coût par pas de simulation | Corrigé (2026-11-02, mesuré) |
-| KI-41 | Gros rochers (décors non bloquants) : un bâtiment s'y pose | Limite assumée (règle E8, à trancher) |
+| KI-41 | Gros rochers (décors non bloquants) : un bâtiment s'y pose | Remplacé (2026-11-03 : gisements bloquants, G25) |
 | KI-42 | Héros : aucun clip d'incantation dans son GLB (Soin en garde de combat) | Limite assumée (assets) |
 | KI-43 | Carte générée : pas d'ombres portées au-delà d'environ 21 cases du centre | Confirmé (observé) |
 | KI-44 | Équipement : casque, épaulières, torse, bras, jambes sans visuel en jeu (modèle du Héros fusionné) | Limite assumée |
@@ -64,6 +64,10 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-55 | Palissade : les vagues frappent le premier mur ou la première porte rencontrés (une porte ouverte les bloque aussi), sans choisir leur cible ; un mur ennemi de carte les bloquerait sans être attaqué | Limite assumée |
 | KI-56 | Palissade : éditeur sans retrait d'une porte ni édition partielle d'une ligne (supprimer la ligne entière) ; aucun mur en préparation (legacy) | À faire (si besoin) |
 | KI-57 | Palissade : sur un terrain irrégulier, les traverses vont droit d'un bout à l'autre du segment (pieux au sol) ; pas d'ombre de contact au pied | Limite assumée (visuel provisoire) |
+| KI-58 | Cartes dessinées : leurs `rock` deviennent des gisements bloquants ; carte générée : placement des gisements changé (mêmes graines, autres cartes) | Limite assumée (2026-11-03) |
+| KI-59 | Écurie : modèle KayKit 2 × 3 ajusté à l'emprise 3 × 3, un peu petit et plat ; gisement d'or : pépites procédurales | Limite assumée (visuels provisoires) |
+| KI-60 | Maison B : variante seulement pour les Maisons posées en jeu ; une Maison de scénario de l'éditeur reste A | Limite assumée |
+| KI-61 | Villageois : modèle du Piquier, sans geste de récolte ni charge visible ; pas d'outil en main | Limite assumée (visuel provisoire) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
@@ -467,7 +471,10 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 ### KI-41 — Gros rochers : un bâtiment s'y pose
 
-- **Statut** : limite assumée (mesurée en jeu, 2026-11-02).
+- **Statut** : **remplacé** le 2026-11-03 : les gros gisements (pierre et
+  or) bloquent déplacement et construction, comme les arbres
+  (`DESIGN_DECISIONS.md` G25). Historique ci-dessous.
+- **Statut d'origine** : limite assumée (mesurée en jeu, 2026-11-02).
 - **Constat** : les 26 gros rochers de la carte générée sont des décors non
   bloquants (règle E8 du 2026-10-28) : ni la simulation ni la pose ne les
   voient. Depuis que la construction n'est plus limitée au territoire, une
@@ -546,6 +553,36 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 - **Constat** : dans l'éditeur, une porte ne se retire pas seule et une
   ligne ne se modifie pas en partie (déplacer A ou B) : il faut la
   supprimer et la retracer. Le mode Préparation (legacy) n'a plus aucun mur.
+
+### KI-58 — Gisements bloquants sur les cartes existantes
+
+- **Statut** : limite assumée (2026-11-03).
+- **Constat** : tout obstacle `rock` d'une carte dessinée devient un
+  gisement de pierre bloquant (40 pierre) ; le générateur place
+  autrement ses gisements (bloc 4 × 4 libre, 6 d'or), donc une graine
+  donne une autre carte qu'avant.
+
+### KI-59 — Visuels provisoires (Écurie, gisement d'or)
+
+- **Statut** : limite assumée.
+- **Constat** : l'Écurie (modèle 2 × 3) est ajustée à l'emprise 3 × 3 des
+  producteurs ; le gisement d'or est le Rocher E avec des pépites
+  procédurales (aucun asset dédié).
+
+### KI-60 — Maison A/B hors de la Survie
+
+- **Statut** : limite assumée.
+- **Constat** : l'alternance s'applique aux Maisons posées pendant une run ;
+  les Maisons de scénario de l'éditeur gardent le modèle A (« Maison B »
+  reste disponible comme décor).
+
+### KI-61 — Villageois : visuel provisoire
+
+- **Statut** : limite assumée (2026-11-03).
+- **Constat** : aucun modèle de paysan dans les assets ; le Villageois porte
+  le modèle du Piquier, dont le rig n'a pas les clips `chop` / `mine` /
+  `deposit` du Héros : il reste immobile pendant qu'il récolte ou dépose,
+  sans outil ni charge visibles (non observé en détail).
 
 ### KI-57 — Palissade : rendu sur relief
 

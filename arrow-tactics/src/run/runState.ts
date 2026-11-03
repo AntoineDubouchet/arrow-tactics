@@ -129,6 +129,10 @@ export interface OwnedBuilding {
    *  l'editeur — voir render/buildings.ts, createBuildingObstacle). Absente
    *  = 0 (compatibilite avec une sauvegarde/un format anterieur a ce champ). */
   rotationY?: number;
+  /** Variante visuelle choisie a la pose (index dans
+   *  BuildingDef.modelVariants, 2026-11-03), conservee telle quelle :
+   *  absente = premiere variante. */
+  modelVariant?: number;
   /** Niveau d'amelioration PROPRE a ce batiment (Mine, Caserne), interne :
    *  0 = aucune amelioration, affiche « Niv. 1 ». Achete depuis sa fiche,
    *  voir run/buildingUpgrades.ts. Absent = 0. */
@@ -204,6 +208,10 @@ export interface RunState {
   resourcePileAmounts: Record<number, number>;
   /** Graine de la carte procedurale de la run (0 sur une carte dessinee). */
   mapSeed: number;
+  /** Exemplaires poses pendant la run, par type de batiment (2026-11-03) :
+   *  alternance des variantes visuelles (BuildingDef.modelVariants), sans
+   *  effet retroactif d'une destruction. */
+  placedBuildingCounts: Record<string, number>;
 }
 
 /** Nombre d'emplacements de l'inventaire (demande d'Antoine, 2026-08-09).
@@ -346,6 +354,7 @@ export function createNewRun(startingGoldBonus = 0, startingFantassinMaxHp = get
     resources: { ...STARTING_RESOURCES },
     resourcePileAmounts: {},
     mapSeed: 0,
+    placedBuildingCounts: {},
   };
 }
 
@@ -610,6 +619,7 @@ export function applyBattleOutcome(run: RunState, entities: Entity[], pendingEne
         // voir main.ts ownedBuildingObstacle) des la premiere bataille,
         // quelle que soit la rotation reellement choisie par le joueur.
         rotationY: run.buildings[i]!.rotationY,
+        ...(run.buildings[i]!.modelVariant !== undefined ? { modelVariant: run.buildings[i]!.modelVariant } : {}),
         level: run.buildings[i]!.level,
         // Chantier : avancement relu sur l'entite (absent une fois construit).
         ...(entity.construction ? { constructionProgress: entity.construction.progress } : {}),

@@ -1,5 +1,6 @@
 import { HP_PER_PIP } from '../config/constants';
 import type { ResourceKind } from '../config/resourceNodes';
+import type { HarvestTool } from './resources';
 
 /**
  * Architecture générique BUILDING (2026-08-16, demande d'Antoine) — un
@@ -149,12 +150,11 @@ export interface BuildingDef {
   /** Depot de ressources (2026-11-01, Hero RTS) : le Heros y vide son sac,
    *  et seul ce depot remplit le stock de bois et de pierre de la run. */
   resourceDepot?: boolean;
-  /** Recolte avancee debloquee par ce batiment, une fois TERMINE : coupe des
-   *  arbres (`trees`, Scierie) ou exploitation des gros gisements de pierre
-   *  (`deposits`, Camp de mineur). Lu par run/harvestPermissions.ts. */
-  unlocksHarvest?: 'trees' | 'deposits';
-  /** Description courte du menu Construire (« Débloque la coupe des
-   *  arbres »). Absent : aucune. */
+  /** Outils de recolte donnes a tout le camp par ce batiment, une fois
+   *  TERMINE (hache : arbres ; pioche : gisements de pierre et d'or). Lu par
+   *  run/harvestPermissions.ts. Aujourd'hui : la Forge. */
+  unlocksTools?: readonly HarvestTool[];
+  /** Description courte du menu Construire. Absent : aucune. */
   description?: string;
   /** Facteur de taille VISUELLE du modele par rapport a son emprise (voir
    *  ObstacleDef.scale) ; l'emprise de collision et de placement ne change
@@ -171,6 +171,16 @@ export interface BuildingDef {
   /** Groupe du catalogue de l'editeur (« Murs »...). Absent :
    *  « Bâtiments ». */
   editorGroup?: string;
+  /** Variantes VISUELLES alternees a la pose (Maison : A puis B, 2026-11-03) :
+   *  le n-ieme exemplaire pose pendant la run prend
+   *  `modelVariants[(n - 1) % longueur]` (OwnedBuilding.modelVariant), jamais
+   *  au hasard. Meme batiment de jeu (cout, PV, population, emprise).
+   *  Absent : toujours `buildingModel`. */
+  modelVariants?: readonly string[];
+  /** Ameliorations de run accessibles depuis la fiche de ce batiment
+   *  (run/runUpgrades.ts, RunUpgradeSite) : la Forge (unites, Baliste) ou
+   *  le Sanctuaire (parchemins, 2026-11-03). Absent : aucune. */
+  runUpgradeSite?: 'forge' | 'shrine';
 }
 
 export const BUILDINGS: Record<string, BuildingDef> = {
@@ -315,6 +325,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_blacksmith',
     footprintTilesX: 2,
     footprintTilesZ: 2,
+    // 2026-11-02 : la premiere Forge terminee donne la hache et la pioche.
+    unlocksTools: ['axe', 'pickaxe'],
+    description: 'Outils : hache de bûcheron et pioche de mineur',
   },
   // Maison : +2 de population maximale tant qu'elle existe (voir
   // data/population.ts). Cout et PV PROVISOIRES, non encore fixes par le
@@ -335,6 +348,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     resourceCost: { wood: 6 },
     buildTime: 5,
     buildingModel: 'blue_home_A',
+    // 2026-11-03 (demande d'Antoine) : 1re Maison A, 2e B, 3e A...
+    modelVariants: ['blue_home_A', 'blue_home_B'],
     footprintTilesX: 2,
     footprintTilesZ: 2,
     modelScale: 0.8,
@@ -379,10 +394,10 @@ export const BUILDINGS: Record<string, BuildingDef> = {
       launchOutset: 0.65,
     },
   },
-  // Eglise : soigne toutes les unites du joueur contre de l'or (run/churchHeal.ts),
-  // donne acces aux ameliorations de run des parchemins et de Soins
-  // excedentaires (run/runUpgrades.ts, runUpgradeSite) et debloque le
-  // recrutement du Mage. Batiment plus tardif (35 or). Valeurs PROVISOIRES.
+  // Eglise : soigne toutes les unites du joueur contre de l'or (run/churchHeal.ts)
+  // et produit l'Oracle et le Vengeur. Le Mage et les parchemins sont au
+  // Sanctuaire depuis le 2026-11-03. Batiment plus tardif (35 or). Valeurs
+  // PROVISOIRES.
   church: {
     id: 'church',
     displayName: 'Église',
@@ -402,17 +417,83 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     upgradeGoldCostBase: 5,
     hpPerLevel: 5 * HP_PER_PIP,
     armyHeal: { hpPerGold: 5, hpPerGoldPerLevel: 2 },
-    recruitmentUnlock: { unitIds: ['mage', 'oracle', 'vengeur'], missingBuildingHint: 'Nécessite une Église' },
+    recruitmentUnlock: { unitIds: ['oracle', 'vengeur'], missingBuildingHint: 'Nécessite une Église' },
   },
-  // Scierie (2026-11-02, demande d'Antoine) : debloque la coupe des arbres
-  // (une fois terminee ; plusieurs : il en suffit d'une). Pas un depot (la
-  // Baliste reste le seul). Emprise 3 x 3 comme la Mine, modele KayKit de
-  // scierie (structure bois, scie, rondins). Valeurs PROVISOIRES : accessible
-  // tot, mais demande les petits tas de bois deposes.
+  // Sanctuaire (2026-11-03) : batiment de magie, producteur standard (file,
+  // point de ralliement, amelioration par la file) ; produit le Mage et
+  // donne acces aux parchemins (ameliorations de run, run/runUpgrades.ts).
+  // Modele KayKit `blue_shrine`. Valeurs PROVISOIRES.
+  shrine: {
+    id: 'shrine',
+    displayName: 'Sanctuaire',
+    maxHp: 20 * HP_PER_PIP,
+    radius: 1.0,
+    targetable: true,
+    countsForDefeat: true,
+    hpBarHeight: 2.6,
+    cost: 25,
+    resourceCost: { wood: 8, stone: 8 },
+    buildTime: 10,
+    buildingModel: 'blue_shrine',
+    footprintTilesX: 2,
+    footprintTilesZ: 2,
+    upgradeGoldCostBase: 15,
+    maxUpgradeLevel: 1,
+    hpPerLevel: 5 * HP_PER_PIP,
+    recruitmentUnlock: { unitIds: ['mage'], missingBuildingHint: 'Nécessite un Sanctuaire' },
+    runUpgradeSite: 'shrine',
+    description: 'Produit le Mage ; parchemins',
+  },
+  // Auberge (2026-11-03) : producteur standard du Villageois, premiere unite
+  // economique. Modele `blue_tavern` (taverne du pack). Valeurs PROVISOIRES.
+  tavern: {
+    id: 'tavern',
+    displayName: 'Auberge',
+    maxHp: 20 * HP_PER_PIP,
+    radius: 1.0,
+    targetable: true,
+    countsForDefeat: true,
+    hpBarHeight: 2.6,
+    cost: 15,
+    resourceCost: { wood: 8 },
+    buildTime: 8,
+    buildingModel: 'blue_tavern',
+    footprintTilesX: 2,
+    footprintTilesZ: 2,
+    recruitmentUnlock: { unitIds: ['villageois'], missingBuildingHint: 'Nécessite une Auberge' },
+    description: 'Produit le Villageois (récolte)',
+  },
+  // Ecurie (2026-11-03) : producteur standard (comme la Caserne) du Cavalier
+  // leger (unite existante `cavalier`). Amelioration Niv. 2 par la file
+  // (PV du batiment), surtout pour eprouver unite -> amelioration -> unite.
+  // Modele KayKit `blue_stables` (2 x 3 dans l'editeur, ajuste a l'emprise
+  // 3 x 3 des producteurs). Valeurs PROVISOIRES.
+  stables: {
+    id: 'stables',
+    displayName: 'Écurie',
+    maxHp: 25 * HP_PER_PIP,
+    radius: 1.6,
+    targetable: true,
+    countsForDefeat: true,
+    hpBarHeight: 2.6,
+    cost: 20,
+    resourceCost: { wood: 12 },
+    buildTime: 10,
+    buildingModel: 'blue_stables',
+    footprintTilesX: 3,
+    footprintTilesZ: 3,
+    upgradeGoldCostBase: 20,
+    maxUpgradeLevel: 1,
+    hpPerLevel: 5 * HP_PER_PIP,
+    recruitmentUnlock: { unitIds: ['cavalier'], missingBuildingHint: 'Nécessite une Écurie' },
+    description: 'Produit le Cavalier léger',
+  },
+  // Scierie (2026-11-02) : ne controle plus la recolte (la Forge donne les
+  // outils) ; constructible, EN ATTENTE d'une nouvelle fonction economique.
+  // Emprise 3 x 3, modele KayKit de scierie. Valeurs PROVISOIRES.
   sawmill: {
     id: 'sawmill',
     displayName: 'Scierie',
-    description: 'Débloque la coupe des arbres',
     maxHp: 15 * HP_PER_PIP,
     radius: 1.5,
     targetable: true,
@@ -424,17 +505,13 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_lumbermill',
     footprintTilesX: 3,
     footprintTilesZ: 3,
-    unlocksHarvest: 'trees',
   },
-  // Camp de mineur (2026-11-02, demande d'Antoine) : debloque l'exploitation
-  // des gros gisements de pierre (une fois termine). Distinct de la Mine
-  // (or automatique toutes les 60 s) : il n'extrait rien lui-meme. Pas un
-  // depot. Emprise 3 x 3, modele KayKit d'atelier (abri, outils). Valeurs
-  // PROVISOIRES : demande du bois et un peu de pierre des petits tas.
+  // Camp de mineur (2026-11-02) : ne controle plus la recolte (la Forge donne
+  // la pioche) ; constructible, EN ATTENTE d'une nouvelle fonction
+  // economique. Distinct de la Mine (or toutes les 60 s). Valeurs PROVISOIRES.
   miner_camp: {
     id: 'miner_camp',
     displayName: 'Camp de mineur',
-    description: 'Débloque l’exploitation des gisements',
     maxHp: 15 * HP_PER_PIP,
     radius: 1.5,
     targetable: true,
@@ -446,7 +523,6 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_workshop',
     footprintTilesX: 3,
     footprintTilesZ: 3,
-    unlocksHarvest: 'deposits',
   },
   // Palissade V2 (2026-11-02) : pieces d'une ligne de palissade en bois
   // (data/walls.ts, famille 'palisade'). PV, cout et duree par LONGUEUR

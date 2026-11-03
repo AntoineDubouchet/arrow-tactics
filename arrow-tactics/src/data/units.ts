@@ -130,6 +130,10 @@ export interface UnitDef {
    *  La Charge (data/abilities.ts) n'est portee par aucune unite depuis le
    *  retrait du Cavalier leger. */
   abilities?: AbilityDef[];
+  /** Unite economique (Villageois, 2026-11-03) : recolte et transport
+   *  (sim/systems/workers.ts). `carryCapacity` : bois ou pierre portes au
+   *  plus avant d'aller au depot. Absent : unite de combat. */
+  worker?: { carryCapacity: number };
   /** Emprise au placement (voir main.ts, getFootprintTiles/isValidPlacementForUnit)
    *  — absent = 1x1 comme toutes les unites jusqu'ici. Seul `tilesZ` est
    *  actuellement supporte (extension vers l'ARRIERE du camp, jamais vers
@@ -486,6 +490,34 @@ export const UNITS: Record<string, UnitDef> = {
       canAttackWhileMoving: false,
     },
     visual: { kit: 'piquier' },
+  },
+  // Villageois (2026-11-03, demande d'Antoine) : premiere unite economique,
+  // produite a l'Auberge. Fragile, presque inutile au combat, vitesse
+  // raisonnable, population 1 ; recolte bois, pierre et or avec les outils de
+  // la Forge, porte 5 bois / pierre au depot (sim/systems/workers.ts). Pas
+  // d'XP, de mana ni d'equipement. Aucun modele de paysan dans les assets :
+  // habille du Piquier (PROVISOIRE). Valeurs PROVISOIRES.
+  villageois: {
+    id: 'villageois',
+    name: 'Villageois',
+    pluralName: 'Villageois',
+    cost: 5,
+    populationCost: 1,
+    stats: {
+      maxHp: 25,
+      damage: 2,
+      attackRange: 0.95,
+      // Se defend au contact, ne court jamais apres l'ennemi.
+      aggroRange: 1.5,
+      moveSpeed: 2.2,
+      attackCooldown: 1.6,
+      missChance: 0.25,
+      dodgeChance: 0,
+      radius: 0.4,
+      canAttackWhileMoving: false,
+    },
+    visual: { kit: 'piquier' },
+    worker: { carryCapacity: 5 },
   },
   // Vengeur (2026-11-01, demande d'Antoine) : combattant religieux de
   // l'Eglise, deux epees, DPS de melee brutal et tres rapide ; ni tank ni bon

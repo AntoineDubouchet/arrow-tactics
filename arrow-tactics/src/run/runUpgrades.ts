@@ -72,15 +72,16 @@ const RUN_UPGRADE_DEFS: Readonly<Record<string, UpgradeDefBase>> = {
 };
 
 /** Batiment qui donne acces a une amelioration de run : la Forge (production
- *  des unites, Baliste) ou l'Eglise (parchemins de soin et de Nova de glace,
- *  Soins excedentaires). Simple point d'acces : le niveau reste celui de la
- *  run, partage par toutes les Forges ou Eglises possedees. */
-export type RunUpgradeSite = 'forge' | 'church';
+ *  des unites, Baliste) ou le Sanctuaire (parchemins de soin, de Nova de
+ *  glace et d'Ombre ; l'Eglise jusqu'au 2026-11-03). Simple point d'acces :
+ *  le niveau reste celui de la run, partage par tous les exemplaires
+ *  possedes. Identifiant = celui du batiment (BuildingDef.runUpgradeSite). */
+export type RunUpgradeSite = 'forge' | 'shrine';
 
-const CHURCH_UPGRADE_IDS: ReadonlySet<string> = new Set([HEAL_SCROLL_UPGRADE.id, ICE_NOVA_UPGRADE.id, SHADOW_UPGRADE.id]);
+const SHRINE_UPGRADE_IDS: ReadonlySet<string> = new Set([HEAL_SCROLL_UPGRADE.id, ICE_NOVA_UPGRADE.id, SHADOW_UPGRADE.id]);
 
 export function runUpgradeSite(id: string): RunUpgradeSite {
-  return CHURCH_UPGRADE_IDS.has(id) ? 'church' : 'forge';
+  return SHRINE_UPGRADE_IDS.has(id) ? 'shrine' : 'forge';
 }
 
 /** Vrai si `id` designe une amelioration achetable. */

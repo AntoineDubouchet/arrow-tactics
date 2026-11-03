@@ -26,6 +26,7 @@ contient ni intentions de design ni décisions futures.
 6 sexies. Barils, production, ralliement, réparation
 6 septies. Niveau d'unité, cartes de survie, sol du village
 6 octies. Palissade V2 (murs géométriques)
+6 nonies. Or monnaie, Forge et outils, gisements, Maison A/B, Sanctuaire, Écurie
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -99,7 +100,8 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
    Pop. 0 / 5, aucun bâtiment. Aucun chantier n'est possible avant le
    premier dépôt de ressources. Recruter exige un bâtiment (§4) : Fantassin → Caserne,
    Piquier → Caserne (Fantassin → Caserne Niv. 2), Archer → Camp d'archerie,
-   Mage, Oracle et Vengeur → Église. Maison + Caserne ou Maison +
+   Mage → Sanctuaire, Oracle et Vengeur → Église, Cavalier léger → Écurie
+   (2026-11-03, §6 nonies). Maison + Caserne ou Maison +
    Camp d'archerie tiennent dans les 20 or (16 et 14 bois, à ramasser
    d'abord) ; Caserne + Camp d'archerie (30 or) non. Tout bâtiment acheté est
    d'abord un chantier, bâti par le Héros en bataille (§6 bis).
@@ -393,6 +395,8 @@ bestiaire et l'éditeur.
 | Oracle | 15 | 3 | 0,5 (mêlée de repli) | 0,95 / 10 | 2,0 s | 30 % |
 | Piquier | 1,5 | 4 | 0,8 | 1,4 / 9 | 1,2 s (élan 0,3 s) | 8 % |
 | Vengeur | 25 | 10 | 2 | 0,95 / 9 | 0,6 s (élan 0,2 s) | 10 % |
+| Villageois (2026-11-03) | 5 | 2,5 | 0,2 | 0,95 / 1,5 | 1,6 s | 25 % |
+| Cavalier léger (Écurie, 2026-11-03) | 15 | 18 | 3 | 1,2 / 10 | 1,3 s | 10 % |
 
 - **Mage** :
   - s'arrête à 6 cases de sa cible (`engageRange`) ;
@@ -458,9 +462,10 @@ Sources : `data/units.ts` (`playerUnlockMode`), `run/metaProgress.ts`
   dernier ; en construire un le débloque aussitôt.
 - **Mage et Sentinelle** (`defeatEnemy`) : recrutables après avoir vaincu au
   moins un exemplaire **ennemi** de ce type.
-  - Le **Mage** exige en plus au moins une **Église** possédée, selon la
-    même règle que le Fantassin et l'Archer (« Nécessite une Église »). Les
-    Mages possédés restent si la dernière Église est détruite.
+  - Le **Mage** exige en plus au moins un **Sanctuaire** possédé (Église
+    jusqu'au 2026-11-03), selon la même règle que le Fantassin et l'Archer
+    (« Nécessite un Sanctuaire »). Les Mages possédés restent si le dernier
+    Sanctuaire est détruit.
   - La Sentinelle n'exige aucun bâtiment.
   - Le déblocage est permanent, enregistré dès la mort de l'ennemi
     (`defeatedEnemyUnitIds`) et signalé par un toast.
@@ -725,10 +730,11 @@ Soin de l'Église (modèle `blue_church`, ajusté à l'emprise 2 × 2) :
   si l'or manque ; « Armée déjà au maximum », désactivé, si personne n'est
   blessé (aucun or dépensé). Plusieurs Églises ne cumulent rien : chacune
   soigne avec sa propre efficacité.
-- **Améliorations** : « Améliorations de l'Église » ouvre les améliorations
-  de run des parchemins et de Soins excédentaires (§14).
+- **Améliorations** : depuis le 2026-11-03, les parchemins sont au
+  **Sanctuaire** (« Parchemins du Sanctuaire », §6 nonies) ; l'Église n'a
+  plus d'écran d'améliorations.
 - **Recrutement** : posséder au moins une Église débloque le recrutement
-  du Mage, de l'Oracle et du Vengeur (§4).
+  de l'Oracle et du Vengeur (§4) ; le Mage est au Sanctuaire.
 - Une Église détruite disparaît de la run comme les autres bâtiments.
 
 La Forge (modèle `blue_blacksmith`) est un vrai bâtiment : ciblable,
@@ -880,22 +886,22 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   message invite à déposer. Le sac est gardé à la mort et entre les manches ;
 - **constructions** : elles se paient avec le stock **déposé**, jamais avec
   le sac ;
-- **récolte avancée** : couper les vrais arbres (`canHarvestTrees`)
-  demande une **Scierie** terminée, exploiter les gros gisements de pierre
-  (`canMineDeposits`) un **Camp de mineur** terminé (2026-11-02, menu
-  Construire). Un chantier ne débloque rien ; il suffit d'un bâtiment
-  terminé ; les droits sont recalculés avant chaque pas d'après les
+- **récolte avancée** (règle du 2026-11-03, §6 nonies) : couper les arbres
+  demande la **Hache de bûcheron**, exploiter les gros gisements de pierre
+  et d'or la **Pioche de mineur** ; les deux outils sont donnés par une
+  **Forge terminée** (`BuildingDef.unlocksTools`). La Scierie et le Camp de
+  mineur ne contrôlent plus rien. Un chantier ne débloque rien ; il suffit
+  d'un bâtiment terminé ; les droits sont recalculés avant chaque pas d'après les
   bâtiments du joueur présents dans le monde (Survie générée, carte
   dessinée, « Tester le scénario »). Dernier bâtiment détruit pendant une
   récolte : le Héros finit l'unité en cours d'extraction, puis s'arrête ; en
   chemin, il s'arrête aussitôt ; tout nouvel ordre de récolte est refusé.
-  Ni la Scierie ni le Camp de mineur ne sont des dépôts (la Baliste reste le
-  seul). Le Camp de mineur n'a aucun lien avec la **Mine** (or toutes les
-  60 s, inchangée). **Clic droit sur un arbre ou un
+  La Baliste reste le seul dépôt. La **Mine** (or toutes les 60 s) est
+  inchangée. **Clic droit sur un arbre ou un
   rocher verrouillé** (2026-11-02, règle d'Antoine : « interaction reconnue +
   déplacement autorisé », jamais « clic consommé ») : la source est
-  sélectionnée (anneau jaune, étiquette), la raison est rappelée (« il faut
-  une Scierie / un Camp de mineur »), et le Héros **va au pied de la
+  sélectionnée (anneau jaune, étiquette), la raison est rappelée (« Couper
+  les arbres / Exploiter ce gisement : il faut une Forge (outil) »), et le Héros **va au pied de la
   ressource** (point d'approche de son côté) sans la récolter. Avec le droit
   de récolte : même sélection, puis déplacement à portée et récolte
   automatique (hache pour un arbre, pioche pour un gisement). La récolte
@@ -906,9 +912,10 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   (`STONE_DEPOSIT_AMOUNT`, provisoire ; inépuisables avant), même logique que
   les arbres (`HARVEST_NODE_KINDS`, `data/resources.ts`). Sélection :
   « **Gisement de pierre — 40 pierre** » (quantité restante). À 0 : extraction
-  arrêtée, rocher retiré, **gravats** décoratifs à sa place. Les rochers ne
-  sont pas des obstacles de la simulation (KI-41) : ni case à libérer, ni
-  pathfinding à refaire ; la construction y était déjà possible ;
+  arrêtée, rocher retiré, **gravats** décoratifs à sa place. Depuis le
+  2026-11-03, les gros gisements (pierre et or) **bloquent** le déplacement
+  et la construction comme les arbres ; épuisés, leurs cases sont libérées
+  (pathfinding recalculé, construction possible). KI-41 est remplacé ;
 - **arbres** (2026-11-02) : chaque arbre (arbre isolé ou bosquet) vaut
   **20 bois** en tout (`TREE_WOOD_AMOUNT`, provisoire), décomptés par la
   simulation à chaque unité coupée (`World.resourceNodeAmounts`). **À 0,
@@ -937,8 +944,10 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
 | Maison | 6 | — | 5 s |
 | Tour | 5 | 10 | 10 s |
 | Église | 10 | 10 | 12 s |
-| Scierie (10 or, 3 × 3, 15 PV) | 8 | — | 8 s |
-| Camp de mineur (10 or, 3 × 3, 15 PV) | 6 | 4 | 8 s |
+| Scierie (10 or, 3 × 3, 15 PV ; en attente d'une fonction) | 8 | — | 8 s |
+| Camp de mineur (10 or, 3 × 3, 15 PV ; en attente d'une fonction) | 6 | 4 | 8 s |
+| Sanctuaire (25 or, 2 × 2, 20 PV) | 8 | 8 | 10 s |
+| Écurie (20 or, 3 × 3, 25 PV) | 12 | — | 10 s |
 | Palissade (par case de longueur) | 0,5 | — | 1,5 s |
 | Porte de palissade | 4 | — | 4 s |
 
@@ -1228,9 +1237,10 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
   ni de sac d'objets de 12. Ajout : piles entamées d'abord (ordre des
   cases), puis cases libres ; sac plein : ramassage **partiel**, le reste
   reste au sol ; un équipement exige une case libre ; rien ne disparaît ;
-- **or physique** : l'or trouvé dans le monde tombe au sol (tas de pièces),
-  se ramasse (clic droit), se porte et se **dépose à la Baliste** ; seul
-  l'or **stocké** se dépense. Ennemis : tas à leur mort
+- **or** : depuis le 2026-11-03, l'or est une **monnaie** (§6 nonies) : un
+  tas d'or au sol se ramasse **d'un clic droit, instantanément**, sans
+  déplacement, sans sac ni dépôt. (Avant : or physique porté puis déposé à
+  la Baliste.) Ennemis : tas à leur mort
   (`ENEMY_GOLD_DROPS`, RNG du monde ; plus de prime versée au stock ; talent
   « Butin de guerre » : +1 par tas). Camp nettoyé : 8 / 15 or en tas de 5
   près du feu. **Exceptions** (versées au stock) : Mine (infrastructure,
@@ -1407,6 +1417,72 @@ G20) :
   plateau est désormais découpé en morceaux de 16 × 16 cases
   (`Board.terrain`, comme dans l'éditeur) : une pose ne reconstruit que
   les morceaux touchés (25 à 47 ms mesurés, 2 à 4 morceaux ; KI-53).
+
+## 6 nonies. Or monnaie, Forge et outils, gisements, Maison A/B, Sanctuaire, Écurie
+
+Depuis le 2026-11-03 (valeurs PROVISOIRES) :
+
+- **Or = monnaie** : `RunState.gold`, jamais un objet du sac (le sac ne
+  contient que bois et pierre ; aucune case d'or). Affiché sous la grille de
+  l'inventaire (« 🪙 N », même valeur que le HUD). Tas d'or au sol (ennemis,
+  camps nettoyés, barils) : **clic droit = crédit immédiat**, le tas
+  disparaît, le Héros ne bouge pas (`World.collectGoldPile`, terrain
+  exploré requis sous brouillard). Mine inchangée (versement toutes les
+  60 s). Toutes les dépenses lisent le même or.
+- **Gisement d'or** : gros rocher (« Rocher E ») veiné d'or, 2 × 2,
+  **25 or** (`HARVEST_NODE_KINDS.gold`), extrait à la pioche, 1 or / 1,5 s
+  **crédité directement** (`World.goldMinedEvents`, `creditMinedGold`),
+  jamais porté. Étiquette « Gisement d'or — N or ». Épuisé : gravats, cases
+  libérées. Carte procédurale : 6 gisements d'or (anneau 26 à 44 cases du
+  centre) et 26 de pierre, chacun avec un bloc 4 × 4 libre autour.
+  Éditeur : « Gisement d'or (2×2) » (`ore: 'gold'` sur un `rock`).
+- **Gisement de pierre** : nouveau visuel « Rocher E » KayKit (40 pierre,
+  inchangé). Les gros gisements **bloquent** déplacement et construction
+  (cellules `terrainResource`, `config/resourceNodes.ts`), y compris dans
+  l'éditeur.
+- **Forge = outils** : une Forge **terminée** donne la Hache de bûcheron et
+  la Pioche de mineur à tout le camp (`run/harvestPermissions.ts`).
+  Première fois : « Nouveaux outils disponibles : Hache de bûcheron et
+  Pioche de mineur. » (une fois par partie). Sans Forge : sélection,
+  message et déplacement, aucune extraction. Dernière Forge détruite :
+  nouveaux ordres refusés, l'unité en cours est finie, puis arrêt.
+- **Scierie et Camp de mineur** : constructibles, **sans fonction** pour
+  l'instant (en attente d'un nouveau rôle économique).
+- **Maison A / B** : même bâtiment de jeu, modèle alterné à la pose
+  (1re A, 2e B, 3e A…) d'après le nombre de Maisons posées dans la run
+  (`RunState.placedBuildingCounts`) ; la variante est stockée sur le
+  bâtiment (`OwnedBuilding.modelVariant`) et conservée d'une vague à
+  l'autre ; une destruction ne change aucune autre Maison.
+- **Sanctuaire** (`blue_shrine`, 2 × 2) : producteur standard (chantier,
+  file de 5, ralliement, amélioration Niv. 2 par la file, réparation, terre
+  battue). Produit le **Mage** (retiré de l'Église) ; « Parchemins du
+  Sanctuaire » ouvre les améliorations de run des parchemins (soin, Nova de
+  glace, Ombre ; avant : à l'Église).
+- **Église** : soin de l'armée, Oracle et Vengeur (inchangés).
+- **Écurie** (`blue_stables`, 3 × 3) : producteur standard ; produit le
+  **Cavalier léger** (unité `cavalier` existante, 15 or, 12 s) ;
+  amélioration Niv. 2 par la file (+5 PV du bâtiment), qui s'intercale
+  entre deux unités (unité → amélioration → unité vérifié).
+- **Ralliement** : proposé à tout bâtiment qui produit des unités par sa
+  file (Église et Sanctuaire compris), plus seulement aux producteurs
+  legacy.
+- **Auberge** (`blue_tavern`, 2 × 2, 15 or + 8 bois, 20 PV, 8 s) :
+  producteur standard du **Villageois** (5 or, 8 s).
+- **Villageois** (première unité économique) : humain fragile (2,5 PV,
+  0,2 dégât, se défend au contact seulement), vitesse 2,2, population 1 ;
+  ni XP, ni mana, ni équipement ; habillé du modèle du Piquier
+  (provisoire). Se sélectionne et se commande comme une unité. **Clic
+  droit** sur un arbre, un gisement de pierre ou d'or : récolte (même
+  permission que le Héros : Forge terminée ; sans Forge, message et
+  déplacement au pied de la source). Bois / pierre : **porte 5 au plus**,
+  va au **dépôt allié le plus proche** (la Baliste aujourd'hui), verse une
+  unité / 0,5 s dans le stock, puis **retourne à sa source**. **Or** :
+  crédité directement à chaque unité extraite, jamais porté (asymétrie
+  **provisoire**). Source épuisée : la plus proche du même type à 6 cases,
+  sinon dépôt de la charge puis Garde. Outil perdu : l'unité en cours est
+  finie, dépôt, Garde. Un autre ordre (déplacement, Stop) interrompt la
+  boucle ; la charge reste portée. Clic droit sur la Baliste : dépôt.
+  Fiche : « Porté : N bois (max 5) ».
 
 ## 6 octies. Palissade V2 (murs géométriques)
 

@@ -90,13 +90,12 @@ interface AssetEntry {
   template: PlacementTemplate;
 }
 
-/** Rochers proposes dans l'asset browser : les deux empreintes deja
- *  utilisees sur la map actuelle. La composition interne (masse principale/
- *  secondaire/debris) est entierement automatique, voir render/rocks.ts —
- *  rien d'autre a choisir pour un rocher. */
+/** Gros gisements (`kind: 'rock'`, 2026-11-02) : pierre (40) ou or (25),
+ *  BLOQUANTS en jeu, rendus avec le « Rocher E » (render/rocks.ts). */
 const ROCK_ASSETS: AssetEntry[] = [
-  { label: 'Rocher (2×2)', template: { kind: 'rock', tilesX: 2, tilesZ: 2 } },
-  { label: 'Rocher (3×3)', template: { kind: 'rock', tilesX: 3, tilesZ: 3 } },
+  { label: 'Gisement de pierre (2×2)', template: { kind: 'rock', tilesX: 2, tilesZ: 2 } },
+  { label: 'Gisement de pierre (3×3)', template: { kind: 'rock', tilesX: 3, tilesZ: 3 } },
+  { label: 'Gisement d’or (2×2)', template: { kind: 'rock', tilesX: 2, tilesZ: 2, ore: 'gold' } },
 ];
 
 /** Un bouton par modele d'arbre reellement disponible (voir
@@ -595,7 +594,7 @@ function presentAsset(asset: AssetEntry, section: CatalogSection, category: Cata
     size = `${caseSize[1]!.replace('.', ',')} case`;
   }
   name = name.replace(/^KayKit — /, '');
-  if (template.kind === 'rock') name = 'Rocher';
+  if (template.kind === 'rock') name = template.ore === 'gold' ? 'Gisement d’or' : 'Gisement de pierre';
   if (section.tint) name = `${name.replace(/ \((bleu|rouge)\)$/, '')} — décor ${section.tint}`;
   const blocking = isBlockingMapObstacle(template as ObstacleDef);
   const id = template.treeModel ?? template.propModel ?? template.buildingModel ?? template.kind;
