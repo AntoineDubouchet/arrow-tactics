@@ -45,22 +45,24 @@ départ, ni les bâtiments, ni les vagues d'une run.
 ## 1. Ouvrir, quitter, nouvelle carte
 
 - **Ouvrir** : menu principal → **Éditeur de maps**. L'éditeur s'ouvre
-  toujours sur l'**arène officielle du Mode survie** (`SURVIVAL_ARENA_MAP`,
-  « MapV2 », 21 × 36) au complet : terrain, décors, territoire, unités de
-  scénario (un Fantassin de chaque camp) et Baliste. C'est une copie de travail : l'arène du jeu n'est jamais
-  modifiée. L'historique est vide et la carte est considérée comme
-  enregistrée (§14) : pas d'indicateur « non enregistré » à l'ouverture.
+  sur une **carte vierge** (ci-dessous ; depuis le 2026-11-02, plus sur
+  l'arène historique). L'historique est vide et la carte est considérée
+  comme enregistrée (§14) : pas d'indicateur « non enregistré » à
+  l'ouverture.
 - **Quitter** : **« ← Retour au menu »**. Si la carte a des modifications
   non enregistrées, une confirmation est demandée (§14).
 - **Nouvelle carte** (barre du haut) : remplace le brouillon par une carte
-  vierge, après confirmation si le brouillon n'est pas enregistré :
-  - 18×26 cases (dimensions de l'ancienne carte « vague1-20 »,
-    `DEFAULT_MAP`), rectangle plein de cases d'herbe ;
-  - aucun obstacle, aucune unité ;
-  - pas de position de Baliste explicite (repli du coin, §16) ;
-  - pas de territoire explicite : le territoire affiché est le repli
-    historique (§4) jusqu'au premier coup de pinceau ;
-  - `version: 1`, nom « Nouvelle carte » ;
+  **réellement vierge** (2026-11-04, même carte qu'à l'ouverture), après
+  confirmation si le brouillon n'est pas enregistré :
+  - disque de 96 × 96 cases d'herbe plate (même emprise que la carte
+    procédurale), sans eau ni relief ;
+  - aucun obstacle, aucune unité, aucun camp, territoire explicitement
+    vide ;
+  - **aucun Départ Survie** : la Baliste n'est plus imposée au centre ; il
+    se pose avec l'outil **Départ Survie** (§1 bis) et « Tester le
+    scénario » le refuse tant qu'il manque (§15) ;
+  - règles de la Survie Hero RTS (`survivalRules: 'hero-rts'`) ;
+  - `version: 1`, nom « Nouvelle carte (96 × 96) » ;
   - historique vide, carte **non enregistrée** jusqu'au premier Enregistrer.
 - **Nom de la carte** : il n'est pas modifiable dans l'interface. Une
   nouvelle carte s'enregistre donc sous le nom « Nouvelle carte ».
@@ -100,9 +102,17 @@ au lancement d'une partie. La graine est gardée comme métadonnée
 (`generator.seed`) ; la carte enregistrée contient son **état concret**,
 jamais une simple graine à régénérer.
 
-**Panneau d'informations** (haut de la vue, carte générée ou rechargée avec
-sa graine) : graine, arbres, gisements de pierre et d'or, petits tas (bois,
-pierre), barils, camps (petits, grands), cases surélevées et rampes.
+**Panneau d'informations** (haut de la vue, **toujours affiché** depuis le
+2026-11-04) : graine (— sans générateur) et Départ Survie (position ou
+« absent »), arbres, gisements de pierre et d'or, petits tas (bois,
+pierre), barils (ceux des camps compris), camps (petits, grands, plage de
+niveaux), cases surélevées et rampes. Il reflète **l'état en cours
+d'édition** (ajout, suppression, déplacement, génération, chargement),
+jamais une statistique figée de la graine. Dessous, la **validation de
+Survie** : **erreurs** en rouge (aucun Départ Survie ; Départ invalide ;
+camp invalide, avec la raison) qui bloquent « Tester le scénario », et
+**avertissements** en orange (aucun camp, aucune ressource, aucune
+palissade) qui ne bloquent rien.
 
 **Vue globale** (bouton de la barre du haut, même cadrage qu'Espace) : la
 caméra cadre la carte entière dans l'espace libre de l'écran, calculé
@@ -112,15 +122,42 @@ linéaire : depuis la vue globale, plusieurs crans sont nécessaires).
 L'éditeur n'a jamais de brouillard de guerre : toute la carte est visible
 (la Survie garde le sien).
 
-**Éléments de Survie** (camps, petits tas, barils) : un marqueur chacun
-(camp : disque de sa zone et mât rouge ; tas : pastille bois / pierre ;
-baril : petit cylindre ; jaune quand sélectionné). Clic sur le marqueur :
-sélection ; **Suppr** : suppression (Ctrl+Z la rétablit) ; un camp supprimé
-emporte ses gardes et son coffre, **pas** son décor (feu, tente… : décors
-ordinaires, à supprimer à part). Groupe **Survie** du catalogue : **Tas de
-bois (5)**, **Tas de pierre (5)**, **Baril** (pose continue sur la case
-visée, hors eau, une par case). Les camps ne se posent pas à la main (leurs
-gardes et leur coffre viennent du générateur) et ne se déplacent pas.
+**Éléments de Survie** (Départ Survie, camps, petits tas, barils), groupe
+**Survie** du catalogue (2026-11-04, `DESIGN_DECISIONS.md` G34) :
+
+- **Départ Survie** : la position de la **Baliste principale** ; le Héros
+  apparaît à côté. Un seul par carte : l'outil pose la Baliste au clic
+  (emprise 3 × 3 calée sur la grille, aperçu vert / rouge) et **remplace**
+  l'ancien départ ; l'outil revient à Sélection, départ sélectionné.
+  Marqueur : anneau et fanion bleus sous la tour. Refus : cases manquantes,
+  eau, relief, obstacle ou gisement, bâtiment ou unité sous l'emprise, camp
+  à moins de 14 cases. Le territoire joueur n'est plus exigé. Sans Départ
+  Survie, aucune Baliste n'est affichée.
+- **Petit camp**, **Grand camp** (un par type de `data/camps.ts`, mêmes
+  rosters qu'en jeu : 4 et 6 gardes) : un camp est **un seul objet** (type,
+  centre, niveau, orientation). Coffre, postes de garde, feu, tente,
+  bannières, caisses, râtelier et barils sont **dérivés** et affichés
+  dans l'éditeur ; ils suivent le camp, se suppriment et s'annulent avec
+  lui, et ne sont jamais écrits dans la carte. Pose : clic sur le centre
+  voulu (centre de case), aperçu de la clairière (3,5 cases) vert / rouge.
+  Refus : hors carte, eau, relief (falaise ou pente), bâtiment, palissade,
+  Départ Survie, unité, arbre, gros gisement ou obstacle dans la
+  clairière ; autre camp à moins de 10 cases ; Départ Survie à moins de 14
+  cases ; abords fermés (moins de 12 cases libres dans la couronne de 2
+  cases : zone manifestement inaccessible). Un décor traversable posé à la
+  main dans la clairière ne gêne pas et **reste** après la suppression du
+  camp. Niveau 1 par défaut, modifiable dans la fiche (§12) ; les gardes
+  prennent le niveau du camp. Dos du camp tourné à l'opposé du Départ
+  Survie (sinon de l'origine).
+- **Tas de bois (5)**, **Tas de pierre (5)**, **Baril** : pose continue sur
+  la case visée, hors eau, une par case ; un baril posé ici est
+  **indépendant** (il ne suit aucun camp).
+
+Clic sur un élément (ou sur n'importe quelle partie d'un camp : garde,
+coffre, tente, feu, baril, bannière…) : sélection (jaune) ; **clic au sol** :
+déplacement (§8) ; **Suppr** : suppression (§10) ; Ctrl+Z rétablit. Les
+camps du **générateur** sont les mêmes objets : sélectionnables,
+déplaçables, supprimables, niveau modifiable.
 
 ## 2. L'interface
 
@@ -565,9 +602,15 @@ est ouverte au départ) :
 ## 7. Sélection
 
 - **Décor ou Baliste** : un clic gauche le sélectionne, dès l'appui. Un décor
-  est entouré d'un anneau doré. La Baliste, qui reste un objet distinct des
-  unités, est entourée d'un anneau à la couleur de son camp (le bleu du
-  joueur).
+  est entouré d'un anneau doré. La Baliste (Départ Survie), qui reste un
+  objet distinct des unités, est entourée d'un anneau à la couleur de son
+  camp (le bleu du joueur) ; sans Départ Survie posé, il n'y a rien à
+  cliquer.
+- **Élément de Survie** (2026-11-04) : un clic sur son marqueur, ou sur
+  n'importe quelle pièce dérivée d'un camp (garde, coffre, tente, feu,
+  baril, bannière, caisse, râtelier), sélectionne **le camp logique
+  entier** (ou le tas, le baril). Ces pièces passent avant les décors au
+  clic.
 - **Priorité** : le clic retient l'objet touché le plus proche de la caméra,
   décor, unité ou Baliste. Un petit décor traversable peut donc capter un
   clic destiné au sol ou à une unité derrière lui (§18).
@@ -600,6 +643,17 @@ est ouverte au départ) :
 
 ## 8. Déplacement
 
+- **Éléments de Survie** (2026-11-04) : élément sélectionné + **clic au
+  sol** → déplacement sur le centre de la case visée, dès l'appui (comme la
+  Baliste), avec aperçu au survol (clairière verte / rouge pour un camp,
+  case pour un tas ou un baril). Un **camp** se déplace **d'un bloc** :
+  coffre, gardes, feu, tente, bannières, caisses et barils dérivés suivent ;
+  la nouvelle position est validée avec les règles de la pose (le camp
+  s'ignore lui-même) ; refusée, rien ne bouge. Son orientation et son
+  niveau sont conservés. Une entrée d'historique par déplacement.
+- **Départ Survie (Baliste)** : clic au sol, emprise 3 × 3 calée, mêmes
+  règles qu'à la pose (§1 bis : plat, hors eau, sans obstacle, loin des
+  camps) ; le territoire joueur n'est plus exigé.
 - **Décors** :
   - uniquement avec les **flèches du gizmo** ;
   - déplacement libre sur le plan horizontal ; un déplacement qui amènerait
@@ -671,12 +725,15 @@ est ouverte au départ) :
 ## 10. Supprimer
 
 - **Suppr**, **Retour arrière** ou le bouton **« Supprimer (Suppr) »**
-  suppriment la sélection : un décor, une unité, un groupe ou un bâtiment
-  de scénario.
+  suppriment la sélection : un décor, une unité, un groupe, un bâtiment
+  de scénario, un mur, ou un **élément de Survie** (2026-11-04 : un camp
+  disparaît **avec** ses gardes, son coffre, son feu, sa tente, ses
+  bannières, ses caisses et ses barils dérivés ; un décor ou un baril posé
+  à la main à côté reste).
 - La suppression est **annulable** : Ctrl+Z restaure les objets et la
-  sélection.
-- **La Baliste ne se supprime pas** : Suppr est sans effet sur elle, tout
-  comme R.
+  sélection (un camp revient entier, niveau et position compris).
+- **La Baliste (Départ Survie) ne se supprime pas** : Suppr est sans effet
+  sur elle, tout comme R ; on la **déplace** ou on la **repose** ailleurs.
 
 ## 11. Annuler / rétablir
 
@@ -684,6 +741,8 @@ est ouverte au départ) :
   rétablir.
 - **Opérations historisées**, une entrée par geste :
   - pose d'une unité, d'un bâtiment de scénario ou d'un décor ;
+  - pose, déplacement, suppression ou changement de niveau d'un camp ;
+    pose ou déplacement d'un tas, d'un baril, du Départ Survie ;
   - suppression d'un décor, d'une unité, d'un groupe ou d'un bâtiment ;
   - déplacement d'unités (une entrée pour tout le groupe, positions et
     camps) ;
@@ -724,8 +783,14 @@ Toujours affiché à droite (sauf replié, §2) ; son contenu suit la sélection
   actuel » le signale.
 - **Groupe** : nombre d'unités, composition par type, camps (et nombre
   d'unités hors de leur territoire), action Supprimer.
-- **Baliste** (« Objectif gameplay ») : camp Joueur, position, rappel de la
-  règle de placement 3×3 en territoire joueur. Aucune action.
+- **Camp** (« Petit camp » / « Grand camp », « Camp neutre (objet de
+  Survie) ») : type, **niveau** (champ modifiable, entier de 1 à 99, Entrée
+  ou perte du focus ; une entrée d'historique), nombre de gardes, butin
+  (coffre, or du nettoyage), position, action Supprimer. Les gardes
+  prennent le niveau du camp (« Tester le scénario », vraie run).
+- **Tas**, **Baril** (« Survie ») : quantité (tas), position, Supprimer.
+- **Départ Survie (Baliste)** (« Objectif gameplay ») : camp Joueur,
+  position, rappel de la règle de placement 3 × 3. Aucune action.
 
 ## 13. Caméra
 
@@ -870,6 +935,18 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
   puis réenregistrées sans toucher à la Baliste ni au territoire, elles
   restent **sans** ces champs.
 
+**Camps (format, 2026-11-04)** : un camp est enregistré comme un objet
+sémantique (`camps[] : { kind, x, z, level, facing, guardOverrides? }`) ;
+son coffre, ses postes, son décor et ses barils ne sont **jamais** écrits
+(`obstacles` et `destructibles` ne contiennent que ce qui a été posé à part).
+Le Départ Survie est `ballista`, écrit seulement s'il est posé. Un fichier
+plus ancien (camps avec `chest`, `guardPosts`, `radius`, décor et barils
+écrits) se charge : type, centre et niveau sont repris, le décor et les
+barils de la clairière de chaque camp sont retirés (le camp les dérive de
+nouveau), le reste est intact ; un avertissement console le signale.
+Enregistrer puis recharger ne déplace rien (vérifié : camps, Départ, décors
+identiques).
+
 ## 15. Tester le scénario
 
 - **Ce que fait le test** : il lance une **vraie bataille** sur la carte en
@@ -885,12 +962,23 @@ défini dans `config/mapDef.ts`, `config/territory.ts` et
   bâtiment de simulation avec ses PV (de base : le test n'applique aucune
   amélioration de Forge), sa collision et sa destruction : HUD
   `[Q] BALISTE — DÉTRUITE`, tir Q bloqué, collision libérée.
-  - **Position** : celle de la carte (`ballista`), sinon le repli historique.
-    Le modèle, l'origine des tirs, le bâtiment et sa collision sont tous à
+  - **Position** : le **Départ Survie** de la carte (`ballista`). Le
+    modèle, l'origine des tirs, le bâtiment et sa collision sont tous à
     cette position.
   - Elle compte pour la survie du camp joueur.
-- **Retour à l'éditeur** : automatique dès qu'un camp n'a plus de combattant,
-  ou avec **Échap**. Le brouillon est retrouvé intact : panneaux, cadrage,
+- **Validation** (2026-11-04) : une **erreur** du panneau d'informations
+  (aucun Départ Survie, Départ ou camp invalide) **bloque** le test, avec
+  un message qui la rappelle ; un avertissement ne bloque pas.
+- **Héros** (2026-11-04) : sur une carte de Survie (`hero-rts`), le Héros
+  apparaît **à côté du Départ Survie** (même formation qu'en vraie run),
+  sauf si la carte le place déjà comme unité de scénario.
+- **Camps** : chaque camp de la carte est créé comme en vraie partie
+  (gardes au **niveau du camp**, coffre, décor et barils dérivés).
+- **Retour à l'éditeur** : sur une carte de Survie, seulement par la
+  **défaite** (Héros à terre et Baliste détruite, ou Baliste détruite) ou
+  avec **Échap** (les gardes des camps ne comptent pas pour la fin) ; sur
+  une carte historique, aussi dès qu'un camp n'a plus de combattant. Le
+  brouillon est retrouvé intact : panneaux, cadrage,
   sélection et état non enregistré inchangés. Le test ne devient jamais la
   référence « enregistrée ». La tour réapparaît à sa position d'édition,
   même si elle a été détruite.
@@ -1017,9 +1105,12 @@ joueur, et sa position fait partie de la carte (`ballista`, §14).
 
 Détaillées dans `KNOWN_ISSUES.md` :
 
-- **KI-52** : niveaux des camps et `survivalRules` non modifiables dans
-  l'interface ; camps ni posables ni déplaçables à la main (2026-11-03 :
-  désormais affichés, supprimables, enregistrés et rechargés).
+- **KI-52** : `survivalRules` et niveaux des **unités** de scénario non
+  modifiables dans l'interface (camps : posables, déplaçables, niveau
+  modifiable depuis le 2026-11-04).
+- **KI-65** : sur certaines cartes générées, un gisement bloquant peut
+  fermer un couloir et isoler une poche (le générateur relie les camps à la
+  Baliste, pas chaque point intermédiaire).
 - **KI-58** : les anciennes graines ne redonnent plus exactement les cartes
   d'avant la refonte des ressources.
 
@@ -1118,7 +1209,10 @@ Les raccourcis clavier sont **ignorés pendant la saisie dans un champ**
 | Double-clic sur une unité | Sélectionner les unités visibles du même type et du même camp |
 | Survol du terrain (unités sélectionnées) | Aperçu du déplacement |
 | Clic gauche au sol (unités sélectionnées) | Déplacer selon l'aperçu |
-| Clic gauche au sol (Baliste sélectionnée) | Déplacer la Baliste (3×3 en territoire joueur), dès l'appui |
+| Clic gauche au sol (Baliste sélectionnée) | Déplacer le Départ Survie (3×3 plat, hors eau, loin des camps), dès l'appui |
+| Clic sur une pièce d'un camp (garde, coffre, tente, feu, baril…) | Sélectionner le camp entier |
+| Clic gauche au sol (élément de Survie sélectionné) | Déplacer le camp entier, le tas ou le baril, dès l'appui |
+| Clic gauche (outil Départ Survie / Petit camp / Grand camp) | Poser le Départ (remplace l'ancien) ou le camp (aperçu vert / rouge) |
 | Clic gauche (outil de pose actif) | Poser l'unité ou le décor |
 | Clic ou glisser (outil de case actif) | Ajouter ou supprimer les cases survolées |
 | Clic ou glisser (outil Territoire actif) | Peindre les cases |

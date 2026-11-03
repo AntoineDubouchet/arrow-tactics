@@ -1,7 +1,7 @@
 import { Rng } from '../../core/rng';
 import type { ObstacleDef } from '../constants';
 import type { SurfaceCellDef } from '../groundSurfaces';
-import type { MapCampDef, MapDef, TerrainCellDef } from '../mapDef';
+import { CAMP_CLEAR_RADIUS, type MapCampDef, type MapDef, type TerrainCellDef } from '../mapDef';
 import type { ResourcePileDef } from '../resourceNodes';
 import type { SlopeDirection, SlopeShape, TerrainElevationCellDef } from '../terrainElevation';
 import type { TerritoryCell } from '../territory';
@@ -587,8 +587,9 @@ export function generateSurvivalMap(seed: number): MapDef {
 
   // ---- Camps neutres (2026-11-02) : apres tout le reste, sans tirer dans
   // `rng` (le terrain d'une graine existante ne bouge pas hors des camps).
-  const destructibles: { kind: string; x: number; z: number }[] = [];
-  const camps = placeCamps(seed, { inMap, water, hill, ramps, rampClear, trees, occupied, pileCells, reached }, obstacles, resourcePiles, destructibles);
+  // Objets semantiques (2026-11-03) : leur decor et leurs barils ne sont
+  // pas ecrits ici, ils se derivent du camp (data/campLayout.ts).
+  const camps = placeCamps(seed, { inMap, water, hill, ramps, rampClear, trees, occupied, pileCells, reached }, obstacles, resourcePiles);
 
   // ---- Territoire du joueur : disque central.
   const territory: TerritoryCell[] = cells.filter((c) => centerDistance(c.x, c.z) <= TERRITORY_RADIUS).map((c) => ({ x: c.x, z: c.z, team: 'player' }));
@@ -608,7 +609,6 @@ export function generateSurvivalMap(seed: number): MapDef {
     surfaceCells,
     resourcePiles,
     camps,
-    destructibles,
     generator: { kind: 'survival-procedural', seed },
     survivalRules: 'hero-rts',
   };
@@ -617,10 +617,10 @@ export function generateSurvivalMap(seed: number): MapDef {
 /** Camps a placer, dans l'ordre (type de camp data/camps.ts, anneau de
  *  distance au centre en cases). Au-dela de la zone exploree au depart
  *  (INITIAL_EXPLORED_RADIUS 22) et de l'anneau des vagues, loin du bord ;
- *  `large` : decor plus fourni. PROVISOIRE : un petit camp, un grand camp. */
-const CAMP_SITES: readonly { kind: string; dMin: number; dMax: number; large?: boolean; level: number }[] = [
+ *  PROVISOIRE : un petit camp, un grand camp. */
+const CAMP_SITES: readonly { kind: string; dMin: number; dMax: number; level: number }[] = [
   { kind: 'raiders_small', dMin: 31, dMax: 38, level: 1 },
-  { kind: 'raiders_large', dMin: 33, dMax: 38, large: true, level: 1 },
+  { kind: 'raiders_large', dMin: 33, dMax: 38, level: 1 },
 ];
 
 /** Niveau d'unite des gardes d'un camp genere (2026-11-02), ecrit dans la
@@ -631,8 +631,9 @@ const CAMP_SITES: readonly { kind: string; dMin: number; dMax: number; large?: b
 function generatedCampLevel(site: (typeof CAMP_SITES)[number]): number {
   return site.level;
 }
-/** Rayon de la clairiere d'un camp (cases), et ecart minimal entre camps. */
-const CAMP_RADIUS = 3.5;
+/** Rayon de la clairiere d'un camp (cases, config/mapDef.ts), et ecart
+ *  minimal entre camps generes. */
+const CAMP_RADIUS = CAMP_CLEAR_RADIUS;
 const CAMP_SPACING = 20;
 
 interface CampGrid {
@@ -652,11 +653,12 @@ interface CampGrid {
  * clairiere d'un anneau (48 directions, depart tourne par la graine, sans
  * tirer dans la RNG de la carte) : cases dans la carte, sans eau, relief,
  * rampe, abords de rampe, rocher ni tas ; au plus 4 arbres (retires) ; abords
- * ouverts et relies a pied a la Baliste (pas coince dans une foret). Decor en
- * props traversables (feu, tente, banniere, caisses, tonneau, bois), coffre a
- * l'abri de la tente, postes de garde autour du feu, deux petits tas a cote.
+ * ouverts et relies a pied a la Baliste (pas coince dans une foret). Le camp
+ * est ecrit comme un objet semantique (type, centre, niveau, dos tourne vers
+ * l'exterieur de la carte) : decor, coffre, postes et barils en derivent
+ * (data/campLayout.ts) ; deux petits tas independants a cote.
  */
-function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: ResourcePileDef[], destructibles: { kind: string; x: number; z: number }[]): MapCampDef[] {
+function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: ResourcePileDef[]): MapCampDef[] {
   const key = (x: number, z: number) => `${x},${z}`;
   const camps: MapCampDef[] = [];
   const disc = (cx: number, cz: number, rMin: number, rMax: number): string[] => {
@@ -713,45 +715,14 @@ function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: 
       if ((o.kind === 'tree' && cell.has(key(Math.floor(ox), Math.floor(oz)))) || (o.kind === 'prop' && Math.hypot(ox - C.x, oz - C.z) <= CAMP_RADIUS + 1)) obstacles.splice(i, 1);
     }
     for (const k of cell) g.trees.delete(k);
-    // Repere du camp : `b` vers l'exterieur de la carte (le dos du camp), `p`
-    // perpendiculaire ; on arrive par l'avant (cote Baliste).
-    const len = Math.hypot(C.x, C.z) || 1;
-    const b = { x: C.x / len, z: C.z / len };
-    const p = { x: -b.z, z: b.x };
-    const at = (back: number, side: number) => ({ x: C.x + b.x * back + p.x * side, z: C.z + b.z * back + p.z * side });
-    const facing = (from: { x: number; z: number }) => Math.atan2(C.x - from.x, C.z - from.z);
-    const prop = (model: string, pos: { x: number; z: number }, tiles: number, scale: number, rotationY: number) => obstacles.push({ kind: 'prop', tilesX: tiles, tilesZ: tiles, propModel: model, x: pos.x, z: pos.z, scale, rotationY });
-    const tent = at(2.5, 0);
-    prop('campfire_stones', C, 1, 1, hash2(seed + 139, cx, cz) * Math.PI * 2);
-    prop('tent_detailedOpen', tent, 2, 1.1, facing(tent));
-    prop('kaykit_flag_red', at(1.7, -2.3), 1, 1.3, facing(at(1.7, -2.3)));
-    prop('kaykit_crate_A_big', at(1.6, 2.3), 1, 0.9, 0.3);
-    prop('kaykit_crate_B_small', at(0.8, 2.9), 1, 0.7, 1.1);
-    prop('log_stack', at(0.2, -2.7), 1, 0.9, facing(at(0.2, -2.7)) + Math.PI / 2);
-    prop('kaykit_weaponrack', at(-0.6, -2.8), 1, 0.9, facing(at(-0.6, -2.8)));
-    if (site.large) {
-      // Grand camp : seconde tente et seconde banniere, sur les cotes.
-      prop('tent_smallClosed', at(1.2, -3.0), 1, 1.2, facing(at(1.2, -3.0)));
-      prop('kaykit_flag_red', at(1.9, 2.9), 1, 1.3, facing(at(1.9, 2.9)));
-    }
-    const chest = at(1.3, 1.2);
-    // Barils destructibles (2026-11-02, PROVISOIRE : 2 au petit camp, 3 au
-    // grand) : sur des cases du camp libres de coffre et de poste de garde.
-    const taken = new Set([chest, at(-1.5, 0.9), at(-1.5, -0.9), at(0.2, -1.7), at(0.2, 1.8), at(-0.5, 2.6), at(-0.5, -2.6)].map((q) => key(Math.floor(q.x), Math.floor(q.z))));
-    for (const spot of (site.large ? [at(2.7, 1.7), at(-2.0, 2.2), at(-2.1, -2.0)] : [at(2.7, 1.7), at(-2.0, 2.2)])) {
-      const k = key(Math.floor(spot.x), Math.floor(spot.z));
-      if (taken.has(k)) continue;
-      taken.add(k);
-      destructibles.push({ kind: 'barrel', x: spot.x, z: spot.z });
-    }
+    // Dos du camp vers l'exterieur de la carte (on arrive par l'avant, cote
+    // Baliste) : meme repere que le decor derive (data/campLayout.ts).
     camps.push({
       kind: site.kind,
       x: C.x,
       z: C.z,
-      radius: CAMP_RADIUS,
-      chest: { ...chest, rotationY: facing(chest) },
-      guardPosts: [at(-1.5, 0.9), at(-1.5, -0.9), at(0.2, -1.7), at(0.2, 1.8), at(-0.5, 2.6), at(-0.5, -2.6)],
       level: generatedCampLevel(site),
+      facing: Math.atan2(C.z, C.x),
     });
     // Un peu de bois et de pierre a cote (PROVISOIRE) : cases reliees, libres.
     const ring = disc(cx, cz, CAMP_RADIUS + 0.5, CAMP_RADIUS + 3)

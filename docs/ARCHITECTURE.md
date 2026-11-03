@@ -1244,15 +1244,26 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
 
 ## 13 quater. Camps neutres et coffres
 
-- Carte : `MapDef.camps` (`MapCampDef` : type, centre, rayon, coffre,
-  postes de garde), produit par `placeCamps`
-  (`config/maps/proceduralSurvival.ts`, liste `CAMP_SITES`) ; décor dans
-  `MapDef.obstacles` (props traversables).
+- Carte : `MapDef.camps` (`MapCampDef`, objet **sémantique** depuis le
+  2026-11-04 : `kind`, `x`, `z`, `level?`, `facing?` = dos du camp,
+  `guardOverrides?`), produit par `placeCamps`
+  (`config/maps/proceduralSurvival.ts`, liste `CAMP_SITES`) ou posé dans
+  l'éditeur. **Tout le dérivé** (rayon `CAMP_CLEAR_RADIUS`, coffre, postes
+  de garde, décor en props traversables, barils) vient d'une seule fonction,
+  `campLayoutOf` (`data/campLayout.ts`), partagée par le générateur,
+  l'éditeur et le jeu ; `expandMapCamps(map)` ajoute décor et barils aux
+  listes concrètes **une fois**, à la consommation (`survivalMapFor`, carte
+  de « Tester le scénario »), jamais dans le fichier. Un fichier plus ancien
+  (coffre, postes, décor écrits) est converti par `mapSerializer.ts`
+  (`readLegacyCampCleanup`). `CampKindDef.layout` (`small` / `large`) et
+  `shortName` (catalogue) complètent `data/camps.ts`.
 - Données : `data/camps.ts` (`CAMP_KINDS` : gardes, détection, laisse,
   régénération, table du coffre, or), `data/loot.ts` (tables,
   `ENEMY_LOOT_TABLES`).
-- Résolution : `run/camps.ts` (`campSpecOf` : emplacement + type →
-  `CampSpec`), appelée par `main.ts` à la mise en place de la bataille.
+- Résolution : `run/camps.ts` (`campSpecOf` : objet sémantique + type +
+  `campLayoutOf` → `CampSpec`, niveau des gardes = override, sinon niveau
+  du camp, sinon 1), appelée par `main.ts` à la mise en place de la
+  bataille.
 - Simulation : `sim/systems/camps.ts` (`campSystem` avant le ciblage,
   `campClearSystem` après les morts, `isChestLocked`),
   `World.addCamp / camps / chests / campEvents / lootEvents`, butin à la
@@ -1504,15 +1515,39 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   (`config/maps/proceduralSurvival.ts`) puis `resetEditorWithMap` : une
   seule implémentation du générateur pour le jeu et l'éditeur.
 - `EditorState.features` (`EditorFeature` : camp, tas, destructible),
-  sélection `{ kind: 'feature' }`, `placeFeatureAt`, instantanés
-  d'annulation ; `survivalRules` et `generator` gardés tels quels.
-  `exportMapDef` réécrit `camps`, `resourcePiles`, `destructibles` dans
-  leur ordre ; `loadMapDefFromFile` les relit (entrées invalides écartées).
-- Marqueurs : `editorFeaturesGroup` (`syncEditorFeatureViews`), choisis
-  avant les décors au clic. Vue globale = `resetEditorCamera`
-  (`Renderer.frameBox` sur l'emprise des cases).
-- « Tester le scénario » (`setupTestBattle`) crée camps et barils comme
-  `startBattle`.
+  sélection `{ kind: 'feature' }`, gabarits `EditorFeatureTemplate`
+  (`pile-wood`, `pile-stone`, `barrel`, `start`, `camp:<kind>` ;
+  `campKindOfTemplate`), `placeFeatureAt` (camp : `campPlacementIssue`,
+  niveau 1, `campFacingFrom` à l'opposé du Départ ; `start` :
+  `moveBallista`), `moveFeatureTo` (camp entier, tas, baril ; nouvel objet,
+  jamais une mutation, pour les instantanés), `setCampLevel`,
+  `startPlacementIssue` (`canMoveBallistaTo` ne demande plus le
+  territoire), `survivalValidation` (erreurs / avertissements), constantes
+  PROVISOIRES `CAMP_MIN_SPACING`, `CAMP_START_CLEARANCE`,
+  `CAMP_RING_OPEN_MIN` ; `survivalRules` et `generator` gardés tels quels.
+  `exportMapDef` réécrit `camps` (sémantiques), `resourcePiles`,
+  `destructibles` ; `loadMapDefFromFile` les relit (entrées invalides
+  écartées, anciens camps convertis).
+- Vues : `editorFeaturesGroup` (`syncEditorFeatureViews`, clé = liste,
+  positions, niveaux, sélection, Départ) ; un camp = marqueurs (clairière,
+  mât) + décor dérivé (`buildObstacleMesh`), coffre, gardes (`buildUnit`),
+  barils, tous sous un groupe tagué `featureId` (clic sur une pièce =
+  camp entier, avant les décors) ; seuls les marqueurs tagués
+  `editorMarker` sont libérés. Marqueur du Départ Survie
+  (`editorStartMarker`) ; `ballistaPlatform` visible seulement si
+  `ballistaExplicit`. Aperçus : `buildCampPreview`, `buildStartPreview`,
+  `updateEditorFeatureMovePreview`. Panneau d'informations :
+  `editorInfoLines(state)` + validation (`refreshEditorInfo`, à chaque
+  `refreshEditorObjects`). Fiche : `PropertiesSubject` `feature`, champ
+  `fields` (`campLevel`, handler `onSetCampLevel`). « Nouvelle carte » =
+  `createBlankMap` (sans `ballista`, règles `hero-rts`). Vue globale =
+  `resetEditorCamera` (`Renderer.frameBox` sur l'emprise des cases).
+- « Tester le scénario » (`testScenario`) : `survivalValidation` bloque sur
+  erreur ; carte = `expandMapCamps(exportMapDef(...))` ; `setupTestBattle`
+  crée camps et barils comme `startBattle`, et le Héros à côté du Départ
+  (`computeArmyFormation`) sur une carte `hero-rts` sans Héros de
+  scénario ; la fin « plus de combattant adverse » est ignorée en test sur
+  une carte `hero-rts` (défaite ou Échap seulement).
 
 ## 14. Audio
 

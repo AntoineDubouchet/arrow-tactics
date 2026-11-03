@@ -99,6 +99,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G32 | Cargo économique : inventaire RPG ≠ sac de ressources ; or de gisement = cargo, or de butin = monnaie | Active (valeurs provisoires ; amendée par G33) |
 | G33 | Points de collecte spécialisés : Scierie = bois, Camp de mineur = pierre + or extrait, Baliste universelle de départ ; inventaire RPG sans ressource (KI-63) | Active (valeurs provisoires ; rôle de la Baliste à revoir) |
 | G31 | Caméra de jeu verrouillée sur le Héros | Retirée (essai d'un jour, retour à la vue RTS libre) |
+| G34 | Éditeur de Survie : camp = objet sémantique authorable avec niveau, Départ Survie explicite, validation | Active (valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -2048,8 +2049,69 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   la carte générée est une MapDef ordinaire enregistrée avec son état
   concret, la graine n'étant qu'une métadonnée ; la carte décrit le monde,
   jamais l'état d'une partie (Héros, vagues, minuteurs) ; génération =
-  nouveau point de départ de l'historique ; camps supprimables mais pas
-  posables à la main ; tas et barils posables.
+  nouveau point de départ de l'historique ; tas et barils posables ; camps
+  posables, déplaçables et à niveau depuis G34 (2026-11-04).
+
+### G34 — Éditeur de Survie : camps authorables, Départ Survie, validation
+
+- **Statut** : Active ; valeurs **provisoires** (distances, rayon des
+  abords, niveau par défaut).
+- **Demande d'Antoine** (2026-11-04) : faire de l'éditeur un vrai outil de
+  création de cartes de Survie : camps (Petit / Grand, rosters existants)
+  posables, un **camp = un seul objet logique** (type, position, niveau,
+  données de reconstruction ; gardes, coffre, feu, tente, barils et décor
+  dérivés), architecture **partagée** avec le générateur (pas de copie),
+  sélection par n'importe quelle pièce, déplacement d'un bloc validé,
+  suppression entière avec Ctrl+Z, **niveau** (1 par défaut) qui circule
+  jusqu'aux gardes, override futur par unité préparé sans interface, camps
+  procéduraux inchangés (niveau 1, pas de « distance = niveau »),
+  **Départ Survie** explicite (position de la Baliste, le Héros à côté, un
+  seul, remplaçable, validé), carte vierge réellement vierge, validation
+  légère (erreurs bloquantes, avertissements), sauvegarde / rechargement
+  sans déplacement, panneau de statistiques vivant, propriété claire des
+  décors (un décor posé à la main à côté n'est pas supprimé avec le camp),
+  même pipeline pour « Tester le scénario » ; pas de scaling de
+  difficulté ; pas de retouche de l'économie.
+- **Direction officielle** : **Map Survie = authored, procédurale ou
+  hybride** ; **Camp = objet sémantique authorable avec niveau** ;
+  **Départ Survie = donnée explicite de la carte**.
+- **Choix de la passe** :
+  - `MapCampDef` réduit à `{ kind, x, z, level?, facing?, guardOverrides? }` ;
+    `campLayoutOf` (`data/campLayout.ts`) dérive rayon, coffre, postes,
+    décor et barils — **géométrie identique** à celle du générateur du
+    2026-11-02 (vérifié sur la graine 12345) ; le générateur n'écrit plus
+    de décor de camp, `expandMapCamps` l'ajoute à la consommation ;
+  - propriété : le décor et les barils d'un camp n'existent **que** par
+    dérivation (jamais dans la carte) ; un décor ou un baril posé à part
+    est indépendant. Les deux petits tas près d'un camp généré restent des
+    tas indépendants ;
+  - anciens fichiers : type, centre et niveau repris, décor et barils de la
+    clairière retirés au chargement (avertissement console) ;
+  - validation de pose (`campPlacementIssue`) : mêmes critères que le
+    générateur, sans sa connexité exacte (les « abords ouverts » remplacent
+    le test de liaison à la Baliste) ; écarts provisoires : 10 cases entre
+    camps à la main (20 au générateur), 14 cases au Départ, 12 cases libres
+    dans la couronne ; un arbre dans la clairière est refusé (le générateur
+    en abattait jusqu'à 4) ;
+  - Départ Survie = le champ `ballista` existant, outil dédié, marqueur
+    bleu, **territoire joueur plus exigé** (une carte dessinée pose son
+    départ avant de peindre) ; la Baliste n'est affichée que posée ;
+    « Nouvelle carte » = disque vierge de 96 × 96, règles `hero-rts`, sans
+    Départ (la carte 18 × 26 historique disparaît) ;
+  - orientation : dos du camp à l'opposé du Départ (générateur : de
+    l'origine) ; un camp déplacé garde son orientation ;
+  - « Tester le scénario » : validation bloquante, Héros à côté du Départ,
+    fin seulement par la défaite ou Échap sur une carte `hero-rts` (les
+    gardes ne comptent pas) ;
+  - niveau des gardes : `resolveUnitLevel(guardOverrides[i].level,
+    camp.level)` ; aucune formule de difficulté, aucun scaling.
+- **Ouvert** : scaling par niveau (G20), difficulté procédurale,
+  `survivalRules` et niveaux des unités dans l'interface (KI-52), un
+  troisième type de camp, la Baliste comme Départ définitif ou non.
+- **Sources** : `config/mapDef.ts`, `data/camps.ts`, `data/campLayout.ts`,
+  `config/maps/proceduralSurvival.ts`, `config/maps/blankMap.ts`,
+  `run/camps.ts`, `editor/editorState.ts`, `editor/editorUI.ts`,
+  `editor/mapSerializer.ts`, `main.ts`, `ui/style.css`.
 
 ---
 

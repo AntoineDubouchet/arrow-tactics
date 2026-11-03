@@ -14,7 +14,8 @@ import { groundTextureUrl } from '../render/textures';
 import { toonUnitThumbnail } from '../render/toonThumbnail';
 import { toonFactionKind, type ToonUnitKind } from '../render/toonUnitRig';
 import { teamColor } from '../render/unitSelectionRing';
-import type { CellReliefOp, EditorBuilding, EditorFeatureTemplate, EditorObstacle, EditorSelection, EditorTool, EditorUnit, EditorWallLine, PlacementTemplate } from './editorState';
+import { campKindOfTemplate, type CellReliefOp, type EditorBuilding, type EditorFeature, type EditorFeatureTemplate, type EditorObstacle, type EditorSelection, type EditorTool, type EditorUnit, type EditorWallLine, type PlacementTemplate, type SurvivalValidation } from './editorState';
+import { CAMP_KINDS, getCampKind } from '../data/camps';
 import { FOREST_BRUSH_SIZES, FOREST_DENSITIES, FOREST_TREE_TYPES, type ForestBrushSize, type ForestDensity, type ForestTreeTypeId } from './forestBrush';
 
 export interface EditorUIHandlers {
@@ -81,6 +82,8 @@ export interface EditorUIHandlers {
   onGlobalView: () => void;
   /** Petit tas ou baril (groupe « Survie »), pose continue. */
   onSelectFeatureTool: (template: EditorFeatureTemplate) => void;
+  /** Niveau d'un camp selectionne (champ de la fiche, 2026-11-03). */
+  onSetCampLevel: (level: number) => void;
   /** Bouton "Appliquer" du controle de taille — largeur/hauteur en cases,
    *  deja validees comme des entiers positifs par l'UI (voir constructor). */
   onResizeMap: (width: number, height: number) => void;
@@ -663,7 +666,9 @@ export type PropertiesSubject =
   | { kind: 'units'; units: { unit: EditorUnit; territory: TerritoryTeam | null }[] }
   | { kind: 'ballista'; x: number; z: number }
   | { kind: 'building'; building: EditorBuilding }
-  | { kind: 'wall'; wall: EditorWallLine };
+  | { kind: 'wall'; wall: EditorWallLine }
+  /** Element de Survie (2026-11-03) : camp (niveau modifiable), tas, baril. */
+  | { kind: 'feature'; feature: EditorFeature };
 
 interface PropertiesView {
   name: string;
@@ -671,6 +676,8 @@ interface PropertiesView {
   /** Identifiant technique, en info-bulle seulement. */
   technicalId?: string;
   sections: { label: string; rows: [string, string][]; notes: string[] }[];
+  /** Champs modifiables (2026-11-03) : niveau d'un camp. */
+  fields?: { id: 'campLevel'; label: string; value: number; min: number; max: number }[];
   actions: ('rotate' | 'delete')[];
 }
 
@@ -795,14 +802,45 @@ function describeProperties(subject: PropertiesSubject): PropertiesView {
         actions: ['delete'],
       };
     }
+    case 'feature': {
+      const f = subject.feature;
+      if (f.kind === 'camp') {
+        const kind = getCampKind(f.camp.kind);
+        return {
+          name: kind.shortName,
+          kind: 'Camp neutre (objet de Survie)',
+          technicalId: kind.id,
+          sections: [
+            { label: 'Camp', rows: [['Type', kind.name], ['Niveau', `${f.camp.level ?? 1}`], ['Gardes', `${kind.guards.length}`], ['Butin', `coffre, ${kind.clearGold} or`]], notes: ['Les gardes prennent le niveau du camp. Coffre, feu, tente, barils et décor suivent le camp.'] },
+            { label: 'Position', rows: [['X', formatCoord(f.camp.x)], ['Z', formatCoord(f.camp.z)]], notes: ['Clic au sol : déplacer le camp entier (position validée).'] },
+          ],
+          fields: [{ id: 'campLevel', label: 'Niveau du camp', value: f.camp.level ?? 1, min: 1, max: 99 }],
+          actions: ['delete'],
+        };
+      }
+      if (f.kind === 'pile') {
+        return {
+          name: f.pile.resource === 'wood' ? 'Tas de bois' : 'Tas de pierre',
+          kind: 'Ressource au sol (Survie)',
+          sections: [{ label: 'Tas', rows: [['Quantité', `${f.pile.amount}`], ['X', formatCoord(f.pile.x)], ['Z', formatCoord(f.pile.z)]], notes: ['Clic au sol : déplacer.'] }],
+          actions: ['delete'],
+        };
+      }
+      return {
+        name: 'Baril',
+        kind: 'Objet destructible (Survie)',
+        sections: [{ label: 'Baril', rows: [['X', formatCoord(f.destructible.x)], ['Z', formatCoord(f.destructible.z)]], notes: ['Indépendant : ne suit aucun camp. Clic au sol : déplacer.'] }],
+        actions: ['delete'],
+      };
+    }
     case 'ballista':
       return {
-        name: 'Baliste',
+        name: 'Départ Survie (Baliste)',
         kind: 'Objectif gameplay',
         sections: [
           { label: 'Camp', rows: [['Camp', 'Joueur']], notes: [] },
           { label: 'Position', rows: [['X', formatCoord(subject.x)], ['Z', formatCoord(subject.z)]], notes: [] },
-          { label: 'Emprise', rows: [['Placement', '3×3']], notes: ['Placement : l’empreinte entière doit être en territoire joueur.'] },
+          { label: 'Emprise', rows: [['Placement', '3×3']], notes: ['Position de la Baliste principale ; le Héros apparaît à côté. Clic au sol : déplacer (emprise plate, hors eau, loin des camps).'] },
         ],
         actions: [],
       };
@@ -1260,11 +1298,19 @@ export class EditorUI {
       for (const buildingId of ids) browser.appendChild(this.buildingAssetCard(buildingId, handlers.onSelectBuilding));
     }
     // Murs V2 (data/walls.ts) : trace A -> B et porte, memes regles qu'en jeu.
-    // Elements de carte Survie (2026-11-03) : petits tas et baril ; les camps
-    // viennent du generateur (selection, suppression).
+    // Elements de carte Survie (2026-11-03) : Depart Survie, camps (un par
+    // type de data/camps.ts), petits tas et baril.
     browser.appendChild(this.groupHeader('Survie'));
-    for (const [template, label] of [['pile-wood', 'Tas de bois (5)'], ['pile-stone', 'Tas de pierre (5)'], ['barrel', 'Baril']] as const) {
+    const survivalCards: [EditorFeatureTemplate, string, string][] = [
+      ['start', 'Départ Survie', 'Position de la Baliste principale (le Héros apparaît à côté). Un seul par carte : un nouveau placement remplace l’ancien.'],
+      ...Object.values(CAMP_KINDS).map((kind): [EditorFeatureTemplate, string, string] => [`camp:${kind.id}`, kind.shortName, `${kind.name} : ${kind.guards.length} gardes, coffre. Clairière plate de ${CAMP_KINDS[kind.id]!.layout === 'large' ? '7' : '7'} cases, loin de l’eau, des camps et du Départ.`]),
+      ['pile-wood', 'Tas de bois (5)', ''],
+      ['pile-stone', 'Tas de pierre (5)', ''],
+      ['barrel', 'Baril', ''],
+    ];
+    for (const [template, label, title] of survivalCards) {
       const card = this.toolCard(label, () => handlers.onSelectFeatureTool(template));
+      if (title) card.title = title;
       this.featureCards.set(template, card);
       browser.appendChild(card);
     }
@@ -1509,7 +1555,12 @@ export class EditorUI {
       case 'place-feature': {
         const card = this.featureCards.get(tool.feature);
         if (card) active.push(card);
-        status = `Outil : ${tool.feature === 'barrel' ? 'Baril' : tool.feature === 'pile-wood' ? 'Tas de bois' : 'Tas de pierre'} · Clic : poser sur la case (pose continue) · Échap : Sélection`;
+        const campKind = campKindOfTemplate(tool.feature);
+        status = tool.feature === 'start'
+          ? 'Outil : Départ Survie · Clic : poser la Baliste principale (3 × 3 plat, hors eau, loin des camps ; remplace l’ancien départ) · Échap : Sélection'
+          : campKind !== null
+            ? `Outil : ${getCampKind(campKind).shortName} · Clic : poser le camp (aperçu vert / rouge : clairière plate, hors eau, loin des camps et du Départ) · Échap : Sélection`
+            : `Outil : ${tool.feature === 'barrel' ? 'Baril' : tool.feature === 'pile-wood' ? 'Tas de bois' : 'Tas de pierre'} · Clic : poser sur la case (pose continue) · Échap : Sélection`;
         break;
       }
       case 'forest-brush': {
@@ -1633,9 +1684,15 @@ export class EditorUI {
    *  jamais laisser les champs afficher une taille perimee. */
   /** Informations de la carte generee (graine, comptes), ou null pour les
    *  masquer (carte vierge ou chargee). */
-  setGenerationInfo(lines: string[] | null): void {
+  /** Panneau d'informations (haut de la vue) : comptes de la carte EN
+   *  COURS d'edition et validation de Survie (erreurs en rouge,
+   *  avertissements en orange) ; null : masque. */
+  setGenerationInfo(lines: string[] | null, validation: SurvivalValidation | null = null): void {
     this.generationInfo.hidden = lines === null;
-    this.generationInfo.replaceChildren(...(lines ?? []).map((l) => Object.assign(document.createElement('div'), { textContent: l })));
+    const nodes = (lines ?? []).map((l) => Object.assign(document.createElement('div'), { textContent: l }));
+    for (const e of validation?.errors ?? []) nodes.push(Object.assign(document.createElement('div'), { textContent: `Erreur : ${e}`, className: 'editor-validation-error' }));
+    for (const w of validation?.warnings ?? []) nodes.push(Object.assign(document.createElement('div'), { textContent: `Avertissement : ${w}`, className: 'editor-validation-warning' }));
+    this.generationInfo.replaceChildren(...nodes);
   }
 
   /** Graine affichee dans le champ (carte generee ou chargee avec sa graine). */
@@ -1700,6 +1757,40 @@ export class EditorUI {
         n.textContent = note;
         el.appendChild(n);
       }
+      body.appendChild(el);
+    }
+
+    for (const field of view.fields ?? []) {
+      const el = document.createElement('div');
+      el.className = 'editor-prop-section';
+      const row = document.createElement('label');
+      row.className = 'editor-prop-row editor-prop-field';
+      const k = document.createElement('span');
+      k.className = 'editor-prop-key';
+      k.textContent = field.label;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'editor-prop-input';
+      input.min = String(field.min);
+      input.max = String(field.max);
+      input.step = '1';
+      input.value = String(field.value);
+      input.setAttribute('aria-label', field.label);
+      const commit = () => {
+        const value = Math.round(Number(input.value));
+        if (!Number.isFinite(value) || value < field.min || value > field.max) {
+          input.value = String(field.value);
+          return;
+        }
+        if (field.id === 'campLevel') this.handlers.onSetCampLevel(value);
+      };
+      input.addEventListener('change', commit);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); input.blur(); }
+        e.stopPropagation();
+      });
+      row.append(k, input);
+      el.appendChild(row);
       body.appendChild(el);
     }
 
@@ -1982,8 +2073,8 @@ function selectStatus(selection: EditorSelection): string {
     case 'wall':
       return 'Outil : Sélection — mur (ligne entière) · Suppr : supprimer · Échap : désélectionner';
     case 'feature':
-      return 'Outil : Sélection — élément de Survie (camp, tas ou baril) · Suppr : supprimer · Échap : désélectionner';
+      return 'Outil : Sélection — élément de Survie (camp entier, tas ou baril) · Clic au sol : déplacer · Suppr : supprimer · Échap : désélectionner';
     case 'ballista':
-      return 'Outil : Sélection — Baliste · Clic au sol : déplacer (3×3 en territoire joueur) · Échap : désélectionner';
+      return 'Outil : Sélection — Départ Survie (Baliste) · Clic au sol : déplacer (3×3 plat, hors eau, loin des camps) · Échap : désélectionner';
   }
 }

@@ -59,7 +59,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-46 | Camps neutres : état non sauvegardé si le monde était reconstruit en cours de run | Hypothèse (pas de cas aujourd'hui) |
 | KI-47 | Or au sol non ramassé : les tas restent toute la run (aucune disparition) | Voulu (Antoine) ; fusion des tas proches à envisager |
 | KI-51 | Baril : pas encore posable dans l'éditeur de maps (`MapDef.destructibles` prêt) | À faire |
-| KI-52 | Éditeur : niveaux et `survivalRules` non modifiables ; camps ni posables ni déplaçables (affichés, supprimables, enregistrés depuis le 2026-11-03) | À faire (en partie fait) |
+| KI-52 | Éditeur : `survivalRules` et niveaux des unités de scénario non modifiables (camps : posables, déplaçables, niveau modifiable depuis le 2026-11-04) | À faire (en partie fait) |
 | KI-53 | Sol du plateau en morceaux : ~35 morceaux (169 meshes) ; repeinte de 25 à 47 ms à la pose d'un bâtiment | Limite assumée (à surveiller) |
 | KI-55 | Palissade : les vagues frappent le premier mur ou la première porte rencontrés (une porte ouverte les bloque aussi), sans choisir leur cible ; un mur ennemi de carte les bloquerait sans être attaqué | Limite assumée |
 | KI-56 | Palissade : éditeur sans retrait d'une porte ni édition partielle d'une ligne (supprimer la ligne entière) ; aucun mur en préparation (legacy) | À faire (si besoin) |
@@ -69,6 +69,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-60 | Maison B : variante seulement pour les Maisons posées en jeu ; une Maison de scénario de l'éditeur reste A | Limite assumée |
 | KI-62 | Tourbillon : rotation du modèle entier (5 tours/s), sans clip dédié (arme et jambes figées dans le clip courant) ; VFX procédural provisoire (arcs, cercle de zone) | Limite assumée (prototype) |
 | KI-64 | Villageois : clips Spearman, estoc en guise de coup de hache / pioche ; ramassage et dépôt sur la pose de repos, sans geste de travail dédié | Limite assumée (assets) |
+| KI-65 | Carte générée : un gisement bloquant peut fermer un couloir et isoler une poche (régression de `9ffda08`, 2026-11-03) ; les tests `camp.mts` / `camp-boucle.cjs` qui téléportent le Héros sur la ligne droite vers le camp (graine 12345) échouent depuis | À corriger (générateur) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
@@ -521,17 +522,38 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 ### KI-52 — Cartes de survie dans l'éditeur
 
-- **Statut** : à faire, **en partie fait** le 2026-11-03 : camps, petits
-  tas, barils, `survivalRules` et `generator` sont lus, affichés,
-  supprimables (camps compris) et réenregistrés ; tas et barils posables.
-  Restent : niveaux, `survivalRules` modifiables, camps posés ou déplacés
-  à la main.
+- **Statut** : à faire, **en grande partie fait** : 2026-11-03, camps,
+  petits tas, barils, `survivalRules` et `generator` lus, affichés,
+  supprimables et réenregistrés, tas et barils posables ; 2026-11-04 (G34),
+  camps **posés, déplacés, supprimés d'un bloc, niveau modifiable**, Départ
+  Survie explicite, validation. Restent : `survivalRules` et niveaux des
+  **unités** de scénario non modifiables dans l'interface.
 - **Constat d'origine** : le format porte les niveaux (`MapUnitPlacement.level`,
   `MapCampDef.level`, postes) et les règles (`MapDef.survivalRules`),
   mais l'éditeur ne lit ni n'écrit les camps ni `survivalRules`, et ne
   permet pas de modifier un niveau (il conserve seulement celui des unités
   au chargement et à la sauvegarde). Une carte de survie dessinée passe
   aujourd'hui par le JSON.
+
+### KI-65 — Carte générée : poche fermée par un gisement bloquant
+
+- **Statut** : à corriger (générateur), constatée le 2026-11-04 pendant la
+  passe G34 ; **antérieure** à cette passe (bisect : `98b893d` sain,
+  `9ffda08` cassé, commit qui a rendu les gisements bloquants, G25).
+- **Constat** : le générateur relie les abords de chaque camp à la Baliste
+  (`reached`) **avant** de poser les gisements de pierre et d'or ; un
+  gisement 2 × 2 bloquant peut ensuite fermer un couloir entre deux massifs
+  et isoler une poche. Graine 12345 : sur la ligne droite entre le centre
+  et le petit camp, à 9 cases du camp, le Héros ne peut plus rejoindre les
+  gardes (ordre d'attaque ou de déplacement : il oscille à 6 cases, aucun
+  chemin). Les gardes restent joignables **depuis la Baliste** (vérifié,
+  graines 1, 7, 99, 12345) : en jeu, le détour existe ; c'est le point de
+  téléportation des tests `camp.mts` (combat, coffre) et `camp-boucle.cjs`
+  qui tombe dans la poche, d'où leurs échecs depuis `9ffda08`.
+- **Piste** : poser les gisements avant la passe de connexité des forêts,
+  ou vérifier qu'un gisement ne coupe aucun couloir (comme `freeForDeposit`
+  le fait pour ses voisines), puis recaler les deux tests (le Villageois,
+  le cargo et les points de collecte ne sont pas concernés).
 
 ### KI-53 — Sol du plateau en morceaux
 

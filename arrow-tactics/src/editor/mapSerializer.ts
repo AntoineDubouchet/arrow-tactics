@@ -1,5 +1,5 @@
 import { isGroundTextureId, type SurfaceCellDef } from '../config/groundSurfaces';
-import { dropLegacyWalls, type MapBuildingPlacement, type MapCampDef, type MapDef, type WallLineDef } from '../config/mapDef';
+import { CAMP_CLEAR_RADIUS, dropLegacyWalls, type MapBuildingPlacement, type MapCampDef, type MapDef, type WallLineDef } from '../config/mapDef';
 import type { ResourcePileDef } from '../config/resourceNodes';
 import { CAMP_KINDS } from '../data/camps';
 import { SLOPE_SHAPES, TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type SlopeShape, type TerrainElevationCellDef } from '../config/terrainElevation';
@@ -124,7 +124,8 @@ export async function loadMapDefFromFile(file: File): Promise<MapDef> {
     throw new Error('Fichier de map invalide : champs manquants.');
   }
 
-  return {
+  const campsRead = Array.isArray(data.camps) ? readCamps(data.camps) : null;
+  const map: MapDef = {
     name: data.name ?? file.name.replace(/\.json$/i, ''),
     version: data.version ?? 1,
     width: data.width,
@@ -164,11 +165,12 @@ export async function loadMapDefFromFile(file: File): Promise<MapDef> {
     // Elements de carte Survie et metadonnees (2026-11-03) : OPTIONNELS,
     // entrees invalides ecartees (avant : ignores au chargement).
     ...(Array.isArray(data.resourcePiles) ? { resourcePiles: readResourcePiles(data.resourcePiles) } : {}),
-    ...(Array.isArray(data.camps) ? { camps: readCamps(data.camps) } : {}),
+    ...(campsRead ? { camps: campsRead.camps } : {}),
     ...(Array.isArray(data.destructibles) ? { destructibles: readDestructibles(data.destructibles) } : {}),
     ...(data.survivalRules === 'hero-rts' ? { survivalRules: 'hero-rts' as const } : {}),
     ...(isGenerator(data.generator) ? { generator: { kind: 'survival-procedural' as const, seed: data.generator.seed } } : {}),
   };
+  return readLegacyCampCleanup(map, campsRead?.legacy ?? []);
 }
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -184,25 +186,43 @@ function readResourcePiles(entries: unknown[]): ResourcePileDef[] {
   return out;
 }
 
-function readCamps(entries: unknown[]): MapCampDef[] {
-  const out: MapCampDef[] = [];
+/** Camps semantiques (2026-11-03) : type, centre, niveau, orientation,
+ *  overrides de gardes. Un camp d'un fichier plus ancien (coffre, postes,
+ *  rayon ecrits) est accepte : seuls type, centre et niveau sont repris, le
+ *  reste se derive (data/campLayout.ts) ; `legacy` le signale pour retirer
+ *  son decor et ses barils des listes concretes (readLegacyCampCleanup). */
+function readCamps(entries: unknown[]): { camps: MapCampDef[]; legacy: MapCampDef[] } {
+  const camps: MapCampDef[] = [];
+  const legacy: MapCampDef[] = [];
   for (const entry of entries) {
     const c = (entry ?? {}) as Record<string, unknown>;
-    const chest = (c.chest ?? {}) as Record<string, unknown>;
-    const posts = Array.isArray(c.guardPosts) ? (c.guardPosts as Record<string, unknown>[]) : null;
-    if (typeof c.kind !== 'string' || !CAMP_KINDS[c.kind] || !finite(c.x) || !finite(c.z) || !finite(c.radius) || !finite(chest.x) || !finite(chest.z) || !posts || !posts.every((p) => finite(p?.x) && finite(p?.z))) continue;
-    out.push({
+    if (typeof c.kind !== 'string' || !CAMP_KINDS[c.kind] || !finite(c.x) || !finite(c.z)) continue;
+    const overrides = Array.isArray(c.guardOverrides) ? (c.guardOverrides as Record<string, unknown>[]).map((g) => (Number.isInteger(g?.level) ? { level: g.level as number } : {})) : null;
+    const camp: MapCampDef = {
       kind: c.kind,
       x: c.x,
       z: c.z,
-      radius: c.radius,
-      chest: { x: chest.x, z: chest.z, rotationY: finite(chest.rotationY) ? chest.rotationY : 0 },
-      guardPosts: posts.map((p) => ({ x: p.x as number, z: p.z as number, ...(Number.isInteger(p.level) ? { level: p.level as number } : {}) })),
       ...(Number.isInteger(c.level) ? { level: c.level as number } : {}),
-    });
+      ...(finite(c.facing) ? { facing: c.facing } : {}),
+      ...(overrides && overrides.some((g) => g.level !== undefined) ? { guardOverrides: overrides } : {}),
+    };
+    camps.push(camp);
+    if ('chest' in c || 'guardPosts' in c || 'radius' in c) legacy.push(camp);
   }
-  if (out.length < entries.length) console.warn(`Camps : ${entries.length - out.length} entree(s) invalide(s) ignoree(s).`);
-  return out;
+  if (camps.length < entries.length) console.warn(`Camps : ${entries.length - camps.length} entree(s) invalide(s) ignoree(s).`);
+  return { camps, legacy };
+}
+
+/** Fichier d'avant les camps semantiques : le decor (props) et les barils
+ *  ecrits dans la clairiere d'un camp lui appartenaient ; ils sont retires
+ *  (le camp les derive de nouveau), le reste de la carte est intact. */
+function readLegacyCampCleanup(map: MapDef, legacy: readonly MapCampDef[]): MapDef {
+  if (legacy.length === 0) return map;
+  const near = (x: number, z: number) => legacy.some((c) => Math.hypot(x - c.x, z - c.z) <= CAMP_CLEAR_RADIUS + 1);
+  const obstacles = map.obstacles.filter((o) => !(o.kind === 'prop' && near(o.x ?? 0, o.z ?? 0)));
+  const destructibles = (map.destructibles ?? []).filter((d) => !(d.kind === 'barrel' && near(d.x, d.z)));
+  console.warn(`Camps : ${legacy.length} camp(s) d'un ancien format converti(s) ; ${map.obstacles.length - obstacles.length} decor(s) et ${(map.destructibles ?? []).length - destructibles.length} baril(s) de camp retires (derives du camp).`);
+  return { ...map, obstacles, ...(map.destructibles ? { destructibles } : {}) };
 }
 
 function readDestructibles(entries: unknown[]): { kind: string; x: number; z: number }[] {

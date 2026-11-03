@@ -1347,8 +1347,9 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G16) :
   ni XP, ni prime, hors du compte de fin de vague. Petit tremblement à
   chaque coup, éclats de bois à la destruction. Visibles une fois la case
   explorée. **Butin** : 30 % de chance d'une ressource au sol (1 ou 2 bois,
-  pierre ou or, RNG du monde), sinon rien ; jamais d'équipement. Placés
-  dans les camps (2 au petit, 3 au grand) ;
+  pierre ou or, RNG du monde), sinon rien ; jamais d'équipement. Ceux des
+  camps (2 au petit, 3 au grand) sont **dérivés** du camp (2026-11-04,
+  `data/campLayout.ts`) ; un baril posé dans l'éditeur est indépendant ;
 - **Mine 3 × 3** : emprise logique (collision, pose, chantier, sélection,
   pathfinding, destruction) et modèle calé sur l'emprise ; production
   inchangée (tranche toutes les 60 s) ;
@@ -1391,9 +1392,11 @@ G20) :
     niveau 1 sans amélioration), unités produites en temps réel comprises ;
   - ennemi de vague : niveau de renfort de vague + 1 (stats du renfort
     calculées comme avant) ;
-  - garde de camp : niveau de son poste (`guardPosts[i].level`), sinon du
-    camp (`MapCampDef.level`), sinon 1 ; les deux camps générés sont au
-    niveau 1 ;
+  - garde de camp : son override (`MapCampDef.guardOverrides[i].level`,
+    sans interface), sinon le **niveau du camp** (`MapCampDef.level`,
+    modifiable dans l'éditeur depuis le 2026-11-04 ; la carte dessinée
+    impose sa valeur), sinon 1 ; les deux camps générés sont au niveau 1
+    (`generatedCampLevel`, jamais « distance = niveau ») ;
   - unité placée par une carte (`MapUnitPlacement.level`, « Tester le
     scénario ») : sa valeur, sinon 1 ; l'éditeur la conserve au chargement
     et à la sauvegarde, sans permettre de la modifier ;
@@ -1412,7 +1415,8 @@ G20) :
   champ et le niveau de chaque camp dans le même format qu'une carte
   dessinée. Aujourd'hui : une seule carte générée (`?map=arena` et
   `?map=island` gardent les règles historiques), aucune sélection de
-  carte ; l'éditeur n'écrit ni camps ni `survivalRules` (KI-52) ;
+  carte ; l'éditeur pose, déplace et enregistre les camps et le Départ
+  Survie (§16) mais ne modifie pas `survivalRules` (KI-52) ;
 - **sol du village** (`render/settlementGround.ts`) : à la pose d'un
   bâtiment du joueur (chantier compris ; Baliste comprise, dès le
   lancement), le sol est repeint en **terre battue** sous son emprise et sur
@@ -2426,7 +2430,23 @@ méta-progression à zéro, après confirmation. Les réglages sont conservés.
 ## 16. Éditeur de maps
 
 Accessible depuis le menu principal ; le détail d'usage est dans
-`EDITOR.md`. **2026-11-03** (`EDITOR.md` §1 bis) : **Générer** une carte
+`EDITOR.md`. **2026-11-04** (`EDITOR.md` §1 bis, `DESIGN_DECISIONS.md`
+G34) : l'éditeur est un vrai outil de création de cartes de Survie
+(authored, procédurale ou hybride). **Camps authorables** : « Petit camp »
+et « Grand camp » du groupe Survie (mêmes rosters qu'en jeu), objets
+sémantiques (type, centre, niveau, orientation) dont coffre, gardes, feu,
+tente, bannières, caisses et barils sont dérivés par une fonction commune
+au générateur, à l'éditeur et au jeu (`data/campLayout.ts`) ; sélection
+par n'importe quelle pièce, déplacement d'un bloc au clic au sol
+(validé : clairière plate, hors eau, sans obstacle ni gisement, loin des
+camps et du Départ, abords ouverts), suppression entière et Ctrl+Z, **niveau**
+modifiable dans la fiche (les gardes le prennent). **Départ Survie** : outil
+qui pose la Baliste principale (un seul, remplace l'ancien, marqueur bleu) ;
+la carte vierge n'en a plus, « Tester le scénario » l'exige. **Validation**
+(erreurs bloquantes, avertissements) et panneau d'informations vivant.
+Format de carte : camps sémantiques (anciens fichiers convertis). « Tester
+le scénario » : Héros à côté du Départ, camps au niveau authored, fin
+seulement par la défaite ou Échap. **2026-11-03** (`EDITOR.md` §1 bis) : **Générer** une carte
 procédurale (vrai générateur de la Survie, champ Graine, Nouvelle graine,
 panneau d'informations), **Vue globale**, camps / petits tas / barils
 affichés, sélectionnables, supprimables et enregistrés (tas et barils

@@ -471,9 +471,11 @@ extrait ; G33). À voir aussi :
 - amélioration de l'Écurie et du Sanctuaire plus parlante que +5 PV
   (G26) ;
 - ~~éditeur : génération procédurale (graine) et vue globale (G27)~~ :
-  faites le 2026-11-03 ; à suivre : poser / déplacer un camp à la main,
-  niveaux et `survivalRules` modifiables (KI-52), versionner le
-  générateur une fois stabilisé (KI-58).
+  faites le 2026-11-03 ; ~~poser / déplacer un camp à la main, niveau des
+  camps~~ : faits le 2026-11-04 (G34, Départ Survie, validation) ; à
+  suivre : `survivalRules` et niveaux des unités modifiables (KI-52),
+  versionner le générateur une fois stabilisé (KI-58), gisements qui
+  ferment un couloir (KI-65), un troisième type de camp.
 
 ## 6 octies. Niveaux, cartes de survie, village — suites
 
@@ -487,7 +489,8 @@ Construit le 2026-11-02 (`DESIGN_DECISIONS.md` G17 à G20). Parking :
   tier, distance ou type de zone (exemple d'Antoine : tier 1 → niveaux 1-2,
   tier 2 → 2-4, tier 3 → 4-6), point d'entrée `generatedCampLevel` ; une
   valeur explicite de la carte reste prioritaire ;
-- **cartes de survie dessinées** : camps, zones, niveaux et
+- **cartes de survie dessinées** : ~~camps et niveaux de camp dans
+  l'éditeur~~ (G34, 2026-11-04) ; zones, niveaux des unités et
   `survivalRules` dans l'éditeur (KI-52) ; plusieurs cartes (Survie 1,
   Survie 2, presets de génération) et leur sélection ;
 - **niveau modifié en jeu** : améliorations, bâtiments, technologies,

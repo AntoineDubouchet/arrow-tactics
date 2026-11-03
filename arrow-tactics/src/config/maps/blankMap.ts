@@ -5,8 +5,10 @@ import { PROCEDURAL_MAP_SIZE } from './proceduralSurvival';
  * Carte vierge de l'Editeur de maps (2026-11-02) : ouverte par defaut a la
  * place de l'ancienne arene. Disque de 96 x 96 cases, meme emprise que la
  * carte Hero RTS (rayon 46,5), terrain plat d'herbe, sans eau, relief,
- * decor, arbre, batiment, unite, territoire ni camp. La Baliste (toujours
- * presente en jeu) est au centre, comme sur la carte procedurale.
+ * decor, arbre, batiment, unite, territoire, camp ni Depart Survie
+ * (2026-11-03 : la Baliste n'est plus imposee au centre ; « Tester le
+ * scénario » exige un Depart Survie pose dans l'editeur). Regles de la Survie
+ * Hero RTS, comme la carte procedurale.
  */
 const BLANK_MAP_RADIUS = 46.5;
 
@@ -27,7 +29,7 @@ export function createBlankMap(size: number = PROCEDURAL_MAP_SIZE): MapDef {
     obstacles: [],
     playerUnits: [],
     enemyUnits: [],
-    ballista: { x: 0.5, z: 0.5 },
     territory: [],
+    survivalRules: 'hero-rts',
   };
 }

@@ -33,9 +33,9 @@ import {
   BALLISTA_PLACEMENT_TILES,
   computeBallistaObstacle,
   cellKey,
+  CAMP_CLEAR_RADIUS,
   computeMapCellBounds,
   resolveMapCells,
-  DEFAULT_MAP,
   resolveBallistaOrigin,
   snapBallistaOrigin,
   usesHeroRtsRules,
@@ -74,6 +74,7 @@ import {
   type CellReliefOp,
   type EditorTool,
   type EditorFeature,
+  campKindOfTemplate,
   featurePosition,
 } from './editor/editorState';
 import { EditorHistory } from './editor/history';
@@ -251,7 +252,8 @@ import { DEFAULT_HERO_ID, getHero, heroKit, HEROES, type HeroDef } from './data/
 import { getSpell } from './data/spells';
 import { INITIAL_EXPLORED_RADIUS } from './data/vision';
 import { REPAIR_FULL_SECONDS, CHEST_OPEN_SECONDS, CONSTRUCTION_START_HP_FRACTION, DEPOSIT_SECONDS_PER_ITEM, HARVEST_INTERVAL, HERO_LEVELS, HERO_UNIT_ID, PICKUP_SECONDS } from './data/hero';
-import { getCampKind } from './data/camps';
+import { campLayoutOf, expandMapCamps } from './data/campLayout';
+import { CAMP_KINDS, getCampKind } from './data/camps';
 import { campSpecOf } from './run/camps';
 import { isChestLocked, type Chest } from './sim/systems/camps';
 import { CampViews } from './render/campViews';
@@ -353,7 +355,9 @@ const survivalUrlSeed = survivalUrl.get('seed') !== null ? Number(survivalUrl.ge
 function survivalMapFor(seed: number): MapDef {
   if (survivalMapParam === 'island') return { ...ISLAND_ARENA_MAP, playerUnits: [], enemyUnits: [] };
   if (survivalMapParam === 'arena') return SURVIVAL_BASE_MAP;
-  return generateSurvivalMap(seed);
+  // Camps semantiques (2026-11-03) : leur decor et leurs barils sont derives
+  // ici, une fois, pour le monde et le plateau.
+  return expandMapCamps(generateSurvivalMap(seed));
 }
 let survivalBaseMap: MapDef = survivalMapFor(survivalUrlSeed ?? randomSeed());
 /** Vrai une fois la carte de depart utilisee par une run : la suivante en
@@ -1138,6 +1142,13 @@ function setupTestBattle(): void {
       playerUnitTauntShieldBonus(pos.unitId, level),
     );
     rememberPlayerUnitLevel(spawned, level, pos.level);
+  }
+  // Survie Hero RTS (2026-11-03) : le Heros apparait a cote du Depart
+  // Survie, comme en vraie run (computeArmyFormation), sauf si la carte le
+  // place deja comme unite de scenario.
+  if (usesHeroRtsRules(currentMap) && currentMap.ballista && !currentMap.playerUnits.some((u) => u.unitId === HERO_UNIT_ID)) {
+    const at = computeArmyFormation([HERO_UNIT_ID], currentMap)[0];
+    if (at) world.spawnHero('player', at.x, at.z, { xp: 0, level: 1, deaths: 0 });
   }
   // Niveau explicite de la carte (MapUnitPlacement.level), sinon 1.
   for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z).level = resolveUnitLevel(pos.level);
@@ -3467,14 +3478,6 @@ function confirmDiscardEditorDraft(action: string): boolean {
 ${action} et les perdre ?`);
 }
 
-/** Carte vierge pour "Nouvelle carte" : taille de la carte de reference
- *  (DEFAULT_MAP), aucune cellule explicite (rectangle d'herbe par
- *  resolveMapCells), aucun objet, aucune unite, Baliste et territoire
- *  absents (repli historique). */
-function createBlankEditorMap(): MapDef {
-  return { name: 'Nouvelle carte', version: 1, width: DEFAULT_MAP.width, height: DEFAULT_MAP.height, obstacles: [], playerUnits: [], enemyUnits: [] };
-}
-
 /** Carte procedurale dans l'editeur (2026-11-03) : le VRAI generateur de la
  *  Survie (generateSurvivalMap, meme graine = meme carte qu'en jeu), chargee
  *  comme une MapDef ordinaire (editable, enregistree telle quelle). Elle
@@ -3484,52 +3487,78 @@ function createBlankEditorMap(): MapDef {
  *  naissent au lancement d'une partie (la Baliste n'y est qu'une position). */
 async function generateEditorMap(seed: number): Promise<void> {
   const map = generateSurvivalMap(seed);
-  await ensureModels(obstacleModelKeys(map.obstacles));
+  await ensureModels(obstacleModelKeys(expandMapCamps(map).obstacles));
   resetEditorWithMap(map);
   editorCleanExport = null;
   updateEditorMapStatus();
   resetEditorCamera();
 }
 
-/** Comptes de la carte generee (panneau d'informations de l'editeur). */
-function generationInfoLines(map: MapDef): string[] {
+/** Comptes de la carte EN COURS d'edition (panneau d'informations de
+ *  l'editeur, 2026-11-03) : toujours l'etat actuel, jamais une statistique
+ *  figee de la graine (ajout, suppression, generation, chargement). */
+function editorInfoLines(state: EditorState): string[] {
   let trees = 0, stone = 0, gold = 0;
-  for (const o of map.obstacles) {
+  for (const o of state.obstacles) {
     const r = resourceOfObstacle(o);
     if (r === 'wood') trees++;
     else if (r === 'stone') stone++;
     else if (r === 'gold') gold++;
   }
-  const piles = map.resourcePiles ?? [];
-  const camps = map.camps ?? [];
-  const small = camps.filter((c) => c.kind === 'raiders_small').length;
-  const relief = (map.elevationCells ?? []).filter((e) => e.level > 0 || e.slope).length;
-  const ramps = (map.elevationCells ?? []).filter((e) => e.slope).length;
+  const piles = state.features.filter((f): f is Extract<EditorFeature, { kind: 'pile' }> => f.kind === 'pile');
+  const camps = state.features.filter((f): f is Extract<EditorFeature, { kind: 'camp' }> => f.kind === 'camp');
+  const barrels = state.features.filter((f) => f.kind === 'destructible').length + camps.reduce((n, f) => n + campLayoutOf(f.camp).barrels.length, 0);
+  const small = camps.filter((f) => getCampKind(f.camp.kind).layout === 'small').length;
+  const relief = state.elevationCells.filter((e) => e.level > 0 || e.slope).length;
+  const ramps = state.elevationCells.filter((e) => e.slope).length;
+  const levels = camps.map((f) => f.camp.level ?? 1);
   return [
-    `Graine ${map.generator?.seed ?? '—'}`,
+    `Graine ${state.generator?.seed ?? '—'} · Départ Survie ${state.ballistaExplicit ? `(${state.ballista.x.toFixed(1)} ; ${state.ballista.z.toFixed(1)})` : 'absent'}`,
     `Arbres ${trees} · gisements : pierre ${stone}, or ${gold}`,
-    `Petits tas ${piles.length} (bois ${piles.filter((p) => p.resource === 'wood').length}, pierre ${piles.filter((p) => p.resource === 'stone').length}) · barils ${(map.destructibles ?? []).length}`,
-    `Camps ${camps.length} (petits ${small}, grands ${camps.length - small})`,
+    `Petits tas ${piles.length} (bois ${piles.filter((p) => p.pile.resource === 'wood').length}, pierre ${piles.filter((p) => p.pile.resource === 'stone').length}) · barils ${barrels}`,
+    `Camps ${camps.length} (petits ${small}, grands ${camps.length - small})${levels.length > 0 ? ` · niveaux ${Math.min(...levels)}–${Math.max(...levels)}` : ''}`,
     `Relief : ${relief} cases surélevées, dont ${ramps} rampes`,
   ];
 }
 
-/** Marqueurs des elements de carte Survie (2026-11-03) : camp = disque de sa
- *  zone degagee et mat au centre ; tas = pastille (bois / pierre) ; baril =
- *  petit cylindre. Selection : jaune. Rendu de l'editeur seulement. */
-function syncEditorFeatureViews(): void {
+/** Panneau d'informations et validation de Survie, refaits a chaque
+ *  changement de la carte (refreshEditorObjects) ; DOM retouche seulement
+ *  quand le texte change. */
+let editorInfoKey = '';
+function refreshEditorInfo(): void {
   if (!editorState) return;
+  const lines = editorInfoLines(editorState);
+  const validation = editorState.survivalValidation();
+  const key = JSON.stringify([lines, validation]);
+  if (key === editorInfoKey) return;
+  editorInfoKey = key;
+  editorUI.setGenerationInfo(lines, validation);
+}
+
+/** Vues des elements de carte Survie (2026-11-03) : camp = disque de sa
+ *  clairiere, mat, et TOUT ce qui en derive (decor, coffre, gardes, barils :
+ *  data/campLayout.ts), cliquable d'un bloc ; tas = pastille (bois /
+ *  pierre) ; baril = petit cylindre ; Depart Survie = anneau et fanion bleus
+ *  sous la Baliste. Selection : jaune. Reconstruites quand la liste, une
+ *  position, un niveau, la selection ou le depart changent. Rendu de
+ *  l'editeur seulement. */
+function syncEditorFeatureViews(): void {
+  if (!editorState || !editorAssets) return;
   const sel = editorState.selection?.kind === 'feature' ? editorState.selection.id : null;
-  const key = JSON.stringify([editorState.features.map((f) => f.id), sel]);
+  const key = JSON.stringify([editorState.features.map((f) => [f.id, f.kind, featurePosition(f), f.kind === 'camp' ? [f.camp.kind, f.camp.level ?? 1, f.camp.facing ?? null] : null]), sel, editorState.ballistaExplicit ? editorState.ballista : null]);
   if (key === editorFeaturesKey) return;
   clearEditorFeatureViews();
   editorFeaturesKey = key;
-  for (const f of editorState.features) editorFeaturesGroup.add(editorFeatureView(f, f.id === sel));
+  for (const f of editorState.features) editorFeaturesGroup.add(editorFeatureView(f, f.id === sel, editorAssets));
+  if (editorState.ballistaExplicit) editorFeaturesGroup.add(editorStartMarker(editorState.ballista.x, editorState.ballista.z));
 }
 
+/** Libere les marqueurs propres a l'editeur (tagges `editorMarker`) ; les
+ *  modeles partages (decor, unites, barils) ne sont jamais liberes. */
 function clearEditorFeatureViews(): void {
   for (const child of editorFeaturesGroup.children) {
     child.traverse((o) => {
+      if (!o.userData['editorMarker']) return;
       const mesh = o as THREE.Mesh;
       mesh.geometry?.dispose();
       (mesh.material as THREE.Material | undefined)?.dispose?.();
@@ -3539,30 +3568,83 @@ function clearEditorFeatureViews(): void {
   editorFeaturesKey = '';
 }
 
-function editorFeatureView(f: EditorFeature, selected: boolean): THREE.Object3D {
+function markerMesh(geometry: THREE.BufferGeometry, material: THREE.Material): THREE.Mesh {
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.userData['editorMarker'] = true;
+  return mesh;
+}
+
+/** Marqueur du Depart Survie (position de la Baliste principale, le Heros
+ *  apparait a cote) : anneau bleu au sol et fanion. */
+function editorStartMarker(x: number, z: number): THREE.Object3D {
+  const group = new THREE.Group();
+  group.position.set(x, surfaceY(x, z), z);
+  const ring = markerMesh(new THREE.RingGeometry(2.0, 2.35, 48), new THREE.MeshBasicMaterial({ color: 0x4aa3ff, transparent: true, opacity: 0.55, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.05;
+  const mast = markerMesh(new THREE.CylinderGeometry(0.07, 0.07, 3.6, 8), new THREE.MeshBasicMaterial({ color: 0x1d5fa8 }));
+  mast.position.set(-1.6, 1.8, -1.6);
+  const flag = markerMesh(new THREE.BoxGeometry(0.8, 0.45, 0.04), new THREE.MeshBasicMaterial({ color: 0x4aa3ff }));
+  flag.position.set(-1.2, 3.3, -1.6);
+  group.add(ring, mast, flag);
+  return group;
+}
+
+function editorFeatureView(f: EditorFeature, selected: boolean, assets: EnvironmentAssets): THREE.Object3D {
   const { x, z } = featurePosition(f);
   const group = new THREE.Group();
   group.userData['featureId'] = f.id;
-  const y = surfaceY(x, z);
-  group.position.set(x, y, z);
   const mat = (color: number, opacity = 1) => new THREE.MeshBasicMaterial({ color: selected ? 0xffd34d : color, transparent: opacity < 1, opacity, depthWrite: opacity >= 1 });
   if (f.kind === 'camp') {
-    const zone = new THREE.Mesh(new THREE.CircleGeometry(f.camp.radius, 40), mat(0xc0392b, 0.22));
+    // Marqueurs (clairiere, mat) au centre ; tout le derive en coordonnees
+    // monde, pour que cliquer un garde, le coffre, la tente, le feu ou un
+    // baril selectionne le camp entier.
+    const layout = campLayoutOf(f.camp);
+    const kind = getCampKind(f.camp.kind);
+    const center = new THREE.Group();
+    center.position.set(x, surfaceY(x, z), z);
+    const zone = markerMesh(new THREE.CircleGeometry(layout.radius, 40), mat(0xc0392b, 0.22));
     zone.rotation.x = -Math.PI / 2;
     zone.position.y = 0.04;
-    group.add(zone);
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.4, 8), mat(0x7a2418));
+    const mast = markerMesh(new THREE.CylinderGeometry(0.08, 0.08, 2.4, 8), mat(0x7a2418));
     mast.position.y = 1.2;
-    group.add(mast);
-    const flag = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.4, 0.04), mat(0xe74c3c));
+    const flag = markerMesh(new THREE.BoxGeometry(0.7, 0.4, 0.04), mat(0xe74c3c));
     flag.position.set(0.38, 2.15, 0);
-    group.add(flag);
-  } else if (f.kind === 'pile') {
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 0.22, 12), mat(f.pile.resource === 'wood' ? 0x9a6a3a : 0x9aa0a8));
+    center.add(zone, mast, flag);
+    group.add(center);
+    for (const o of layout.props) {
+      const mesh = buildObstacleMesh(o, assets);
+      placeObstacleMesh(mesh, o);
+      if (o.rotationY !== undefined) mesh.rotation.y = o.rotationY;
+      group.add(mesh);
+    }
+    for (const b of layout.barrels) {
+      const o: ObstacleDef = { kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'kaykit_barrel', x: b.x, z: b.z, scale: 0.28 };
+      const mesh = buildObstacleMesh(o, assets);
+      placeObstacleMesh(mesh, o);
+      group.add(mesh);
+    }
+    const chest = markerMesh(new THREE.BoxGeometry(0.7, 0.45, 0.45), mat(0x8a5a2a));
+    chest.position.set(layout.chest.x, surfaceY(layout.chest.x, layout.chest.z) + 0.23, layout.chest.z);
+    chest.rotation.y = layout.chest.rotationY;
+    group.add(chest);
+    kind.guards.forEach((unitId, i) => {
+      const post = layout.guardPosts[i];
+      if (!post) return;
+      const mesh = buildUnit(unitId, 'enemy');
+      mesh.position.set(post.x, surfaceY(post.x, post.z), post.z);
+      mesh.rotation.y = Math.PI;
+      group.add(mesh);
+    });
+    return group;
+  }
+  group.position.set(x, surfaceY(x, z), z);
+  if (f.kind === 'pile') {
+    const disc = markerMesh(new THREE.CylinderGeometry(0.32, 0.38, 0.22, 12), mat(f.pile.resource === 'wood' ? 0x9a6a3a : 0x9aa0a8));
     disc.position.y = 0.11;
     group.add(disc);
   } else {
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.6, 12), mat(0x8b5a2b));
+    const barrel = markerMesh(new THREE.CylinderGeometry(0.28, 0.28, 0.6, 12), mat(0x8b5a2b));
     barrel.position.y = 0.3;
     group.add(barrel);
   }
@@ -3587,8 +3669,7 @@ function resetEditorWithMap(map: MapDef): void {
   clearEditorGhost();
   transformControls.detach();
   editorHistory.clear();
-  // Informations de generation : carte issue du generateur seulement.
-  editorUI.setGenerationInfo(map.generator ? generationInfoLines(map) : null);
+  editorInfoKey = '';
   if (map.generator) editorUI.setSeed(map.generator.seed);
   rebuildEditorBoard();
   editorUI.setMapSize(editorState.width, editorState.height);
@@ -4172,7 +4253,7 @@ const editorUI = new EditorUI({
     try {
       const map = await loadMapDefFromFile(file);
       // Modeles a la demande de la carte (pack KayKit complet) avant tout rendu.
-      await ensureModels(obstacleModelKeys(map.obstacles));
+      await ensureModels(obstacleModelKeys(expandMapCamps(map).obstacles));
       resetEditorWithMap(map);
       markEditorClean();
     } catch (err) {
@@ -4193,10 +4274,21 @@ const editorUI = new EditorUI({
     editorState.setTool({ type: 'place-feature', feature: template });
     clearEditorGhost();
     refreshEditorObjects();
+    updateEditorGhost(lastEditorGhostX, lastEditorGhostZ);
+  },
+  onSetCampLevel: (level) => {
+    if (!editorState) return;
+    const f = editorState.selectedFeature;
+    if (!f || f.kind !== 'camp') return;
+    const before = editorState.objectsSnapshot();
+    if (editorState.setCampLevel(f.id, level)) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
+    refreshEditorObjects();
   },
   onNewMap: () => {
     if (!confirmDiscardEditorDraft('Créer une nouvelle carte')) return;
-    resetEditorWithMap(createBlankEditorMap());
+    // Carte reellement vierge (2026-11-03) : meme disque de 96 x 96 qu a
+    // l ouverture, regles de la Survie, sans Depart Survie impose.
+    resetEditorWithMap(createBlankMap());
     // Jamais enregistree : non enregistree tant qu'elle ne l'a pas ete.
     editorCleanExport = null;
     updateEditorMapStatus();
@@ -4267,6 +4359,7 @@ function clearEditorGhost(): void {
 function refreshEditorObjects(): void {
   if (!editorState || !editorAssets) return;
   syncEditorFeatureViews();
+  refreshEditorInfo();
 
   const liveIds = new Set(editorState.obstacles.map((o) => o.id));
   for (const [id, mesh] of editorMeshes) {
@@ -4381,8 +4474,10 @@ function refreshEditorObjects(): void {
   }
 
   // Baliste du brouillon : le modele (partage avec le jeu, voir
-  // ballistaPlatform) suit la position de l'editeur, la seule enregistree.
+  // ballistaPlatform) suit la position de l'editeur, la seule enregistree ;
+  // sans Depart Survie pose (carte vierge), il n'y a rien a montrer.
   repositionBallista(editorState.ballista);
+  ballistaPlatform.visible = editorState.ballistaExplicit;
 
   const selectedObstacle = editorState.selectedObstacle;
   const selectedBuilding = editorState.selectedBuilding;
@@ -4451,6 +4546,8 @@ function editorPropertiesSubject(state: EditorState): PropertiesSubject {
   if (building) return { kind: 'building', building };
   const wall = state.selectedWall;
   if (wall) return { kind: 'wall', wall };
+  const feature = state.selectedFeature;
+  if (feature) return { kind: 'feature', feature };
   return { kind: 'none' };
 }
 
@@ -4473,7 +4570,9 @@ async function enterEditor(): Promise<void> {
   // chargeables (Charger). DEFAULT_MAP ne sert plus qu'aux dimensions de
   // "Nouvelle carte".
   editorBaseMap = createBlankMap();
-  await ensureModels(obstacleModelKeys(editorBaseMap.obstacles));
+  // Decor derive des camps (data/campLayout.ts) : pour les camps poses a la
+  // main comme pour ceux d'une carte chargee.
+  await ensureModels(obstacleModelKeys(Object.keys(CAMP_KINDS).flatMap((kind) => campLayoutOf({ kind, x: 0, z: 0 }).props)));
   editorState = new EditorState(editorBaseMap);
   editorHistory.clear();
   rebuildEditorBoard();
@@ -4486,6 +4585,7 @@ async function enterEditor(): Promise<void> {
 
 function exitEditor(): void {
   inEditorMode = false;
+  ballistaPlatform.visible = true;
   ringRotateDrag = null;
   editorState = null;
   syncActiveTerrain();
@@ -4532,7 +4632,17 @@ function exitEditor(): void {
  */
 async function testScenario(): Promise<void> {
   if (!editorState || !editorAssets) return;
-  const testMap = exportMapDef(editorState, editorBaseMap);
+  // Validation de Survie (2026-11-03) : une erreur (aucun Depart Survie,
+  // depart ou camp invalide) bloque le test ; un avertissement non.
+  const validation = editorState.survivalValidation();
+  if (validation.errors.length > 0) {
+    refreshEditorInfo();
+    window.alert(`Tester le scénario refusé :\n- ${validation.errors.join('\n- ')}`);
+    return;
+  }
+  // Decor et barils des camps derives de leurs objets semantiques, comme
+  // pour une vraie run (survivalMapFor).
+  const testMap = expandMapCamps(exportMapDef(editorState, editorBaseMap));
 
   // Masque l'editeur (mais garde editorState intact) et bascule dans les
   // memes conditions qu'une bataille normale : inEditorMode a false laisse
@@ -4572,7 +4682,8 @@ async function testScenario(): Promise<void> {
 
   // Origine de tir, modele visuel et collision de la Baliste a la meme
   // position, calculee comme en vraie bataille (voir spawnBallistaBuilding) :
-  // celle posee dans l'editeur, sinon le repli historique du coin.
+  // le Depart Survie pose dans l'editeur (la validation ci-dessus l'exige).
+  ballistaPlatform.visible = true;
   playerArrowOrigin = resolveBallistaOrigin(currentMap);
   ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
@@ -4784,6 +4895,21 @@ function updateEditorGhost(x: number, z: number): void {
       }
     }
     editorGhost = group;
+    editorGhostGroup.add(editorGhost);
+  } else if (editorState.tool.type === 'place-feature') {
+    const template = editorState.tool.feature;
+    const campKind = campKindOfTemplate(template);
+    if (template === 'start') {
+      editorGhost = buildStartPreview(snapBallistaOrigin(x, z));
+    } else if (campKind !== null) {
+      const cx = Math.floor(x) + 0.5;
+      const cz = Math.floor(z) + 0.5;
+      editorGhost = buildCampPreview(cx, cz, editorState.campPlacementIssue(cx, cz) === null);
+    } else {
+      const cellX = Math.floor(x);
+      const cellZ = Math.floor(z);
+      editorGhost = buildCellPreview(cellX, cellZ, editorState.hasCellAt(cellX, cellZ) && !editorState.isWaterCell(cellX, cellZ));
+    }
     editorGhostGroup.add(editorGhost);
   } else if (editorState.tool.type === 'add-cell') {
     // Toujours alignee sur la grille (Part AG) : coin de case le plus
@@ -5264,9 +5390,21 @@ function handleEditorClick(event: MouseEvent): void {
   }
 
   if (editorState.tool.type === 'place-feature') {
+    if (editorState.tool.feature === 'start') {
+      // Depart Survie : unique, un nouveau placement remplace l'ancien
+      // (historique de la Baliste) ; retour a la selection, depart selectionne.
+      if (moveEditorBallista(groundHit.x, groundHit.z)) {
+        editorState.setTool({ type: 'select' });
+        editorState.select({ kind: 'ballista' });
+        clearEditorGhost();
+      }
+      refreshEditorObjects();
+      return;
+    }
     const before = editorState.objectsSnapshot();
     if (editorState.placeFeatureAt(editorState.tool.feature, groundHit.x, groundHit.z)) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
     refreshEditorObjects();
+    updateEditorGhost(groundHit.x, groundHit.z);
     return;
   }
 
@@ -5358,6 +5496,10 @@ function handleEditorClick(event: MouseEvent): void {
     // leger mouvement de la souris pendant le clic (au-dela du seuil du
     // rectangle) vidait la selection sans deplacer la Baliste.
     moveEditorBallista(groundHit.x, groundHit.z);
+  } else if (picked === null && !event.shiftKey && editorState.selection?.kind === 'feature') {
+    // Element de Survie selectionne (camp entier, tas, baril) + appui au
+    // sol : deplacement valide, meme patron que la Baliste.
+    moveEditorFeature(editorState.selection.id, groundHit.x, groundHit.z);
   } else {
     // Unite ou sol : resolu au relachement, clic simple ou rectangle de
     // selection selon le deplacement (voir resolveEditorPointerClick).
@@ -5397,7 +5539,7 @@ function pickEditorObjectAt(
   const wallHit = raycaster.intersectObjects(editorWallsGroup.children, true)[0];
   // La Baliste (modele partage avec le jeu, voir ballistaPlatform) est aussi
   // cliquable directement.
-  const ballistaHit = raycaster.intersectObject(ballistaPlatform, true)[0];
+  const ballistaHit = editorState?.ballistaExplicit ? raycaster.intersectObject(ballistaPlatform, true)[0] : undefined;
   const hit = [obstacleHit, unitHit, buildingHit, wallHit, ballistaHit].reduce<THREE.Intersection | undefined>(
     (best, h) => (h && (!best || h.distance < best.distance) ? h : best),
     undefined,
@@ -5584,10 +5726,21 @@ window.addEventListener('mouseup', (event) => {
  *  sinon rien ne change et la Baliste reste selectionnee. Un deplacement
  *  reussi entre dans l'historique, statut explicite compris (meme patron que
  *  le deplacement d'un decor, voir le 'mouseUp' de transformControls). */
-function moveEditorBallista(x: number, z: number): void {
+/** Element de Survie selectionne + clic au sol : deplacement d'un bloc
+ *  (camp : coffre, gardes, decor et barils derives suivent), valide par
+ *  EditorState.moveFeatureTo ; une entree d'historique (objets). */
+function moveEditorFeature(id: number, x: number, z: number): void {
   if (!editorState) return;
+  const before = editorState.objectsSnapshot();
+  if (!editorState.moveFeatureTo(id, x, z)) return;
+  pushEditorObjectsCommand(before, editorState.objectsSnapshot());
+  refreshEditorObjects();
+}
+
+function moveEditorBallista(x: number, z: number): boolean {
+  if (!editorState) return false;
   const from = { position: { ...editorState.ballista }, explicit: editorState.ballistaExplicit };
-  if (!editorState.moveBallista(x, z)) return;
+  if (!editorState.moveBallista(x, z)) return false;
   const to = { position: { ...editorState.ballista }, explicit: editorState.ballistaExplicit };
   editorHistory.push({
     undo: () => {
@@ -5599,6 +5752,7 @@ function moveEditorBallista(x: number, z: number): void {
       refreshEditorObjects();
     },
   });
+  return true;
 }
 
 // Raycast souris : sert a la fois a detecter un clic sur une unite et, a
@@ -8390,7 +8544,10 @@ const loop = new Loop(
       // Baliste detruite = defaite immediate (2026-11-02, coeur de la base) ;
       // le Heros mort revient tant qu'elle tient.
       const defeated = playerAlive === 0 || world.isBaseLost('player');
-      const waveCleared = enemyAlive === 0 && world.allEnemyGroupsSpawned();
+      // Carte de Survie Hero RTS testee depuis l'editeur (2026-11-03) : pas de
+      // vague, les gardes des camps ne comptent pas (countsForDefeat) ; seule
+      // la defaite, ou Echap, termine le test.
+      const waveCleared = enemyAlive === 0 && world.allEnemyGroupsSpawned() && !(inTestMode && usesHeroRtsRules(currentMap));
       // Survie en temps reel continu (2026-11-01) : une vague repoussee ne
       // change plus de phase (completeSurvivalWave) ; seule la defaite
       // termine la run. « Tester le scenario » garde sa fin immediate.
@@ -10072,6 +10229,7 @@ window.addEventListener('mousemove', (event) => {
   if (!inEditorMode || !editorState) return;
   if (editorState.tool.type === 'select') {
     updateEditorBallistaMovePreview(event);
+    updateEditorFeatureMovePreview(event);
     return;
   }
   setRaycasterFromEvent(event);
@@ -10085,6 +10243,48 @@ window.addEventListener('mousemove', (event) => {
  *  placement 3×3 ou un clic au sol la deplacerait — meme regle que le clic
  *  (EditorState.canMoveBallistaTo : geometrie + territoire joueur). Rien si
  *  le curseur vise un objet, qu'un clic selectionnerait au lieu de deplacer. */
+/** Apercu du Depart Survie (emprise 3 × 3, verte / rouge selon
+ *  EditorState.canMoveBallistaTo) centre sur `target` (deja cale). */
+function buildStartPreview(target: { x: number; z: number }): THREE.Group {
+  const valid = editorState?.canMoveBallistaTo(target.x, target.z) ?? false;
+  const cornerX = Math.round(target.x - BALLISTA_PLACEMENT_TILES / 2);
+  const cornerZ = Math.round(target.z - BALLISTA_PLACEMENT_TILES / 2);
+  const group = new THREE.Group();
+  for (let dz = 0; dz < BALLISTA_PLACEMENT_TILES; dz++) {
+    for (let dx = 0; dx < BALLISTA_PLACEMENT_TILES; dx++) group.add(buildCellPreview(cornerX + dx, cornerZ + dz, valid));
+  }
+  return group;
+}
+
+/** Apercu d'un camp : sa clairiere (CAMP_CLEAR_RADIUS), verte si la pose ou
+ *  le deplacement est possible (EditorState.campPlacementIssue), rouge sinon. */
+function buildCampPreview(x: number, z: number, valid: boolean): THREE.Group {
+  const group = new THREE.Group();
+  group.position.set(x, surfaceY(x, z) + 0.06, z);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(CAMP_CLEAR_RADIUS, 48), new THREE.MeshBasicMaterial({ color: valid ? 0x3ddc84 : 0xff5a4e, transparent: true, opacity: 0.3, depthWrite: false }));
+  disc.rotation.x = -Math.PI / 2;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(CAMP_CLEAR_RADIUS - 0.12, CAMP_CLEAR_RADIUS, 48), new THREE.MeshBasicMaterial({ color: valid ? 0x3ddc84 : 0xff5a4e, transparent: true, opacity: 0.8, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2;
+  group.add(disc, ring);
+  return group;
+}
+
+/** Element de Survie selectionne : apercu de sa destination sous le curseur
+ *  (camp : clairiere verte / rouge ; tas, baril : case). */
+function updateEditorFeatureMovePreview(event: MouseEvent): void {
+  if (!editorState || editorState.selection?.kind !== 'feature' || event.target !== canvas) return;
+  const f = editorState.selectedFeature;
+  if (!f || pickEditorObjectAt(event) !== null) return;
+  setRaycasterFromEvent(event);
+  if (!intersectTerrain(raycaster.ray, groundHit)) return;
+  const cx = Math.floor(groundHit.x) + 0.5;
+  const cz = Math.floor(groundHit.z) + 0.5;
+  clearEditorGhost();
+  if (f.kind === 'camp') editorGhost = buildCampPreview(cx, cz, editorState.campPlacementIssue(cx, cz, f.id) === null);
+  else editorGhost = buildCellPreview(Math.floor(cx), Math.floor(cz), editorState.hasCellAt(Math.floor(cx), Math.floor(cz)) && !editorState.isWaterCell(Math.floor(cx), Math.floor(cz)));
+  editorGhostGroup.add(editorGhost);
+}
+
 function updateEditorBallistaMovePreview(event: MouseEvent): void {
   clearEditorGhost();
   if (!editorState || editorState.selection?.kind !== 'ballista' || event.target !== canvas) return;

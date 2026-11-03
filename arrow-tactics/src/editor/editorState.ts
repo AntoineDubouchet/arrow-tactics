@@ -3,6 +3,7 @@ import { isWaterSurface, surfaceBrushOrigin, type GroundTextureId, type SurfaceB
 import {
   BALLISTA_PLACEMENT_TILES,
   buildCellIndex,
+  CAMP_CLEAR_RADIUS,
   cellKey,
   computeBallistaObstacle,
   computePlayerArrowOrigin,
@@ -48,8 +49,10 @@ import {
 } from '../config/territory';
 import { buildingFootprintTiles } from '../data/buildings';
 import { getWallType } from '../data/walls';
+import { campFacingFrom } from '../data/campLayout';
+import { getCampKind } from '../data/camps';
 import { planWallLine, segmentBoxDistance, segmentWallLine, wallLineCells, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint, type WallSegment } from '../core/wallLine';
-import { resourceNodeCellKeys, type ResourcePileDef } from '../config/resourceNodes';
+import { resourceNodeCellKeys, resourceOfObstacle, type ResourcePileDef } from '../config/resourceNodes';
 import { computeCliffObstacles } from '../config/terrainElevation';
 import { getUnit } from '../data/units';
 import type { Team } from '../sim/entity';
@@ -264,9 +267,30 @@ export function featurePosition(f: EditorFeature): { x: number; z: number } {
   return f.kind === 'camp' ? { x: f.camp.x, z: f.camp.z } : f.kind === 'pile' ? { x: f.pile.x, z: f.pile.z } : { x: f.destructible.x, z: f.destructible.z };
 }
 
-/** Elements posables a la main (catalogue de l'editeur) : un camp neutre se
- *  garde du generateur (gardes, coffre), il n'est pas pose a la main. */
-export type EditorFeatureTemplate = 'pile-wood' | 'pile-stone' | 'barrel';
+/** Elements posables a la main (catalogue de l'editeur, groupe Survie) :
+ *  petits tas, baril, camp neutre d'un type de data/camps.ts
+ *  (`camp:raiders_small`...) et Depart Survie (position de la Baliste). */
+export type EditorFeatureTemplate = 'pile-wood' | 'pile-stone' | 'barrel' | 'start' | `camp:${string}`;
+
+/** Type de camp d'un gabarit `camp:<kind>`, null pour les autres. */
+export function campKindOfTemplate(template: EditorFeatureTemplate): string | null {
+  return template.startsWith('camp:') ? template.slice('camp:'.length) : null;
+}
+
+/** Regles de pose d'un camp a la main (PROVISOIRES, 2026-11-03) : ecart
+ *  minimal entre camps, distance au Depart Survie, cases ouvertes requises
+ *  dans la couronne (abords « manifestement inaccessibles » sinon). Le
+ *  generateur garde ses propres distances (anneau, 20 cases entre camps). */
+export const CAMP_MIN_SPACING = 10;
+export const CAMP_START_CLEARANCE = 14;
+export const CAMP_RING_OPEN_MIN = 12;
+
+/** Validation legere d'une carte de Survie (editeur, 2026-11-03) : les
+ *  erreurs bloquent « Tester le scénario », les avertissements non. */
+export interface SurvivalValidation {
+  errors: string[];
+  warnings: string[];
+}
 
 /** Centre cale sur la grille de l'emprise d'un batiment dont le centre
  *  tomberait pres de (x, z) : coin de case entier, centre = coin + taille / 2
@@ -496,12 +520,153 @@ export class EditorState {
     return isFootprintOwnedBy(this.territoryIndex(), EDITOR_BALLISTA_OWNER, cornerX, cornerZ, BALLISTA_PLACEMENT_TILES, BALLISTA_PLACEMENT_TILES);
   }
 
-  /** Validite d'un deplacement INTERACTIF de la Baliste vers (x, z) (centre
-   *  deja cale) : regles geometriques de canPlaceBallistaAt ET empreinte de
-   *  placement entierement en territoire joueur. SOURCE UNIQUE partagee par
-   *  le deplacement et son apercu. */
+  /** Vrai si la Baliste (Depart Survie) peut etre deplacee en (x, z)
+   *  (centre deja cale) : voir startPlacementIssue. Le territoire joueur
+   *  n'est plus exige depuis le 2026-11-03 (une carte dessinee pose son
+   *  depart avant de peindre son territoire). */
   canMoveBallistaTo(x: number, z: number): boolean {
-    return this.canPlaceBallistaAt(x, z) && this.isBallistaFootprintInPlayerTerritory(x, z);
+    return this.startPlacementIssue(x, z) === null;
+  }
+
+  /** Raison pour laquelle le Depart Survie ne peut pas etre centre en
+   *  (x, z) (centre deja cale sur sa grille), ou null : emprise 3 × 3 sur des
+   *  cases existantes, plates, hors eau, sans obstacle bloquant (gisements
+   *  compris), batiment ni unite (canPlaceBallistaAt) ; aucun camp a moins de
+   *  CAMP_START_CLEARANCE cases. */
+  startPlacementIssue(x: number, z: number): string | null {
+    if (!this.canPlaceBallistaAt(x, z)) return 'emplacement invalide (cases manquantes, eau, relief, obstacle, gisement, bâtiment ou unité sous l’emprise 3 × 3)';
+    const camp = this.features.find((f) => f.kind === 'camp' && Math.hypot(f.camp.x - x, f.camp.z - z) < CAMP_START_CLEARANCE);
+    if (camp) return `camp trop proche (moins de ${CAMP_START_CLEARANCE} cases)`;
+    return null;
+  }
+
+  /** Cases (coordonnees entieres) dont le centre est dans la couronne
+   *  rMin < d <= rMax autour de (cx, cz). */
+  private discCells(cx: number, cz: number, rMin: number, rMax: number): { x: number; z: number }[] {
+    const out: { x: number; z: number }[] = [];
+    for (let z = Math.floor(cz - rMax); z <= Math.ceil(cz + rMax); z++) {
+      for (let x = Math.floor(cx - rMax); x <= Math.ceil(cx + rMax); x++) {
+        const d = Math.hypot(x + 0.5 - cx, z + 0.5 - cz);
+        if (d > rMin && d <= rMax) out.push({ x, z });
+      }
+    }
+    return out;
+  }
+
+  /** Raison pour laquelle un camp ne peut pas etre centre en (x, z), ou
+   *  null (memes criteres que le generateur, sans sa connexite exacte) : sa
+   *  clairiere (CAMP_CLEAR_RADIUS) entierement sur des cases existantes,
+   *  hors eau, plates a un seul niveau (pas de falaise), sans batiment,
+   *  palissade, Depart Survie, unite, obstacle bloquant (arbre, gros
+   *  gisement, structure) ; aucun autre camp a moins de CAMP_MIN_SPACING, le
+   *  Depart Survie a plus de CAMP_START_CLEARANCE ; abords ouverts (au moins
+   *  CAMP_RING_OPEN_MIN cases libres dans la couronne de 2 cases). Les
+   *  decors traversables poses a la main ne genent pas et restent a part.
+   *  `ignoreId` : le camp lui-meme (deplacement). */
+  campPlacementIssue(x: number, z: number, ignoreId?: number): string | null {
+    const r = CAMP_CLEAR_RADIUS;
+    // Cases des arbres et des gros gisements (bloquants en jeu).
+    const sources = resourceNodeCellKeys(this.obstacles);
+    let level: number | null = null;
+    for (const c of this.discCells(x, z, -1, r)) {
+      if (!this.hasCellAt(c.x, c.z)) return 'hors de la carte';
+      if (this.isWaterCell(c.x, c.z)) return 'eau';
+      if (sources.has(cellKey(c.x, c.z))) {
+        const cell = { minX: c.x, maxX: c.x + 1, minZ: c.z, maxZ: c.z + 1 };
+        const source = this.obstacles.find((o) => resourceOfObstacle(o) !== null && boundsOverlap(cell, obstacleBounds(o)));
+        return source && resourceOfObstacle(source) === 'wood' ? 'arbre' : 'gros gisement';
+      }
+      const e = this.elevationAt(c.x, c.z);
+      if (e.slope || (level !== null && e.level !== level)) return 'relief (falaise ou pente)';
+      level = e.level;
+      if (this.isCellUnderBallista(c.x, c.z) && this.ballistaExplicit) return 'Départ Survie';
+      const cell = { minX: c.x, maxX: c.x + 1, minZ: c.z, maxZ: c.z + 1 };
+      if (this.buildings.some((b) => boundsOverlap(cell, buildingBoundsAt(b.buildingId, b.x, b.z)))) return 'bâtiment';
+      if (this.wallPieces().some((p) => wallLineCells(p.segment).some((w) => w.x === c.x && w.z === c.z))) return 'palissade';
+      if (this.units.some((u) => Math.floor(u.x) === c.x && Math.floor(u.z) === c.z)) return 'unité';
+      const blocker = this.obstacles.find((o) => {
+        if (!isBlockingMapObstacle(o)) return false;
+        const center = obstacleCenter(o);
+        return (Math.floor(center.x) === c.x && Math.floor(center.z) === c.z) || boundsOverlap(cell, obstacleBounds(o));
+      });
+      if (blocker) return resourceOfObstacle(blocker) === 'wood' ? 'arbre' : resourceOfObstacle(blocker) ? 'gros gisement' : 'obstacle';
+    }
+    const other = this.features.find((f) => f.kind === 'camp' && f.id !== ignoreId && Math.hypot(f.camp.x - x, f.camp.z - z) < CAMP_MIN_SPACING);
+    if (other) return `autre camp trop proche (moins de ${CAMP_MIN_SPACING} cases)`;
+    if (this.ballistaExplicit && Math.hypot(this.ballista.x - x, this.ballista.z - z) < CAMP_START_CLEARANCE) return `Départ Survie trop proche (moins de ${CAMP_START_CLEARANCE} cases)`;
+    let open = 0;
+    for (const c of this.discCells(x, z, r, r + 2)) {
+      if (!this.hasCellAt(c.x, c.z) || this.isWaterCell(c.x, c.z) || sources.has(cellKey(c.x, c.z))) continue;
+      const e = this.elevationAt(c.x, c.z);
+      if (e.slope || e.level !== level) continue;
+      if (this.isCellOccupied(c.x, c.z)) continue;
+      open++;
+    }
+    if (open < CAMP_RING_OPEN_MIN) return 'abords fermés (zone inaccessible)';
+    return null;
+  }
+
+  /** Deplace un element de Survie (camp entier, tas ou baril) en (x, z) :
+   *  meme validation qu'a la pose (le camp s'ignore lui-meme) ; faux si la
+   *  position est refusee ou inchangee. Un camp deplace garde son
+   *  orientation ; coffre, gardes, decor et barils en derivent. Nouvel objet
+   *  (jamais une mutation) : l'historique restaure l'ancien. */
+  moveFeatureTo(id: number, x: number, z: number): boolean {
+    const f = this.features.find((e) => e.id === id);
+    if (!f) return false;
+    const cx = Math.floor(x) + 0.5;
+    const cz = Math.floor(z) + 0.5;
+    const pos = featurePosition(f);
+    if (pos.x === cx && pos.z === cz) return false;
+    let next: EditorFeature;
+    if (f.kind === 'camp') {
+      if (this.campPlacementIssue(cx, cz, id) !== null) return false;
+      next = { ...f, camp: { ...f.camp, x: cx, z: cz } };
+    } else {
+      if (!this.canPlaceSmallFeatureAt(cx, cz)) return false;
+      next = f.kind === 'pile' ? { ...f, pile: { ...f.pile, x: cx, z: cz } } : { ...f, destructible: { ...f.destructible, x: cx, z: cz } };
+    }
+    this.features = this.features.map((e) => (e.id === id ? next : e));
+    return true;
+  }
+
+  /** Niveau d'un camp (fiche de l'editeur) : entier >= 1 ; faux si
+   *  inchange ou invalide. Nouvel objet, pour l'historique. */
+  setCampLevel(id: number, level: number): boolean {
+    const f = this.features.find((e) => e.id === id);
+    if (!f || f.kind !== 'camp' || !Number.isInteger(level) || level < 1) return false;
+    if ((f.camp.level ?? 1) === level) return false;
+    this.features = this.features.map((e) => (e.id === id ? { ...f, camp: { ...f.camp, level } } : e));
+    return true;
+  }
+
+  /** Validation legere de la carte de Survie : erreurs (aucun Depart
+   *  Survie, depart invalide, camp invalide) et avertissements (aucun camp,
+   *  aucune ressource, aucune palissade). */
+  survivalValidation(): SurvivalValidation {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    if (!this.ballistaExplicit) errors.push('Aucun Départ Survie : posez-le (groupe Survie du catalogue).');
+    else {
+      const issue = this.startPlacementIssue(this.ballista.x, this.ballista.z);
+      if (issue) errors.push(`Départ Survie invalide : ${issue}.`);
+    }
+    const camps = this.features.filter((f): f is Extract<EditorFeature, { kind: 'camp' }> => f.kind === 'camp');
+    for (const f of camps) {
+      const issue = this.campPlacementIssue(f.camp.x, f.camp.z, f.id);
+      if (issue) errors.push(`${getCampKind(f.camp.kind).shortName} en (${f.camp.x.toFixed(1)} ; ${f.camp.z.toFixed(1)}) invalide : ${issue}.`);
+    }
+    if (camps.length === 0) warnings.push('Aucun camp.');
+    if (!this.obstacles.some((o) => resourceOfObstacle(o) !== null) && !this.features.some((f) => f.kind === 'pile')) warnings.push('Aucune ressource (arbre, gisement ou tas).');
+    if (this.walls.length === 0) warnings.push('Aucune palissade.');
+    return { errors, warnings };
+  }
+
+  /** Case libre pour un petit tas ou un baril : existante, hors eau, sans
+   *  autre tas ni baril (les camps ne comptent pas). */
+  private canPlaceSmallFeatureAt(x: number, z: number): boolean {
+    if (!this.hasCellAt(Math.floor(x), Math.floor(z)) || this.isWaterCell(Math.floor(x), Math.floor(z))) return false;
+    return !this.features.some((f) => f.kind !== 'camp' && Math.floor(featurePosition(f).x) === Math.floor(x) && Math.floor(featurePosition(f).z) === Math.floor(z));
   }
 
   /** Deplace la Baliste vers la position calee sur sa grille la plus proche
@@ -1044,13 +1209,23 @@ export class EditorState {
   }
 
   /** Pose un petit tas (5 bois / 5 pierre) ou un baril sur la case de (x, z)
-   *  (2026-11-03) : case existante, hors eau, libre de tout element Survie ;
-   *  faux sinon. */
+   *  (2026-11-03 : case existante, hors eau, libre de tout element Survie),
+   *  un camp (centre de case, campPlacementIssue, niveau 1, dos a l'oppose
+   *  du Depart Survie) ou le Depart Survie (moveBallista : un nouveau
+   *  placement remplace l'ancien) ; faux sinon. */
   placeFeatureAt(template: EditorFeatureTemplate, x: number, z: number): boolean {
     const cx = Math.floor(x) + 0.5;
     const cz = Math.floor(z) + 0.5;
-    if (!this.hasCellAt(Math.floor(x), Math.floor(z)) || this.isWaterCell(Math.floor(x), Math.floor(z))) return false;
-    if (this.features.some((f) => f.kind !== 'camp' && Math.floor(featurePosition(f).x) === Math.floor(x) && Math.floor(featurePosition(f).z) === Math.floor(z))) return false;
+    if (template === 'start') return this.moveBallista(x, z);
+    const campKind = campKindOfTemplate(template);
+    if (campKind !== null) {
+      if (this.campPlacementIssue(cx, cz) !== null) return false;
+      const origin = this.ballistaExplicit ? this.ballista : { x: 0, z: 0 };
+      const camp: MapCampDef = { kind: campKind, x: cx, z: cz, level: 1, facing: campFacingFrom(cx, cz, origin) };
+      this.features = [...this.features, { id: this.nextId++, kind: 'camp', camp }];
+      return true;
+    }
+    if (!this.canPlaceSmallFeatureAt(cx, cz)) return false;
     const id = this.nextId++;
     if (template === 'barrel') this.features = [...this.features, { id, kind: 'destructible', destructible: { kind: 'barrel', x: cx, z: cz } }];
     else this.features = [...this.features, { id, kind: 'pile', pile: { x: cx, z: cz, resource: template === 'pile-wood' ? 'wood' : 'stone', amount: 5 } }];

@@ -184,26 +184,34 @@ export function usesHeroRtsRules(map: Pick<MapDef, 'survivalRules'>): boolean {
   return map.survivalRules === 'hero-rts';
 }
 
-/** Camp neutre d'une carte (2026-11-02, config/maps/proceduralSurvival.ts) :
- *  clairiere plate reliee a pied a la Baliste. Le type (`kind`, voir
- *  data/camps.ts) dit qui le garde et ce qu'il rapporte ; son decor (feu,
- *  tente, banniere, caisses) est dans `obstacles`, en props traversables. */
+/** Rayon degage (cases) d'un camp neutre : ni arbre, ni eau, ni relief ;
+ *  commun au generateur, a l'editeur et au decor derive (data/campLayout.ts). */
+export const CAMP_CLEAR_RADIUS = 3.5;
+
+/** Camp neutre d'une carte (2026-11-02 ; objet SEMANTIQUE depuis le
+ *  2026-11-03) : UN seul objet logique, pose par le generateur
+ *  (config/maps/proceduralSurvival.ts) ou a la main dans l'editeur. Le type
+ *  (`kind`, data/camps.ts) dit qui le garde et ce qu'il rapporte ; coffre,
+ *  postes de garde, feu, tente, bannieres, caisses et barils sont DERIVES de
+ *  (kind, x, z, facing) par data/campLayout.ts (campLayoutOf), jamais ecrits
+ *  dans `obstacles` ni `destructibles` (expandMapCamps les y ajoute pour le
+ *  jeu). Un fichier plus ancien (chest, guardPosts, radius, decor dans
+ *  obstacles) est converti au chargement (editor/mapSerializer.ts). */
 export interface MapCampDef {
   kind: string;
   /** Centre (monde) : le feu de camp. */
   x: number;
   z: number;
-  /** Rayon degage (cases) : ni arbre, ni eau, ni relief, ni tas. */
-  radius: number;
-  /** Coffre du camp (monde) et son orientation. */
-  chest: { x: number; z: number; rotationY: number };
-  /** Postes de garde (monde), un par garde, dans l'ordre du type de camp ;
-   *  `level` optionnel : niveau propre a ce garde (chef, boss). */
-  guardPosts: { x: number; z: number; level?: number }[];
   /** Niveau d'unite des gardes (data/unitLevels.ts) : ecrit par la carte
-   *  dessinee ou par le generateur, meme format. OPTIONNEL : absent =
-   *  niveau 1. */
+   *  dessinee (fiche de l'editeur) ou par le generateur, meme format.
+   *  OPTIONNEL : absent = niveau 1. Une carte dessinee impose sa valeur. */
   level?: number;
+  /** Orientation du dos du camp (radians, atan2(z, x)). OPTIONNEL : absent =
+   *  a l'oppose de l'origine (convention du generateur, Baliste au centre). */
+  facing?: number;
+  /** Niveau propre a certains gardes (index = poste, futur chef / boss),
+   *  prioritaire sur `level`. OPTIONNEL, sans interface pour l'instant. */
+  guardOverrides?: { level?: number }[];
 }
 
 /** Cle stable d'une cellule — sert de cle de Map/Set (lookup O(1) "cette

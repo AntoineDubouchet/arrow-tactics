@@ -12,6 +12,11 @@ export interface CampKindDef {
   id: string;
   /** Nom affiche (« Camp de pillards »). */
   name: string;
+  /** Nom court du catalogue de l'editeur (« Petit camp »). */
+  shortName: string;
+  /** Gabarit du decor derive (data/campLayout.ts) : le grand camp a une
+   *  seconde tente, une seconde banniere et un baril de plus. */
+  layout: 'small' | 'large';
   /** Gardes (UNITS), un par poste de garde du camp, dans l'ordre des postes. */
   guards: readonly string[];
   /** Zone de detection (cases, depuis le centre du camp) : un adversaire qui
@@ -34,6 +39,8 @@ export const CAMP_KINDS: Readonly<Record<string, CampKindDef>> = {
   raiders_small: {
     id: 'raiders_small',
     name: 'Camp de pillards',
+    shortName: 'Petit camp',
+    layout: 'small',
     guards: ['maraudeur', 'maraudeur', 'traqueur', 'feticheur'],
     detectRadius: 6,
     leashRadius: 11,
@@ -46,6 +53,8 @@ export const CAMP_KINDS: Readonly<Record<string, CampKindDef>> = {
   raiders_large: {
     id: 'raiders_large',
     name: 'Grand camp de pillards',
+    shortName: 'Grand camp',
+    layout: 'large',
     guards: ['maraudeur', 'maraudeur', 'ravageur', 'traqueur', 'traqueur', 'feticheur'],
     detectRadius: 6.5,
     leashRadius: 12,

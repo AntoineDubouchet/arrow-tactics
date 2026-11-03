@@ -1503,6 +1503,10 @@ img {
   border-radius: 4px;
 }
 
+.editor-validation-error { color: #ff7b6b; }
+.editor-validation-warning { color: #f1c27a; }
+.editor-prop-field { align-items: center; }
+.editor-prop-input { width: 64px; margin-left: auto; padding: 2px 4px; font: inherit; color: var(--ink); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--edge); border-radius: 4px; }
 .editor-generation-info {
   position: fixed;
   top: 54px;
