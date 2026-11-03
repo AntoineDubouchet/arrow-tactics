@@ -9,7 +9,20 @@ import { HP_PER_PIP } from '../config/constants';
  * RENDU si elle est annulee avant son effet (nouvel ordre, mort, Provocation,
  * cible perdue). Valeurs PROVISOIRES.
  */
-export type SpellTargeting = 'self-or-ally';
+export type SpellTargeting = 'self-or-ally' | 'self';
+
+/** Tourbillon (2026-11-03) : effet canalise SUR le Heros, sans incantation ;
+ *  une frappe de zone toutes les `pulseSeconds` pendant `durationSeconds`
+ *  (premiere a `pulseSeconds`, derniere a la fin : 5 frappes pour 5 s / 1 s),
+ *  `damageRatio` des degats d'attaque du Heros FIGES au lancement, sur les
+ *  hostiles a `radiusTiles` (bord du corps). Le Heros peut se deplacer ; ni
+ *  attaque de base, ni autre sort, ni travail pendant l'effet. */
+export interface WhirlwindEffect {
+  durationSeconds: number;
+  pulseSeconds: number;
+  radiusTiles: number;
+  damageRatio: number;
+}
 
 export interface SpellDef {
   id: string;
@@ -30,6 +43,11 @@ export interface SpellDef {
   /** `self-or-ally` : le lanceur ou une unite alliee vivante (jamais un
    *  batiment). */
   targeting: SpellTargeting;
+  /** Tourbillon : effet canalise (WhirlwindEffect) au lieu d'un soin. */
+  whirlwind?: WhirlwindEffect;
+  /** Temps de recharge (s de simulation), lance a la FIN de l'effet
+   *  (terminee ou Heros mort). Absent : aucun. */
+  cooldownSeconds?: number;
   /** Icone de la barre d'action (identifiant de ui/itemIcons.ts). */
   icon?: string;
 }
@@ -49,6 +67,22 @@ export const SPELLS = {
     targeting: 'self-or-ally',
     // Icone propre au Soin du Paladin (ui/itemIcons.ts, SVG).
     icon: 'paladin_heal',
+  },
+  // Tourbillon (2026-11-03, demande d'Antoine) : prototype ; recharge de 15 s
+  // a partir de la fin de l'effet. Valeurs PROVISOIRES.
+  whirlwind: {
+    id: 'whirlwind',
+    name: 'Tourbillon',
+    description: 'Tournoie 5 s : une frappe par seconde sur les ennemis à 2,25 cases (75 % des dégâts d’attaque figés au lancement). Déplacement possible ; ni attaque ni autre sort pendant l’effet.',
+    manaCost: 15,
+    castSeconds: 0,
+    healAmount: 0,
+    rangeTiles: 0,
+    endRangeMarginTiles: 0,
+    targeting: 'self',
+    icon: 'paladin_whirlwind',
+    whirlwind: { durationSeconds: 5, pulseSeconds: 1, radiusTiles: 2.25, damageRatio: 0.75 },
+    cooldownSeconds: 15,
   },
 } as const satisfies Record<string, SpellDef>;
 

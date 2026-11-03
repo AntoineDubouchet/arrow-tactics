@@ -59,7 +59,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-46 | Camps neutres : état non sauvegardé si le monde était reconstruit en cours de run | Hypothèse (pas de cas aujourd'hui) |
 | KI-47 | Or au sol non ramassé : les tas restent toute la run (aucune disparition) | Voulu (Antoine) ; fusion des tas proches à envisager |
 | KI-51 | Baril : pas encore posable dans l'éditeur de maps (`MapDef.destructibles` prêt) | À faire |
-| KI-52 | Éditeur : ni camps, ni niveaux, ni `survivalRules` modifiables ; seul le niveau des unités est conservé | À faire |
+| KI-52 | Éditeur : niveaux et `survivalRules` non modifiables ; camps ni posables ni déplaçables (affichés, supprimables, enregistrés depuis le 2026-11-03) | À faire (en partie fait) |
 | KI-53 | Sol du plateau en morceaux : ~35 morceaux (169 meshes) ; repeinte de 25 à 47 ms à la pose d'un bâtiment | Limite assumée (à surveiller) |
 | KI-55 | Palissade : les vagues frappent le premier mur ou la première porte rencontrés (une porte ouverte les bloque aussi), sans choisir leur cible ; un mur ennemi de carte les bloquerait sans être attaqué | Limite assumée |
 | KI-56 | Palissade : éditeur sans retrait d'une porte ni édition partielle d'une ligne (supprimer la ligne entière) ; aucun mur en préparation (legacy) | À faire (si besoin) |
@@ -68,6 +68,8 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-59 | Écurie : modèle KayKit 2 × 3 ajusté à l'emprise 3 × 3, un peu petit et plat ; gisement d'or : pépites procédurales | Limite assumée (visuels provisoires) |
 | KI-60 | Maison B : variante seulement pour les Maisons posées en jeu ; une Maison de scénario de l'éditeur reste A | Limite assumée |
 | KI-61 | Villageois : modèle du Piquier, sans geste de récolte ni charge visible ; pas d'outil en main | Limite assumée (visuel provisoire) |
+| KI-62 | Tourbillon : rotation du modèle entier (5 tours/s), sans clip dédié (arme et jambes figées dans le clip courant) ; VFX procédural provisoire (arcs, cercle de zone) | Limite assumée (prototype) |
+| KI-63 | Ordres `pickup` (tas) et `deposit` (Baliste) et ressources du sac encore présents dans la simulation, plus émis par l'interface depuis le stock direct | Dette (à retirer) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
@@ -517,8 +519,12 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 ### KI-52 — Cartes de survie dans l'éditeur
 
-- **Statut** : à faire (2026-11-02).
-- **Constat** : le format porte les niveaux (`MapUnitPlacement.level`,
+- **Statut** : à faire, **en partie fait** le 2026-11-03 : camps, petits
+  tas, barils, `survivalRules` et `generator` sont lus, affichés,
+  supprimables (camps compris) et réenregistrés ; tas et barils posables.
+  Restent : niveaux, `survivalRules` modifiables, camps posés ou déplacés
+  à la main.
+- **Constat d'origine** : le format porte les niveaux (`MapUnitPlacement.level`,
   `MapCampDef.level`, postes) et les règles (`MapDef.survivalRules`),
   mais l'éditeur ne lit ni n'écrit les camps ni `survivalRules`, et ne
   permet pas de modifier un niveau (il conserve seulement celui des unités
@@ -561,6 +567,11 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   gisement de pierre bloquant (40 pierre) ; le générateur place
   autrement ses gisements (bloc 4 × 4 libre, 6 d'or), donc une graine
   donne une autre carte qu'avant.
+- **À retenir** : **les anciennes graines ne garantissent plus exactement
+  la même géométrie qu'avant la refonte des ressources** (2026-11-03). Ce
+  n'est pas un bug à corriger maintenant ; quand le générateur sera
+  stabilisé, son algorithme pourra être versionné (par exemple
+  `generator.version`) si des cartes doivent rester reproductibles.
 
 ### KI-59 — Visuels provisoires (Écurie, gisement d'or)
 
@@ -583,6 +594,16 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   le modèle du Piquier, dont le rig n'a pas les clips `chop` / `mine` /
   `deposit` du Héros : il reste immobile pendant qu'il récolte ou dépose,
   sans outil ni charge visibles (non observé en détail).
+
+### KI-63 — Restes du transport des ressources
+
+- **Statut** : dette (2026-11-03).
+- **Constat** : depuis le stock direct (`DESIGN_DECISIONS.md` G30), l'interface
+  n'émet plus d'ordre `pickup` ni `deposit`, et la récolte ne remplit plus
+  le sac. Le code de ces ordres (`sim/orders.ts`, `sim/systems/hero.ts`),
+  les piles de ressources du sac (`sim/inventory.ts`) et l'anneau de dépôt
+  restent en place, inertes : un `pickup` se termine aussitôt, un dépôt
+  sans ressource aussi. À retirer dans une passe de nettoyage.
 
 ### KI-57 — Palissade : rendu sur relief
 

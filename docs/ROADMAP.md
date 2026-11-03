@@ -469,7 +469,10 @@ fonction à définir** (décision d'Antoine). À voir aussi :
   Villageois (KI-61), construction par les Villageois, dépôts locaux ;
 - amélioration de l'Écurie et du Sanctuaire plus parlante que +5 PV
   (G26) ;
-- éditeur : génération procédurale (graine) et vue globale (G27).
+- ~~éditeur : génération procédurale (graine) et vue globale (G27)~~ :
+  faites le 2026-11-03 ; à suivre : poser / déplacer un camp à la main,
+  niveaux et `survivalRules` modifiables (KI-52), versionner le
+  générateur une fois stabilisé (KI-58).
 
 ## 6 octies. Niveaux, cartes de survie, village — suites
 

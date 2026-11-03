@@ -1482,6 +1482,44 @@ img {
   pointer-events: auto;
 }
 
+/* Generation procedurale de l'editeur (2026-11-03) : graine, panneau
+   d'informations de la carte generee (haut de la vue, centre). */
+.editor-seed {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.editor-seed-input {
+  width: 82px;
+  margin-left: 4px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+}
+
+.editor-generation-info {
+  position: fixed;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink);
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 5;
+}
+
 .editor-toolbar > .editor-button {
   display: inline-block;
   flex: 0 0 auto;
@@ -1941,7 +1979,8 @@ img {
 .editor-ui--testing .editor-toolbar,
 .editor-ui--testing .editor-asset-browser,
 .editor-ui--testing .editor-properties,
-.editor-ui--testing .editor-panel-toggle {
+.editor-ui--testing .editor-panel-toggle,
+.editor-ui--testing .editor-generation-info {
   display: none !important;
 }
 
@@ -3430,6 +3469,20 @@ canvas.canvas--spell-target {
   top: 0;
   height: 0;
   background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+/* Recharge d'un sort (2026-11-03) : secondes restantes, au centre. */
+.hero-action-timer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 3px #000, 0 0 6px #000;
   pointer-events: none;
 }
 

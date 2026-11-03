@@ -13,11 +13,11 @@ import { areAllied } from './relations';
 import { ENEMY_LOOT_TABLES, LOOT_TABLES, rollLoot } from '../data/loot';
 import { applyInventoryAction, createHeroInventory, resolveEquipmentBonus, type HeroInventory, type InventoryAction } from './inventory';
 import { DESTRUCTIBLE_LOOT, ENEMY_GOLD_DROPS } from '../data/loot';
-import { NO_HARVEST_TOOLS, type CarriedResource, type HarvestPermissions } from '../data/resources';
+import { NO_HARVEST_TOOLS, type CarriedResource, type HarvestPermissions, type PileResource } from '../data/resources';
 import type { NodeResource } from '../config/resourceNodes';
 import { campClearSystem, campSystem, isChestLocked, type CampEvent, type CampSpec, type CampState, type Chest, type LootDropEvent } from './systems/camps';
-import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
-import { workerSystem, type WorkerDepositEvent } from './systems/workers';
+import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWhirlwindSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type MinedResource, type ResourcePile } from './systems/hero';
+import { workerSystem } from './systems/workers';
 import { DEFAULT_HERO_ID, heroKit, type HeroKit } from '../data/heroes';
 import { DEFAULT_UNIT_LEVEL, normalizeUnitLevel } from '../data/unitLevels';
 import { canHarvestResource, HARVEST_NODE_KINDS } from '../data/resources';
@@ -220,10 +220,9 @@ export class World {
   private depletedThisStep: number[] = [];
   /** Or extrait d'un gisement pendant ce pas (monnaie, 2026-11-02) : credite
    *  par l'orchestration (RunState.gold), jamais mis dans un sac. */
-  goldMinedEvents: { entityId: number; nodeId: number; amount: number }[] = [];
-  /** Bois et pierre verses au depot par des Villageois pendant le dernier
-   *  pas (2026-11-03) : la run les ajoute a son stock (main.ts). */
-  workerDepositEvents: WorkerDepositEvent[] = [];
+  /** Ressources extraites pendant le dernier pas (bois, pierre, or ;
+   *  2026-11-03) : creditees directement au stock par l'orchestration. */
+  minedEvents: MinedResource[] = [];
   /** Petits tas au sol de la carte (MapDef.resourcePiles), indice = id ;
    *  `amount` baisse au ramassage. Remis a plein par setMap ; la run
    *  reapplique ses quantites (applyResourcePileAmounts). */
@@ -514,7 +513,7 @@ export class World {
       neutralProgressZ: z,
       neutralStuckTimer: 0,
       hero: null,
-      worker: def.worker ? { carry: null, capacity: def.worker.carryCapacity, nodeId: null, working: null, workTimer: 0 } : null,
+      worker: def.worker ? { nodeId: null, working: null, workTimer: 0 } : null,
       construction: null,
       isBuilding: false,
       // Une unite normale compte TOUJOURS pour la survie de sa faction —
@@ -838,6 +837,8 @@ export class World {
       manaRegen: kit.manaRegen,
       spells: kit.spells,
       spellCast: null,
+      whirlwind: null,
+      spellCooldowns: {},
       baseMaxMana: kit.maxMana,
       baseManaRegen: kit.manaRegen,
       equipment: { ...equipment },
@@ -970,16 +971,17 @@ export class World {
     return id;
   }
 
-  /** Ramassage IMMEDIAT d'un tas d'or (2026-11-02) : le tas disparait,
-   *  son montant est renvoye (credite par l'orchestration a la monnaie du
-   *  joueur). Ni deplacement, ni sac, ni depot. 0 si ce n'est pas un tas
-   *  d'or encore present. Appele entre deux pas (clic du joueur). */
-  collectGoldPile(pileId: number): number {
+  /** Ramassage IMMEDIAT d'un tas au sol (or depuis le 2026-11-02, bois et
+   *  pierre depuis le 2026-11-03) : le tas disparait, sa ressource et son
+   *  montant sont renvoyes (credites par l'orchestration au stock). Ni
+   *  deplacement, ni sac, ni depot. null si le tas n'est plus la. Appele
+   *  entre deux pas (clic du joueur). */
+  collectPile(pileId: number): { resource: PileResource; amount: number } | null {
     const pile = this.resourcePiles[pileId];
-    if (!pile || pile.resource !== 'gold' || pile.amount <= 0) return 0;
+    if (!pile || pile.amount <= 0) return null;
     const amount = pile.amount;
     pile.amount = 0;
-    return amount;
+    return { resource: pile.resource, amount };
   }
 
   /** Objet neutre destructible (baril) sur la case de (x, z) : une case
@@ -1040,7 +1042,7 @@ export class World {
       nodes: this.resourceNodes,
       nodeAmounts: this.resourceNodeAmounts,
       depleted: this.depletedThisStep,
-      goldMined: this.goldMinedEvents,
+      mined: this.minedEvents,
       canHarvest: (resource) => canHarvestResource(this.harvestPermissions, resource),
       piles: this.resourcePiles,
       drops: this.itemDrops,
@@ -1239,8 +1241,7 @@ export class World {
     const aliveBefore = hasHero ? new Set(this.entities.filter((e) => e.alive).map((e) => e.id)) : null;
     this.heroEvents = [];
     this.resourceDepletedEvents = [];
-    this.goldMinedEvents = [];
-    this.workerDepositEvents = [];
+    this.minedEvents = [];
 
     // Ordres manuels (sim/orders.ts) : appliques a une frontiere de pas fixe,
     // jamais au moment de l'evenement d'entree. Une unite sans ordre manuel
@@ -1325,8 +1326,11 @@ export class World {
     if (hasHero) heroSpellSystem(this.entities, this.abilityEvents, dt, this.heroEvents);
     this.pathFailures = [];
     movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents, this.heroWork(), this.assaultGoal ? { goal: this.assaultGoal, failures: this.pathFailures } : null);
+    // Tourbillon (2026-11-03) : frappes a la position du pas, AVANT le travail
+    // (un Tourbillon lance pendant ce pas ne compte pas ce pas).
+    if (hasHero) heroWhirlwindSystem(this.entities, dt, this.heroEvents);
     if (hasHero) heroWorkSystem(this.entities, this.heroWork(), dt, this.heroEvents);
-    if (this.entities.some((e) => e.worker)) workerSystem(this.entities, this.heroWork(), dt, this.workerDepositEvents);
+    if (this.entities.some((e) => e.worker)) workerSystem(this.entities, this.heroWork(), dt);
     // Sources epuisees pendant ce pas : retirees (arbre abattu : passage
     // ouvert des le pas suivant).
     if (this.depletedThisStep.length > 0) {

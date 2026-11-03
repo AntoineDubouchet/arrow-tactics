@@ -19,6 +19,7 @@ départ, ni les bâtiments, ni les vagues d'une run.
 ## Sommaire
 
 1. Ouvrir, quitter, nouvelle carte
+1 bis. Carte procédurale, vue globale, éléments de Survie
 2. L'interface
 3. Carte : taille et cases de terrain
 4. Territoire
@@ -66,6 +67,60 @@ départ, ni les bâtiments, ni les vagues d'une run.
 - **Indépendance** : l'éditeur affiche son propre plateau. La partie réelle
   n'est pas modifiée par ce qui se passe dans l'éditeur, et la caméra du jeu
   est restaurée en sortant (§13).
+
+## 1 bis. Carte procédurale, vue globale, éléments de Survie (2026-11-03)
+
+**Trois façons de faire une carte** (aucune n'est encore « la » carte de la
+Survie : l'éditeur sert à comparer et à décider, `DESIGN_DECISIONS.md` G27) :
+
+- **dessinée (authored)** : **Nouvelle carte** (carte vierge), puis outils ;
+- **procédurale** : champ **Graine**, bouton **Générer** (ou **Nouvelle
+  graine**, qui tire une graine au hasard et génère) ;
+- **hybride** : générer, retoucher avec les outils habituels, **Enregistrer**.
+
+**Générer** : demande confirmation si le brouillon n'est pas enregistré,
+puis remplace la carte éditée par celle du **vrai générateur de la Survie**
+(`generateSurvivalMap`, aucune copie de l'algorithme) : même graine = même
+carte qu'en jeu (vérifié par test, à l'ordre des listes près). Tout ce que
+produit le générateur arrive dans l'éditeur : cases (disque 96 × 96), eau,
+relief et rampes, sols, forêts, gisements de pierre et d'or, décors, petits
+tas, camps (leur décor est fait de décors ordinaires), barils, territoire,
+position de la Baliste. La carte générée est une **MapDef ordinaire** :
+sélection, suppression, ajout, outils de terrain, enregistrement, « Tester
+le scénario » fonctionnent comme sur une carte dessinée. **Historique remis
+à zéro** : la génération est un nouveau point de départ (Ctrl+Z ne revient
+pas à la carte précédente). Générations successives : rien ne reste de la
+carte précédente (maillages, marqueurs, sélection, historique).
+
+**Ce qui est dans la carte, ce qui ne l'est pas** : la carte décrit le
+**monde** (terrain, décors, ressources, camps, barils, position de la
+Baliste, territoire, `survivalRules`). Le Héros, les vagues, les minuteurs,
+le brouillard et l'or de départ **ne sont pas** dans la carte : ils naissent
+au lancement d'une partie. La graine est gardée comme métadonnée
+(`generator.seed`) ; la carte enregistrée contient son **état concret**,
+jamais une simple graine à régénérer.
+
+**Panneau d'informations** (haut de la vue, carte générée ou rechargée avec
+sa graine) : graine, arbres, gisements de pierre et d'or, petits tas (bois,
+pierre), barils, camps (petits, grands), cases surélevées et rampes.
+
+**Vue globale** (bouton de la barre du haut, même cadrage qu'Espace) : la
+caméra cadre la carte entière dans l'espace libre de l'écran, calculé
+depuis l'emprise réelle des cases et la taille de la fenêtre (vérifié en
+1600 × 900 et 1280 × 720) ; la molette rezoome ensuite normalement (zoom
+linéaire : depuis la vue globale, plusieurs crans sont nécessaires).
+L'éditeur n'a jamais de brouillard de guerre : toute la carte est visible
+(la Survie garde le sien).
+
+**Éléments de Survie** (camps, petits tas, barils) : un marqueur chacun
+(camp : disque de sa zone et mât rouge ; tas : pastille bois / pierre ;
+baril : petit cylindre ; jaune quand sélectionné). Clic sur le marqueur :
+sélection ; **Suppr** : suppression (Ctrl+Z la rétablit) ; un camp supprimé
+emporte ses gardes et son coffre, **pas** son décor (feu, tente… : décors
+ordinaires, à supprimer à part). Groupe **Survie** du catalogue : **Tas de
+bois (5)**, **Tas de pierre (5)**, **Baril** (pose continue sur la case
+visée, hors eau, une par case). Les camps ne se posent pas à la main (leurs
+gardes et leur coffre viennent du générateur) et ne se déplacent pas.
 
 ## 2. L'interface
 
@@ -961,6 +1016,12 @@ joueur, et sa position fait partie de la carte (`ballista`, §14).
 ## 18. Limitations connues
 
 Détaillées dans `KNOWN_ISSUES.md` :
+
+- **KI-52** : niveaux des camps et `survivalRules` non modifiables dans
+  l'interface ; camps ni posables ni déplaçables à la main (2026-11-03 :
+  désormais affichés, supprimables, enregistrés et rechargés).
+- **KI-58** : les anciennes graines ne redonnent plus exactement les cartes
+  d'avant la refonte des ressources.
 
 - **KI-02** : le placement en jeu ne teste pas directement les cases.
 - **KI-20** : certaines règles ne testent que la **case centrale** d'un

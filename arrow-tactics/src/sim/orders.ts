@@ -72,7 +72,7 @@ export type PlayerCommand =
 /** `locked` : source (arbre, gros gisement) que le joueur n'a pas encore le
  *  droit d'exploiter (World.harvestPermissions). */
 /** `no-mana` : sort connu, mana insuffisant. */
-export type CommandRejectionReason = 'no-commandable-entity' | 'invalid-destination' | 'invalid-target' | 'locked' | 'no-mana';
+export type CommandRejectionReason = 'no-commandable-entity' | 'invalid-destination' | 'invalid-target' | 'locked' | 'no-mana' | 'channeling' | 'cooldown';
 
 /** Ordres de TRAVAIL du Heros (recolte, construction, ramassage, depot,
  *  sort) : comme un deplacement, ils suspendent le ciblage et l'attaque de
@@ -401,12 +401,15 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
         // Travail : Heros seulement ; recolte et depot : Villageois aussi
         // (2026-11-03). Source exploitable, chantier allie vivant, tas encore
         // present ou depot allie vivant.
-        const worker = command.kind === 'harvest' || command.kind === 'deposit';
-        const canWork = (e: Entity): boolean => e.hero !== null || (worker && e.worker !== null);
+        // Tourbillon en cours (2026-11-03) : aucun travail. Villageois :
+        // recolte seulement (plus de depot depuis le 2026-11-03).
+        const worker = command.kind === 'harvest';
+        const channeling = accepted.some((e) => e.hero?.whirlwind);
+        const canWork = (e: Entity): boolean => (e.hero !== null && !e.hero.whirlwind) || (worker && e.worker !== null);
         for (const e of accepted) if (!canWork(e)) result.rejectedEntityIds.push(e.id);
         accepted.splice(0, accepted.length, ...accepted.filter(canWork));
         if (accepted.length === 0) {
-          result.rejection = 'no-commandable-entity';
+          result.rejection = channeling ? 'channeling' : 'no-commandable-entity';
           continue;
         }
         const target = command.kind === 'build' || command.kind === 'deposit' || command.kind === 'repair' ? lookup(command.targetEntityId) : undefined;
@@ -442,12 +445,23 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
         // Mana disponible : celui du Heros, plus celui d'une incantation en
         // cours, rendu quand ce nouvel ordre l'annulera (sim/systems/hero.ts).
         const affords = (e: Entity): boolean => e.hero!.mana + (e.hero!.spellCast?.manaSpent ?? 0) >= e.hero!.spells.find((s) => s.id === command.spellId)!.manaCost;
-        const casters = accepted.filter((e) => knows(e) && affords(e) && target !== undefined && target.alive && !target.isBuilding && target.team === e.team);
+        // Sort sur soi (Tourbillon) : la cible est le lanceur. Tourbillon en
+        // cours : aucun sort (2026-11-03).
+        const validTarget = (e: Entity): boolean => {
+          const spell = e.hero!.spells.find((s) => s.id === command.spellId)!;
+          if (spell.targeting === 'self') return target === e;
+          return target !== undefined && target.alive && !target.isBuilding && target.team === e.team;
+        };
+        const channeling = accepted.some((e) => knows(e) && e.hero!.whirlwind);
+        // Sort en recharge (2026-11-03) : refuse.
+        const cooling = (e: Entity): boolean => (e.hero!.spellCooldowns[command.spellId] ?? 0) > 0;
+        const coolingDown = accepted.some((e) => knows(e) && cooling(e));
+        const casters = accepted.filter((e) => knows(e) && !e.hero!.whirlwind && !cooling(e) && affords(e) && validTarget(e));
         for (const e of accepted) if (!casters.includes(e)) result.rejectedEntityIds.push(e.id);
         const lacksMana = accepted.some((e) => knows(e) && !affords(e));
         accepted.splice(0, accepted.length, ...casters);
         if (accepted.length === 0) {
-          result.rejection = lacksMana ? 'no-mana' : 'invalid-target';
+          result.rejection = channeling ? 'channeling' : coolingDown ? 'cooldown' : lacksMana ? 'no-mana' : 'invalid-target';
           continue;
         }
         order = { type: 'cast', spellId: command.spellId, targetEntityId: command.targetEntityId };

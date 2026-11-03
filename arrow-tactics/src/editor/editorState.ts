@@ -11,6 +11,7 @@ import {
   resolveMapCells,
   snapBallistaOrigin,
   type MapBuildingPlacement,
+  type MapCampDef,
   type WallLineDef,
   type MapDef,
   type MapUnitPlacement,
@@ -48,7 +49,7 @@ import {
 import { buildingFootprintTiles } from '../data/buildings';
 import { getWallType } from '../data/walls';
 import { planWallLine, segmentBoxDistance, segmentWallLine, wallLineCells, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint, type WallSegment } from '../core/wallLine';
-import { resourceNodeCellKeys } from '../config/resourceNodes';
+import { resourceNodeCellKeys, type ResourcePileDef } from '../config/resourceNodes';
 import { computeCliffObstacles } from '../config/terrainElevation';
 import { getUnit } from '../data/units';
 import type { Team } from '../sim/entity';
@@ -132,6 +133,8 @@ export type EditorSelection =
   | { kind: 'building'; id: number }
   /** Ligne de mur V2 entiere. */
   | { kind: 'wall'; id: number }
+  /** Element de carte Survie (camp, petit tas, baril ; 2026-11-03). */
+  | { kind: 'feature'; id: number }
   /** La Baliste (unique, toujours presente) : deplacable, jamais supprimee
    *  ni tournee. */
   | { kind: 'ballista' }
@@ -177,6 +180,8 @@ export type EditorTool =
   | { type: 'select' }
   | { type: 'place-obstacle'; template: PlacementTemplate }
   | { type: 'place-unit'; unitId: string }
+  /** Petit tas ou baril (2026-11-03), pose continue. */
+  | { type: 'place-feature'; feature: EditorFeatureTemplate }
   /** Pose de batiments gameplay de scenario (reste actif, comme les unites). */
   | { type: 'place-building'; buildingId: string; rotationY?: number }
   /** Mur V2 : premier clic = A, second = B (meme regle que le jeu) ;
@@ -241,8 +246,27 @@ export interface EditorObjectsSnapshot {
   units: EditorUnit[];
   buildings: EditorBuilding[];
   walls: EditorWallLine[];
+  features: EditorFeature[];
   selection: EditorSelection;
 }
+
+/** Element de carte Survie edite (2026-11-03) : camp neutre (MapDef.camps ;
+ *  son decor reste dans les obstacles), petit tas (MapDef.resourcePiles),
+ *  objet destructible (MapDef.destructibles : baril). Selectionnable,
+ *  supprimable (annuler / retablir) et enregistre tel quel. */
+export type EditorFeature =
+  | { id: number; kind: 'camp'; camp: MapCampDef }
+  | { id: number; kind: 'pile'; pile: ResourcePileDef }
+  | { id: number; kind: 'destructible'; destructible: { kind: string; x: number; z: number } };
+
+/** Position (monde) d'un element de carte Survie. */
+export function featurePosition(f: EditorFeature): { x: number; z: number } {
+  return f.kind === 'camp' ? { x: f.camp.x, z: f.camp.z } : f.kind === 'pile' ? { x: f.pile.x, z: f.pile.z } : { x: f.destructible.x, z: f.destructible.z };
+}
+
+/** Elements posables a la main (catalogue de l'editeur) : un camp neutre se
+ *  garde du generateur (gardes, coffre), il n'est pas pose a la main. */
+export type EditorFeatureTemplate = 'pile-wood' | 'pile-stone' | 'barrel';
 
 /** Centre cale sur la grille de l'emprise d'un batiment dont le centre
  *  tomberait pres de (x, z) : coin de case entier, centre = coin + taille / 2
@@ -284,6 +308,12 @@ export class EditorState {
   buildings: EditorBuilding[];
   /** Murs V2 (voir EditorWallLine). */
   walls: EditorWallLine[];
+  /** Camps, petits tas et barils (2026-11-03). */
+  features: EditorFeature[];
+  /** Metadonnees de la carte source, conservees a l'enregistrement : regles
+   *  de la Survie Hero RTS et origine (graine du generateur). */
+  readonly survivalRules: MapDef['survivalRules'];
+  readonly generator: MapDef['generator'];
   /** Taille du brouillon en cours d'edition (en cases) — independante de la
    *  taille du plateau reellement en jeu tant que la carte n'est pas
    *  sauvegardee/testee (voir main.ts, rebuildEditorBoard). Modifiable via
@@ -352,6 +382,13 @@ export class EditorState {
     // Wall V1 supprime (2026-11-02) : ses pieces ne sont jamais reprises.
     this.buildings = dropLegacyWalls(source.buildings ?? []).map((b) => this.toEditorBuilding(b));
     this.walls = (source.walls ?? []).map((w) => ({ ...w, ...(w.gates ? { gates: [...w.gates] } : {}), id: this.nextId++ }));
+    this.features = [
+      ...(source.camps ?? []).map((camp): EditorFeature => ({ id: this.nextId++, kind: 'camp', camp: structuredClone(camp) })),
+      ...(source.resourcePiles ?? []).map((pile): EditorFeature => ({ id: this.nextId++, kind: 'pile', pile: { ...pile } })),
+      ...(source.destructibles ?? []).map((d): EditorFeature => ({ id: this.nextId++, kind: 'destructible', destructible: { ...d } })),
+    ];
+    this.survivalRules = source.survivalRules;
+    this.generator = source.generator ? { ...source.generator } : undefined;
     this.width = source.width;
     this.height = source.height;
     this.cellMap = buildCellIndex(resolveMapCells(source));
@@ -999,6 +1036,27 @@ export class EditorState {
     if (!this.ballistaExplicit) this.ballista = computePlayerArrowOrigin(this);
   }
 
+  /** Element de carte Survie selectionne, ou null. */
+  get selectedFeature(): EditorFeature | null {
+    const sel = this.selection;
+    if (sel?.kind !== 'feature') return null;
+    return this.features.find((f) => f.id === sel.id) ?? null;
+  }
+
+  /** Pose un petit tas (5 bois / 5 pierre) ou un baril sur la case de (x, z)
+   *  (2026-11-03) : case existante, hors eau, libre de tout element Survie ;
+   *  faux sinon. */
+  placeFeatureAt(template: EditorFeatureTemplate, x: number, z: number): boolean {
+    const cx = Math.floor(x) + 0.5;
+    const cz = Math.floor(z) + 0.5;
+    if (!this.hasCellAt(Math.floor(x), Math.floor(z)) || this.isWaterCell(Math.floor(x), Math.floor(z))) return false;
+    if (this.features.some((f) => f.kind !== 'camp' && Math.floor(featurePosition(f).x) === Math.floor(x) && Math.floor(featurePosition(f).z) === Math.floor(z))) return false;
+    const id = this.nextId++;
+    if (template === 'barrel') this.features = [...this.features, { id, kind: 'destructible', destructible: { kind: 'barrel', x: cx, z: cz } }];
+    else this.features = [...this.features, { id, kind: 'pile', pile: { x: cx, z: cz, resource: template === 'pile-wood' ? 'wood' : 'stone', amount: 5 } }];
+    return true;
+  }
+
   get selectedObstacle(): EditorObstacle | null {
     const sel = this.selection;
     if (sel?.kind !== 'obstacle') return null;
@@ -1356,7 +1414,7 @@ export class EditorState {
 
   /** Voir EditorObjectsSnapshot. */
   objectsSnapshot(): EditorObjectsSnapshot {
-    return { obstacles: [...this.obstacles], units: [...this.units], buildings: [...this.buildings], walls: [...this.walls], selection: copySelection(this.selection) };
+    return { obstacles: [...this.obstacles], units: [...this.units], buildings: [...this.buildings], walls: [...this.walls], features: [...this.features], selection: copySelection(this.selection) };
   }
 
   /** Remet les objets et la selection exactement dans un etat capture par
@@ -1366,6 +1424,7 @@ export class EditorState {
     this.units = [...snapshot.units];
     this.buildings = [...snapshot.buildings];
     this.walls = [...snapshot.walls];
+    this.features = [...snapshot.features];
     this.selection = copySelection(snapshot.selection);
   }
 
@@ -1411,6 +1470,8 @@ export class EditorState {
       this.buildings = this.buildings.filter((b) => b.id !== sel.id);
     } else if (sel.kind === 'wall') {
       this.walls = this.walls.filter((w) => w.id !== sel.id);
+    } else if (sel.kind === 'feature') {
+      this.features = this.features.filter((f) => f.id !== sel.id);
     } else {
       const ids = new Set(sel.ids);
       this.units = this.units.filter((u) => !ids.has(u.id));

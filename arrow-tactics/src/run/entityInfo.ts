@@ -21,7 +21,7 @@ import { buildingUpgradeGoldCost, isBuildingAtMaxLevel, isUpgradableBuilding } f
 import { BODY_LAYOUT, EQUIPMENT_SLOTS, EQUIPMENT_TYPES, getEquipment, RARITIES, type EquipmentSlot } from '../data/equipment';
 import { HARVEST_TOOLS, RESOURCE_ITEMS } from '../data/resources';
 import { describeEquipment } from './heroEquipment';
-import { freeSlotCount, resourceCount, type HeroInventory } from '../sim/inventory';
+import { freeSlotCount, type HeroInventory } from '../sim/inventory';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
 import { displayedUpgradeLevel, entityRunUpgradeLevel, type PlayerProgression, type RunUpgradeLevels } from './runUpgrades';
 import { playerUnitProductionCost } from './unitUpgradeEffects';
@@ -332,7 +332,7 @@ export function placementUnitInfo(slot: PlacementUnitSource, progress: PlayerPro
  *  vague pour un ennemi, carte pour un garde de camp, progression pour le
  *  Heros). */
 export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number): UnitInfo {
-  const info = buildUnitInfo({
+  return buildUnitInfo({
     unitId: entity.unitId,
     team: entity.team,
     hp: entity.hp,
@@ -348,11 +348,6 @@ export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number): Un
     // Niveau d'unite >= 1 (titleWithLevel affiche niveau + 1).
     upgradeLevel: entity.level - 1,
   });
-  // Villageois (2026-11-03) : charge portee vers le depot.
-  const w = entity.worker;
-  if (!w) return info;
-  const carried = w.carry && w.carry.amount > 0 ? `${w.carry.amount} ${w.carry.resource === 'wood' ? 'bois' : 'pierre'}` : 'rien';
-  return { ...info, rows: [...info.rows, { label: 'Porté', value: `${carried} (max ${w.capacity})` }] };
 }
 
 // --- Feuille du Heros (inventaire) -----------------------------------------
@@ -417,7 +412,6 @@ export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: num
   if (s.dodgeChance > 0) rows.push({ label: 'Esquive', value: `${Math.round(s.dodgeChance * 100)} %` });
   rows.push(
     { label: 'Expérience', value: nextLevelXp === null ? `${h.xp} XP (niveau max)` : `${h.xp} / ${nextLevelXp} XP` },
-    { label: 'Porté', value: `bois ${resourceCount(inventory, 'wood')}, pierre ${resourceCount(inventory, 'stone')}` },
   );
   return {
     title: `${heroName} — Niv. ${h.level}`,

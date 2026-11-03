@@ -24,8 +24,8 @@ export class EconomyHud {
     this.root = document.createElement('div');
     this.root.className = 'economy-hud';
     const entries: [key: 'wood' | 'stone' | 'gold' | 'pop', label: string, title: string][] = [
-      ['wood', 'Bois', 'Bois stocké (déposé à la Baliste)'],
-      ['stone', 'Pierre', 'Pierre stockée (déposée à la Baliste)'],
+      ['wood', 'Bois', 'Bois du joueur : crédité dès la récolte ou le ramassage'],
+      ['stone', 'Pierre', 'Pierre du joueur : créditée dès la récolte ou le ramassage'],
       ['gold', 'Or', 'Or du joueur (monnaie) : tas ramassés d’un clic, gisements d’or, Mines'],
       ['pop', 'Pop.', 'Population : unités du joueur / maximum (+5 par Maison)'],
     ];

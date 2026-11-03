@@ -1,5 +1,7 @@
 import { isGroundTextureId, type SurfaceCellDef } from '../config/groundSurfaces';
-import { dropLegacyWalls, type MapBuildingPlacement, type MapDef, type WallLineDef } from '../config/mapDef';
+import { dropLegacyWalls, type MapBuildingPlacement, type MapCampDef, type MapDef, type WallLineDef } from '../config/mapDef';
+import type { ResourcePileDef } from '../config/resourceNodes';
+import { CAMP_KINDS } from '../data/camps';
 import { SLOPE_SHAPES, TERRAIN_LEVEL_MAX, TERRAIN_LEVEL_MIN, type SlopeShape, type TerrainElevationCellDef } from '../config/terrainElevation';
 import { BUILDINGS } from '../data/buildings';
 import { WALL_TYPES } from '../data/walls';
@@ -66,6 +68,24 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
     // Surfaces peintes (MapDef.surfaceCells) : seulement les cases peintes,
     // jamais la surface par defaut ; champ absent s'il n'y en a aucune.
     ...(state.surfaceCells.length > 0 ? { surfaceCells: state.surfaceCells } : {}),
+    // Elements de carte Survie et metadonnees (2026-11-03) : l'etat CONCRET
+    // de la carte (camps, tas, barils) ; la graine n'est qu'une origine.
+    ...featureLists(state),
+    ...(state.survivalRules ? { survivalRules: state.survivalRules } : {}),
+    ...(state.generator ? { generator: { ...state.generator } } : {}),
+  };
+}
+
+/** Camps, petits tas et objets destructibles de l'editeur, dans leur ordre
+ *  (indice d'un tas = son identifiant en jeu) ; listes vides omises. */
+function featureLists(state: EditorState): Pick<MapDef, 'camps' | 'resourcePiles' | 'destructibles'> {
+  const camps = state.features.flatMap((f) => (f.kind === 'camp' ? [structuredClone(f.camp)] : []));
+  const piles = state.features.flatMap((f) => (f.kind === 'pile' ? [{ ...f.pile }] : []));
+  const destructibles = state.features.flatMap((f) => (f.kind === 'destructible' ? [{ ...f.destructible }] : []));
+  return {
+    ...(camps.length > 0 ? { camps } : {}),
+    ...(piles.length > 0 ? { resourcePiles: piles } : {}),
+    ...(destructibles.length > 0 ? { destructibles } : {}),
   };
 }
 
@@ -141,7 +161,64 @@ export async function loadMapDefFromFile(file: File): Promise<MapDef> {
     // `surfaceCells` OPTIONNEL (voir MapDef.surfaceCells) : absent -> surface
     // par defaut partout ; entrees invalides (identifiant inconnu) ecartees.
     ...(Array.isArray(data.surfaceCells) ? { surfaceCells: readSurfaceCells(data.surfaceCells) } : {}),
+    // Elements de carte Survie et metadonnees (2026-11-03) : OPTIONNELS,
+    // entrees invalides ecartees (avant : ignores au chargement).
+    ...(Array.isArray(data.resourcePiles) ? { resourcePiles: readResourcePiles(data.resourcePiles) } : {}),
+    ...(Array.isArray(data.camps) ? { camps: readCamps(data.camps) } : {}),
+    ...(Array.isArray(data.destructibles) ? { destructibles: readDestructibles(data.destructibles) } : {}),
+    ...(data.survivalRules === 'hero-rts' ? { survivalRules: 'hero-rts' as const } : {}),
+    ...(isGenerator(data.generator) ? { generator: { kind: 'survival-procedural' as const, seed: data.generator.seed } } : {}),
   };
+}
+
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+function readResourcePiles(entries: unknown[]): ResourcePileDef[] {
+  const out: ResourcePileDef[] = [];
+  for (const entry of entries) {
+    const { x, z, resource, amount } = (entry ?? {}) as Record<string, unknown>;
+    if (!finite(x) || !finite(z) || (resource !== 'wood' && resource !== 'stone') || !Number.isInteger(amount) || (amount as number) <= 0) continue;
+    out.push({ x, z, resource, amount: amount as number });
+  }
+  if (out.length < entries.length) console.warn(`Petits tas : ${entries.length - out.length} entree(s) invalide(s) ignoree(s).`);
+  return out;
+}
+
+function readCamps(entries: unknown[]): MapCampDef[] {
+  const out: MapCampDef[] = [];
+  for (const entry of entries) {
+    const c = (entry ?? {}) as Record<string, unknown>;
+    const chest = (c.chest ?? {}) as Record<string, unknown>;
+    const posts = Array.isArray(c.guardPosts) ? (c.guardPosts as Record<string, unknown>[]) : null;
+    if (typeof c.kind !== 'string' || !CAMP_KINDS[c.kind] || !finite(c.x) || !finite(c.z) || !finite(c.radius) || !finite(chest.x) || !finite(chest.z) || !posts || !posts.every((p) => finite(p?.x) && finite(p?.z))) continue;
+    out.push({
+      kind: c.kind,
+      x: c.x,
+      z: c.z,
+      radius: c.radius,
+      chest: { x: chest.x, z: chest.z, rotationY: finite(chest.rotationY) ? chest.rotationY : 0 },
+      guardPosts: posts.map((p) => ({ x: p.x as number, z: p.z as number, ...(Number.isInteger(p.level) ? { level: p.level as number } : {}) })),
+      ...(Number.isInteger(c.level) ? { level: c.level as number } : {}),
+    });
+  }
+  if (out.length < entries.length) console.warn(`Camps : ${entries.length - out.length} entree(s) invalide(s) ignoree(s).`);
+  return out;
+}
+
+function readDestructibles(entries: unknown[]): { kind: string; x: number; z: number }[] {
+  const out: { kind: string; x: number; z: number }[] = [];
+  for (const entry of entries) {
+    const { kind, x, z } = (entry ?? {}) as Record<string, unknown>;
+    if (typeof kind !== 'string' || !BUILDINGS[kind] || !finite(x) || !finite(z)) continue;
+    out.push({ kind, x, z });
+  }
+  if (out.length < entries.length) console.warn(`Objets destructibles : ${entries.length - out.length} entree(s) invalide(s) ignoree(s).`);
+  return out;
+}
+
+function isGenerator(v: unknown): v is { kind: 'survival-procedural'; seed: number } {
+  const g = (v ?? {}) as Record<string, unknown>;
+  return g.kind === 'survival-procedural' && Number.isInteger(g.seed);
 }
 
 function readReliefLogic(entries: unknown[]): { x: number; z: number; level: number }[] {

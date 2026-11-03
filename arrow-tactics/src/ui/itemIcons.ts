@@ -91,9 +91,37 @@ function createPaladinHealIcon(size: number): SVGSVGElement {
   return svg;
 }
 
+/** Tourbillon du Paladin (2026-11-03) : icone PROVISOIRE, marteau au
+ *  centre d'arcs de vent en spirale, sur fond rouge sombre. */
+function createPaladinWhirlwindIcon(size: number): SVGSVGElement {
+  const id = `paladin-whirlwind-${++svgUid}`;
+  const svg = svgEl('svg', { viewBox: '0 0 64 64', width: String(size), height: String(size) });
+  const defs = svgEl('defs', {});
+  const bg = svgEl('radialGradient', { id: `${id}-bg`, cx: '50%', cy: '45%', r: '65%' });
+  bg.appendChild(svgEl('stop', { offset: '0', 'stop-color': '#a8432c' }));
+  bg.appendChild(svgEl('stop', { offset: '1', 'stop-color': '#2a0d0a' }));
+  defs.appendChild(bg);
+  svg.appendChild(defs);
+  svg.appendChild(svgEl('rect', { x: '3', y: '3', width: '58', height: '58', rx: '9', fill: `url(#${id}-bg)` }));
+  // Arcs de vent : trois spirales autour du centre.
+  for (let k = 0; k < 3; k++) {
+    const a = (k * 2 * Math.PI) / 3;
+    const p = (r: number, t: number): string => `${(32 + r * Math.cos(a + t)).toFixed(1)} ${(32 + r * Math.sin(a + t)).toFixed(1)}`;
+    svg.appendChild(svgEl('path', { d: `M ${p(9, 0)} Q ${p(24, 0.9)} ${p(23, 2.0)}`, fill: 'none', stroke: '#f4e7c8', 'stroke-width': '3.2', 'stroke-linecap': 'round', opacity: '0.9' }));
+  }
+  // Marteau (manche et tete) au centre, incline.
+  const hammer = svgEl('g', { transform: 'rotate(-35 32 32)' });
+  hammer.appendChild(svgEl('rect', { x: '30.5', y: '24', width: '3', height: '20', rx: '1.2', fill: '#8a5a2b', stroke: '#3b2412', 'stroke-width': '1' }));
+  hammer.appendChild(svgEl('rect', { x: '24', y: '19', width: '16', height: '8', rx: '1.5', fill: '#c9ced8', stroke: '#4d5566', 'stroke-width': '1.4' }));
+  svg.appendChild(hammer);
+  svg.appendChild(svgEl('rect', { x: '3', y: '3', width: '58', height: '58', rx: '9', fill: 'none', stroke: '#e8c15c', 'stroke-width': '3' }));
+  return svg;
+}
+
 /** Icones dessinees par code (aucun fichier image). */
 const SVG_ICON_BUILDERS: Record<string, (size: number) => SVGSVGElement> = {
   paladin_heal: createPaladinHealIcon,
+  paladin_whirlwind: createPaladinWhirlwindIcon,
 };
 
 /** Rectangle neutre en repli — un futur objet sans icone dediee (ni image,

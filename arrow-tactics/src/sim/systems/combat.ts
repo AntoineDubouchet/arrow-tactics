@@ -48,7 +48,8 @@ export function combatSystem(entities: Entity[], dt: number, rng: Rng, obstacles
   const byId = new Map(entities.map((e) => [e.id, e]));
 
   for (const e of entities) {
-    if (!e.alive) {
+    // Tourbillon (2026-11-03) : aucune attaque de base pendant l'effet.
+    if (!e.alive || e.hero?.whirlwind) {
       e.pendingAttack = null;
       continue;
     }

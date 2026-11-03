@@ -175,7 +175,7 @@ export class HeroInventoryPanel {
     left.append(el('div', 'hero-inventory-section', 'Équipement'), this.doll, el('div', 'hero-inventory-section', 'Statistiques'), this.stats, el('div', 'hero-inventory-section', 'Sorts'), this.spells);
     const right = el('div', 'hero-inventory-bag');
     this.gold.title = 'Or du joueur (monnaie) : même valeur que le HUD en haut à droite';
-    right.append(this.bagTitle, this.grid, this.gold, el('div', 'hero-inventory-detail hero-inventory-hint', 'Glisser-déposer : ranger, fusionner, équiper. Double-clic : équiper / retirer. Bois et pierre se déposent à la Baliste ; l’or est une monnaie.'));
+    right.append(this.bagTitle, this.grid, this.gold, el('div', 'hero-inventory-detail hero-inventory-hint', 'Glisser-déposer : ranger, fusionner, équiper. Double-clic : équiper / retirer. Bois, pierre et or vont directement au stock (en haut à droite).'));
     this.body.replaceChildren(left, right);
     // Fin d'un glisser hors d'une case : la grille peut de nouveau suivre.
     document.addEventListener('dragend', () => (this.drag = null));

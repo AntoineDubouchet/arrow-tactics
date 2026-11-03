@@ -1419,10 +1419,11 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
 
 ## 13 nonies. Or monnaie, outils de la Forge, variantes, Sanctuaire, Écurie (2026-11-03)
 
-- **Or** : `RunState.gold` seul. La simulation ne crédite jamais : elle
-  publie `World.goldMinedEvents` (gisement d'or, `HarvestNodeKind.currency`)
-  et retire un tas d'or avec `World.collectGoldPile` ; `main.ts`
-  (`creditMinedGold`, `collectGoldPile`) crédite la run. `ResourceKind`
+- **Or, bois, pierre** (stock direct, 2026-11-03) : la simulation ne crédite
+  jamais : elle publie `World.minedEvents` (`MinedResource` : entité,
+  source, ressource, quantité ; Héros et Villageois) et vide un tas avec
+  `World.collectPile` ; `main.ts` (`creditMinedResources`, `collectPile`,
+  `creditStock`) crédite `RunState.gold` ou `RunState.resources`. `ResourceKind`
   (sac) = bois, pierre ; `NodeResource` / `PileResource` ajoutent l'or.
 - **Outils** : `data/resources.ts` (`HARVEST_TOOLS`, `HARVEST_NODE_KINDS`
   : outil, geste, unité, quantité, monnaie) ; `BuildingDef.unlocksTools` ;
@@ -1448,6 +1449,44 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   = tout bâtiment bâti à `resourceDepot` (futurs dépôts sans code).
   `World.workerDepositEvents` → `main.ts` (`creditWorkerDeposits`).
   `sim/orders.ts` accepte `harvest` et `deposit` des entités à `worker`.
+
+## 13 decies. Tourbillon (2026-11-03)
+
+- Données : `data/spells.ts` (`SpellDef.whirlwind`, `WhirlwindEffect`,
+  `targeting: 'self'`), `data/heroes.ts` (Paladin : `['heal', 'whirlwind']`).
+- Simulation : `HeroState.whirlwind` (`WhirlwindState` : temps, frappes,
+  dégâts figés). `startSpell` (`sim/systems/hero.ts`) le démarre au lieu
+  d'une incantation ; `heroWhirlwindSystem` (après `movementSystem`, avant
+  `heroWorkSystem`) avance le temps et frappe par `applyDamageToEntity` ;
+  `combatSystem` saute un Héros en Tourbillon ; `applyCommands` refuse
+  `cast` et le travail (`'channeling'`), et un sort en recharge
+  (`'cooldown'`). Recharge : `SpellDef.cooldownSeconds`,
+  `HeroState.spellCooldowns` (posée à la fin de l'effet, décomptée dans
+  `heroWhirlwindSystem` pour tout Héros, vivant ou à terre). Événements `spellStart`,
+  `whirlwindPulse`, `whirlwindEnd`.
+- Rendu : `render/whirlwindVfx.ts` (`WhirlwindEffect`, implémentation
+  procédurale remplaçable, comme `LevelUpEffect`) ; rotation visuelle dans
+  `UnitViews` (`whirlwindSpin`, ajoutée à `rotation.y`, jamais à
+  `facing`), vitesse partagée avec les arcs de l'effet
+  (`WHIRLWIND_SPIN_RAD_PER_S`). UI : `main.ts` (`heroHudState`, `heroActionProgress`,
+  sort sur soi lancé sans ciblage), icône `paladin_whirlwind`
+  (`ui/itemIcons.ts`).
+
+## 13 undecies. Éditeur : carte procédurale et éléments de Survie (2026-11-03)
+
+- `main.ts` (`generateEditorMap`) appelle `generateSurvivalMap`
+  (`config/maps/proceduralSurvival.ts`) puis `resetEditorWithMap` : une
+  seule implémentation du générateur pour le jeu et l'éditeur.
+- `EditorState.features` (`EditorFeature` : camp, tas, destructible),
+  sélection `{ kind: 'feature' }`, `placeFeatureAt`, instantanés
+  d'annulation ; `survivalRules` et `generator` gardés tels quels.
+  `exportMapDef` réécrit `camps`, `resourcePiles`, `destructibles` dans
+  leur ordre ; `loadMapDefFromFile` les relit (entrées invalides écartées).
+- Marqueurs : `editorFeaturesGroup` (`syncEditorFeatureViews`), choisis
+  avant les décors au clic. Vue globale = `resetEditorCamera`
+  (`Renderer.frameBox` sur l'emprise des cases).
+- « Tester le scénario » (`setupTestBattle`) crée camps et barils comme
+  `startBattle`.
 
 ## 14. Audio
 

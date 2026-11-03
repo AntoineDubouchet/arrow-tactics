@@ -92,8 +92,10 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G24 | VFX de montée de niveau du Héros | Active (provisoire, remplaçable) |
 | G25 | Or monnaie, Forge = outils, gisements bloquants | Active (valeurs provisoires) |
 | G26 | Maison A/B, Sanctuaire, Écurie | Active (valeurs provisoires) |
-| G27 | Éditeur : maps authored, procédurales et hybrides | Direction active (génération pas encore faite) |
+| G27 | Éditeur : maps authored, procédurales et hybrides | Direction active (génération faite ; mode définitif Ouvert) |
 | G28 | Auberge et Villageois : première unité économique | Active (valeurs provisoires) |
+| G29 | Tourbillon du Paladin (prototype) | Active (valeurs et VFX provisoires) |
+| G30 | Stock direct : bois et pierre comme l'or | Active |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -1854,7 +1856,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### G28 — Auberge et Villageois : première unité économique
 
-- **Statut** : Active ; valeurs **provisoires**.
+- **Statut** : Active ; valeurs **provisoires**. Transport (porter 5,
+  déposer, revenir) **supprimé le 2026-11-03** (G30) : récolte continue,
+  crédit direct.
 - **Demande d'Antoine** (2026-11-03) : Auberge (producteur standard) qui
   produit le Villageois ; récolte bois, pierre et or avec la permission de
   la Forge ; transport simple (≈ 5) au dépôt, retour à la ressource ; or
@@ -1871,14 +1875,65 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Sources** : `data/units.ts`, `data/buildings.ts`,
   `sim/systems/workers.ts`, `sim/orders.ts`, `sim/world.ts`, `main.ts`.
 
+### G29 — Tourbillon du Paladin (prototype)
+
+- **Statut** : Active ; valeurs **provisoires** ; VFX provisoire.
+- **Demande d'Antoine** (2026-11-03) : 15 mana, 5 s, une frappe par
+  seconde à 75 % des dégâts d'attaque figés au lancement, rayon ≈ 2,25,
+  déplacement autorisé, attaque et sorts bloqués, mort = arrêt.
+- **Choix de la passe** :
+  - frappes à 1, 2, 3, 4, 5 s (exactement 5 ; aucune au lancement) ;
+  - portée mesurée jusqu'au **bord du corps** de la cible (2,25 + rayon) ;
+  - **recharge de 15 s** à partir de la fin de l'effet (terminé ou mort),
+    demande d'Antoine du 2026-11-03 (avant : aucune) ; case désactivée
+    pendant la recharge (comme sans mana), la simulation refuse aussi
+    (`'cooldown'`) ;
+  - rotation à 5 tours/s et effet circulaire (arcs de taille, cercle de
+    zone), demande d'Antoine du 2026-11-03 (« pas assez visuel ») ;
+  - la commande de lancement remplace l'ordre en cours : le Héros
+    s'arrête, puis un clic droit le fait bouger sans couper l'effet ;
+  - à la fin, l'attaque de base peut reprendre dans le même pas que la
+    5e frappe ;
+  - ramassage, coffres et dépôt sont aussi refusés pendant l'effet (même
+    règle que le travail).
+- **Sources** : `data/spells.ts`, `sim/systems/hero.ts`,
+  `sim/systems/combat.ts`, `sim/orders.ts`, `render/whirlwindVfx.ts`,
+  `render/unitViews.ts`, `main.ts`.
+
+### G30 — Stock direct : bois et pierre comme l'or
+
+- **Statut** : Active.
+- **Demande d'Antoine** (2026-11-03) : le bois et la pierre n'ont plus besoin
+  d'être stockés (déposés) ni empilés dans l'inventaire.
+- **Choix de la passe** :
+  - toute récolte (Héros, Villageois) crédite le stock à chaque unité ;
+    tous les petits tas se ramassent d'un clic, instantanément ;
+  - le sac ne contient plus que les équipements ;
+  - **Villageois** : sa boucle « porter 5, déposer, revenir » (G28) est
+    supprimée par cohérence (plus de dépôt) ; il récolte en continu ;
+  - les ordres `pickup` (tas) et `deposit` restent dans la simulation mais
+    ne sont plus émis par l'interface (KI-63).
+- **Remplace** : l'or physique de G15 (déjà remplacé par G25), le transport
+  et le dépôt de G15 et de G28.
+- **Sources** : `sim/systems/hero.ts` (`HeroWorkContext.mined`),
+  `sim/systems/workers.ts`, `sim/world.ts` (`minedEvents`, `collectPile`),
+  `main.ts` (`creditStock`, `collectPile`, `creditMinedResources`).
+
 ### G27 — Éditeur : maps authored, procédurales et hybrides
 
 - **Statut** : Direction **active** (demande d'Antoine, 2026-11-03) ;
-  génération procédurale dans l'éditeur **pas encore faite**.
+  génération dans l'éditeur **faite** le 2026-11-03. Le mode de carte
+  définitif de la Survie reste **Ouvert** (décision d'Antoine).
 - **Direction** : l'éditeur doit permettre une carte dessinée (authored),
   une carte générée (procédurale, le vrai générateur de la Survie, graine
   modifiable) et une carte générée puis retouchée à la main (hybride) ; la
   carte vide, le chargement et l'édition manuelle restent.
+- **Choix de la passe** : le vrai générateur est appelé (aucune copie) ;
+  la carte générée est une MapDef ordinaire enregistrée avec son état
+  concret, la graine n'étant qu'une métadonnée ; la carte décrit le monde,
+  jamais l'état d'une partie (Héros, vagues, minuteurs) ; génération =
+  nouveau point de départ de l'historique ; camps supprimables mais pas
+  posables à la main ; tas et barils posables.
 
 ---
 

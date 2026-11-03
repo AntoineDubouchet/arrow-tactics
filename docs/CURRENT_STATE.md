@@ -27,6 +27,8 @@ contient ni intentions de design ni décisions futures.
 6 septies. Niveau d'unité, cartes de survie, sol du village
 6 octies. Palissade V2 (murs géométriques)
 6 nonies. Or monnaie, Forge et outils, gisements, Maison A/B, Sanctuaire, Écurie
+6 decies. Tourbillon du Paladin (prototype)
+6 undecies. Stock direct : bois et pierre comme l'or
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -60,10 +62,10 @@ des parchemins de bataille.
   Caserne.
 - **Direction Hero RTS** (provisoire, §6 bis) : la run commence avec le
   **Héros** seul et la **Baliste**. Le Héros explore sous un **brouillard de
-  guerre**, gagne de l'XP, ramasse de petits tas de **bois** et de **pierre**
-  qu'il **dépose à la Baliste** (seul le dépôt remplit le stock, qui s'ajoute
-  à l'or dans le prix des bâtiments) et bâtit en bataille les **chantiers**
-  achetés en préparation.
+  guerre**, gagne de l'XP, récolte du **bois** et de la **pierre**,
+  **crédités directement au stock** (depuis le 2026-11-03 : ni sac, ni
+  dépôt à la Baliste, §6 undecies ; le stock s'ajoute à l'or dans le prix des
+  bâtiments) et bâtit en bataille les **chantiers**.
 - La run continue tant que le joueur gagne ; elle s'arrête à la première
   défaite.
 - Seuls les talents et la progression générale (record, ennemis vaincus…)
@@ -857,7 +859,9 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   Sentinelle ;
 - absent de la palette d'unités de l'éditeur.
 
-**Ressources, transport et dépôt** :
+**Ressources, transport et dépôt** (⚠️ transport et dépôt **supprimés le
+2026-11-03** : tout est crédité directement au stock, voir §6 undecies ;
+les mentions de sac et de dépôt ci-dessous sont historiques) :
 
 - **petits tas au sol** (`MapDef.resourcePiles`) : planches (bois) et petits
   cailloux (pierre), **finis** (1 à 4 unités), générés avec la carte. Les
@@ -1245,8 +1249,8 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
   « Butin de guerre » : +1 par tas). Camp nettoyé : 8 / 15 or en tas de 5
   près du feu. **Exceptions** (versées au stock) : Mine (infrastructure,
   tranche toutes les 60 s), or de départ, bonus de vague repoussée ;
-- **dépôt** à la Baliste : bois, puis pierre, puis or, 0,5 s par unité
-  (barre d'action) ; les équipements ne sont jamais déposés ;
+- **dépôt** à la Baliste : **supprimé le 2026-11-03** (§6 undecies) ; les
+  équipements restent dans le sac ;
 - **stock** : bâtiments, recrutement, améliorations ne lisent que le stock
   (bois, pierre, or) ; jamais le sac ni le sol ;
 - **HUD** (layout officiel du 2026-11-02, `ui/hudDefaultLayout.ts`) :
@@ -1474,15 +1478,67 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   (provisoire). Se sélectionne et se commande comme une unité. **Clic
   droit** sur un arbre, un gisement de pierre ou d'or : récolte (même
   permission que le Héros : Forge terminée ; sans Forge, message et
-  déplacement au pied de la source). Bois / pierre : **porte 5 au plus**,
-  va au **dépôt allié le plus proche** (la Baliste aujourd'hui), verse une
-  unité / 0,5 s dans le stock, puis **retourne à sa source**. **Or** :
-  crédité directement à chaque unité extraite, jamais porté (asymétrie
-  **provisoire**). Source épuisée : la plus proche du même type à 6 cases,
-  sinon dépôt de la charge puis Garde. Outil perdu : l'unité en cours est
-  finie, dépôt, Garde. Un autre ordre (déplacement, Stop) interrompt la
-  boucle ; la charge reste portée. Clic droit sur la Baliste : dépôt.
-  Fiche : « Porté : N bois (max 5) ».
+  déplacement au pied de la source). Récolte **continue** : chaque unité de
+  bois, de pierre ou d'or est **créditée directement au stock** (depuis le
+  2026-11-03 : plus de charge de 5 ni d'allers-retours au dépôt). Source
+  épuisée : la plus proche du même type à 6 cases, sinon Garde. Outil
+  perdu : l'unité en cours est finie, puis Garde. Un autre ordre
+  (déplacement, Stop) interrompt la récolte.
+
+## 6 decies. Tourbillon du Paladin (prototype)
+
+Depuis le 2026-11-03 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G29) :
+
+- **Case 2** de la barre des sorts (icône provisoire dessinée par code) ;
+  un clic (ou la touche 2) le lance **sur le Héros**, sans ciblage.
+- **15 mana**, retirés une fois au lancement, jamais rendus ; refus si le
+  mana est insuffisant.
+- **Recharge de 15 s** (demande d'Antoine) qui commence quand l'effet
+  **s'arrête** (5e frappe ou mort du Héros), jamais au lancement ; elle
+  court aussi pendant la résurrection. Case grisée avec les secondes
+  restantes au centre, infobulle « Recharge : N s ».
+- **5 s**, **5 frappes** à 1, 2, 3, 4 et 5 s après le lancement (pas fixe de
+  la simulation), puis fin. Chaque frappe touche **une fois** chaque
+  hostile vivant dont le corps est à **2,25 cases** (ni le Héros, ni les
+  alliés, ni les barils, ni un bâtiment non ciblable), pour **75 % des
+  dégâts d'attaque finaux figés au lancement** (niveau et équipement ; un
+  changement d'équipement pendant l'effet ne change rien), par
+  `applyDamageToEntity` (morts et XP comme d'habitude).
+- Pendant l'effet : le Héros **peut se déplacer** (un clic droit ne coupe
+  pas l'effet, qui suit le Héros) ; **pas** d'attaque de base, de Soin,
+  d'autre sort, de récolte, de construction, de réparation, de ramassage
+  (« Tourbillon en cours »). À la fin : contrôles normaux (l'attaque de
+  base peut reprendre dès le pas de la dernière frappe).
+- **Mort** du Héros : arrêt immédiat, aucune frappe ensuite, aucun effet
+  visuel pendant la résurrection.
+- Rendu : le modèle tourne sur lui-même à **5 tours/s** (2,5 avant ;
+  rotation **visuelle** seulement : orientation logique, déplacement et
+  emprises inchangés ; orientation normale dès la fin) ; **effet
+  circulaire** : deux arcs de taille lumineux (lame et traînée) à hauteur
+  d'arme qui tournent avec le modèle, cercle de la zone de frappe
+  (2,25 cases) au sol qui palpite ; anneau de poussière, traits de vent,
+  onde brève à chaque frappe (`render/whirlwindVfx.ts`, provisoire). Ligne « Tourbillon » sous la barre de mana et barre d'action
+  globale (temps restant).
+
+## 6 undecies. Stock direct : bois et pierre comme l'or
+
+Depuis le 2026-11-03 (demande d'Antoine, `DESIGN_DECISIONS.md` G30) :
+
+- **Récolte** (Héros, Villageois) : chaque unité de bois, de pierre ou d'or
+  extraite est **créditée directement au stock** de la run (HUD en haut à
+  droite), à la cadence de la récolte (1 unité / 1,5 s). Plus de sac pour
+  les ressources, plus de « sac plein », plus de dépôt à la Baliste.
+- **Petits tas au sol** (bois, pierre, or : carte, butin) : **clic droit =
+  crédit immédiat**, le tas disparaît, le Héros ne bouge pas (terrain
+  exploré requis sous brouillard). Message « +N bois / pierre / or ».
+- **Sac du Héros** : seulement les **équipements** (plus de piles de bois ou
+  de pierre) ; l'or reste affiché sous la grille.
+- **Clic droit sur la Baliste** : plus d'ordre de dépôt (simple
+  déplacement).
+- **Réparation de la Baliste** (correctif du 2026-11-03) : sa fiche
+  propose enfin « Réparer » quand elle est endommagée (le bouton était
+  oublié parce que sa fiche n'est pas une fiche de bâtiment ordinaire) ;
+  coût : 50 % de 30 or, 10 bois, 10 pierre, au prorata des PV manquants.
 
 ## 6 octies. Palissade V2 (murs géométriques)
 
@@ -2308,7 +2364,13 @@ méta-progression à zéro, après confirmation. Les réglages sont conservés.
 ## 16. Éditeur de maps
 
 Accessible depuis le menu principal ; le détail d'usage est dans
-`EDITOR.md`. 2026-11-01 (suite) : section **Neutres** du bestiaire (cinq
+`EDITOR.md`. **2026-11-03** (`EDITOR.md` §1 bis) : **Générer** une carte
+procédurale (vrai générateur de la Survie, champ Graine, Nouvelle graine,
+panneau d'informations), **Vue globale**, camps / petits tas / barils
+affichés, sélectionnables, supprimables et enregistrés (tas et barils
+posables), `survivalRules` et `generator` conservés ; le chargement garde
+désormais camps, tas, barils, règles et graine ; « Tester le scénario »
+crée les camps et les barils de la carte (avant : ignorés). 2026-11-01 (suite) : section **Neutres** du bestiaire (cinq
 unités posables, toujours du camp Neutre), outils **Monter une case**,
 **Descendre une case** et **Pente** restaurés, murailles d'une case (Wall V1,
 supprimé le 2026-11-02).

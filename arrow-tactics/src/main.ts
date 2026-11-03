@@ -73,6 +73,8 @@ import {
   type EditorObjectsSnapshot,
   type CellReliefOp,
   type EditorTool,
+  type EditorFeature,
+  featurePosition,
 } from './editor/editorState';
 import { EditorHistory } from './editor/history';
 import { forestBrushCells, type ForestBrushSize, type ForestDensity, type ForestTreeTypeId } from './editor/forestBrush';
@@ -101,6 +103,7 @@ import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
 import { buildWallPieceView, disposeWallPieceView, tintWallGhost } from './render/palisade';
 import { createProceduralLevelUpEffect, type LevelUpEffect } from './render/levelUpVfx';
+import { createProceduralWhirlwindEffect, type WhirlwindEffect } from './render/whirlwindVfx';
 import { planWallLine, segmentBoxDistance, segmentWallLine, WALL_ISSUE_LABELS, wallLength, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint } from './core/wallLine';
 import { getWallType, WALL_TYPES, wallGateCost, wallLineCost } from './data/walls';
 import { crossesTerrainCliff } from './sim/geometry';
@@ -255,7 +258,7 @@ import { CampViews } from './render/campViews';
 import { RallyMarkers } from './render/rallyMarkers';
 import { formatRepairCost, repairCost, repairRefund, type RepairCost } from './run/buildingRepair';
 import { DestructibleViews } from './render/destructibleViews';
-import { type ResourceKind, type ResourceNode } from './config/resourceNodes';
+import { resourceOfObstacle, type ResourceKind, type ResourceNode } from './config/resourceNodes';
 import type { HeroEvent } from './sim/systems/hero';
 import { CombatOverlay, type PlacementBuildingHpSubject } from './ui/combatOverlay';
 import { spawnCoinPopup } from './ui/coinPopup';
@@ -1153,6 +1156,11 @@ function setupTestBattle(): void {
   }
   // Murs V2 du scenario (MapDef.walls), bâtis.
   spawnMapWalls();
+  // Camps neutres et barils de la carte (2026-11-03) : meme creation qu'en
+  // vraie partie (carte generee, dessinee ou hybride).
+  for (const def of currentMap.camps ?? []) world.addCamp(campSpecOf(def));
+  for (const d of currentMap.destructibles ?? []) world.addDestructible(d.kind, d.x, d.z);
+  campViews.setCamps(currentMap.camps ?? []);
   // Apres les unites, comme en vraie bataille (voir onValidatePlacement).
   spawnBallistaBuilding();
   // Apres la Baliste : son empreinte compte dans le pas d'ouverture.
@@ -2039,6 +2047,7 @@ function forgetBattleBuildings(): void {
   ballistaEntityId = null;
   harvestToolsAnnounced = false;
   levelUpVfx.clear();
+  whirlwindVfx.clear();
   cancelWallPlacement();
   clearWallViews();
   buildingViewsByEntityId.clear();
@@ -2402,6 +2411,12 @@ function armSpellTargeting(spellId: string): void {
   if (buildingPlacementMode) cancelBuildingPlacement();
   cancelWallPlacement();
   buildMenu.close();
+  // Sort sur soi (Tourbillon, 2026-11-03) : lance aussitot, sans ciblage.
+  if (getSpell(spellId).targeting === 'self') {
+    cancelSpellTargeting();
+    world.issueCommand({ kind: 'cast', entityIds: [hero.id], spellId, targetEntityId: hero.id });
+    return;
+  }
   spellTargeting = { spellId };
   buildingRotationHint.setText(`${getSpell(spellId).name} : clic sur le Héros (ou son portrait) ou un allié — clic droit ou Échap pour annuler`);
   buildingRotationHint.setVisible(true);
@@ -2856,8 +2871,8 @@ function buildingChoices(): BuildChoice[] {
 function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
   const inspected = info.kind === 'building' ? inspectedOwnedBuilding() : null;
   // Reparation (2026-11-02) : tout batiment allie bati et endommage, Baliste
-  // comprise.
-  const repair = info.kind === 'building' ? repairAction() : null;
+  // comprise (sa fiche est de type 'ballista' : oubliee jusqu'au 2026-11-03).
+  const repair = info.kind === 'building' || info.kind === 'ballista' ? repairAction() : null;
   // Porte de palissade : Ouvrir / Fermer (2026-11-02).
   const door = info.kind === 'building' ? doorAction() : null;
   if (!inspected || inspected.entity.construction) {
@@ -3046,39 +3061,35 @@ const RUBBLE_MODEL = 'kaykit_rock_single_B';
  *  dessinee) ; une souche decorative remplace l'arbre (une par case liberee
  *  d'un bosquet), un petit rocher (gravats) le gisement. Rendu seulement :
  *  cases et pathfinding sont deja a jour dans la simulation. */
-// --- Or monnaie (2026-11-02) ------------------------------------------------
+// --- Stock direct : or (2026-11-02), bois et pierre (2026-11-03) ------------
 
-/** Tas d'or ramasse d'un clic : credit IMMEDIAT de la monnaie du joueur, le
- *  tas disparait (World.collectGoldPile). Tout or au sol (ennemis, camps,
- *  barils) suit cette regle. */
-function collectGoldPile(pileId: number): void {
-  const pile = world.resourcePiles[pileId];
-  const amount = world.collectGoldPile(pileId);
-  if (amount <= 0 || !pile) return;
-  if (!inTestMode) {
+/** Ajoute au stock de la run : or (monnaie, bilan de manche) ou bois /
+ *  pierre. Rien pendant « Tester le scénario ». */
+function creditStock(resource: 'gold' | ResourceKind, amount: number): void {
+  if (amount <= 0 || inTestMode) return;
+  if (resource === 'gold') {
     currentRun.gold = roundGold(currentRun.gold + amount);
     recordGoldEarned(battleSummary, amount);
-    currentRun.resourcePileAmounts[pileId] = 0;
-  }
+  } else currentRun.resources[resource] += amount;
+}
+
+/** Tas au sol (or, bois, pierre) ramasse d'un clic : credit IMMEDIAT du
+ *  stock, le tas disparait (World.collectPile). Ni deplacement, ni sac, ni
+ *  depot. */
+function collectPile(pileId: number): void {
+  const got = world.collectPile(pileId);
+  if (!got) return;
+  creditStock(got.resource, got.amount);
+  if (!inTestMode) currentRun.resourcePileAmounts[pileId] = 0;
   if (selectedPileId === pileId) selectedPileId = null;
-  spawnCoinPopup(screens.shopGoldElement, amount);
-  waveIndicator.flash(`+${formatGold(amount)} or`);
+  if (got.resource === 'gold') spawnCoinPopup(screens.shopGoldElement, got.amount);
+  waveIndicator.flash(`+${got.resource === 'gold' ? `${formatGold(got.amount)} or` : `${got.amount} ${got.resource === 'wood' ? 'bois' : 'pierre'}`}`);
 }
 
-/** Or extrait d'un gisement pendant le dernier pas (Heros, Villageois) :
- *  credite a la monnaie du joueur, jamais dans un sac. */
-function creditMinedGold(): void {
-  const amount = world.goldMinedEvents.reduce((sum, ev) => sum + ev.amount, 0);
-  if (amount <= 0 || inTestMode) return;
-  currentRun.gold = roundGold(currentRun.gold + amount);
-  recordGoldEarned(battleSummary, amount);
-}
-
-/** Bois et pierre verses au depot par les Villageois pendant le dernier pas
- *  (2026-11-03) : ajoutes au stock de la run, comme un depot du Heros. */
-function creditWorkerDeposits(): void {
-  if (inTestMode) return;
-  for (const ev of world.workerDepositEvents) currentRun.resources[ev.resource] += ev.amount;
+/** Ressources extraites pendant le dernier pas (Heros, Villageois : bois,
+ *  pierre, or) : creditees directement au stock, jamais portees. */
+function creditMinedResources(): void {
+  for (const ev of world.minedEvents) creditStock(ev.resource, ev.amount);
 }
 
 /** Outils de la Forge deja annonces pendant cette partie (une seule fois,
@@ -3447,6 +3458,100 @@ function createBlankEditorMap(): MapDef {
   return { name: 'Nouvelle carte', version: 1, width: DEFAULT_MAP.width, height: DEFAULT_MAP.height, obstacles: [], playerUnits: [], enemyUnits: [] };
 }
 
+/** Carte procedurale dans l'editeur (2026-11-03) : le VRAI generateur de la
+ *  Survie (generateSurvivalMap, meme graine = meme carte qu'en jeu), chargee
+ *  comme une MapDef ordinaire (editable, enregistree telle quelle). Elle
+ *  remplace le brouillon : historique remis a zero (point de depart),
+ *  jamais enregistree tant qu'elle ne l'a pas ete ; vue globale ensuite.
+ *  Le Heros, les vagues et les minuteurs ne sont pas dans la carte : ils
+ *  naissent au lancement d'une partie (la Baliste n'y est qu'une position). */
+async function generateEditorMap(seed: number): Promise<void> {
+  const map = generateSurvivalMap(seed);
+  await ensureModels(obstacleModelKeys(map.obstacles));
+  resetEditorWithMap(map);
+  editorCleanExport = null;
+  updateEditorMapStatus();
+  resetEditorCamera();
+}
+
+/** Comptes de la carte generee (panneau d'informations de l'editeur). */
+function generationInfoLines(map: MapDef): string[] {
+  let trees = 0, stone = 0, gold = 0;
+  for (const o of map.obstacles) {
+    const r = resourceOfObstacle(o);
+    if (r === 'wood') trees++;
+    else if (r === 'stone') stone++;
+    else if (r === 'gold') gold++;
+  }
+  const piles = map.resourcePiles ?? [];
+  const camps = map.camps ?? [];
+  const small = camps.filter((c) => c.kind === 'raiders_small').length;
+  const relief = (map.elevationCells ?? []).filter((e) => e.level > 0 || e.slope).length;
+  const ramps = (map.elevationCells ?? []).filter((e) => e.slope).length;
+  return [
+    `Graine ${map.generator?.seed ?? '—'}`,
+    `Arbres ${trees} · gisements : pierre ${stone}, or ${gold}`,
+    `Petits tas ${piles.length} (bois ${piles.filter((p) => p.resource === 'wood').length}, pierre ${piles.filter((p) => p.resource === 'stone').length}) · barils ${(map.destructibles ?? []).length}`,
+    `Camps ${camps.length} (petits ${small}, grands ${camps.length - small})`,
+    `Relief : ${relief} cases surélevées, dont ${ramps} rampes`,
+  ];
+}
+
+/** Marqueurs des elements de carte Survie (2026-11-03) : camp = disque de sa
+ *  zone degagee et mat au centre ; tas = pastille (bois / pierre) ; baril =
+ *  petit cylindre. Selection : jaune. Rendu de l'editeur seulement. */
+function syncEditorFeatureViews(): void {
+  if (!editorState) return;
+  const sel = editorState.selection?.kind === 'feature' ? editorState.selection.id : null;
+  const key = JSON.stringify([editorState.features.map((f) => f.id), sel]);
+  if (key === editorFeaturesKey) return;
+  clearEditorFeatureViews();
+  editorFeaturesKey = key;
+  for (const f of editorState.features) editorFeaturesGroup.add(editorFeatureView(f, f.id === sel));
+}
+
+function clearEditorFeatureViews(): void {
+  for (const child of editorFeaturesGroup.children) {
+    child.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      mesh.geometry?.dispose();
+      (mesh.material as THREE.Material | undefined)?.dispose?.();
+    });
+  }
+  editorFeaturesGroup.clear();
+  editorFeaturesKey = '';
+}
+
+function editorFeatureView(f: EditorFeature, selected: boolean): THREE.Object3D {
+  const { x, z } = featurePosition(f);
+  const group = new THREE.Group();
+  group.userData['featureId'] = f.id;
+  const y = surfaceY(x, z);
+  group.position.set(x, y, z);
+  const mat = (color: number, opacity = 1) => new THREE.MeshBasicMaterial({ color: selected ? 0xffd34d : color, transparent: opacity < 1, opacity, depthWrite: opacity >= 1 });
+  if (f.kind === 'camp') {
+    const zone = new THREE.Mesh(new THREE.CircleGeometry(f.camp.radius, 40), mat(0xc0392b, 0.22));
+    zone.rotation.x = -Math.PI / 2;
+    zone.position.y = 0.04;
+    group.add(zone);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.4, 8), mat(0x7a2418));
+    mast.position.y = 1.2;
+    group.add(mast);
+    const flag = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.4, 0.04), mat(0xe74c3c));
+    flag.position.set(0.38, 2.15, 0);
+    group.add(flag);
+  } else if (f.kind === 'pile') {
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 0.22, 12), mat(f.pile.resource === 'wood' ? 0x9a6a3a : 0x9aa0a8));
+    disc.position.y = 0.11;
+    group.add(disc);
+  } else {
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.6, 12), mat(0x8b5a2b));
+    barrel.position.y = 0.3;
+    group.add(barrel);
+  }
+  return group;
+}
+
 /** Remplace la carte de l'editeur (chargement, nouvelle carte) : etat,
  *  maillages et historique repartent de zero. */
 function resetEditorWithMap(map: MapDef): void {
@@ -3461,9 +3566,13 @@ function resetEditorWithMap(map: MapDef): void {
   editorUnitMeshTeams.clear();
   editorBuildingsGroup.clear();
   editorBuildingMeshes.clear();
+  clearEditorFeatureViews();
   clearEditorGhost();
   transformControls.detach();
   editorHistory.clear();
+  // Informations de generation : carte issue du generateur seulement.
+  editorUI.setGenerationInfo(map.generator ? generationInfoLines(map) : null);
+  if (map.generator) editorUI.setSeed(map.generator.seed);
   rebuildEditorBoard();
   editorUI.setMapSize(editorState.width, editorState.height);
   refreshEditorObjects();
@@ -3529,7 +3638,13 @@ const editorBuildingMeshes = new Map<number, THREE.Object3D>();
  *  reconstruits quand la liste des lignes change. */
 const editorWallsGroup = new THREE.Group();
 let editorWallsKey = '';
-renderer.scene.add(editorObjectsGroup, editorUnitsGroup, editorBuildingsGroup, editorWallsGroup, editorGhostGroup);
+/** Elements de carte Survie (2026-11-03) : marqueurs des camps (zone et
+ *  centre), petits tas et barils ; reconstruits quand la liste ou la
+ *  selection change. */
+const editorFeaturesGroup = new THREE.Group();
+editorFeaturesGroup.name = 'editor-features';
+let editorFeaturesKey = '';
+renderer.scene.add(editorObjectsGroup, editorUnitsGroup, editorBuildingsGroup, editorWallsGroup, editorFeaturesGroup, editorGhostGroup);
 
 // Sol/grille/zones PROPRES a l'editeur, distincts de ceux de la partie en
 // cours (board.group) : necessaire pour le redimensionnement (Antoine,
@@ -3873,7 +3988,8 @@ function deleteEditorSelection(): void {
     editorState.obstacles.length !== before.obstacles.length ||
     editorState.units.length !== before.units.length ||
     editorState.buildings.length !== before.buildings.length ||
-    editorState.walls.length !== before.walls.length
+    editorState.walls.length !== before.walls.length ||
+    editorState.features.length !== before.features.length
   ) {
     pushEditorObjectsCommand(before, editorState.objectsSnapshot());
   }
@@ -4050,6 +4166,17 @@ const editorUI = new EditorUI({
       alert(`Impossible de charger cette carte : ${err instanceof Error ? err.message : String(err)}`);
     }
   },
+  onGenerateProcedural: (seed) => {
+    if (!confirmDiscardEditorDraft('Générer une carte procédurale')) return;
+    void generateEditorMap(seed);
+  },
+  onGlobalView: () => resetEditorCamera(),
+  onSelectFeatureTool: (template) => {
+    if (!editorState) return;
+    editorState.setTool({ type: 'place-feature', feature: template });
+    clearEditorGhost();
+    refreshEditorObjects();
+  },
   onNewMap: () => {
     if (!confirmDiscardEditorDraft('Créer une nouvelle carte')) return;
     resetEditorWithMap(createBlankEditorMap());
@@ -4122,6 +4249,7 @@ function clearEditorGhost(): void {
 
 function refreshEditorObjects(): void {
   if (!editorState || !editorAssets) return;
+  syncEditorFeatureViews();
 
   const liveIds = new Set(editorState.obstacles.map((o) => o.id));
   for (const [id, mesh] of editorMeshes) {
@@ -4357,6 +4485,7 @@ function exitEditor(): void {
   for (const child of [...editorWallsGroup.children]) disposeWallPieceView(child);
   editorWallsGroup.clear();
   editorWallsKey = '';
+  clearEditorFeatureViews();
   editorBoardGroup.clear();
   editorBoardGroup.visible = false;
   clearEditorGhost();
@@ -4397,6 +4526,7 @@ async function testScenario(): Promise<void> {
   editorUnitsGroup.visible = false;
   editorBuildingsGroup.visible = false;
   editorWallsGroup.visible = false;
+  editorFeaturesGroup.visible = false;
   editorGhostGroup.visible = false;
   clearEditorGhost();
   editorSelectionRing.visible = false;
@@ -4445,6 +4575,7 @@ function returnToEditorAfterTest(): void {
 
   world.clear();
   clearScenarioBuildingMeshes();
+  campViews.setCamps([]);
   // Remet aussi le modele de la Baliste a neuf si elle a ete detruite pendant
   // le test (voir forgetBattleBuildings).
   forgetBattleBuildings();
@@ -4490,6 +4621,7 @@ function returnToEditorAfterTest(): void {
   editorUnitsGroup.visible = true;
   editorBuildingsGroup.visible = true;
   editorWallsGroup.visible = true;
+  editorFeaturesGroup.visible = true;
   // Masque par testScenario : sans cette ligne, plus aucun apercu de
   // l'editeur (fantomes, cases, pinceau, Baliste) ne s'affichait apres un test.
   editorGhostGroup.visible = true;
@@ -5114,6 +5246,13 @@ function handleEditorClick(event: MouseEvent): void {
     return;
   }
 
+  if (editorState.tool.type === 'place-feature') {
+    const before = editorState.objectsSnapshot();
+    if (editorState.placeFeatureAt(editorState.tool.feature, groundHit.x, groundHit.z)) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
+    refreshEditorObjects();
+    return;
+  }
+
   if (editorState.tool.type === 'place-building') {
     const before = editorState.objectsSnapshot();
     if (editorState.placeBuildingAt(groundHit.x, groundHit.z)) pushEditorObjectsCommand(before, editorState.objectsSnapshot());
@@ -5192,6 +5331,8 @@ function handleEditorClick(event: MouseEvent): void {
     editorState.select({ kind: 'building', id: picked.id });
   } else if (picked?.kind === 'wall') {
     editorState.select({ kind: 'wall', id: picked.id });
+  } else if (picked?.kind === 'feature') {
+    editorState.select({ kind: 'feature', id: picked.id });
   } else if (picked?.kind === 'obstacle') {
     editorState.select({ kind: 'obstacle', id: picked.id });
   } else if (picked === null && !event.shiftKey && editorState.selection?.kind === 'ballista') {
@@ -5223,8 +5364,16 @@ function handleEditorClick(event: MouseEvent): void {
  *  plutot qu'une priorite arbitraire. */
 function pickEditorObjectAt(
   event: MouseEvent,
-): { kind: 'ballista' } | { kind: 'obstacle'; id: number } | { kind: 'unit'; id: number } | { kind: 'building'; id: number } | { kind: 'wall'; id: number } | null {
+): { kind: 'ballista' } | { kind: 'obstacle'; id: number } | { kind: 'unit'; id: number } | { kind: 'building'; id: number } | { kind: 'wall'; id: number } | { kind: 'feature'; id: number } | null {
   setRaycasterFromEvent(event);
+  // Elements de carte Survie (2026-11-03) : leurs marqueurs passent avant le
+  // decor (le feu d'un camp est un decor ; son marqueur designe le camp).
+  const featureHit = raycaster.intersectObjects(editorFeaturesGroup.children, true)[0];
+  if (featureHit) {
+    let o: THREE.Object3D | null = featureHit.object;
+    while (o && o.userData['featureId'] === undefined) o = o.parent;
+    if (o) return { kind: 'feature', id: o.userData['featureId'] as number };
+  }
   const obstacleHit = raycaster.intersectObjects(editorObjectsGroup.children, true)[0];
   const unitHit = raycaster.intersectObjects(editorUnitsGroup.children, true)[0];
   const buildingHit = raycaster.intersectObjects(editorBuildingsGroup.children, true)[0];
@@ -6074,27 +6223,25 @@ function issueRightClickOrder(event: MouseEvent): void {
     const drop = depot || site || chest ? null : itemDropNear(point.x, point.z);
     const pile = depot || site || chest || drop ? null : resourcePileNear(point.x, point.z);
     const node = depot || site || chest || drop || pile ? null : resourceNodeAtClick(event.clientX, event.clientY, point);
-    const command: PlayerCommand | null = heroIds.length === 0 ? null : depot
-      ? { kind: 'deposit', entityIds: heroIds, targetEntityId: depot.id }
+    // Plus de depot (2026-11-03) : un clic droit sur la Baliste ne fait que
+    // deplacer ; les tas se ramassent d'un clic (ci-dessous).
+    const command: PlayerCommand | null = heroIds.length === 0 || depot || pile ? null
       : site
         ? { kind: 'build', entityIds: heroIds, targetEntityId: site.id }
         : chest
           ? { kind: 'openChest', entityIds: heroIds, chestId: chest.id }
           : drop
           ? { kind: 'pickupItem', entityIds: heroIds, dropId: drop.id }
-          : pile
-          ? { kind: 'pickup', entityIds: heroIds, pileId: pile.id }
           : node
             ? { kind: 'harvest', entityIds: heroIds, nodeId: node.id }
             : null;
     const workerCommand: PlayerCommand | null = workerIds.length === 0 ? null
-      : depot ? { kind: 'deposit', entityIds: workerIds, targetEntityId: depot.id }
       : node ? { kind: 'harvest', entityIds: workerIds, nodeId: node.id }
       : null;
-    // Tas d'or (monnaie, 2026-11-02) : ramasse IMMEDIATEMENT, sans
-    // deplacement ni sac ni depot (le tas disparait, l'or est credite).
-    if (pile && pile.resource === 'gold' && (!fogActive() || fogOfWar!.isExplored(pile.x, pile.z))) {
-      collectGoldPile(pile.id);
+    // Tas au sol (or, bois, pierre ; 2026-11-03) : ramasse IMMEDIATEMENT,
+    // sans deplacement ni sac ni depot (le tas disparait, le stock monte).
+    if (pile && (!fogActive() || fogOfWar!.isExplored(pile.x, pile.z))) {
+      collectPile(pile.id);
       return;
     }
     if (command || workerCommand) {
@@ -6290,6 +6437,20 @@ function playLevelUps(levels: ReadonlyMap<number, number>): void {
   }
 }
 
+/** Effet 3D du Tourbillon (render/whirlwindVfx.ts) : PROVISOIRE et
+ *  remplacable, comme levelUpVfx ; declenche par les evenements de la
+ *  simulation (spellStart, whirlwindPulse, whirlwindEnd). */
+const whirlwindVfx: WhirlwindEffect = createProceduralWhirlwindEffect(renderer.scene);
+
+function startWhirlwindVfx(heroId: number): void {
+  whirlwindVfx.start(heroId, () => {
+    const hero = world.getById(heroId);
+    if (!hero?.alive || !hero.hero?.whirlwind) return null;
+    const p = unitViews.getPosition(heroId) ?? hero;
+    return { x: p.x, y: surfaceY(p.x, p.z), z: p.z };
+  });
+}
+
 function handleHeroEvents(events: readonly HeroEvent[]): void {
   const levelUps = new Map<number, number>();
   for (const ev of events) {
@@ -6319,7 +6480,7 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
     } else if (ev.type === 'chestLocked') {
       waveIndicator.flash('Camp encore défendu');
     } else if (ev.type === 'carryFull') {
-      waveIndicator.flash('Sac plein — le reste reste au sol ; clic droit sur la Baliste pour déposer');
+      waveIndicator.flash('Sac plein');
     } else if (ev.type === 'built') {
       const index = ownedBuildingIndexByEntityId.get(ev.buildingId);
       const owned = index !== undefined ? currentRun.buildings[index] : undefined;
@@ -6331,6 +6492,12 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
       waveIndicator.flash(`Héros à terre — retour dans ${Math.round(ev.respawnIn)} s`);
     } else if (ev.type === 'respawn') {
       waveIndicator.flash('Le Héros revient à la Baliste');
+    } else if (ev.type === 'spellStart' && getSpell(ev.spellId).whirlwind) {
+      startWhirlwindVfx(ev.heroId);
+    } else if (ev.type === 'whirlwindPulse') {
+      whirlwindVfx.pulse(ev.x, surfaceY(ev.x, ev.z), ev.z, getSpell('whirlwind').whirlwind!.radiusTiles);
+    } else if (ev.type === 'whirlwindEnd') {
+      whirlwindVfx.stop(ev.heroId);
     } else if (ev.type === 'spellCancel') {
       const name = getSpell(ev.spellId).name;
       const why = ev.reason === 'out-of-range' ? 'cible hors de portée' : ev.reason === 'target' ? 'cible perdue' : ev.reason === 'no-mana' ? 'mana insuffisant' : ev.reason === 'death' ? 'Héros à terre' : ev.reason === 'taunt' ? 'Héros provoqué' : 'interrompu';
@@ -6346,7 +6513,9 @@ function heroHudState(): HeroHudState {
   const hero = world.entities.find((e) => e.hero && e.team === 'player');
   const h = inBattlePhase() || inTestMode ? hero?.hero : undefined;
   const def = getHero(currentRun.hero.heroId);
-  const cast = h?.spellCast && hero?.cast ? { name: getSpell(h.spellCast.spellId).name, progress: hero.cast.elapsed / Math.max(hero.cast.duration, 1e-6) } : null;
+  const whirl = hero?.alive ? h?.whirlwind ?? null : null;
+  const cast = h?.spellCast && hero?.cast ? { name: getSpell(h.spellCast.spellId).name, progress: hero.cast.elapsed / Math.max(hero.cast.duration, 1e-6) }
+    : whirl ? { name: getSpell(whirl.spellId).name, progress: whirl.elapsed / whirl.durationSeconds } : null;
   return {
     level: h?.level ?? currentRun.hero.level,
     xp: h?.xp ?? currentRun.hero.xp,
@@ -6358,16 +6527,27 @@ function heroHudState(): HeroHudState {
     action: hero?.alive && h ? heroActionProgress(hero) : null,
     spells: (h?.spells ?? getHero(currentRun.hero.heroId).spells.map(getSpell)).map((spell) => {
       const casting = h?.spellCast?.spellId === spell.id;
-      const enabled = !!hero?.alive && !casting && !!h && h.mana >= spell.manaCost && isBattleTimeRunning();
-      const why = !hero?.alive ? 'Héros à terre' : casting ? 'Incantation en cours' : h && h.mana < spell.manaCost ? 'Mana insuffisant' : '';
+      // Tourbillon en cours : aucun sort (2026-11-03).
+      const spinning = !!whirl;
+      // Recharge (2026-11-03) : apres la fin de l'effet.
+      const cooldown = h?.spellCooldowns[spell.id] ?? 0;
+      const enabled = !!hero?.alive && !casting && !spinning && cooldown <= 0 && !!h && h.mana >= spell.manaCost && isBattleTimeRunning();
+      const why = !hero?.alive ? 'Héros à terre' : casting ? 'Incantation en cours' : spinning ? 'Tourbillon en cours' : cooldown > 0 ? `Recharge : ${Math.ceil(cooldown)} s` : h && h.mana < spell.manaCost ? 'Mana insuffisant' : '';
+      const ww = spell.whirlwind;
+      const details = ww
+        ? `${spell.manaCost} mana · ${ww.durationSeconds} s · ${Math.round(ww.damageRatio * 100)} % des dégâts d’attaque par frappe (1 / ${ww.pulseSeconds} s, rayon ${String(ww.radiusTiles).replace('.', ',')})${spell.cooldownSeconds ? ` · recharge ${spell.cooldownSeconds} s après l’effet` : ''}`
+        : `${spell.manaCost} mana · ${spell.castSeconds} s · portée ${spell.rangeTiles}`;
       return {
         id: spell.id,
         name: spell.name,
         cost: spell.manaCost,
         icon: spell.icon,
         enabled,
-        hint: `${spell.name} — ${spell.manaCost} mana · ${spell.castSeconds} s · portée ${spell.rangeTiles}. ${spell.description}${why ? ` (${why})` : ''}`,
-        castProgress: casting && hero?.cast ? Math.min(1, hero.cast.elapsed / Math.max(hero.cast.duration, 1e-6)) : null,
+        hint: `${spell.name} — ${details}. ${spell.description}${why ? ` (${why})` : ''}`,
+        castProgress: casting && hero?.cast ? Math.min(1, hero.cast.elapsed / Math.max(hero.cast.duration, 1e-6))
+          : whirl?.spellId === spell.id ? Math.min(1, whirl.elapsed / whirl.durationSeconds)
+          : cooldown > 0 && spell.cooldownSeconds ? Math.max(0, 1 - cooldown / spell.cooldownSeconds) : null,
+        cooldown: cooldown > 0 ? Math.ceil(cooldown) : null,
       };
     }),
     respawnIn: h && hero && !hero.alive && h.respawnTimer > 0 ? h.respawnTimer : null,
@@ -6380,6 +6560,7 @@ function heroHudState(): HeroHudState {
 function heroActionProgress(hero: Entity): { progress: number; remaining: number } | null {
   const h = hero.hero!;
   if (hero.cast) return { progress: Math.min(1, hero.cast.elapsed / Math.max(hero.cast.duration, 1e-6)), remaining: hero.cast.duration - hero.cast.elapsed };
+  if (h.whirlwind) return { progress: Math.min(1, h.whirlwind.elapsed / h.whirlwind.durationSeconds), remaining: h.whirlwind.durationSeconds - h.whirlwind.elapsed };
   if (h.working === 'gather') {
     // Ramassage, ou ouverture d'un coffre (plus longue).
     const total = hero.order.type === 'openChest' ? CHEST_OPEN_SECONDS : PICKUP_SECONDS;
@@ -7845,8 +8026,7 @@ const loop = new Loop(
     world.harvestPermissions = harvestPermissionsOf(world.entities, RUN_OWNER_TEAM);
     announceHarvestTools();
     world.step(dt);
-    creditMinedGold();
-    creditWorkerDeposits();
+    creditMinedResources();
     logPathDiagnostics();
     stepSurvivalWaves();
     // Ordres acceptes pendant CE pas : commandResults est remplace a chaque
@@ -7867,8 +8047,10 @@ const loop = new Loop(
       // Sort accepte : bref flash jaune de l'anneau sous la cible.
       if (result.command.kind === 'cast' && result.rejection === null) spellTargetFeedback.spawn(result.command.targetEntityId);
       if (result.command.kind === 'cast' && result.rejection !== null) {
-        waveIndicator.flash(result.rejection === 'no-mana' ? `Mana insuffisant pour ${getSpell(result.command.spellId).name}` : 'Cible invalide : le Héros ou une unité alliée');
-      }
+        const spellName = getSpell(result.command.spellId).name;
+        const left = Math.ceil(playerHero()?.hero?.spellCooldowns[result.command.spellId] ?? 0);
+        waveIndicator.flash(result.rejection === 'no-mana' ? `Mana insuffisant pour ${spellName}` : result.rejection === 'channeling' ? 'Tourbillon en cours' : result.rejection === 'cooldown' ? `${spellName} : recharge (${left} s)` : 'Cible invalide : le Héros ou une unité alliée');
+      } else if (result.rejection === 'channeling') waveIndicator.flash('Tourbillon en cours : seulement se déplacer');
       if (result.command.kind !== 'move' || result.rejection !== null || !result.destinations) continue;
       // Pas d'ouverture de la bataille : pas un ordre du joueur, aucun retour.
       if (result.command.entityIds.length === 1 && openingStepEntityIds.delete(result.command.entityIds[0]!)) continue;
@@ -8612,6 +8794,7 @@ const loop = new Loop(
     }
     // Montee de niveau : effet 3D (temps reel, fige en pause).
     levelUpVfx.tick(realDt, loop.timeScale === 0);
+    whirlwindVfx.tick(realDt, loop.timeScale === 0);
     // Barres de PV pendant le placement (demande d'Antoine, 2026-08-09) : le
     // joueur doit voir l'etat de sante de son armee avant de valider, pas
     // seulement pendant la bataille. Meme regle qu'en bataille : blesse, ou

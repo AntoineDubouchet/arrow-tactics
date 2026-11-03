@@ -20,6 +20,7 @@ import { updateCarryBundle } from './resourcePiles';
 import { setHeroWorkTool } from './heroEquipmentView';
 import { buildUnit } from './unitMesh';
 import { surfaceY } from './terrainSurface';
+import { WHIRLWIND_SPIN_RAD_PER_S } from './whirlwindVfx';
 
 /** Deplacement minimal d'un pas (cases) pour compter comme un mouvement :
  *  ecarte les petites poussees de separation entre unites. */
@@ -112,6 +113,10 @@ export class UnitViews {
    *  reel, se garde a l'arret, se tourne vers la cible en combat ; virage
    *  progressif (FACING_TURN_SPEED). */
   private readonly facing = new Map<number, number>();
+  /** Tourbillon (2026-11-03) : angle de rotation VISUELLE ajoute a
+   *  l'orientation (rendu seulement, temps reel) ; retire a la fin de
+   *  l'effet, l'unite reprend aussitot son orientation normale. */
+  private readonly whirlwindSpin = new Map<number, number>();
   /** Brouillard de guerre (render/fogOfWar.ts) : vrai = unite a masquer
    *  (adverse hors vision). Rendu seulement. */
   hiddenFilter: ((entity: Entity) => boolean) | null = null;
@@ -152,7 +157,7 @@ export class UnitViews {
         this.deathPose.set(entity.id, deathPose);
       }
       const facing = deathPose ? deathPose.facing : this.renderedFacing(entity, byId, simulationFrozen ? 0 : realDt);
-      view.rotation.y = facing;
+      view.rotation.y = facing + this.tickWhirlwindSpin(entity, simulationFrozen ? 0 : realDt);
 
       if (entity.alive) {
         // Retour a la vie (resurrection du Heros) : le clip de chute, fige sur
@@ -440,6 +445,7 @@ export class UnitViews {
     this.deathActionChoice.clear();
     this.deathPose.clear();
     this.facing.clear();
+    this.whirlwindSpin.clear();
     this.attackAnim.clear();
     this.walkPhase.clear();
     this.hitFlash.clear();
@@ -778,6 +784,20 @@ export class UnitViews {
     const next = Math.abs(delta) <= step ? desired : current + Math.sign(delta) * step;
     this.facing.set(entity.id, next);
     return next;
+  }
+
+  /** Rotation visuelle du Tourbillon : WHIRLWIND_SPIN_RAD_PER_S (5 tours par
+   *  seconde depuis le 2026-11-03, 2,5 avant) tant que l'effet dure
+   *  (Entity.hero.whirlwind), 0 sinon. N'altere ni l'orientation logique
+   *  (facing), ni le mouvement, ni les emprises. */
+  private tickWhirlwindSpin(entity: Entity, dt: number): number {
+    if (!entity.alive || !entity.hero?.whirlwind) {
+      this.whirlwindSpin.delete(entity.id);
+      return 0;
+    }
+    const angle = ((this.whirlwindSpin.get(entity.id) ?? 0) + dt * WHIRLWIND_SPIN_RAD_PER_S) % (Math.PI * 2);
+    this.whirlwindSpin.set(entity.id, angle);
+    return angle;
   }
 
   /** Angle (rotation.y) pour regarder vers la cible verrouillee, ou vers l'avant a defaut.

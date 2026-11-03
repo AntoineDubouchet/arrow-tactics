@@ -1,9 +1,12 @@
 import type { ObstacleBounds } from '../../config/constants';
-import type { ResourceNode } from '../../config/resourceNodes';
+import type { NodeResource, ResourceNode } from '../../config/resourceNodes';
 import { CARRIED_RESOURCES, HARVEST_NODE_KINDS, type CarriedResource, type HarvestResource, type PileResource } from '../../data/resources';
 import { addItem, addResource, carriedResourceTotal, removeOneResource, resourceCount, roomFor } from '../inventory';
 import { getBuilding } from '../../data/buildings';
 import { distanceToSegment } from '../../core/wallLine';
+import { applyDamageToEntity } from '../damage';
+import { targetDistance } from '../geometry';
+import { areAllied } from '../relations';
 import {
   BUILD_CHAIN_RADIUS,
   BUILD_REACH,
@@ -51,7 +54,6 @@ export type HeroEvent =
   | { type: 'death'; heroId: number; respawnIn: number }
   | { type: 'respawn'; heroId: number; x: number; z: number }
   /** Une unite recoltee sur un arbre ou un rocher, mise dans le sac. */
-  | { type: 'harvest'; heroId: number; resource: CarriedResource; amount: number; nodeId: number }
   /** Petit tas ramasse : quantite prise et quantite restante au sol. */
   | { type: 'pickup'; heroId: number; resource: CarriedResource; amount: number; pileId: number; remaining: number }
   /** Sac plein : le travail s'arrete (le Heros passe en Garde). */
@@ -74,6 +76,10 @@ export type HeroEvent =
   | { type: 'repairEnd'; heroId: number; repairId: number; buildingId: number; restoredHp: number; budgetHp: number; reason: 'done' | 'interrupted' }
   /** Incantation commencee (mana retenu). */
   | { type: 'spellStart'; heroId: number; spellId: string; targetId: number }
+  /** Tourbillon (2026-11-03) : frappe n (position, degats, entites touchees),
+   *  puis fin (terminee, ou Heros mort). */
+  | { type: 'whirlwindPulse'; heroId: number; x: number; z: number; pulse: number; damage: number; hits: number[] }
+  | { type: 'whirlwindEnd'; heroId: number; reason: 'done' | 'death' }
   /** Incantation annulee avant son effet ; `refunded` : mana rendu. */
   | { type: 'spellCancel'; heroId: number; spellId: string; reason: SpellCancelReason; refunded: number }
   /** Sort abouti (`healed` : PV internes reellement rendus). */
@@ -112,9 +118,10 @@ export interface HeroWorkContext {
   /** Outil disponible pour une source (Forge terminee,
    *  World.harvestPermissions). */
   canHarvest(resource: HarvestResource): boolean;
-  /** Or extrait d'un gisement pendant ce pas (monnaie : credite par
-   *  l'orchestration, jamais dans un sac). */
-  goldMined: { entityId: number; nodeId: number; amount: number }[];
+  /** Ressources extraites pendant ce pas (bois, pierre, or ; 2026-11-03) :
+   *  creditees DIRECTEMENT au stock par l'orchestration, jamais portees
+   *  (ni sac, ni depot). */
+  mined: MinedResource[];
   piles: readonly ResourcePile[];
   drops: readonly ItemDrop[];
   /** Coffres (World.chests), verrou (camp pas nettoye) et ouverture (tirage
@@ -122,6 +129,14 @@ export interface HeroWorkContext {
   chests: readonly Chest[];
   chestLocked(chest: Chest): boolean;
   openChest(chest: Chest): { itemId: string | null; dropId: number | null };
+}
+
+/** Unite extraite d'une source par une entite (Heros, Villageois). */
+export interface MinedResource {
+  entityId: number;
+  nodeId: number;
+  resource: NodeResource;
+  amount: number;
 }
 
 /** Unites portees par un Heros. */
@@ -167,12 +182,9 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
     if (!chest || chest.opened) return null;
     return { x: chest.x, z: chest.z, reached: Math.hypot(chest.x - e.x, chest.z - e.z) <= e.stats.radius + CHEST_REACH, target: null };
   }
-  if (order.type === 'pickup') {
-    const pile = work.piles[order.pileId];
-    // Or (monnaie, 2026-11-02) : ramasse d'un clic par le joueur, jamais par le sac.
-    if (!pile || pile.amount <= 0 || pile.resource === 'gold') return null;
-    return { x: pile.x, z: pile.z, reached: Math.hypot(pile.x - e.x, pile.z - e.z) <= e.stats.radius + PICKUP_REACH, target: null };
-  }
+  // Tas au sol (bois, pierre, or ; 2026-11-03) : ramasses d'un clic par le
+  // joueur (World.collectPile), jamais par le sac : l'ordre est sans objet.
+  if (order.type === 'pickup') return null;
   const target = byId.get(order.targetEntityId);
   if (!target || !target.alive || (order.type === 'build' && !target.construction)) return null;
   // Reparation : jamais un batiment a 0 PV (detruit au pas en cours, avant deathSystem).
@@ -254,8 +266,8 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       }
       continue;
     }
-    if (e.order.type === 'harvest' || e.order.type === 'pickup') {
-      const resource = e.order.type === 'harvest' ? work.nodes.get(e.order.nodeId)!.resource : work.piles[e.order.pileId]!.resource;
+    if (e.order.type === 'pickup') {
+      const resource = work.piles[e.order.pileId]!.resource;
       // Or : monnaie, aucune place de sac requise.
       if (resource !== 'gold' && roomFor(h.inventory, resource) === 0) {
         events.push({ type: 'carryFull', heroId: e.id });
@@ -271,20 +283,16 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       h.working = HARVEST_NODE_KINDS[node.resource].working;
       h.workTimer += dt;
       let finished = false;
-      const currency = HARVEST_NODE_KINDS[node.resource].currency;
-      while (h.workTimer >= HARVEST_INTERVAL && (currency || roomFor(h.inventory, node.resource as CarriedResource) > 0) && (work.nodeAmounts.get(node.id) ?? 1) > 0) {
+      while (h.workTimer >= HARVEST_INTERVAL && (work.nodeAmounts.get(node.id) ?? 1) > 0) {
         h.workTimer -= HARVEST_INTERVAL;
         const left = work.nodeAmounts.get(node.id);
         if (left !== undefined) {
           work.nodeAmounts.set(node.id, left - 1);
           if (left - 1 <= 0) work.depleted.push(node.id);
         }
-        // Or (monnaie, 2026-11-02) : credite directement, jamais dans le sac.
-        if (currency) work.goldMined.push({ entityId: e.id, nodeId: node.id, amount: 1 });
-        else {
-          h.inventory = addResource(h.inventory, node.resource as CarriedResource, 1).inventory;
-          events.push({ type: 'harvest', heroId: e.id, resource: node.resource as CarriedResource, amount: 1, nodeId: node.id });
-        }
+        // Bois, pierre, or (2026-11-03) : credites directement au stock,
+        // jamais dans le sac (plus de depot a la Baliste).
+        work.mined.push({ entityId: e.id, nodeId: node.id, resource: node.resource, amount: 1 });
         // Droit perdu : l'unite en cours est finie, puis le travail s'arrete.
         if (!allowed) {
           finished = true;
@@ -424,6 +432,17 @@ function startSpell(e: Entity, order: Extract<UnitOrder, { type: 'cast' }>, byId
     return;
   }
   h.mana -= spell.manaCost;
+  if (spell.whirlwind) {
+    // Tourbillon (2026-11-03) : mana pris une fois, jamais rendu ; degats
+    // d'attaque finaux (niveau, equipement) figes maintenant ; le Heros
+    // repasse en Garde et peut recevoir des ordres de deplacement.
+    const w = spell.whirlwind;
+    h.whirlwind = { spellId: spell.id, elapsed: 0, pulses: 0, snapshotAttackDamage: e.stats.damage, durationSeconds: w.durationSeconds, pulseSeconds: w.pulseSeconds, radiusTiles: w.radiusTiles, damageRatio: w.damageRatio, cooldownSeconds: spell.cooldownSeconds ?? 0 };
+    e.pendingAttack = null;
+    e.order = { type: 'guard' };
+    events.push({ type: 'spellStart', heroId: e.id, spellId: spell.id, targetId: e.id });
+    return;
+  }
   h.spellCast = { spellId: spell.id, targetId: target.id, manaSpent: spell.manaCost, order };
   e.cast = {
     targetX: target.x,
@@ -436,6 +455,58 @@ function startSpell(e: Entity, order: Extract<UnitOrder, { type: 'cast' }>, byId
     heal: { targetId: target.id, amount: spell.healAmount, endRangeTiles: spell.rangeTiles + spell.endRangeMarginTiles },
   };
   events.push({ type: 'spellStart', heroId: e.id, spellId: spell.id, targetId: target.id });
+}
+
+/**
+ * Tourbillon (2026-11-03), avant le travail du Heros, apres le deplacement :
+ * le temps avance dans le pas fixe ; frappe n a `n * pulseSeconds` (1, 2, 3,
+ * 4, 5 s : exactement 5 frappes), a la position du Heros ; fin apres la
+ * derniere. Chaque frappe touche une fois chaque hostile vivant (ni allie, ni
+ * objet destructible, ni batiment non ciblable) dont le corps est a
+ * `radiusTiles`, pour `snapshotAttackDamage * damageRatio`, par
+ * applyDamageToEntity. Heros mort : fin immediate, aucune frappe.
+ * Fin (terminee ou mort) : la recharge du sort commence (2026-11-03) ; les
+ * recharges de chaque Heros avancent ici, vivant ou a terre.
+ */
+export function heroWhirlwindSystem(entities: Entity[], dt: number, events: HeroEvent[]): void {
+  for (const e of entities) {
+    const h = e.hero;
+    if (!h) continue;
+    for (const id of Object.keys(h.spellCooldowns)) {
+      const left = h.spellCooldowns[id]! - dt;
+      if (left <= 1e-9) delete h.spellCooldowns[id];
+      else h.spellCooldowns[id] = left;
+    }
+    const w = h.whirlwind;
+    if (!w) continue;
+    if (!e.alive) {
+      h.whirlwind = null;
+      if (w.cooldownSeconds > 0) h.spellCooldowns[w.spellId] = w.cooldownSeconds;
+      events.push({ type: 'whirlwindEnd', heroId: e.id, reason: 'death' });
+      continue;
+    }
+    w.elapsed += dt;
+    const total = Math.round(w.durationSeconds / w.pulseSeconds);
+    while (w.pulses < total && w.elapsed + 1e-6 >= (w.pulses + 1) * w.pulseSeconds) {
+      w.pulses += 1;
+      const damage = w.snapshotAttackDamage * w.damageRatio;
+      const hits: number[] = [];
+      for (const o of entities) {
+        if (o === e || !o.alive || o.hp <= 0 || areAllied(o.team, e.team) || o.destructible) continue;
+        if (o.isBuilding && !getBuilding(o.unitId).targetable) continue;
+        const reach = targetDistance(e.x, e.z, o) - (o.wall ? 0 : o.stats.radius);
+        if (reach > w.radiusTiles) continue;
+        applyDamageToEntity(o, damage);
+        hits.push(o.id);
+      }
+      events.push({ type: 'whirlwindPulse', heroId: e.id, x: e.x, z: e.z, pulse: w.pulses, damage, hits });
+    }
+    if (w.pulses >= total) {
+      h.whirlwind = null;
+      if (w.cooldownSeconds > 0) h.spellCooldowns[w.spellId] = w.cooldownSeconds;
+      events.push({ type: 'whirlwindEnd', heroId: e.id, reason: 'done' });
+    }
+  }
 }
 
 /** Annule l'incantation en cours : aucun effet, mana retenu rendu. */

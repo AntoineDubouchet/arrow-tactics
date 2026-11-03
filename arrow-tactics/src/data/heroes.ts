@@ -41,7 +41,8 @@ export const HEROES: readonly HeroDef[] = [
     // Niveau 1 : 20 (2026-11-02, demande d'Antoine ; 100 avant). Les niveaux
     // suivants ne changent pas encore le mana (decision ouverte).
     mana: { max: 20, initial: 20, regenPerSecond: 2 },
-    spells: ['heal'],
+    // Tourbillon (2026-11-03) : deuxieme case de la barre des sorts.
+    spells: ['heal', 'whirlwind'],
     startingEquipment: [],
   },
 ];

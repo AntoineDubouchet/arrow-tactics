@@ -33,7 +33,8 @@ export interface HeroHudState {
   /** Sorts du Heros, emplacement par emplacement (barre d'action) : nom,
    *  cout, icone, utilisable ou non, info-bulle, avancement de l'incantation
    *  en cours (0..1) ou null. */
-  spells: { id: string; name: string; cost: number; icon?: string; enabled: boolean; hint: string; castProgress: number | null }[];
+  /** `cooldown` : secondes de recharge restantes (arrondies), null = aucune. */
+  spells: { id: string; name: string; cost: number; icon?: string; enabled: boolean; hint: string; castProgress: number | null; cooldown?: number | null }[];
   /** Action en cours du Heros : avancement (0..1) et secondes restantes,
    *  sinon null (barre masquee). */
   action: { progress: number; remaining: number } | null;
@@ -73,7 +74,7 @@ export class HeroHud {
   private readonly castName: HTMLElement;
   private readonly castFill: HTMLElement;
   private readonly actionBar: HTMLElement;
-  private readonly slots: { root: HTMLButtonElement; icon: HTMLElement; cost: HTMLElement; cast: HTMLElement; spellId: string | null; enabled: boolean }[] = [];
+  private readonly slots: { root: HTMLButtonElement; icon: HTMLElement; cost: HTMLElement; cast: HTMLElement; timer: HTMLElement; spellId: string | null; enabled: boolean }[] = [];
   private shownSpells = '';
   private readonly xpRoot: HTMLElement;
   private readonly xpLevel: HTMLElement;
@@ -134,8 +135,11 @@ export class HeroHud {
       cost.className = 'hero-action-cost';
       const cast = document.createElement('span');
       cast.className = 'hero-action-cast';
-      root.append(icon, cast, key, cost);
-      const slot = { root, icon, cost, cast, spellId: null as string | null, enabled: false };
+      // Recharge (2026-11-03) : secondes restantes au centre de la case.
+      const timer = document.createElement('span');
+      timer.className = 'hero-action-timer';
+      root.append(icon, cast, timer, key, cost);
+      const slot = { root, icon, cost, cast, timer, spellId: null as string | null, enabled: false };
       root.addEventListener('click', () => this.activateSlot(i));
       this.slots.push(slot);
       this.actionBar.appendChild(root);
@@ -215,6 +219,8 @@ export class HeroHud {
       slot.root.title = spell ? `${spell.hint} — touche ${i + 1}` : `Emplacement ${i + 1} (vide)`;
       slot.cost.textContent = spell ? String(spell.cost) : '';
       slot.cast.style.height = spell?.castProgress != null ? `${Math.round((1 - spell.castProgress) * 100)}%` : '0';
+      const timerText = spell?.cooldown ? String(spell.cooldown) : '';
+      if (slot.timer.textContent !== timerText) slot.timer.textContent = timerText;
     });
 
     const dead = state.respawnIn !== null;

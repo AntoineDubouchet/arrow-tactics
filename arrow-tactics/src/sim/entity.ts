@@ -131,14 +131,28 @@ export interface OnHitEffects {
 }
 
 /** Etat propre au Heros (Entity.hero). */
-/** Etat d'un Villageois : ce qu'il porte (bois ou pierre, jamais d'or),
- *  sa capacite, la source a laquelle revenir apres un depot, son geste. */
+/** Etat d'un Villageois : la source qu'il exploite (pour passer a la
+ *  voisine quand elle s'epuise) et son geste. Rien de porte : tout est
+ *  credite au stock (2026-11-03). */
 export interface WorkerState {
-  carry: { resource: 'wood' | 'stone'; amount: number } | null;
-  capacity: number;
   nodeId: number | null;
   working: 'chop' | 'mine' | 'deposit' | null;
   workTimer: number;
+}
+
+/** Tourbillon en cours d'un Heros (data/spells.ts, WhirlwindEffect). */
+export interface WhirlwindState {
+  spellId: string;
+  elapsed: number;
+  pulses: number;
+  /** Degats d'attaque finaux du Heros au lancement (niveau, equipement). */
+  snapshotAttackDamage: number;
+  durationSeconds: number;
+  pulseSeconds: number;
+  radiusTiles: number;
+  damageRatio: number;
+  /** Recharge lancee a la fin de l'effet (SpellDef.cooldownSeconds). */
+  cooldownSeconds: number;
 }
 
 export interface HeroState {
@@ -173,6 +187,12 @@ export interface HeroState {
    *  effet) et ordre `cast` qui l'a lancee — tout autre ordre l'annule.
    *  null sinon. */
   spellCast: { spellId: string; targetId: number; manaSpent: number; order: UnitOrder } | null;
+  /** Tourbillon en cours (2026-11-03, sim/systems/hero.ts) : temps ecoule,
+   *  frappes deja donnees, degats d'attaque figes au lancement. null sinon. */
+  whirlwind: WhirlwindState | null;
+  /** Temps de recharge restant par sort (s de simulation, 2026-11-03) ;
+   *  absent ou retire = sort disponible. Court aussi pendant la mort. */
+  spellCooldowns: Record<string, number>;
   /** Mana de base du Heros (kit) et bonus d'equipement resolus : `maxMana`,
    *  `manaRegen` et les stats de l'entite en sont deduits
    *  (sim/systems/hero.ts, refreshHeroStats), jamais cumules. */
@@ -417,8 +437,8 @@ export interface Entity {
    *  resurrection, travail (recolte, construction). null pour toute autre
    *  entite. */
   hero: HeroState | null;
-  /** Villageois (2026-11-03, sim/systems/workers.ts) : charge portee et
-   *  boucle recolte -> depot. null pour toute autre entite. */
+  /** Villageois (2026-11-03, sim/systems/workers.ts) : recolte continue.
+   *  null pour toute autre entite. */
   worker: WorkerState | null;
   /** Chantier : batiment pose mais pas encore construit (ni production, ni
    *  tir, ni porte, ne compte pas pour la defaite), construit par le Heros.

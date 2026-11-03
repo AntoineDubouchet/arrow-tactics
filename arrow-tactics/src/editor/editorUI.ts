@@ -14,7 +14,7 @@ import { groundTextureUrl } from '../render/textures';
 import { toonUnitThumbnail } from '../render/toonThumbnail';
 import { toonFactionKind, type ToonUnitKind } from '../render/toonUnitRig';
 import { teamColor } from '../render/unitSelectionRing';
-import type { CellReliefOp, EditorBuilding, EditorObstacle, EditorSelection, EditorTool, EditorUnit, EditorWallLine, PlacementTemplate } from './editorState';
+import type { CellReliefOp, EditorBuilding, EditorFeatureTemplate, EditorObstacle, EditorSelection, EditorTool, EditorUnit, EditorWallLine, PlacementTemplate } from './editorState';
 import { FOREST_BRUSH_SIZES, FOREST_DENSITIES, FOREST_TREE_TYPES, type ForestBrushSize, type ForestDensity, type ForestTreeTypeId } from './forestBrush';
 
 export interface EditorUIHandlers {
@@ -74,6 +74,13 @@ export interface EditorUIHandlers {
   onRequestLoad: () => boolean;
   /** Bouton "Nouvelle carte" (la protection du brouillon est dans main.ts). */
   onNewMap: () => void;
+  /** « Générer » (2026-11-03) : carte du vrai generateur de la Survie pour
+   *  cette graine (la protection du brouillon est dans main.ts). */
+  onGenerateProcedural: (seed: number) => void;
+  /** « Vue globale » : camera sur toute la carte. */
+  onGlobalView: () => void;
+  /** Petit tas ou baril (groupe « Survie »), pose continue. */
+  onSelectFeatureTool: (template: EditorFeatureTemplate) => void;
   /** Bouton "Appliquer" du controle de taille — largeur/hauteur en cases,
    *  deja validees comme des entiers positifs par l'UI (voir constructor). */
   onResizeMap: (width: number, height: number) => void;
@@ -909,6 +916,12 @@ export class EditorUI {
   private readonly buildingCards = new Map<string, HTMLButtonElement>();
   /** Cartes du groupe « Murs » : `<famille>:line` et `<famille>:gate`. */
   private readonly wallCards = new Map<string, HTMLButtonElement>();
+  /** Graine de la generation procedurale (2026-11-03). */
+  private readonly seedInput = document.createElement('input');
+  /** Petit panneau d'informations de la carte generee. */
+  private readonly generationInfo = document.createElement('div');
+  /** Cartes du groupe « Survie » (tas, baril). */
+  private readonly featureCards = new Map<EditorFeatureTemplate, HTMLButtonElement>();
   private readonly assetCards = new Map<PlacementTemplate, { button: HTMLButtonElement; label: string }>();
   /** Camp que reprend le bouton "Peindre le territoire" : le dernier choisi. */
   private territoryValue: TerritoryTeam | null = 'player';
@@ -948,6 +961,47 @@ export class EditorUI {
     newButton.textContent = 'Nouvelle carte';
     newButton.addEventListener('click', handlers.onNewMap);
     toolbar.appendChild(newButton);
+
+    // Generation procedurale (2026-11-03) : graine, Generer, Nouvelle graine.
+    const seedLabel = document.createElement('label');
+    seedLabel.className = 'editor-seed';
+    seedLabel.textContent = 'Graine ';
+    this.seedInput.type = 'number';
+    this.seedInput.min = '0';
+    this.seedInput.step = '1';
+    this.seedInput.className = 'editor-seed-input';
+    this.seedInput.value = '12345';
+    this.seedInput.title = 'Graine du générateur de la Survie : même graine = même carte';
+    seedLabel.appendChild(this.seedInput);
+    toolbar.appendChild(seedLabel);
+    const generateButton = document.createElement('button');
+    generateButton.type = 'button';
+    generateButton.className = 'editor-button editor-generate';
+    generateButton.textContent = 'Générer';
+    generateButton.title = 'Remplace la carte éditée par la carte procédurale de cette graine (vrai générateur de la Survie)';
+    generateButton.addEventListener('click', () => {
+      const seed = Number(this.seedInput.value);
+      if (Number.isInteger(seed) && seed >= 0) handlers.onGenerateProcedural(seed >>> 0);
+    });
+    toolbar.appendChild(generateButton);
+    const rerollButton = document.createElement('button');
+    rerollButton.type = 'button';
+    rerollButton.className = 'editor-button editor-new-seed';
+    rerollButton.textContent = 'Nouvelle graine';
+    rerollButton.title = 'Tire une graine au hasard et génère';
+    rerollButton.addEventListener('click', () => {
+      const seed = Math.floor(Math.random() * 1_000_000);
+      this.seedInput.value = String(seed);
+      handlers.onGenerateProcedural(seed);
+    });
+    toolbar.appendChild(rerollButton);
+    const globalButton = document.createElement('button');
+    globalButton.type = 'button';
+    globalButton.className = 'editor-button editor-global-view';
+    globalButton.textContent = 'Vue globale';
+    globalButton.title = 'Cadre toute la carte (puis zoom normal à la molette)';
+    globalButton.addEventListener('click', handlers.onGlobalView);
+    toolbar.appendChild(globalButton);
 
     const saveButton = document.createElement('button');
     saveButton.type = 'button';
@@ -995,6 +1049,10 @@ export class EditorUI {
     this.mapTitle = title;
     toolbar.appendChild(title);
     this.root.appendChild(toolbar);
+    // Informations de la carte generee (2026-11-03), sous la barre d'outils.
+    this.generationInfo.className = 'editor-generation-info';
+    this.generationInfo.hidden = true;
+    this.root.appendChild(this.generationInfo);
 
     const browser = document.createElement('div');
     browser.className = 'editor-asset-browser';
@@ -1202,6 +1260,14 @@ export class EditorUI {
       for (const buildingId of ids) browser.appendChild(this.buildingAssetCard(buildingId, handlers.onSelectBuilding));
     }
     // Murs V2 (data/walls.ts) : trace A -> B et porte, memes regles qu'en jeu.
+    // Elements de carte Survie (2026-11-03) : petits tas et baril ; les camps
+    // viennent du generateur (selection, suppression).
+    browser.appendChild(this.groupHeader('Survie'));
+    for (const [template, label] of [['pile-wood', 'Tas de bois (5)'], ['pile-stone', 'Tas de pierre (5)'], ['barrel', 'Baril']] as const) {
+      const card = this.toolCard(label, () => handlers.onSelectFeatureTool(template));
+      this.featureCards.set(template, card);
+      browser.appendChild(card);
+    }
     browser.appendChild(this.groupHeader('Murs'));
     for (const type of Object.values(WALL_TYPES)) {
       const line = this.toolCard(type.displayName, () => handlers.onSelectWallTool(type.id, false));
@@ -1440,6 +1506,12 @@ export class EditorUI {
         status = `Outil : Surface — ${name} (${tool.size}×${tool.size}) · Clic / glisser : peindre le dessus des cases, sous les objets compris · visuel uniquement, sauf l’eau (infranchissable, jamais sous une unité ou un bâtiment) · Échap : Sélection`;
         break;
       }
+      case 'place-feature': {
+        const card = this.featureCards.get(tool.feature);
+        if (card) active.push(card);
+        status = `Outil : ${tool.feature === 'barrel' ? 'Baril' : tool.feature === 'pile-wood' ? 'Tas de bois' : 'Tas de pierre'} · Clic : poser sur la case (pose continue) · Échap : Sélection`;
+        break;
+      }
       case 'forest-brush': {
         active.push(tool.erase ? this.forestEraseButton : this.forestButton);
         const type = FOREST_TREE_TYPES.find((t) => t.id === tool.treeType)?.label ?? tool.treeType;
@@ -1559,6 +1631,18 @@ export class EditorUI {
   /** Synchronise les champs largeur/hauteur avec l'etat reel — appele en
    *  entrant dans l'editeur et apres le chargement d'une carte, pour ne
    *  jamais laisser les champs afficher une taille perimee. */
+  /** Informations de la carte generee (graine, comptes), ou null pour les
+   *  masquer (carte vierge ou chargee). */
+  setGenerationInfo(lines: string[] | null): void {
+    this.generationInfo.hidden = lines === null;
+    this.generationInfo.replaceChildren(...(lines ?? []).map((l) => Object.assign(document.createElement('div'), { textContent: l })));
+  }
+
+  /** Graine affichee dans le champ (carte generee ou chargee avec sa graine). */
+  setSeed(seed: number): void {
+    this.seedInput.value = String(seed);
+  }
+
   setMapSize(width: number, height: number): void {
     this.widthInput.value = String(width);
     this.heightInput.value = String(height);
@@ -1897,6 +1981,8 @@ function selectStatus(selection: EditorSelection): string {
       return 'Outil : Sélection — bâtiment du scénario · Suppr : supprimer · Échap : désélectionner';
     case 'wall':
       return 'Outil : Sélection — mur (ligne entière) · Suppr : supprimer · Échap : désélectionner';
+    case 'feature':
+      return 'Outil : Sélection — élément de Survie (camp, tas ou baril) · Suppr : supprimer · Échap : désélectionner';
     case 'ballista':
       return 'Outil : Sélection — Baliste · Clic au sol : déplacer (3×3 en territoire joueur) · Échap : désélectionner';
   }
