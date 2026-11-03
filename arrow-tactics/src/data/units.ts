@@ -77,7 +77,7 @@ export interface UnitStats {
 
 export interface UnitVisual {
   /** Quel constructeur de silhouette utiliser dans render/unitMesh.ts */
-  kit: 'fantassin' | 'archer' | 'mage' | 'sentinel' | 'oracle' | 'piquier' | 'vengeur' | 'hero' | 'cavalier' | 'cavalier_barbare';
+  kit: 'fantassin' | 'archer' | 'mage' | 'sentinel' | 'oracle' | 'piquier' | 'vengeur' | 'hero' | 'cavalier' | 'cavalier_barbare' | 'villageois';
   /** Famille d'assets (config/factions.ts), independante du camp : absent =
    *  humains. `barbarian` : modele Toon RTS barbare du meme role (kit). */
   faction?: VisualFaction;
@@ -503,20 +503,24 @@ export const UNITS: Record<string, UnitDef> = {
     pluralName: 'Villageois',
     cost: 5,
     populationCost: 1,
+    // Aucune attaque (2026-11-03, demande d'Antoine : unite economique, pas
+    // militaire) : degats 0, aucune acquisition de cible (aggro 0). Reste
+    // ciblable et tuable.
     stats: {
       maxHp: 25,
-      damage: 2,
+      damage: 0,
       attackRange: 0.95,
-      // Se defend au contact, ne court jamais apres l'ennemi.
-      aggroRange: 1.5,
+      aggroRange: 0,
       moveSpeed: 2.2,
       attackCooldown: 1.6,
-      missChance: 0.25,
+      missChance: 0,
       dodgeChance: 0,
       radius: 0.4,
       canAttackWhileMoving: false,
     },
-    visual: { kit: 'piquier' },
+    // Modele dedie `human_villager` (2026-11-03, Atelier d'Antoine) : peon
+    // sans arme, hache / pioche temporaires au travail.
+    visual: { kit: 'villageois' },
     worker: true,
   },
   // Vengeur (2026-11-01, demande d'Antoine) : combattant religieux de

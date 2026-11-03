@@ -93,9 +93,11 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G25 | Or monnaie, Forge = outils, gisements bloquants | Active (valeurs provisoires) |
 | G26 | Maison A/B, Sanctuaire, Écurie | Active (valeurs provisoires) |
 | G27 | Éditeur : maps authored, procédurales et hybrides | Direction active (génération faite ; mode définitif Ouvert) |
-| G28 | Auberge et Villageois : première unité économique | Active (valeurs provisoires) |
+| G28 | Auberge et Villageois : première unité économique | Active (valeurs provisoires ; transport rétabli par G32, modèle dédié) |
 | G29 | Tourbillon du Paladin (prototype) | Active (valeurs et VFX provisoires) |
-| G30 | Stock direct : bois et pierre comme l'or | Active |
+| G30 | Stock direct : bois et pierre comme l'or | Remplacée le jour même (G32) |
+| G32 | Cargo économique : inventaire RPG ≠ sac de ressources ; or de gisement = cargo, or de butin = monnaie | Active (valeurs provisoires) |
+| G31 | Caméra de jeu verrouillée sur le Héros | Retirée (essai d'un jour, retour à la vue RTS libre) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -1816,8 +1818,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Statut** : Active ; valeurs **provisoires**.
 - **Demande d'Antoine** (2026-11-03) :
   - **Or = monnaie** : plus un objet du sac ; tas ramassés d'un clic,
-    instantanément ; gisement d'or extrait à la pioche, crédité
-    directement ; Mine inchangée ;
+    instantanément (remplacé le même jour : le Héros va le ramasser, voir
+    G30) ; gisement d'or extrait à la pioche, crédité directement ; Mine
+    inchangée ;
   - **Forge = déblocage des outils** : une Forge terminée donne la Hache de
     bûcheron et la Pioche de mineur ; message unique ; sans Forge :
     sélection, message, déplacement, pas d'extraction ; dernière Forge
@@ -1857,8 +1860,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 ### G28 — Auberge et Villageois : première unité économique
 
 - **Statut** : Active ; valeurs **provisoires**. Transport (porter 5,
-  déposer, revenir) **supprimé le 2026-11-03** (G30) : récolte continue,
-  crédit direct.
+  déposer, revenir) supprimé puis **rétabli le 2026-11-03** (G32, cargo de
+  5) ; modèle dédié `human_villager` et aucune attaque (G32).
 - **Demande d'Antoine** (2026-11-03) : Auberge (producteur standard) qui
   produit le Villageois ; récolte bois, pierre et or avec la permission de
   la Forge ; transport simple (≈ 5) au dépôt, retour à la ressource ; or
@@ -1902,22 +1905,68 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### G30 — Stock direct : bois et pierre comme l'or
 
-- **Statut** : Active.
+- **Statut** : **Remplacée** le 2026-11-03, le jour même, par G32 (cargo
+  économique) : le bois, la pierre et l'or de gisement sont de nouveau
+  transportés ; seul l'or de butin reste une monnaie directe.
 - **Demande d'Antoine** (2026-11-03) : le bois et la pierre n'ont plus besoin
   d'être stockés (déposés) ni empilés dans l'inventaire.
 - **Choix de la passe** :
   - toute récolte (Héros, Villageois) crédite le stock à chaque unité ;
-    tous les petits tas se ramassent d'un clic, instantanément ;
+    tous les tas (bois, pierre, **or**) ramassés **en y allant** avec le
+    Héros (geste de ramassage d'avant, tas entier crédité ; corrections
+    d'Antoine du 2026-11-03 : rien à distance) ;
   - le sac ne contient plus que les équipements ;
   - **Villageois** : sa boucle « porter 5, déposer, revenir » (G28) est
     supprimée par cohérence (plus de dépôt) ; il récolte en continu ;
-  - les ordres `pickup` (tas) et `deposit` restent dans la simulation mais
-    ne sont plus émis par l'interface (KI-63).
+  - l'ordre `deposit` reste dans la simulation mais n'est plus émis par
+    l'interface (KI-63).
 - **Remplace** : l'or physique de G15 (déjà remplacé par G25), le transport
   et le dépôt de G15 et de G28.
 - **Sources** : `sim/systems/hero.ts` (`HeroWorkContext.mined`),
   `sim/systems/workers.ts`, `sim/world.ts` (`minedEvents`, `collectPile`),
   `main.ts` (`creditStock`, `collectPile`, `creditMinedResources`).
+
+### G32 — Cargo économique : inventaire RPG ≠ sac de ressources
+
+- **Statut** : Active ; valeurs **provisoires**.
+- **Demande d'Antoine** (2026-11-03) : distinguer les ressources économiques
+  transportées (bois, pierre, or **extrait d'un gisement**) de l'or de
+  butin (monnaie directe) ; ne pas remettre les ressources dans les 20
+  cases de l'inventaire ; un sac de ressources séparé (Héros 10,
+  Villageois 5, capacité totale) ; dépôt automatique au point de collecte
+  le plus proche, retour à la source ; dépôt manuel ; points de collecte
+  configurés par données (Baliste seule pour l'instant ; futurs Scierie et
+  Camp de mineur non activés) ; pas de téléportation ; cargo perdu à la
+  mort ; Villageois avec son propre modèle, sans arme, hache / pioche
+  temporaires, aucune attaque.
+- **Choix de la passe** :
+  - un seul système (`sim/systems/cargo.ts`) pour le Héros et le Villageois,
+    l'ancien dépôt du Héros (lié au sac RPG) remplacé plutôt que ressuscité ;
+  - point de collecte choisi d'après la ressource la **plus portée** ; les
+    ressources non acceptées restent dans le cargo ;
+  - source épuisée : dépôt **d'abord**, puis source voisine (Villageois) ou
+    Garde (Héros) ; outil perdu : unité finie, dépôt, Garde ;
+  - tout ordre manuel oublie la tâche à reprendre (cargo gardé) ;
+  - mort : ressources perdues, pas de sac au sol (**PROVISOIRE**) ;
+  - Villageois : dégâts 0 et aggro 0 (aucune attaque), clips Spearman, estoc
+    = coup de hache / de pioche, ramassage et dépôt sans geste accroupi.
+- **Sources** : `data/resources.ts`, `data/buildings.ts` (`dropOff`),
+  `data/units.ts`, `sim/entity.ts`, `sim/systems/cargo.ts`,
+  `sim/systems/hero.ts`, `sim/systems/workers.ts`, `sim/world.ts`,
+  `sim/orders.ts`, `render/toonUnitRig.ts`, `render/heroEquipmentView.ts`,
+  `render/unitViews.ts`, `render/resourcePiles.ts`, `run/entityInfo.ts`,
+  `ui/heroInventory.ts`, `main.ts`, `tools/toon-units/units.json`
+  (`human_villager`).
+
+### G31 — Caméra de jeu verrouillée sur le Héros (essai retiré)
+
+- **Statut** : **Retirée** le 2026-11-03, le jour même (demande d'Antoine :
+  « avec un peu de recul, repasse sur la vue RTS libre »). Le code est
+  revenu à la caméra libre d'avant (suivi du Héros lâché par les bords ou
+  le pan, zoom et inclinaison libres, Maj + clic droit pour pivoter).
+- **Essai** : suivi jamais lâché, vue figée (hauteur 18, inclinaison 28°),
+  rotation seule au clic droit maintenu + glisser. Rien n'en reste dans
+  le code.
 
 ### G27 — Éditeur : maps authored, procédurales et hybrides
 

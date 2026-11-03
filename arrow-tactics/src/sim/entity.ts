@@ -3,6 +3,7 @@ import type { ObstacleDef } from '../config/constants';
 import type { SpellDef } from '../data/spells';
 import type { UnitStats } from '../data/units';
 import type { UnitOrder } from './orders';
+import type { ResourceCargo } from '../data/resources';
 import type { HeroInventory } from './inventory';
 
 export type Team = 'player' | 'enemy';
@@ -131,13 +132,17 @@ export interface OnHitEffects {
 }
 
 /** Etat propre au Heros (Entity.hero). */
-/** Etat d'un Villageois : la source qu'il exploite (pour passer a la
- *  voisine quand elle s'epuise) et son geste. Rien de porte : tout est
- *  credite au stock (2026-11-03). */
+/** Etat d'un Villageois : son geste de travail (rendu : outil et clip). */
 export interface WorkerState {
-  nodeId: number | null;
-  working: 'chop' | 'mine' | 'deposit' | null;
+  working: 'chop' | 'mine' | 'gather' | 'deposit' | null;
   workTimer: number;
+}
+
+/** Cargo economique (data/resources.ts ResourceCargo) et boucle de travail :
+ *  `returnTo` : tache de recolte a reprendre apres un depot automatique
+ *  (source ou tas), oubliee par tout ordre manuel. */
+export interface CargoState extends ResourceCargo {
+  returnTo: { kind: 'node'; nodeId: number } | { kind: 'pile'; pileId: number } | null;
 }
 
 /** Tourbillon en cours d'un Heros (data/spells.ts, WhirlwindEffect). */
@@ -437,9 +442,13 @@ export interface Entity {
    *  resurrection, travail (recolte, construction). null pour toute autre
    *  entite. */
   hero: HeroState | null;
-  /** Villageois (2026-11-03, sim/systems/workers.ts) : recolte continue.
+  /** Villageois (2026-11-03) : unite economique (sim/systems/cargo.ts).
    *  null pour toute autre entite. */
   worker: WorkerState | null;
+  /** Cargo economique (2026-11-03, sim/systems/cargo.ts) : bois, pierre, or
+   *  extrait transportes jusqu'au point de collecte ; Heros et Villageois.
+   *  null pour les autres. Jamais dans l'inventaire RPG. */
+  cargo: CargoState | null;
   /** Chantier : batiment pose mais pas encore construit (ni production, ni
    *  tir, ni porte, ne compte pas pour la defaite), construit par le Heros.
    *  null : batiment construit (et toute unite). */

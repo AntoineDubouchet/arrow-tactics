@@ -67,6 +67,12 @@ export function applyHeroEquipmentVisual(view: THREE.Object3D, visuals: HeroHeld
   }
 }
 
+/** Outil en main du Villageois selon son travail (chaque image) : hache
+ *  (couper), pioche (miner) ; mains vides sinon (ni ramassage ni depot). */
+export function setWorkerTool(view: THREE.Object3D, working: string | null | undefined): void {
+  setToonTool(view, working === 'chop' ? 'axe' : working === 'mine' ? 'pick' : '');
+}
+
 /** Outil ou arme en main selon le travail du Heros (chaque image). */
 export function setHeroWorkTool(view: THREE.Object3D, working: string | null | undefined): void {
   const tool = working === 'chop' ? 'axe' : working === 'mine' ? 'pick' : working === 'build' ? 'hammer' : null;

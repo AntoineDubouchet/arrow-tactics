@@ -1,7 +1,7 @@
 import type { ObstacleBounds } from '../../config/constants';
-import type { NodeResource, ResourceNode } from '../../config/resourceNodes';
-import { CARRIED_RESOURCES, HARVEST_NODE_KINDS, type CarriedResource, type HarvestResource, type PileResource } from '../../data/resources';
-import { addItem, addResource, carriedResourceTotal, removeOneResource, resourceCount, roomFor } from '../inventory';
+import type { ResourceNode } from '../../config/resourceNodes';
+import { HARVEST_NODE_KINDS, type HarvestResource, type PileResource } from '../../data/resources';
+import { addItem } from '../inventory';
 import { getBuilding } from '../../data/buildings';
 import { distanceToSegment } from '../../core/wallLine';
 import { applyDamageToEntity } from '../damage';
@@ -14,8 +14,6 @@ import {
   REPAIR_FULL_SECONDS,
   CHEST_REACH,
   CONSTRUCTION_START_HP_FRACTION,
-  DEPOSIT_SECONDS_PER_ITEM,
-  HARVEST_INTERVAL,
   HARVEST_REACH,
   HERO_XP_SHARE_RADIUS,
   heroLevelForXp,
@@ -25,10 +23,11 @@ import {
   PICKUP_REACH,
   PICKUP_SECONDS,
 } from '../../data/hero';
-import type { Entity, HeroState } from '../entity';
+import type { Entity } from '../entity';
 import { isWorkOrder, type UnitOrder } from '../orders';
 import type { AbilityEvent } from './abilities';
 import type { Chest } from './camps';
+import { cargoWork, type CargoEvent } from './cargo';
 
 /**
  * Heros (2026-11-01, direction Hero RTS, data/hero.ts) : progression (XP en
@@ -55,9 +54,6 @@ export type HeroEvent =
   | { type: 'respawn'; heroId: number; x: number; z: number }
   /** Une unite recoltee sur un arbre ou un rocher, mise dans le sac. */
   /** Petit tas ramasse : quantite prise et quantite restante au sol. */
-  | { type: 'pickup'; heroId: number; resource: CarriedResource; amount: number; pileId: number; remaining: number }
-  /** Sac plein : le travail s'arrete (le Heros passe en Garde). */
-  | { type: 'carryFull'; heroId: number }
   /** Item au sol ramasse (butin) : la run l'ajoute a l'inventaire du Heros. */
   | { type: 'itemPickup'; heroId: number; dropId: number; itemId: string }
   /** Butin non ramasse : aucune case libre (l'item reste au sol). */
@@ -66,9 +62,6 @@ export type HeroEvent =
   | { type: 'chestOpened'; heroId: number; chestId: number; itemId: string | null; dropId: number | null }
   /** Coffre encore verrouille (camp defendu) a l'arrivee : rien ne s'ouvre. */
   | { type: 'chestLocked'; heroId: number; chestId: number }
-  /** Unite versee au stock de la run (depot, une toutes les
-   *  DEPOSIT_SECONDS_PER_ITEM s) ; `remaining` : unites encore portees. */
-  | { type: 'deposit'; heroId: number; wood: number; stone: number; remaining: number }
   | { type: 'built'; heroId: number; buildingId: number }
   /** Fin d'une reparation : PV rendus sur le budget paye (remboursement du
    *  reste par l'orchestration). `reason` : terminee, ou interrompue (autre
@@ -118,10 +111,6 @@ export interface HeroWorkContext {
   /** Outil disponible pour une source (Forge terminee,
    *  World.harvestPermissions). */
   canHarvest(resource: HarvestResource): boolean;
-  /** Ressources extraites pendant ce pas (bois, pierre, or ; 2026-11-03) :
-   *  creditees DIRECTEMENT au stock par l'orchestration, jamais portees
-   *  (ni sac, ni depot). */
-  mined: MinedResource[];
   piles: readonly ResourcePile[];
   drops: readonly ItemDrop[];
   /** Coffres (World.chests), verrou (camp pas nettoye) et ouverture (tirage
@@ -129,19 +118,6 @@ export interface HeroWorkContext {
   chests: readonly Chest[];
   chestLocked(chest: Chest): boolean;
   openChest(chest: Chest): { itemId: string | null; dropId: number | null };
-}
-
-/** Unite extraite d'une source par une entite (Heros, Villageois). */
-export interface MinedResource {
-  entityId: number;
-  nodeId: number;
-  resource: NodeResource;
-  amount: number;
-}
-
-/** Unites portees par un Heros. */
-export function carriedAmount(h: Pick<HeroState, 'inventory'>): number {
-  return carriedResourceTotal(h.inventory);
 }
 
 /** But du travail d'un Heros (source, chantier, tas, depot) et portee de
@@ -182,9 +158,12 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
     if (!chest || chest.opened) return null;
     return { x: chest.x, z: chest.z, reached: Math.hypot(chest.x - e.x, chest.z - e.z) <= e.stats.radius + CHEST_REACH, target: null };
   }
-  // Tas au sol (bois, pierre, or ; 2026-11-03) : ramasses d'un clic par le
-  // joueur (World.collectPile), jamais par le sac : l'ordre est sans objet.
-  if (order.type === 'pickup') return null;
+  if (order.type === 'pickup') {
+    const pile = work.piles[order.pileId];
+    // Tas de bois, de pierre ou d'or : le Heros va au tas (2026-11-03).
+    if (!pile || pile.amount <= 0) return null;
+    return { x: pile.x, z: pile.z, reached: Math.hypot(pile.x - e.x, pile.z - e.z) <= e.stats.radius + PICKUP_REACH, target: null };
+  }
   const target = byId.get(order.targetEntityId);
   if (!target || !target.alive || (order.type === 'build' && !target.construction)) return null;
   // Reparation : jamais un batiment a 0 PV (detruit au pas en cours, avant deathSystem).
@@ -212,7 +191,7 @@ function distanceToBox(e: Entity, b: ObstacleBounds): number {
  *  toutes les HARVEST_INTERVAL s), ramassage d'un tas (PICKUP_SECONDS), depot
  *  du sac, construction (avancement, PV qui montent ; fin : batiment
  *  fonctionnel, enchainement sur le chantier voisin). */
-export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: number, events: HeroEvent[]): void {
+export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: number, events: HeroEvent[], cargoEvents: CargoEvent[]): void {
   const byId = new Map(entities.map((e) => [e.id, e]));
   for (const e of entities) {
     const h = e.hero;
@@ -243,70 +222,9 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       if (!h.spellCast) startSpell(e, e.order, byId, events);
       continue;
     }
-    if (e.order.type === 'deposit') {
-      // Depot (2026-11-02) : une unite (bois, puis pierre) toutes les
-      // DEPOSIT_SECONDS_PER_ITEM s au contact ; un autre ordre interrompt et
-      // garde ce qui est deja verse. Garde quand le sac est vide.
-      if (carriedAmount(h) > 0) {
-        h.working = 'deposit';
-        const before = Math.floor(h.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9);
-        h.workTimer += dt;
-        let due = Math.floor(h.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9) - before;
-        // Bois, puis pierre, puis or ; les equipements ne sont jamais deposes.
-        while (due-- > 0 && carriedAmount(h) > 0) {
-          const kind = CARRIED_RESOURCES.find((r) => resourceCount(h.inventory, r) > 0)!;
-          h.inventory = removeOneResource(h.inventory, kind)!;
-          events.push({ type: 'deposit', heroId: e.id, wood: kind === 'wood' ? 1 : 0, stone: kind === 'stone' ? 1 : 0, remaining: carriedAmount(h) });
-        }
-      }
-      if (carriedAmount(h) === 0) {
-        e.order = { type: 'guard' };
-        h.working = null;
-        h.workTimer = 0;
-      }
-      continue;
-    }
-    if (e.order.type === 'pickup') {
-      const resource = work.piles[e.order.pileId]!.resource;
-      // Or : monnaie, aucune place de sac requise.
-      if (resource !== 'gold' && roomFor(h.inventory, resource) === 0) {
-        events.push({ type: 'carryFull', heroId: e.id });
-        e.order = { type: 'guard' };
-        h.working = null;
-        h.workTimer = 0;
-        continue;
-      }
-    }
-    if (e.order.type === 'harvest') {
-      const node = work.nodes.get(e.order.nodeId)!;
-      const allowed = work.canHarvest(node.resource);
-      h.working = HARVEST_NODE_KINDS[node.resource].working;
-      h.workTimer += dt;
-      let finished = false;
-      while (h.workTimer >= HARVEST_INTERVAL && (work.nodeAmounts.get(node.id) ?? 1) > 0) {
-        h.workTimer -= HARVEST_INTERVAL;
-        const left = work.nodeAmounts.get(node.id);
-        if (left !== undefined) {
-          work.nodeAmounts.set(node.id, left - 1);
-          if (left - 1 <= 0) work.depleted.push(node.id);
-        }
-        // Bois, pierre, or (2026-11-03) : credites directement au stock,
-        // jamais dans le sac (plus de depot a la Baliste).
-        work.mined.push({ entityId: e.id, nodeId: node.id, resource: node.resource, amount: 1 });
-        // Droit perdu : l'unite en cours est finie, puis le travail s'arrete.
-        if (!allowed) {
-          finished = true;
-          break;
-        }
-      }
-      // Source epuisee ou droit perdu : le Heros passe en Garde.
-      if (finished || (work.nodeAmounts.get(node.id) ?? 1) <= 0) {
-        e.order = { type: 'guard' };
-        h.working = null;
-        h.workTimer = 0;
-      }
-      continue;
-    }
+    // Recolte, tas, depot : cargo economique partage avec le Villageois
+    // (sim/systems/cargo.ts, 2026-11-03).
+    if (cargoWork(e, goal, work, entities, dt, cargoEvents)) continue;
     if (e.order.type === 'pickupItem') {
       // Butin : meme geste et meme duree qu'un petit tas.
       const drop = work.drops[e.order.dropId]!;
@@ -338,23 +256,6 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
         const loot = work.openChest(chest);
         events.push({ type: 'chestOpened', heroId: e.id, chestId: chest.id, itemId: loot.itemId, dropId: loot.dropId });
       }
-      e.order = { type: 'guard' };
-      h.working = null;
-      h.workTimer = 0;
-      continue;
-    }
-    if (e.order.type === 'pickup') {
-      const pile = work.piles[e.order.pileId]!;
-      h.working = 'gather';
-      h.workTimer += dt;
-      if (h.workTimer < PICKUP_SECONDS) continue;
-      // Tout ce que le sac peut prendre (piles entamees, puis cases libres) ;
-      // le reste du tas reste au sol.
-      const { inventory, added } = addResource(h.inventory, pile.resource as CarriedResource, pile.amount);
-      h.inventory = inventory;
-      pile.amount -= added;
-      events.push({ type: 'pickup', heroId: e.id, resource: pile.resource as CarriedResource, amount: added, pileId: pile.id, remaining: pile.amount });
-      if (pile.amount > 0) events.push({ type: 'carryFull', heroId: e.id });
       e.order = { type: 'guard' };
       h.working = null;
       h.workTimer = 0;

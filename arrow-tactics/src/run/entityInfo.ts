@@ -19,7 +19,7 @@ import { churchHealCost, churchHealHpPerGold } from './churchHeal';
 import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isBuildingAtMaxLevel, isUpgradableBuilding } from './buildingUpgrades';
 import { BODY_LAYOUT, EQUIPMENT_SLOTS, EQUIPMENT_TYPES, getEquipment, RARITIES, type EquipmentSlot } from '../data/equipment';
-import { HARVEST_TOOLS, RESOURCE_ITEMS } from '../data/resources';
+import { CARGO_LABELS, CARGO_RESOURCES, cargoTotal, HARVEST_TOOLS, RESOURCE_ITEMS, type ResourceCargo } from '../data/resources';
 import { describeEquipment } from './heroEquipment';
 import { freeSlotCount, type HeroInventory } from '../sim/inventory';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './playerUnitStats';
@@ -332,7 +332,7 @@ export function placementUnitInfo(slot: PlacementUnitSource, progress: PlayerPro
  *  vague pour un ennemi, carte pour un garde de camp, progression pour le
  *  Heros). */
 export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number): UnitInfo {
-  return buildUnitInfo({
+  const info = buildUnitInfo({
     unitId: entity.unitId,
     team: entity.team,
     hp: entity.hp,
@@ -348,6 +348,15 @@ export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number): Un
     // Niveau d'unite >= 1 (titleWithLevel affiche niveau + 1).
     upgradeLevel: entity.level - 1,
   });
+  // Villageois (2026-11-03) : cargo economique « Transport : 3 / 5 — Pierre ».
+  if (!entity.worker || !entity.cargo) return info;
+  return { ...info, rows: [...info.rows, { label: 'Transport', value: cargoSummary(entity.cargo) }] };
+}
+
+/** « 7 / 10 — Bois 4 · Pierre 2 · Or 1 » (vide : « 0 / 10 »). */
+export function cargoSummary(c: ResourceCargo): string {
+  const parts = CARGO_RESOURCES.filter((r) => c[r] > 0).map((r) => `${CARGO_LABELS[r]} ${c[r]}`);
+  return `${cargoTotal(c)} / ${c.capacity}${parts.length > 0 ? ` — ${parts.join(' · ')}` : ''}`;
 }
 
 // --- Feuille du Heros (inventaire) -----------------------------------------
@@ -390,6 +399,8 @@ export interface HeroSheetInfo {
   /** Monnaie du joueur (RunState.gold, 2026-11-02), affichee sous le sac :
    *  la meme donnee que le HUD economique, jamais une case du sac. */
   gold?: number;
+  /** Cargo economique (2026-11-03) : « 7 / 10 — Bois 4 · Pierre 2 · Or 1 ». */
+  cargo?: string;
 }
 
 function sheetItem(itemId: string): HeroSheetItem {
@@ -412,6 +423,8 @@ export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: num
   if (s.dodgeChance > 0) rows.push({ label: 'Esquive', value: `${Math.round(s.dodgeChance * 100)} %` });
   rows.push(
     { label: 'Expérience', value: nextLevelXp === null ? `${h.xp} XP (niveau max)` : `${h.xp} / ${nextLevelXp} XP` },
+    // Cargo economique (2026-11-03) : jamais une case du sac.
+    { label: 'Ressources transportées', value: entity.cargo ? cargoSummary(entity.cargo) : '—' },
   );
   return {
     title: `${heroName} — Niv. ${h.level}`,
@@ -433,6 +446,7 @@ export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: num
       return { kind: 'resource', resource: s.resource, name: def.name, amount: s.amount, max: def.maxStack, color: def.color };
     }),
     capacity: `${inventory.slots.length - freeSlotCount(inventory)} / ${inventory.slots.length}`,
+    cargo: entity.cargo ? cargoSummary(entity.cargo) : undefined,
   };
 }
 

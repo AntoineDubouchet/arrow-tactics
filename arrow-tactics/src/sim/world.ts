@@ -13,10 +13,11 @@ import { areAllied } from './relations';
 import { ENEMY_LOOT_TABLES, LOOT_TABLES, rollLoot } from '../data/loot';
 import { applyInventoryAction, createHeroInventory, resolveEquipmentBonus, type HeroInventory, type InventoryAction } from './inventory';
 import { DESTRUCTIBLE_LOOT, ENEMY_GOLD_DROPS } from '../data/loot';
-import { NO_HARVEST_TOOLS, type CarriedResource, type HarvestPermissions, type PileResource } from '../data/resources';
+import { CARGO_CAPACITY, createCargo, NO_HARVEST_TOOLS, type CarriedResource, type HarvestPermissions } from '../data/resources';
 import type { NodeResource } from '../config/resourceNodes';
 import { campClearSystem, campSystem, isChestLocked, type CampEvent, type CampSpec, type CampState, type Chest, type LootDropEvent } from './systems/camps';
-import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWhirlwindSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type MinedResource, type ResourcePile } from './systems/hero';
+import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWhirlwindSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
+import { loseCargoOnDeath, type CargoEvent } from './systems/cargo';
 import { workerSystem } from './systems/workers';
 import { DEFAULT_HERO_ID, heroKit, type HeroKit } from '../data/heroes';
 import { DEFAULT_UNIT_LEVEL, normalizeUnitLevel } from '../data/unitLevels';
@@ -220,9 +221,10 @@ export class World {
   private depletedThisStep: number[] = [];
   /** Or extrait d'un gisement pendant ce pas (monnaie, 2026-11-02) : credite
    *  par l'orchestration (RunState.gold), jamais mis dans un sac. */
-  /** Ressources extraites pendant le dernier pas (bois, pierre, or ;
-   *  2026-11-03) : creditees directement au stock par l'orchestration. */
-  minedEvents: MinedResource[] = [];
+  /** Cargo economique (2026-11-03, sim/systems/cargo.ts) : depots au point
+   *  de collecte, or de butin ramasse, tas entames, cargo plein sans point,
+   *  cargo perdu a la mort ; lus par l'orchestration apres chaque pas. */
+  cargoEvents: CargoEvent[] = [];
   /** Petits tas au sol de la carte (MapDef.resourcePiles), indice = id ;
    *  `amount` baisse au ramassage. Remis a plein par setMap ; la run
    *  reapplique ses quantites (applyResourcePileAmounts). */
@@ -513,7 +515,9 @@ export class World {
       neutralProgressZ: z,
       neutralStuckTimer: 0,
       hero: null,
-      worker: def.worker ? { nodeId: null, working: null, workTimer: 0 } : null,
+      worker: def.worker ? { working: null, workTimer: 0 } : null,
+      // Cargo economique : Villageois des sa creation ; Heros dans spawnHero.
+      cargo: def.worker ? { ...createCargo(CARGO_CAPACITY.villageois), returnTo: null } : null,
       construction: null,
       isBuilding: false,
       // Une unite normale compte TOUJOURS pour la survie de sa faction —
@@ -667,6 +671,7 @@ export class World {
       neutralStuckTimer: 0,
       hero: null,
       worker: null,
+      cargo: null,
       construction: construction ? { ...construction } : null,
       isBuilding: true,
       // Un chantier ne compte jamais pour la defaite (sim/systems/hero.ts).
@@ -822,6 +827,7 @@ export class World {
     equipment ??= progress.inventory ? resolveEquipmentBonus(inventory) : NO_EQUIPMENT_BONUS;
     const e = this.spawn('hero', team, x, z, hp, heroStatsForLevel(progress.level));
     e.level = normalizeUnitLevel(progress.level);
+    e.cargo = { ...createCargo(CARGO_CAPACITY.hero), returnTo: null };
     e.hero = {
       xp: progress.xp,
       level: progress.level,
@@ -955,8 +961,8 @@ export class World {
   }
 
   /** Tas d'or au sol (ennemi abattu, camp nettoye, baril). L'or est une
-   *  MONNAIE (2026-11-02) : il se ramasse d'un clic (collectGoldPile), jamais
-   *  par le sac. Renvoie son id. */
+   *  MONNAIE : le Heros va le ramasser (ordre pickup, 2026-11-03), il est
+   *  credite au stock, jamais au sac. Renvoie son id. */
   dropGold(x: number, z: number, amount: number): number {
     const id = this.resourcePiles.length;
     this.resourcePiles.push({ id, x, z, resource: 'gold', amount });
@@ -969,19 +975,6 @@ export class World {
     const id = this.resourcePiles.length;
     this.resourcePiles.push({ id, x, z, resource, amount });
     return id;
-  }
-
-  /** Ramassage IMMEDIAT d'un tas au sol (or depuis le 2026-11-02, bois et
-   *  pierre depuis le 2026-11-03) : le tas disparait, sa ressource et son
-   *  montant sont renvoyes (credites par l'orchestration au stock). Ni
-   *  deplacement, ni sac, ni depot. null si le tas n'est plus la. Appele
-   *  entre deux pas (clic du joueur). */
-  collectPile(pileId: number): { resource: PileResource; amount: number } | null {
-    const pile = this.resourcePiles[pileId];
-    if (!pile || pile.amount <= 0) return null;
-    const amount = pile.amount;
-    pile.amount = 0;
-    return { resource: pile.resource, amount };
   }
 
   /** Objet neutre destructible (baril) sur la case de (x, z) : une case
@@ -1042,7 +1035,6 @@ export class World {
       nodes: this.resourceNodes,
       nodeAmounts: this.resourceNodeAmounts,
       depleted: this.depletedThisStep,
-      mined: this.minedEvents,
       canHarvest: (resource) => canHarvestResource(this.harvestPermissions, resource),
       piles: this.resourcePiles,
       drops: this.itemDrops,
@@ -1238,10 +1230,11 @@ export class World {
     }
     // Heros : vivants au debut du pas (morts du pas, XP en zone).
     const hasHero = this.entities.some((e) => e.hero);
-    const aliveBefore = hasHero ? new Set(this.entities.filter((e) => e.alive).map((e) => e.id)) : null;
+    // Vivants au debut du pas : Heros (XP, mort) et unites a cargo (cargo perdu a la mort).
+    const aliveBefore = hasHero || this.entities.some((e) => e.cargo) ? new Set(this.entities.filter((e) => e.alive).map((e) => e.id)) : null;
     this.heroEvents = [];
     this.resourceDepletedEvents = [];
-    this.minedEvents = [];
+    this.cargoEvents = [];
 
     // Ordres manuels (sim/orders.ts) : appliques a une frontiere de pas fixe,
     // jamais au moment de l'evenement d'entree. Une unite sans ordre manuel
@@ -1269,7 +1262,8 @@ export class World {
           if (!chest || chest.opened) return 'missing';
           return isChestLocked(chest, this.camps) ? 'locked' : 'ok';
         },
-        isDepot: (entity) => entity.isBuilding && getBuilding(entity.unitId).resourceDepot === true,
+        // Point de collecte bati (BuildingDef.dropOff, 2026-11-03).
+        isDepot: (entity) => entity.isBuilding && entity.construction === null && (getBuilding(entity.unitId).dropOff?.length ?? 0) > 0,
       },
     );
     this.commandQueue = [];
@@ -1329,8 +1323,8 @@ export class World {
     // Tourbillon (2026-11-03) : frappes a la position du pas, AVANT le travail
     // (un Tourbillon lance pendant ce pas ne compte pas ce pas).
     if (hasHero) heroWhirlwindSystem(this.entities, dt, this.heroEvents);
-    if (hasHero) heroWorkSystem(this.entities, this.heroWork(), dt, this.heroEvents);
-    if (this.entities.some((e) => e.worker)) workerSystem(this.entities, this.heroWork(), dt);
+    if (hasHero) heroWorkSystem(this.entities, this.heroWork(), dt, this.heroEvents, this.cargoEvents);
+    if (this.entities.some((e) => e.worker)) workerSystem(this.entities, this.heroWork(), dt, this.cargoEvents);
     // Sources epuisees pendant ce pas : retirees (arbre abattu : passage
     // ouvert des le pas suivant).
     if (this.depletedThisStep.length > 0) {
@@ -1345,10 +1339,12 @@ export class World {
     this.productionUpgradeEvents = tickProductionOrders(this.entities, dt);
     this.productionSpawnEvents = buildingProductionSystem(this.entities, this.obstacles);
     deathSystem(this.entities);
+    // Cargo perdu a la mort (2026-11-03, PROVISOIRE : pas de sac au sol).
+    for (const e of this.entities) if (e.cargo && !e.alive && aliveBefore?.has(e.id)) loseCargoOnDeath(e, this.cargoEvents);
     campClearSystem(this.camps, this.entityById, this.campEvents);
     this.dropCampGold();
     this.rollDeathLoot();
-    if (aliveBefore) {
+    if (aliveBefore && hasHero) {
       heroDeathSystem(this.entities, aliveBefore, this.heroEvents);
       heroRespawnSystem(this.entities, dt, (hero) => this.heroSpawnPoint(hero), this.heroEvents);
     }

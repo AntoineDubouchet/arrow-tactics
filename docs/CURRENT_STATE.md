@@ -28,7 +28,7 @@ contient ni intentions de design ni décisions futures.
 6 octies. Palissade V2 (murs géométriques)
 6 nonies. Or monnaie, Forge et outils, gisements, Maison A/B, Sanctuaire, Écurie
 6 decies. Tourbillon du Paladin (prototype)
-6 undecies. Stock direct : bois et pierre comme l'or
+6 undecies. Cargo économique : inventaire RPG ≠ sac de ressources
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -62,10 +62,11 @@ des parchemins de bataille.
   Caserne.
 - **Direction Hero RTS** (provisoire, §6 bis) : la run commence avec le
   **Héros** seul et la **Baliste**. Le Héros explore sous un **brouillard de
-  guerre**, gagne de l'XP, récolte du **bois** et de la **pierre**,
-  **crédités directement au stock** (depuis le 2026-11-03 : ni sac, ni
-  dépôt à la Baliste, §6 undecies ; le stock s'ajoute à l'or dans le prix des
-  bâtiments) et bâtit en bataille les **chantiers**.
+  guerre**, gagne de l'XP, récolte du **bois**, de la **pierre** et de l'or
+  des gisements dans son **sac de ressources** (cargo de 10, séparé de
+  l'inventaire RPG), les **dépose à la Baliste** (seul chemin vers le stock,
+  §6 undecies ; le stock s'ajoute à l'or dans le prix des bâtiments) et
+  bâtit en bataille les **chantiers**.
 - La run continue tant que le joueur gagne ; elle s'arrête à la première
   défaite.
 - Seuls les talents et la progression générale (record, ennemis vaincus…)
@@ -843,10 +844,11 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   l'action ; masquée sans action. Barre d'XP :
   12 px de haut, à 18 px du bas, légèrement transparente (opacité 0,8). Encart des
   ressources (colonne de droite) : **sac** et stocks déposés ;
-- **visuel** : Toon RTS (`human_hero.glb`, local, hors Git), échelle 1,3 ;
-  depuis le 2026-11-02, config de l'Atelier d'Antoine : tête, corps, bras,
-  jambes et épaulières **barbares** (tête ×0,9, corps ×0,8), **marteau
-  barbare ×1,4** ; hache et pioche WK pour couper et miner, marteau sinon.
+- **visuel** : Toon RTS (`human_hero.glb`, local, hors Git), échelle 1,4 ;
+  config de l’Atelier d’Antoine (mise à jour du 2026-11-03) : tête WK « H »
+  (barbu à capuche, ×0,9), corps barbare E (×0,8), bras barbares C, jambes
+  WK C (×1,1), épaulières barbares B, **marteau barbare ×1,4** ; hache et
+  pioche WK pour couper et miner, marteau sinon.
   Chaque pièce garde l'atlas de sa source (unité mixte, voir
   `docs/ASSETS.md`). Déplacement : **essai** du clip `charge` au lieu de
   `run` (×1,3, à confirmer) ;
@@ -859,9 +861,9 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   Sentinelle ;
 - absent de la palette d'unités de l'éditeur.
 
-**Ressources, transport et dépôt** (⚠️ transport et dépôt **supprimés le
-2026-11-03** : tout est crédité directement au stock, voir §6 undecies ;
-les mentions de sac et de dépôt ci-dessous sont historiques) :
+**Ressources, transport et dépôt** (⚠️ règle du 2026-11-03 : le transport
+passe par le **cargo économique**, jamais par l'inventaire RPG, voir
+§6 undecies ; les mentions de « sac » ci-dessous désignent ce cargo) :
 
 - **petits tas au sol** (`MapDef.resourcePiles`) : planches (bois) et petits
   cailloux (pierre), **finis** (1 à 4 unités), générés avec la carte. Les
@@ -1429,9 +1431,10 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
 - **Or = monnaie** : `RunState.gold`, jamais un objet du sac (le sac ne
   contient que bois et pierre ; aucune case d'or). Affiché sous la grille de
   l'inventaire (« 🪙 N », même valeur que le HUD). Tas d'or au sol (ennemis,
-  camps nettoyés, barils) : **clic droit = crédit immédiat**, le tas
-  disparaît, le Héros ne bouge pas (`World.collectGoldPile`, terrain
-  exploré requis sous brouillard). Mine inchangée (versement toutes les
+  camps nettoyés, barils) : depuis le 2026-11-03 (fin de journée), **le
+  Héros va le ramasser** comme un tas de bois (geste de ramassage), puis
+  l'or est crédité (avant : crédit immédiat au clic, sans déplacement).
+  Mine inchangée (versement toutes les
   60 s). Toutes les dépenses lisent le même or.
 - **Gisement d'or** : gros rocher (« Rocher E ») veiné d'or, 2 × 2,
   **25 or** (`HARVEST_NODE_KINDS.gold`), extrait à la pioche, 1 or / 1,5 s
@@ -1472,18 +1475,22 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   legacy.
 - **Auberge** (`blue_tavern`, 2 × 2, 15 or + 8 bois, 20 PV, 8 s) :
   producteur standard du **Villageois** (5 or, 8 s).
-- **Villageois** (première unité économique) : humain fragile (2,5 PV,
-  0,2 dégât, se défend au contact seulement), vitesse 2,2, population 1 ;
-  ni XP, ni mana, ni équipement ; habillé du modèle du Piquier
-  (provisoire). Se sélectionne et se commande comme une unité. **Clic
-  droit** sur un arbre, un gisement de pierre ou d'or : récolte (même
-  permission que le Héros : Forge terminée ; sans Forge, message et
-  déplacement au pied de la source). Récolte **continue** : chaque unité de
-  bois, de pierre ou d'or est **créditée directement au stock** (depuis le
-  2026-11-03 : plus de charge de 5 ni d'allers-retours au dépôt). Source
-  épuisée : la plus proche du même type à 6 cases, sinon Garde. Outil
-  perdu : l'unité en cours est finie, puis Garde. Un autre ordre
-  (déplacement, Stop) interrompt la récolte.
+- **Villageois** (première unité économique) : humain fragile (2,5 PV),
+  **aucune attaque** (dégâts 0, aucune acquisition de cible ; ciblable et
+  tuable), vitesse 2,2, population 1 ; ni XP, ni mana, ni équipement.
+  Modèle dédié `human_villager` (2026-11-03, Atelier d'Antoine : tête WK A,
+  corps barbare D, bras et jambes WK A, ni épaulière ni arme, clips
+  Spearman) : **mains vides** au repos et en marche ; **hache** en main
+  pendant la coupe, **pioche** pendant le minage (pierre, or), retirées dès
+  la fin du travail ; l'estoc du set sert de coup de hache / de pioche. Se
+  sélectionne et se commande comme une unité. **Clic droit** sur un arbre,
+  un gisement de pierre ou d'or : récolte (même permission que le Héros :
+  Forge terminée) ; sur un tas de bois / pierre : ramassage ; sur la
+  Baliste avec un cargo non vide : dépôt. Cargo de **5** (§6 undecies) :
+  plein → dépôt automatique à la Baliste → retour à la source. Source
+  épuisée : dépôt du cargo, puis la source voisine du même type à 6 cases,
+  sinon Garde. Outil perdu : l'unité en cours est finie, dépôt, Garde.
+  Fiche : « Transport : 3 / 5 — Pierre 3 ».
 
 ## 6 decies. Tourbillon du Paladin (prototype)
 
@@ -1520,25 +1527,54 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G29) :
   onde brève à chaque frappe (`render/whirlwindVfx.ts`, provisoire). Ligne « Tourbillon » sous la barre de mana et barre d'action
   globale (temps restant).
 
-## 6 undecies. Stock direct : bois et pierre comme l'or
+## 6 undecies. Cargo économique : inventaire RPG ≠ sac de ressources
 
-Depuis le 2026-11-03 (demande d'Antoine, `DESIGN_DECISIONS.md` G30) :
+Depuis le 2026-11-03 (demande d'Antoine, `DESIGN_DECISIONS.md` G32 ; remplace
+le « stock direct » G30 du même jour) :
 
-- **Récolte** (Héros, Villageois) : chaque unité de bois, de pierre ou d'or
-  extraite est **créditée directement au stock** de la run (HUD en haut à
-  droite), à la cadence de la récolte (1 unité / 1,5 s). Plus de sac pour
-  les ressources, plus de « sac plein », plus de dépôt à la Baliste.
-- **Petits tas au sol** (bois, pierre, or : carte, butin) : **clic droit =
-  crédit immédiat**, le tas disparaît, le Héros ne bouge pas (terrain
-  exploré requis sous brouillard). Message « +N bois / pierre / or ».
-- **Sac du Héros** : seulement les **équipements** (plus de piles de bois ou
-  de pierre) ; l'or reste affiché sous la grille.
-- **Clic droit sur la Baliste** : plus d'ordre de dépôt (simple
-  déplacement).
-- **Réparation de la Baliste** (correctif du 2026-11-03) : sa fiche
-  propose enfin « Réparer » quand elle est endommagée (le bouton était
-  oublié parce que sa fiche n'est pas une fiche de bâtiment ordinaire) ;
-  coût : 50 % de 30 or, 10 bois, 10 pierre, au prorata des PV manquants.
+- **Deux sacs distincts.** L'**inventaire RPG** du Héros (20 cases) ne
+  contient que des équipements et du butin : aucun bois, aucune pierre,
+  aucun or n'y apparaît jamais. Le **sac de ressources** (cargo,
+  `Entity.cargo` : `wood`, `stone`, `minedGold`, `capacity`) transporte les
+  ressources économiques ; capacité **totale** PROVISOIRE : **Héros 10**,
+  **Villageois 5** (6 bois + 3 pierre + 1 or = plein).
+- **Or de gisement ≠ or de butin.** L'or **extrait d'un gisement** est une
+  ressource transportée (`minedGold`) : il ne devient de la monnaie qu'au
+  dépôt. L'or de **butin** (monstres, coffres, barils, récompenses) reste une
+  monnaie créditée dès qu'il est récupéré : le Héros va le ramasser (geste
+  0,6 s), puis « +N or » ; il ne passe jamais dans le cargo.
+- **Récolte** (arbre : hache ; gisement de pierre ou d'or : pioche, Forge
+  terminée) : chaque unité (1 / 1,5 s) entre dans le cargo, le **stock et le
+  HUD ne bougent pas**. Cargo plein → **dépôt automatique** au point de
+  collecte allié le plus proche qui accepte la ressource → retour à la
+  source → reprise. Un ordre manuel pendant le trajet annule la boucle (le
+  cargo est gardé).
+- **Petits tas** de bois / pierre : clic droit → déplacement, geste 0,6 s,
+  autant que le cargo peut prendre ; le reste attend au sol, dépôt, retour
+  au tas, fin du tas.
+- **Point de collecte** (`BuildingDef.dropOff`, liste des ressources
+  acceptées) : la **Baliste est le seul** aujourd'hui (bois, pierre, or
+  extrait ; jamais le butin RPG). Futurs, prévus par les données mais non
+  activés : Scierie (bois), Camp de mineur (pierre, or extrait). La Forge
+  n'est pas un point de collecte.
+- **Dépôt** : automatique (sac plein, source épuisée, outil perdu) ou
+  **manuel** (clic droit sur la Baliste avec un cargo non vide ; « Rien à
+  déposer » sinon) ; une unité / 0,5 s ; le stock (HUD) monte à chaque
+  unité ; « Dépôt terminé — stock : … » à la fin ; retour à la tâche en
+  cours s'il y en avait une.
+- **Aucun point valide** : l'unité garde son cargo, s'arrête pleine, rien
+  n'est perdu (« Sac plein — aucun point de collecte ») ; un point détruit
+  en chemin → un autre, sinon Garde.
+- **Mort** avec un cargo : ressources **perdues** (message), aucun sac au
+  sol ; le Héros revient à cargo vide. PROVISOIRE.
+- **Affichage** : sac 3D sur le dos dès qu'une ressource est transportée
+  (Héros et Villageois) ; fenêtre du Héros : « Ressources transportées :
+  7 / 10 — Bois 4 · Pierre 2 · Or 1 » sous la grille ; fiche du Héros,
+  ligne « Ressources transportées » ; fiche du Villageois, ligne
+  « Transport ».
+- **Réparation de la Baliste** (correctif du 2026-11-03) : sa fiche propose
+  « Réparer » quand elle est endommagée ; coût : 50 % de 30 or, 10 bois,
+  10 pierre, au prorata des PV manquants.
 
 ## 6 octies. Palissade V2 (murs géométriques)
 

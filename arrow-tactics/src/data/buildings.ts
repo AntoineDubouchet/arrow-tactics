@@ -1,6 +1,6 @@
 import { HP_PER_PIP } from '../config/constants';
 import type { ResourceKind } from '../config/resourceNodes';
-import type { HarvestTool } from './resources';
+import type { CargoResource, HarvestTool } from './resources';
 
 /**
  * Architecture générique BUILDING (2026-08-16, demande d'Antoine) — un
@@ -147,9 +147,12 @@ export interface BuildingDef {
   attack?: BuildingAttackConfig;
   /** Soin de toute l'armee contre de l'or, en preparation (Eglise). */
   armyHeal?: ArmyHealConfig;
-  /** Depot de ressources (2026-11-01, Hero RTS) : le Heros y vide son sac,
-   *  et seul ce depot remplit le stock de bois et de pierre de la run. */
-  resourceDepot?: boolean;
+  /** Point de collecte (2026-11-03) : ressources de cargo acceptees par ce
+   *  batiment TERMINE (Heros et Villageois y vident leur sac, seul chemin
+   *  vers le stock). La Baliste accepte tout aujourd'hui ; futurs (non
+   *  actives) : Scierie ['wood'], Camp de mineur ['stone', 'minedGold'].
+   *  Absent : pas un point de collecte. */
+  dropOff?: readonly CargoResource[];
   /** Outils de recolte donnes a tout le camp par ce batiment, une fois
    *  TERMINE (hache : arbres ; pioche : gisements de pierre et d'or). Lu par
    *  run/harvestPermissions.ts. Aujourd'hui : la Forge. */
@@ -233,8 +236,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
   ballista: {
     id: 'ballista',
     displayName: 'Baliste',
-    // Coeur du camp initial : point de depot des ressources (Hero RTS).
-    resourceDepot: true,
+    // Coeur du camp initial : SEUL point de collecte (2026-11-03) ; accepte
+    // bois, pierre et or extrait (jamais le butin RPG).
+    dropOff: ['wood', 'stone', 'minedGold'],
     maxHp: 25 * HP_PER_PIP,
     // Légèrement plus grand que la Mine — la baliste+tour est visuellement
     // plus imposante (voir render/ballista.ts, BALLISTA_TOWER_FOOTPRINT =

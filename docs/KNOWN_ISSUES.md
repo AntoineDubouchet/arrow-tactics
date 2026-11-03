@@ -69,7 +69,8 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-60 | Maison B : variante seulement pour les Maisons posées en jeu ; une Maison de scénario de l'éditeur reste A | Limite assumée |
 | KI-61 | Villageois : modèle du Piquier, sans geste de récolte ni charge visible ; pas d'outil en main | Limite assumée (visuel provisoire) |
 | KI-62 | Tourbillon : rotation du modèle entier (5 tours/s), sans clip dédié (arme et jambes figées dans le clip courant) ; VFX procédural provisoire (arcs, cercle de zone) | Limite assumée (prototype) |
-| KI-63 | Ordres `pickup` (tas) et `deposit` (Baliste) et ressources du sac encore présents dans la simulation, plus émis par l'interface depuis le stock direct | Dette (à retirer) |
+| KI-63 | Piles de ressources de l'inventaire RPG (`sim/inventory.ts`, `RESOURCE_ITEMS`) encore présentes dans le code, plus alimentées depuis le cargo économique | Dette (à retirer) |
+| KI-64 | Villageois : clips Spearman, estoc en guise de coup de hache / pioche, ramassage et dépôt sans geste dédié | Limite assumée (assets) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
@@ -595,15 +596,22 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   `deposit` du Héros : il reste immobile pendant qu'il récolte ou dépose,
   sans outil ni charge visibles (non observé en détail).
 
-### KI-63 — Restes du transport des ressources
+### KI-63 — Restes des ressources dans l'inventaire RPG
 
-- **Statut** : dette (2026-11-03).
-- **Constat** : depuis le stock direct (`DESIGN_DECISIONS.md` G30), l'interface
-  n'émet plus d'ordre `pickup` ni `deposit`, et la récolte ne remplit plus
-  le sac. Le code de ces ordres (`sim/orders.ts`, `sim/systems/hero.ts`),
-  les piles de ressources du sac (`sim/inventory.ts`) et l'anneau de dépôt
-  restent en place, inertes : un `pickup` se termine aussitôt, un dépôt
-  sans ressource aussi. À retirer dans une passe de nettoyage.
+- **Statut** : dette (2026-11-03, réévaluée après le cargo économique G32).
+- **Constat** : les ordres `pickup` et `deposit` servent de nouveau (cargo) ;
+  en revanche les piles de ressources de l'inventaire RPG
+  (`sim/inventory.ts` : `addResource`, `resourceCount`, `RESOURCE_ITEMS`,
+  cases « resource » de la fenêtre) ne sont plus alimentées par rien.
+  À retirer dans une passe de nettoyage.
+
+### KI-64 — Villageois : gestes empruntés au Piquier
+
+- **Statut** : limite assumée (assets).
+- **Constat** : le set Spearman n'a ni coup de hache, ni coup de pioche, ni
+  geste accroupi : l'estoc (ralenti) sert aux trois travaux, le ramassage
+  et le dépôt jouent le même geste. Un futur set d'ouvrier remplacerait
+  les rôles `chop` / `mine` / `gather` / `deposit` du kit `villageois`.
 
 ### KI-57 — Palissade : rendu sur relief
 

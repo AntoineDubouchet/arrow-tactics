@@ -175,9 +175,10 @@ l'archer) est à adapter côté jeu.
 | `human_mage.glb` | 1 maillage skinné, 392 sommets GPU, 468 triangles, 29 os, 14 clips, 483 Ko |
 | `human_sentinel.glb` | 1 maillage skinné, 476 triangles, 29 os, 11 clips (`Infantry`), 410 Ko ; affichée à l'échelle 1,15 en jeu |
 | `human_oracle.glb` | 1 maillage skinné, 409 sommets GPU, 490 triangles, 29 os, 14 clips (`Mage`), 484 Ko |
+| `human_villager.glb` | Villageois (2026-11-03, Atelier : tête WK A ×0,8, corps barbare D, bras et jambes WK A, ni épaulière ni arme) : 185 sommets, 330 triangles ; outils séparés `tool_axe`, `tool_pick` (cachés au repos, `setWorkerTool`) ; 29 os, clips `Spearman`, 375 Ko |
 | `human_pikeman.glb` | Piquier : 1 maillage skinné, 375 sommets GPU, 412 triangles, 29 os, 10 clips (`Spearman`), 372 Ko |
 | `human_avenger.glb` | Vengeur (deux épées, `offhand_weapon`) : 1 maillage skinné, 407 sommets GPU, 454 triangles, 29 os, 12 clips (`Infantry` + `attackDouble` du `Worker`), 440 Ko |
-| `human_hero.glb` | Héros (tête E, corps D, épaulières B) : corps 219 sommets, 390 triangles ; outils séparés `tool_hammer` (38 triangles, ×1,6), `tool_axe` (34), `tool_pick` (30) ; 29 os, 14 clips (`Infantry` + `workingA/B/C` du `Worker`), 504 Ko ; échelle 1,3 en jeu |
+| `human_hero.glb` | Héros (2026-11-03, Atelier : tête WK H ×0,9, corps barbare E ×0,8, bras barbares C, jambes WK C ×1,1, épaulières barbares B) : corps 260 sommets, 452 triangles ; outils séparés `tool_hammer` (marteau barbare B, ×1,4), `tool_axe`, `tool_pick` ; 29 os, 14 clips (`Infantry` + `workingA/B/C` du `Worker`), 511 Ko ; échelle 1,4 en jeu |
 | `human_light_cavalry.glb` | Cavalier léger (source `western_kingdoms_cavalry`, `WK_SM_Cavalry_Light_B`, single mesh) : cavalier 456 triangles + `part_horse` 330 triangles, 46 os, 10 clips (`Cavalry_Spear`), 702 Ko |
 | `wk_horse.png` | texture du cheval humain (`WK_Horse_A`, 512), sans teinte d'équipe |
 | `barbarian_light_cavalry.glb` | Razzieur (source `barbarian_cavalry`, `BRB_SM_cavalry_light_B`) : 448 sommets GPU, 811 triangles, 46 os, 10 clips, 700 Ko |

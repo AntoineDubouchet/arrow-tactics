@@ -136,6 +136,11 @@ export function buildHero(team: Team): THREE.Group {
 
 /** Cavalier leger (2026-11-01) : modele Toon RTS dedie ; repli sur le
  *  Fantassin officiel si le GLB manque (assets hors Git). */
+/** Villageois (2026-11-03) : modele Toon RTS dedie ; repli sur le Piquier. */
+export function buildVillageois(team: Team): THREE.Group {
+  return toonModel('villageois', team) ?? buildPiquier(team);
+}
+
 export function buildCavalier(team: Team): THREE.Group {
   const toon = toonModel('cavalier', team);
   if (toon) return toon;
@@ -181,5 +186,7 @@ export function buildUnit(unitId: string, team: Team): THREE.Group {
       return buildCavalier(team);
     case 'cavalier_barbare':
       return buildCavalierBarbare(team);
+    case 'villageois':
+      return buildVillageois(team);
   }
 }

@@ -17,7 +17,7 @@ import { forwardDir, type Entity } from '../sim/entity';
 import type { RiggedActions } from './riggedGltf';
 import type { ProceduralAttackAnimator } from './proceduralAttackAnimator';
 import { updateCarryBundle } from './resourcePiles';
-import { setHeroWorkTool } from './heroEquipmentView';
+import { setHeroWorkTool, setWorkerTool } from './heroEquipmentView';
 import { buildUnit } from './unitMesh';
 import { surfaceY } from './terrainSurface';
 import { WHIRLWIND_SPIN_RAD_PER_S } from './whirlwindVfx';
@@ -172,8 +172,10 @@ export class UnitViews {
         // Heros : outil de travail (hache, pioche, marteau de chantier) le
         // temps du travail, sinon son arme (equipement, ou le marteau).
         if (entity.hero) setHeroWorkTool(view, entity.hero.working);
-        // Sac du Heros non vide : petit ballot sur le dos (rendu seulement).
-        if (entity.hero) updateCarryBundle(view, entity.hero.inventory);
+        // Villageois (2026-11-03) : hache / pioche le temps du travail.
+        if (entity.worker) setWorkerTool(view, entity.worker.working);
+        // Cargo non vide (Heros, Villageois) : petit ballot sur le dos.
+        if (entity.cargo) updateCarryBundle(view, entity.cargo);
         view.visible = true;
         view.rotation.x = 0;
         this.setOpacity(view, 1);
@@ -702,6 +704,8 @@ export class UnitViews {
     // Heros au travail (recolte, construction, sim/systems/hero.ts) : geste
     // du travail en boucle.
     else if (entity.hero?.working && actions[entity.hero.working]) desired = entity.hero.working;
+    // Villageois au travail (sim/systems/cargo.ts) : geste du travail.
+    else if (entity.worker?.working && actions[entity.worker.working]) desired = entity.worker.working;
     else if (isMoving) desired = 'walk';
     // Repos anime, seulement pour une unite qui le fournit (Fantassin Toon
     // RTS, voir toonUnitRig.ts) : en combat (cible verrouillee) puis hors

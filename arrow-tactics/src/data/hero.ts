@@ -131,12 +131,11 @@ export const CONSTRUCTION_START_HP_FRACTION = 0.25;
  *  segment suivant de la meme ligne, sim/systems/hero.ts). */
 export const BUILD_CHAIN_RADIUS = 3;
 
-/** Transport (2026-11-01) : le Heros porte au plus HERO_CARRY_CAPACITY
- *  unites (bois et pierre confondus) ; le stock de la run n'augmente qu'au
- *  depot (BuildingDef.resourceDepot : la Baliste). Ramasser un petit tas
- *  prend PICKUP_SECONDS au contact (rayon du Heros + PICKUP_REACH) ; le
- *  depot se fait au contact de l'emprise (BUILD_REACH). PROVISOIRE. */
-export const HERO_CARRY_CAPACITY = 6;
+/** Transport (2026-11-03) : capacite du cargo dans data/resources.ts
+ *  (CARGO_CAPACITY) ; le stock de la run n'augmente qu'au depot
+ *  (BuildingDef.dropOff : la Baliste). Ramasser un petit tas prend
+ *  PICKUP_SECONDS au contact (rayon + PICKUP_REACH) ; le depot se fait au
+ *  contact de l'emprise (BUILD_REACH). PROVISOIRE. */
 /** Depot (2026-11-02, demande d'Antoine) : une unite du sac versee au stock
  *  toutes les DEPOSIT_SECONDS_PER_ITEM s au contact du depot (3 s pour un sac
  *  de 6). PROVISOIRE. */

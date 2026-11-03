@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import type { PileResource } from '../data/resources';
-import { resourceCount, type HeroInventory } from '../sim/inventory';
+import type { PileResource, ResourceCargo } from '../data/resources';
 import { surfaceY } from './terrainSurface';
 import { loadVfxTexture } from './vfxTextures';
 
@@ -428,13 +427,12 @@ function buildHeroBag(view: THREE.Object3D): HeroBag {
   return { root, sack, contents, base: size, key: '' };
 }
 
-/** Sac du Heros selon les ressources de son inventaire (sim :
- *  hero.inventory) ; les equipements n'y apparaissent pas. */
-export function updateCarryBundle(view: THREE.Object3D, inventory: HeroInventory | undefined): void {
+/** Sac d'une unite selon son cargo economique (Entity.cargo, 2026-11-03 :
+ *  bois, pierre, or extrait) ; l'inventaire RPG n'y apparait jamais. */
+export function updateCarryBundle(view: THREE.Object3D, cargo: ResourceCargo | undefined): void {
   let bag = view.userData['heroBag'] as HeroBag | undefined;
-  const wood = inventory ? resourceCount(inventory, 'wood') : 0;
-  const stone = inventory ? resourceCount(inventory, 'stone') : 0;
-  // Or : monnaie (2026-11-02), jamais dans le sac.
+  const wood = cargo?.wood ?? 0;
+  const stone = (cargo?.stone ?? 0) + (cargo?.minedGold ?? 0);
   if (wood + stone === 0) {
     if (bag) bag.root.visible = false;
     return;

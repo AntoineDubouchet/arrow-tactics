@@ -151,6 +151,8 @@ export class HeroInventoryPanel {
     }
     const goldText = `🪙 ${Math.floor(info.gold ?? 0)}`;
     if (this.gold.textContent !== goldText) this.gold.textContent = goldText;
+    const cargoText = info.cargo ? `Ressources transportées : ${info.cargo}` : '';
+    if (this.cargo.textContent !== cargoText) this.cargo.textContent = cargoText;
     const bagKey = JSON.stringify([info.body, info.cells, info.capacity]);
     if (bagKey !== this.shown && !this.drag) {
       this.shown = bagKey;
@@ -168,6 +170,8 @@ export class HeroInventoryPanel {
   private readonly grid = el('div', 'inventory-grid');
   /** Or du joueur (monnaie, 2026-11-02) : sous la grille, jamais une case. */
   private readonly gold = el('div', 'hero-inventory-gold');
+  /** Cargo economique (2026-11-03) : « Ressources transportées : 7 / 10 ». */
+  private readonly cargo = el('div', 'hero-inventory-cargo');
 
   private build(): void {
     this.built = true;
@@ -175,7 +179,8 @@ export class HeroInventoryPanel {
     left.append(el('div', 'hero-inventory-section', 'Équipement'), this.doll, el('div', 'hero-inventory-section', 'Statistiques'), this.stats, el('div', 'hero-inventory-section', 'Sorts'), this.spells);
     const right = el('div', 'hero-inventory-bag');
     this.gold.title = 'Or du joueur (monnaie) : même valeur que le HUD en haut à droite';
-    right.append(this.bagTitle, this.grid, this.gold, el('div', 'hero-inventory-detail hero-inventory-hint', 'Glisser-déposer : ranger, fusionner, équiper. Double-clic : équiper / retirer. Bois, pierre et or vont directement au stock (en haut à droite).'));
+    this.cargo.title = 'Bois, pierre et or extrait transportés (séparés du sac) : déposés à la Baliste';
+    right.append(this.bagTitle, this.grid, this.gold, this.cargo, el('div', 'hero-inventory-detail hero-inventory-hint', 'Glisser-déposer : ranger, fusionner, équiper. Double-clic : équiper / retirer. Bois, pierre et or extrait voyagent dans le sac de ressources, déposé à la Baliste ; l’or de butin est une monnaie.'));
     this.body.replaceChildren(left, right);
     // Fin d'un glisser hors d'une case : la grille peut de nouveau suivre.
     document.addEventListener('dragend', () => (this.drag = null));

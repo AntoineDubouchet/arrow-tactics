@@ -1419,12 +1419,20 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
 
 ## 13 nonies. Or monnaie, outils de la Forge, variantes, Sanctuaire, Écurie (2026-11-03)
 
-- **Or, bois, pierre** (stock direct, 2026-11-03) : la simulation ne crédite
-  jamais : elle publie `World.minedEvents` (`MinedResource` : entité,
-  source, ressource, quantité ; Héros et Villageois) et vide un tas avec
-  `World.collectPile` ; `main.ts` (`creditMinedResources`, `collectPile`,
-  `creditStock`) crédite `RunState.gold` ou `RunState.resources`. `ResourceKind`
-  (sac) = bois, pierre ; `NodeResource` / `PileResource` ajoutent l'or.
+- **Cargo économique** (2026-11-03, remplace le stock direct) :
+  `data/resources.ts` (`CargoResource` = wood | stone | minedGold,
+  `ResourceCargo`, `CARGO_CAPACITY`, `cargoResourceOf`), `Entity.cargo`
+  (`CargoState` : compteurs, capacité, `returnTo` = tâche à reprendre après
+  un dépôt automatique). `sim/systems/cargo.ts` (`cargoWork`) : une seule
+  boucle récolte → plein → dépôt (`nearestDropOff`, `BuildingDef.dropOff`)
+  → retour, partagée par le Héros (`heroWorkSystem` y délègue `harvest`,
+  `pickup`, `deposit`) et le Villageois (`workerSystem`) ; mort :
+  `loseCargoOnDeath`. La simulation ne crédite jamais : elle publie
+  `World.cargoEvents` (`cargoDeposit`, `lootGold`, `pilePickup`,
+  `cargoFullNoDropOff`, `cargoLost`) ; `main.ts` (`handleCargoEvents`,
+  `creditStock`) crédite `RunState.resources` ou `RunState.gold`.
+  L'inventaire RPG (`sim/inventory.ts`) n'est plus touché par les
+  ressources. Rendu : `updateCarryBundle(view, cargo)`.
 - **Outils** : `data/resources.ts` (`HARVEST_TOOLS`, `HARVEST_NODE_KINDS`
   : outil, geste, unité, quantité, monnaie) ; `BuildingDef.unlocksTools` ;
   `run/harvestPermissions.ts` (alliés via `sim/relations.ts`,
@@ -1441,14 +1449,16 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
 - **Producteurs** : tout bâtiment à `recruitmentUnlock` produit par sa file
   (`data/production.ts`) et reçoit le ralliement ; Sanctuaire, Écurie et
   Auberge n'ajoutent aucun code de production.
-- **Villageois** : `UnitDef.worker` (`carryCapacity`) →
-  `Entity.worker` (`WorkerState` : charge, capacité, source de retour,
-  geste). `sim/systems/workers.ts` (`workerSystem`, après
-  `heroWorkSystem`) réutilise l'ordre `harvest` / `deposit`, `workGoal` et
-  `HeroWorkContext` (sources, quantités, outils, `goldMined`) ; dépôt allié
-  = tout bâtiment bâti à `resourceDepot` (futurs dépôts sans code).
-  `World.workerDepositEvents` → `main.ts` (`creditWorkerDeposits`).
-  `sim/orders.ts` accepte `harvest` et `deposit` des entités à `worker`.
+- **Villageois** : `UnitDef.worker: true` → `Entity.worker` (`WorkerState` :
+  geste, minuteur) et `Entity.cargo` (capacité 5). `sim/systems/workers.ts`
+  (`workerSystem`, après `heroWorkSystem`) appelle `cargoWork` ;
+  `sim/orders.ts` accepte `harvest`, `pickup` et `deposit` des entités à
+  `worker`. Aucune attaque : `damage` 0, `aggroRange` 0 (`data/units.ts`).
+  Rendu : kit `villageois` (`toonUnitRig.ts`, `human_villager.glb`, outils
+  `tool_axe` / `tool_pick` montrés par `setWorkerTool` selon `working`) ;
+  un clip partagé par plusieurs rôles reçoit une action par rôle
+  (`buildToonUnitModel`), pour que `UnitViews` distingue l'attaque du
+  geste de travail.
 
 ## 13 decies. Tourbillon (2026-11-03)
 

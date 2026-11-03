@@ -238,8 +238,8 @@ import { HeroSelectScreen, type HeroChoice } from './ui/heroSelect';
 import { HeroInventoryPanel } from './ui/heroInventory';
 import { ItemEditor } from './itemEditor/itemEditorUI';
 import { equippedHandVisuals } from './run/heroEquipment';
-import { carriedResourceTotal, createHeroInventory, inventoryItems, type InventoryAction } from './sim/inventory';
-import { canHarvestResource, HARVEST_NODE_KINDS, HARVEST_TOOLS, RESOURCE_ITEMS } from './data/resources';
+import { createHeroInventory, inventoryItems, type InventoryAction } from './sim/inventory';
+import { canHarvestResource, cargoTotal, HARVEST_NODE_KINDS, HARVEST_TOOLS, RESOURCE_ITEMS } from './data/resources';
 import { EconomyHud } from './ui/economyHud';
 import { ActionProgressBar } from './ui/actionProgress';
 import { EQUIPMENT, type EquipmentSlot } from './data/equipment';
@@ -2634,7 +2634,7 @@ function updateHeroUi(): void {
   resourceSelectionRing.animate(0);
   if (selectedPileId !== null && pile) {
     const at = worldToScreen(pile.x, pile.z);
-    pileLabel.show(`${pile.resource === 'gold' ? 'Or' : RESOURCE_ITEMS[pile.resource].name} — ${pile.amount}`, at.x, at.y - 22);
+    pileLabel.show(`${pile.resource === 'gold' ? 'Or' : RESOURCE_ITEMS[pile.resource as ResourceKind].name} — ${pile.amount}`, at.x, at.y - 22);
   } else if (shownSource) {
     const at = worldToScreen(shownSource.x, shownSource.z);
     pileLabel.show(`${HARVEST_NODE_KINDS[shownSource.resource].name} — ${sourceLeft ?? 0} ${HARVEST_NODE_KINDS[shownSource.resource].unit}`, at.x, at.y - 22);
@@ -3073,23 +3073,36 @@ function creditStock(resource: 'gold' | ResourceKind, amount: number): void {
   } else currentRun.resources[resource] += amount;
 }
 
-/** Tas au sol (or, bois, pierre) ramasse d'un clic : credit IMMEDIAT du
- *  stock, le tas disparait (World.collectPile). Ni deplacement, ni sac, ni
- *  depot. */
-function collectPile(pileId: number): void {
-  const got = world.collectPile(pileId);
-  if (!got) return;
-  creditStock(got.resource, got.amount);
-  if (!inTestMode) currentRun.resourcePileAmounts[pileId] = 0;
-  if (selectedPileId === pileId) selectedPileId = null;
-  if (got.resource === 'gold') spawnCoinPopup(screens.shopGoldElement, got.amount);
-  waveIndicator.flash(`+${got.resource === 'gold' ? `${formatGold(got.amount)} or` : `${got.amount} ${got.resource === 'wood' ? 'bois' : 'pierre'}`}`);
-}
-
-/** Ressources extraites pendant le dernier pas (Heros, Villageois : bois,
- *  pierre, or) : creditees directement au stock, jamais portees. */
-function creditMinedResources(): void {
-  for (const ev of world.minedEvents) creditStock(ev.resource, ev.amount);
+/** Cargo economique (2026-11-03, sim/systems/cargo.ts) : depots au point de
+ *  collecte (bois, pierre, or extrait -> stock / monnaie), or de butin
+ *  ramasse (monnaie directe), tas entames, cargo plein sans point, cargo
+ *  perdu a la mort. Le HUD ne lit que le stock : il ne bouge qu'au depot. */
+function handleCargoEvents(): void {
+  for (const ev of world.cargoEvents) {
+    if (ev.type === 'cargoDeposit') {
+      creditStock(ev.resource === 'minedGold' ? 'gold' : ev.resource, ev.amount);
+      if (ev.resource === 'minedGold') spawnCoinPopup(screens.shopGoldElement, ev.amount);
+      if (ev.remaining === 0) waveIndicator.flash(`Dépôt terminé — stock : ${currentRun.resources.wood} bois, ${currentRun.resources.stone} pierre, ${formatGold(currentRun.gold)} or`);
+    } else if (ev.type === 'lootGold') {
+      creditStock('gold', ev.amount);
+      if (!inTestMode) currentRun.resourcePileAmounts[ev.pileId] = 0;
+      if (selectedPileId === ev.pileId) selectedPileId = null;
+      spawnCoinPopup(screens.shopGoldElement, ev.amount);
+      waveIndicator.flash(`+${formatGold(ev.amount)} or`);
+    } else if (ev.type === 'pilePickup') {
+      if (!inTestMode) currentRun.resourcePileAmounts[ev.pileId] = ev.remaining;
+      if (ev.remaining === 0 && selectedPileId === ev.pileId) selectedPileId = null;
+      const e = world.getById(ev.entityId);
+      if (e?.hero) waveIndicator.flash(`+${ev.amount} ${ev.resource === 'wood' ? 'bois' : 'pierre'} dans le sac${ev.remaining > 0 ? ` — ${ev.remaining} au sol (sac plein)` : ''}`);
+    } else if (ev.type === 'cargoFullNoDropOff') {
+      const e = world.getById(ev.entityId);
+      if (e?.hero) waveIndicator.flash('Sac plein — aucun point de collecte (Baliste) pour déposer');
+    } else if (ev.type === 'cargoLost') {
+      const e = world.getById(ev.entityId);
+      const parts = [ev.wood > 0 ? `${ev.wood} bois` : '', ev.stone > 0 ? `${ev.stone} pierre` : '', ev.minedGold > 0 ? `${ev.minedGold} or` : ''].filter(Boolean).join(', ');
+      waveIndicator.flash(`${e?.hero ? 'Héros' : 'Villageois'} à terre : ${parts} perdus`);
+    }
+  }
 }
 
 /** Outils de la Forge deja annonces pendant cette partie (une seule fois,
@@ -6212,7 +6225,7 @@ function issueRightClickOrder(event: MouseEvent): void {
   const workerIds = entityIds.filter((id) => world.getById(id)?.worker);
   if (heroIds.length > 0 || workerIds.length > 0) {
     const others = entityIds.filter((id) => !heroIds.includes(id) && !workerIds.includes(id));
-    const depot = picked !== null && picked.team === 'player' && !picked.construction && picked.isBuilding && getBuilding(picked.unitId).resourceDepot ? picked : battleDepotAt(point.x, point.z);
+    const depot = picked !== null && picked.team === 'player' && !picked.construction && picked.isBuilding && (getBuilding(picked.unitId).dropOff?.length ?? 0) > 0 ? picked : battleDepotAt(point.x, point.z);
     const site = depot ? null : picked !== null && picked.team === 'player' && picked.construction ? picked : battleChantierAt(point.x, point.z);
     const chest = depot || site ? null : chestNear(point.x, point.z);
     // Coffre d'un camp encore defendu : refuse avec la raison, le Heros ne bouge pas.
@@ -6223,27 +6236,30 @@ function issueRightClickOrder(event: MouseEvent): void {
     const drop = depot || site || chest ? null : itemDropNear(point.x, point.z);
     const pile = depot || site || chest || drop ? null : resourcePileNear(point.x, point.z);
     const node = depot || site || chest || drop || pile ? null : resourceNodeAtClick(event.clientX, event.clientY, point);
-    // Plus de depot (2026-11-03) : un clic droit sur la Baliste ne fait que
-    // deplacer ; les tas se ramassent d'un clic (ci-dessous).
-    const command: PlayerCommand | null = heroIds.length === 0 || depot || pile ? null
+    // Depot manuel (2026-11-03) : clic droit sur un point de collecte avec
+    // un cargo non vide ; tout tas (bois, pierre, or de butin) se ramasse en
+    // y allant (ordre pickup, geste de ramassage).
+    const heroCargo = heroIds.map((id) => world.getById(id)!).some((e) => e.cargo && cargoTotal(e.cargo) > 0);
+    const command: PlayerCommand | null = heroIds.length === 0 ? null : depot
+      ? (heroCargo ? { kind: 'deposit', entityIds: heroIds, targetEntityId: depot.id } : null)
       : site
         ? { kind: 'build', entityIds: heroIds, targetEntityId: site.id }
         : chest
           ? { kind: 'openChest', entityIds: heroIds, chestId: chest.id }
           : drop
           ? { kind: 'pickupItem', entityIds: heroIds, dropId: drop.id }
+          : pile
+          ? { kind: 'pickup', entityIds: heroIds, pileId: pile.id }
           : node
             ? { kind: 'harvest', entityIds: heroIds, nodeId: node.id }
             : null;
+    const workerCargo = workerIds.map((id) => world.getById(id)!).some((e) => e.cargo && cargoTotal(e.cargo) > 0);
     const workerCommand: PlayerCommand | null = workerIds.length === 0 ? null
+      : depot ? (workerCargo ? { kind: 'deposit', entityIds: workerIds, targetEntityId: depot.id } : null)
+      : pile && pile.resource !== 'gold' ? { kind: 'pickup', entityIds: workerIds, pileId: pile.id }
       : node ? { kind: 'harvest', entityIds: workerIds, nodeId: node.id }
       : null;
-    // Tas au sol (or, bois, pierre ; 2026-11-03) : ramasse IMMEDIATEMENT,
-    // sans deplacement ni sac ni depot (le tas disparait, le stock monte).
-    if (pile && (!fogActive() || fogOfWar!.isExplored(pile.x, pile.z))) {
-      collectPile(pile.id);
-      return;
-    }
+    if (depot && !heroCargo && !workerCargo && (heroIds.length > 0 || workerIds.length > 0)) waveIndicator.flash('Rien à déposer');
     if (command || workerCommand) {
       if (node) {
         // Source visee : selectionnee (anneau jaune), recoltable ou non.
@@ -6288,7 +6304,7 @@ function battleChantierAt(x: number, z: number): Entity | null {
 /** Depot de ressources du joueur (Baliste) dont l'emprise contient (x, z). */
 function battleDepotAt(x: number, z: number): Entity | null {
   return world.entities.find((e) => {
-    if (!e.alive || e.team !== 'player' || !e.isBuilding || e.construction || !e.footprintObstacle || !getBuilding(e.unitId).resourceDepot) return false;
+    if (!e.alive || e.team !== 'player' || !e.isBuilding || e.construction || !e.footprintObstacle || !(getBuilding(e.unitId).dropOff?.length)) return false;
     const b = obstacleBounds(e.footprintObstacle);
     return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ;
   }) ?? null;
@@ -6456,18 +6472,8 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
   for (const ev of events) {
     // Transport (2026-11-01) : la recolte et le ramassage remplissent le sac ;
     // seul le depot a la Baliste remplit le stock de la run.
-    if (ev.type === 'pickup') {
-      if (!inTestMode) currentRun.resourcePileAmounts[ev.pileId] = ev.remaining;
-    } else if (ev.type === 'deposit') {
-      // Depot a la Baliste : seul chemin du sac vers le stock utilisable
-      // (bois, pierre ; l'or est une monnaie depuis le 2026-11-02).
-      if (!inTestMode) {
-        currentRun.resources.wood += ev.wood;
-        currentRun.resources.stone += ev.stone;
-      }
-      // Une unite a la fois (0,5 s chacune) : annonce a la fin du sac.
-      if (ev.remaining === 0) waveIndicator.flash(`Dépôt terminé — stock : ${currentRun.resources.wood} bois, ${currentRun.resources.stone} pierre, ${formatGold(currentRun.gold)} or`);
-    } else if (ev.type === 'itemPickup') {
+    // Ressources : voir handleCargoEvents (cargo economique, 2026-11-03).
+    if (ev.type === 'itemPickup') {
       waveIndicator.flash(`Butin : ${EQUIPMENT[ev.itemId]?.name ?? ev.itemId}`);
       heroInventoryRefreshAt = 0;
     } else if (ev.type === 'itemPickupFull') {
@@ -6479,8 +6485,6 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
       settleRepair(ev.repairId, ev.budgetHp > 0 ? 1 - ev.restoredHp / ev.budgetHp : 0, ev.reason === 'done');
     } else if (ev.type === 'chestLocked') {
       waveIndicator.flash('Camp encore défendu');
-    } else if (ev.type === 'carryFull') {
-      waveIndicator.flash('Sac plein');
     } else if (ev.type === 'built') {
       const index = ownedBuildingIndexByEntityId.get(ev.buildingId);
       const owned = index !== undefined ? currentRun.buildings[index] : undefined;
@@ -6568,8 +6572,8 @@ function heroActionProgress(hero: Entity): { progress: number; remaining: number
   }
   if (h.working === 'chop' || h.working === 'mine') return { progress: Math.min(1, h.workTimer / HARVEST_INTERVAL), remaining: HARVEST_INTERVAL - h.workTimer };
   if (h.working === 'deposit') {
-    // Sac de depart = porte + deja verse (une unite par DEPOSIT_SECONDS_PER_ITEM).
-    const total = (carriedResourceTotal(h.inventory) + Math.floor(h.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9)) * DEPOSIT_SECONDS_PER_ITEM;
+    // Cargo de depart = porte + deja verse (une unite par DEPOSIT_SECONDS_PER_ITEM).
+    const total = ((hero.cargo ? cargoTotal(hero.cargo) : 0) + Math.floor(h.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9)) * DEPOSIT_SECONDS_PER_ITEM;
     return { progress: Math.min(1, h.workTimer / Math.max(total, 1e-6)), remaining: total - h.workTimer };
   }
   if (h.working === 'build' && hero.order.type === 'repair' && h.repairJob) {
@@ -8026,7 +8030,7 @@ const loop = new Loop(
     world.harvestPermissions = harvestPermissionsOf(world.entities, RUN_OWNER_TEAM);
     announceHarvestTools();
     world.step(dt);
-    creditMinedResources();
+    handleCargoEvents();
     logPathDiagnostics();
     stepSurvivalWaves();
     // Ordres acceptes pendant CE pas : commandResults est remplace a chaque
@@ -8717,7 +8721,7 @@ const loop = new Loop(
     rallyMarkers.sync(world.entities, battleInspectedEntityId, !inEditorMode && inBattlePhase());
     updateEdgeScroll(realDt);
     // Depot vise par un ordre de depot du Heros : anneau fixe tant qu'il dure.
-    const depositing = inBattlePhase() ? world.entities.find((e) => e.alive && e.hero && e.team === 'player' && e.order.type === 'deposit') : undefined;
+    const depositing = inBattlePhase() ? world.entities.find((e) => e.alive && e.cargo && e.team === 'player' && e.order.type === 'deposit') : undefined;
     depotTargetRing.setTarget(depositing?.order.type === 'deposit' ? depotRingTarget(world.getById(depositing.order.targetEntityId)) : null);
     depotTargetRing.animate(realDt);
     spellCastVfxView.sync(inBattlePhase() ? world.entities : [], (id) => unitViews.getPosition(id), realDt);

@@ -38,7 +38,7 @@ import type { Team } from '../sim/entity';
 const DIR = '/assets/units/toon';
 
 /** Humains (Western Kingdoms) : un par kit du jeu. */
-type HumanToonKind = 'fantassin' | 'archer' | 'mage' | 'sentinel' | 'oracle' | 'piquier' | 'vengeur' | 'hero' | 'cavalier';
+type HumanToonKind = 'fantassin' | 'archer' | 'mage' | 'sentinel' | 'oracle' | 'piquier' | 'vengeur' | 'hero' | 'cavalier' | 'villageois';
 /** Barbares (pack Barbarians) : chacun habille une unite du jeu (ToonUnitDef.skins). */
 type BarbarianToonKind = 'barbare_guerrier' | 'barbare_berserker' | 'barbare_chasseur' | 'barbare_chaman' | 'barbare_brute' | 'barbare_cavalier';
 export type ToonUnitKind = HumanToonKind | BarbarianToonKind;
@@ -185,6 +185,26 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
       attack: { ...once('attack'), retime: { release: 0.43, releaseAt: 0.3, endAt: 1.1 } },
     },
   },
+  // Villageois (2026-11-03, Atelier d'Antoine : tete WK A x0,8, corps
+  // barbare D, bras et jambes WK A, ni epauliere ni arme) : peon economique,
+  // clips Spearman ; son estoc sert de coup de hache / de pioche (outils
+  // `tool_axe` / `tool_pick` du GLB, visibles seulement au travail,
+  // setWorkerTool), ramassage et depot accroupis absents du set : estoc
+  // ralenti. Aucune attaque en jeu (data/units.ts).
+  villageois: {
+    file: 'human_villager.glb',
+    textures: 'wk',
+    defaultOn: true,
+    roles: {
+      ...COMMON_ROLES,
+      walk: loop('run', 1.1),
+      attack: once('attack'),
+      chop: loop('attack', 1.1),
+      mine: loop('attack', 1.1),
+      gather: loop('attack', 0.8),
+      deposit: loop('attack', 0.8),
+    },
+  },
   vengeur: {
     file: 'human_avenger.glb',
     textures: 'wk',
@@ -201,10 +221,11 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
       attackAlt: { ...once('attackB'), retime: { release: 0.4, releaseAt: 0.2, endAt: 0.58 } },
     },
   },
-  // Heros (2026-11-01, PROVISOIRE) : chef barbu tete nue, corps lourd, grosses
-  // epaulieres, gros marteau (x1,6) sans bouclier ; hache et pioche en outils
-  // commutables (maillages `tool_*`, setToonTool). Plus grand que toute autre
-  // unite. Toujours ce modele (aucun modele officiel).
+  // Heros (2026-11-01, PROVISOIRE ; pieces du 2026-11-03, Atelier d'Antoine) :
+  // chef barbu a capuche, corps lourd, grosses epaulieres, gros marteau (x1,4)
+  // sans bouclier ; hache et pioche en outils commutables (maillages
+  // `tool_*`, setToonTool). Plus grand que toute autre unite. Toujours ce
+  // modele (aucun modele officiel).
   hero: {
     file: 'human_hero.glb',
     textures: 'wk',
@@ -285,7 +306,7 @@ const BARBARIAN_SKIN = new Map<ToonUnitKind, ToonUnitKind>(
 
 /** Groupes de `?toonUnits=` (et alias francais). */
 const TOON_GROUPS: Record<string, readonly ToonUnitKind[]> = {
-  human: ['piquier', 'fantassin', 'archer', 'mage', 'sentinel', 'oracle', 'vengeur', 'hero', 'cavalier'],
+  human: ['piquier', 'fantassin', 'archer', 'mage', 'sentinel', 'oracle', 'vengeur', 'hero', 'cavalier', 'villageois'],
   sentinelle: ['sentinel'],
   barbarian: ['barbare_guerrier', 'barbare_berserker', 'barbare_chasseur', 'barbare_chaman', 'barbare_brute', 'barbare_cavalier'],
   barbare: ['barbare_guerrier', 'barbare_berserker', 'barbare_chasseur', 'barbare_chaman', 'barbare_brute', 'barbare_cavalier'],
@@ -630,8 +651,15 @@ export function buildToonUnitModel(kind: ToonUnitKind, team: Team, palette: Toon
 
   const mixer = new THREE.AnimationMixer(group);
   const actions: Record<string, THREE.AnimationAction> = {};
+  const used = new Set<THREE.AnimationClip>();
   for (const [role, { timeScale, loop: looping }] of Object.entries(def.roles)) {
-    const action = mixer.clipAction(prototype.roleClips.get(role)!);
+    // Un clip partage par plusieurs roles (Villageois : l'estoc sert d'attaque
+    // et de coup de hache) recoit une action PAR role : UnitViews distingue
+    // l'attaque du geste de travail a l'action qui tourne.
+    let clip = prototype.roleClips.get(role)!;
+    if (used.has(clip)) clip = clip.clone();
+    used.add(clip);
+    const action = mixer.clipAction(clip);
     action.timeScale = timeScale;
     if (!looping) {
       // Fin de clip figee jusqu'au fondu decide par UnitViews (attaque, sort, chute).
@@ -647,7 +675,8 @@ export function buildToonUnitModel(kind: ToonUnitKind, team: Team, palette: Toon
   });
   if (tools.size > 0) {
     root.userData['toonTools'] = tools;
-    setToonTool(root, 'hammer');
+    // Marteau par defaut (Heros) ; aucun outil sans marteau (Villageois).
+    setToonTool(root, tools.has('hammer') ? 'hammer' : '');
   }
   actions['idle']!.play();
   mixer.update(0);

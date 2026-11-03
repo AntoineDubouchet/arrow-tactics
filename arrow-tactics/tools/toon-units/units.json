@@ -222,12 +222,35 @@
       },
       "animations": "animation/Infantry"
     },
+    "human_villager": {
+      "source": "western_kingdoms",
+      "pieces": {
+        "head": {
+          "piece": "WK_Units_head_A",
+          "scale": 0.8
+        },
+        "body": {
+          "piece": "BRB_body_D",
+          "source": "barbarian"
+        },
+        "arms": "WK_Units_Arms_A",
+        "legs": "WK_Units_Legs_A",
+        "shoulderpads": null,
+        "weapon": null,
+        "offhand": null,
+        "extras": [],
+        "tools": {
+          "axe": "WK_weapon_axe_A",
+          "pick": "WK_weapon_pick"
+        }
+      },
+      "animations": "animation/Spearman"
+    },
     "human_hero": {
       "source": "western_kingdoms",
       "pieces": {
         "head": {
-          "piece": "BRB_head_B",
-          "source": "barbarian",
+          "piece": "WK_Units_head_H",
           "scale": 0.9
         },
         "body": {
@@ -236,12 +259,12 @@
           "scale": 0.8
         },
         "arms": {
-          "piece": "BRB_arms_B",
+          "piece": "BRB_arms_C",
           "source": "barbarian"
         },
         "legs": {
-          "piece": "BRB_legs_C",
-          "source": "barbarian"
+          "piece": "WK_Units_Legs_C",
+          "scale": 1.1
         },
         "shoulderpads": {
           "piece": "BRB_shoulderpads_B",

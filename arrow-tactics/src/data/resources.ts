@@ -92,3 +92,44 @@ export function canHarvestResource(permissions: HarvestPermissions, resource: Ha
 
 /** Ordre de depot (une unite toutes les DEPOSIT_SECONDS_PER_ITEM s). */
 export const CARRIED_RESOURCES: readonly CarriedResource[] = ['wood', 'stone'];
+
+// --- Cargo economique (2026-11-03) -------------------------------------------
+
+/** Ressources TRANSPORTEES (jamais dans l'inventaire RPG) : bois, pierre et
+ *  or EXTRAIT d'un gisement (`minedGold`). L'or de butin (monstres, coffres,
+ *  barils, recompenses) n'en fait pas partie : monnaie directe. */
+export type CargoResource = 'wood' | 'stone' | 'minedGold';
+export const CARGO_RESOURCES: readonly CargoResource[] = ['wood', 'stone', 'minedGold'];
+
+/** Sac de ressources d'une unite economique (Heros, Villageois) : compteurs
+ *  et capacite TOTALE (toutes ressources confondues). Aucun InventorySlot. */
+export interface ResourceCargo {
+  wood: number;
+  stone: number;
+  minedGold: number;
+  capacity: number;
+}
+
+/** Capacites PROVISOIRES, centralisees. */
+export const CARGO_CAPACITY = { hero: 10, villageois: 5 } as const;
+
+export function createCargo(capacity: number): ResourceCargo {
+  return { wood: 0, stone: 0, minedGold: 0, capacity };
+}
+
+export function cargoTotal(c: Pick<ResourceCargo, 'wood' | 'stone' | 'minedGold'>): number {
+  return c.wood + c.stone + c.minedGold;
+}
+
+export function cargoRoom(c: ResourceCargo): number {
+  return Math.max(0, c.capacity - cargoTotal(c));
+}
+
+/** Ressource de cargo produite par une source ou un tas (or de gisement ->
+ *  or extrait ; l'or de butin au sol n'est PAS une ressource de cargo). */
+export function cargoResourceOf(resource: HarvestResource): CargoResource {
+  return resource === 'gold' ? 'minedGold' : resource;
+}
+
+/** Noms affiches des ressources de cargo (fiches). */
+export const CARGO_LABELS: Readonly<Record<CargoResource, string>> = { wood: 'Bois', stone: 'Pierre', minedGold: 'Or' };
