@@ -80,7 +80,7 @@ Dépendances observées dans le code :
 | `editor/` | `config`, `data` (catalogue des unités), `render` (fabriques de meshes), types de `sim` |
 | `workshop/` | `three` (et ses addons), `data/units` (noms des unités), `render/toonUnitRig` (matériau teinté, textures, presets fixes) |
 | `audio/` | `run/userSettings` |
-| `main.ts` | tout, dont `core/gridGroupMove.ts` pour le déplacement d'unités de l'éditeur et de la préparation, et `core/wallLine.ts` pour la pose des murs (jeu et éditeur) |
+| `main.ts` | tout, dont `core/gridGroupMove.ts` pour le déplacement d'unités de l'éditeur, et `core/wallLine.ts` pour la pose des murs (jeu et éditeur) |
 
 Règle forte, vérifiée : **`sim/` n'importe jamais `three`, `render/`, `ui/`,
 `editor/` ni `audio/`**. Elle n'accède ni au DOM, ni à `localStorage`, ni à
@@ -126,8 +126,10 @@ sans figer l'affichage.
 - `obstacles`, `boardWidth`, `boardHeight` : la géométrie de la carte chargée.
 - Une RNG à graine (`core/rng.ts`, `seed` exposée pour le debug).
 - L'état persistant entre deux ticks : `blasts` (projectiles de zone),
-  `iceNovaZones` (zones persistantes), `shadowProjectiles`, `playerArrow`
-  (cooldown et vols de la flèche du joueur).
+  `playerArrow` (cooldown et vols de la flèche du joueur). Les zones
+  persistantes (`iceNovaZones`) et les projectiles d'ombre
+  (`shadowProjectiles`) ont été retirés le 2026-11-04 avec les parchemins
+  de bataille (`DESIGN_DECISIONS.md` G40).
 
 Ordre de `World.step(dt)` :
 
@@ -408,9 +410,8 @@ Le bouclier absorbe d'abord, puis les PV baissent. Les appelants :
 | Attaque automatique | `sim/systems/combat.ts` |
 | Boule de feu (zone) | `sim/systems/abilities.ts` (`advanceBlasts`) |
 | Charge | `sim/systems/abilities.ts` (`advanceDash`) |
-| Zones persistantes (Blizzard) | `sim/systems/persistentAreaEffects.ts` |
-| Projectiles d'ombre | `sim/systems/shadowProjectiles.ts` |
 | Flèche du joueur | `sim/playerArrow.ts` |
+| Tir de la Tour | `sim/systems/buildingAttack.ts` |
 
 - **Combat** : le raté et l'esquive passent par la RNG. La ligne de tir est
   testée par `findBlockingObstacle` ; un tir bloqué provoque un petit
@@ -430,12 +431,16 @@ Le bouclier absorbe d'abord, puis les PV baissent. Les appelants :
   `World` et non sur leur lanceur : ils survivent à sa mort.
 - **Soins de simulation** : `applyHealToEntity` (`sim/damage.ts`), seul
   point d'entrée ; utilisé par le soin de l'Oracle, appliqué à la fin de son
-  incantation (`Entity.cast.heal`, événements `heal` / `heal-lost`). Les
-  parchemins, hors simulation, passent par `applyPlayerHeal` (`main.ts`).
+  incantation (`Entity.cast.heal`, événements `heal` / `heal-lost`), par le
+  Soin du Héros et par le soin de l'Église (`main.ts`). `applyPlayerHeal`
+  (`sim/damage.ts`, soin de zone des anciens parchemins) n'a plus
+  d'appelant depuis le 2026-11-04.
 - **Hors entités** : la flèche du joueur (`sim/playerArrow.ts`, une volée de
-  un ou plusieurs carreaux sous un cooldown commun) et les effets déclenchés
-  depuis `main.ts` via `World` (`applyIceNovaRoot`, `createBlizzardZone`,
-  `spawnShadowProjectiles`).
+  un ou plusieurs carreaux sous un cooldown commun). Les effets des
+  parchemins déclenchés depuis `main.ts` (`applyIceNovaRoot`,
+  `createBlizzardZone`, `spawnShadowProjectiles`) ont été retirés le
+  2026-11-04 ; `Entity.rootTimer` (immobilisation) reste comme statut
+  générique, sans source aujourd'hui.
 - **Mort** : `sim/systems/death.ts` passe `alive` à `false`.
 
 ## 8. Circulation des événements simulation → rendu/UI
@@ -444,12 +449,14 @@ La simulation émet des **faits** ; `main.ts` décide des réactions (visuelles,
 économiques, de progression).
 
 - **Tableaux d'événements, vidés et remplis à chaque tick** :
-  `combatEvents`, `abilityEvents`, `areaEffectEvents`, `playerArrowEvents`,
-  `shadowProjectileEvents`, `productionSpawnEvents`, `enemyReinforcementSpawns`,
-  `buildingAttackEvents`.
+  `combatEvents`, `abilityEvents`, `playerArrowEvents`,
+  `productionSpawnEvents`, `productionUpgradeEvents`,
+  `enemyReinforcementSpawns`, `buildingAttackEvents`, `heroEvents`,
+  `resourceDepletedEvents`, `cargoEvents`, `campEvents`, `lootEvents`,
+  `orderEvents`. (`areaEffectEvents` et `shadowProjectileEvents` ont
+  disparu le 2026-11-04 avec les parchemins.)
 - **État lu directement par le rendu** : `entities`, `blasts`,
-  `shadowProjectiles`, `playerArrow.flights`, `buildingProjectiles`,
-  `iceNovaZones`.
+  `playerArrow.flights`, `buildingProjectiles`.
 
 Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
@@ -527,31 +534,42 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   la Tour tire par `buildingAttack`.
 - **Survie d'un camp** : `countsForDefeat` (porté par la `BuildingDef`) fait
   compter un bâtiment dans `countCombatants`.
-- **Production** (Caserne, Camp d'archerie) : une `BuildingDef` avec
-  `production` (`unitId`, `unitsPerWaveByLevel`) donne à l'entité un quota
-  pour la manche (`productionRemaining`), fixé par `World.spawnBuilding`
-  depuis le niveau propre du bâtiment (`unitsProducedPerWave`). Aucun
-  minuteur : `sim/systems/buildingProduction.ts` consomme ce quota dès que
-  la population et les cases libres autour de l'emprise le permettent (lot
-  partiel possible, cases réservées au fil du tick), sans jamais le
-  renouveler, et passe par `productionSpawnEvents` (§8).
-- **Recrutement débloqué** (Caserne → Fantassin, Camp d'archerie → Archer,
-  Église → Mage) : champ `recruitmentUnlock` de la `BuildingDef`, distinct
-  de `production`. `run/recruitment.ts` (hors simulation) en est la seule
-  lecture, partagée par la boutique (`ui/screens.ts`) et l'achat
-  (`buyUnit`, `main.ts`).
+- **Production** (Caserne, Camp d'archerie, Sanctuaire, Église, Écurie,
+  Auberge) : une seule règle depuis le 2026-11-04, la **file payée** en
+  temps réel. `main.ts` (`produceAtInspectedBuilding`) débite l'or et
+  appelle `World.queueProduction(entityId, { kind: 'unit', unitId }, durée)`
+  (durée de `data/production.ts`, au plus `PRODUCTION_QUEUE_MAX` ordres) ;
+  `tickProductionOrders` (`sim/systems/buildingProduction.ts`) décompte
+  les durées et pousse les unités prêtes dans `Entity.productionQueue`
+  (tampon d'attente) ; `buildingProductionSystem` les fait sortir dès que
+  la population (`productionWaitingForPopulation`) et une case libre
+  autour de l'emprise le permettent, et émet `productionSpawnEvents`
+  (§8). Les améliorations de bâtiment passent par la même file
+  (`{ kind: 'upgrade' }`, `handleProductionUpgrades`). L'ancien quota
+  gratuit « par manche » (`UnitProductionConfig`, `unitsByLevel`,
+  `productionRemaining`, `unitsProducedPerWave`, surcharge `production`
+  de `spawnBuilding`) a été retiré (`DESIGN_DECISIONS.md` G40).
+- **Unités productibles** : champ `recruitmentUnlock` de la `BuildingDef`
+  (`unitIds`, `minLevels`), lu par `producibleUnits` (`data/production.ts`)
+  pour les boutons « Produire » de la fiche (`main.ts`) et par
+  `World.setRallyPoint` (un point de ralliement n'a de sens que sur un
+  bâtiment qui produit ; avant le 2026-11-04, la garde lisait `production`
+  et refusait à tort le ralliement de l'Auberge, du Sanctuaire, de
+  l'Église et de l'Écurie). `run/recruitment.ts` a disparu avec la
+  Boutique.
 - **Rendu** :
   - `render/buildingView.ts` gère le flash, la destruction et les débris, sur
     des matériaux clonés ;
   - `main.ts` maintient `buildingViewsByEntityId` ;
   - la Baliste est un singleton au rendu dédié (`render/ballista.ts`).
 - **Run** : `RunState.buildings` (`OwnedBuilding`) conserve position,
-  rotation, PV et niveau propre (Mine, Caserne, Camp d'archerie, Tour,
-  Église) entre les vagues. La
-  position de la Baliste, `RunState.ballistaPosition`, est fixée au
-  démarrage de la run depuis la carte de départ (`resolveBallistaOrigin`,
-  voir §10). Seule l'étape C de l'agrandissement la déplace, comme les
-  bâtiments (`offsetForZ`, `main.ts`).
+  rotation, PV, niveau propre et avancement de chantier de chaque bâtiment
+  de la run ; `startSurvivalWorld` (`main.ts`) les instancie au démarrage
+  et `ownedBuildingIndexByEntityId` relie ensuite chaque entité à son
+  `OwnedBuilding`. La position de la Baliste, `RunState.ballistaPosition`,
+  est fixée au démarrage de la run depuis la carte de départ
+  (`resolveBallistaOrigin`, voir §10) ; plus rien ne la déplace depuis le
+  retrait de l'agrandissement (2026-11-04).
 - **Production de la Mine** : gérée par `main.ts` en bataille réelle
   (minuteur `mineProductionIntervalSeconds`, montant `rollMineGold` de
   `run/mineUpgradeEffects.ts`, tiré d'un `Rng` dérivé de la graine du
@@ -623,22 +641,19 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     `canUpgradeOwnedBuilding` / `upgradeOwnedBuilding(run, index)` (débit
     par `spendGold`, tout ou rien).
   - `main.ts` déclenche l'achat depuis l'action `upgradeBuilding` de la
-    fiche, en préparation seulement. Les effets se lisent dans
-    `run/mineUpgradeEffects.ts`, `run/buildingUpgradeEffects.ts` et
-    `unitsProducedPerWave` (`data/buildings.ts`).
-  - En bataille, `ownedBuildingIndexByEntityId` (`main.ts`) relie chaque
-    entité de bâtiment à son `OwnedBuilding`, par l'ordre de spawn.
-- **Bilan de fin de vague** (`run/battleSummary.ts`) : compteur pur des
-  ennemis vaincus par type et de l'Or gagné pendant la bataille. `main.ts`
-  le remet à zéro au début de chaque bataille réelle et l'alimente (Or des
-  ennemis tués, production des Mines, bonus de fin de vague) ;
-  `defeatedLines` donne les lignes affichées, sans zéro, dans l'ordre de
-  `UNITS`. L'écran est rendu par `showWaveComplete` (`ui/screens.ts`).
+    fiche, en temps réel, sur un bâtiment terminé : l'or est débité tout
+    de suite et le niveau appliqué à la fin d'un ordre `upgrade` de la file
+    de production (§9). Les effets se lisent dans
+    `run/mineUpgradeEffects.ts` et `run/buildingUpgradeEffects.ts`.
+  - `ownedBuildingIndexByEntityId` (`main.ts`) relie chaque entité de
+    bâtiment à son `OwnedBuilding`, par l'ordre de spawn.
+- Le bilan de fin de vague (`run/battleSummary.ts`, `showWaveComplete`)
+  a été retiré le 2026-11-04 avec la boucle en manches.
 - **Calcul des effets** (`run/*UpgradeEffects.ts`, `run/talentEffects.ts`) :
   seuls `run/` et `main.ts` connaissent talents et améliorations. Les
   modules `*UpgradeEffects.ts` reçoivent les niveaux de la run
-  (`RunUpgradeLevels`) ; les prix de bâtiments et de parchemins
-  (`getEffectiveBuildingCost`…) ne dépendent d'aucun niveau, le prix d'une
+  (`RunUpgradeLevels`) ; les prix de bâtiments
+  (`getEffectiveBuildingCost`) ne dépendent d'aucun niveau, le prix d'une
   unité dépend de son niveau de production (`effectivePlayerUnitCost`,
   `playerUnitProductionCost`). L'achat et l'affichage utilisent les mêmes
   fonctions. `computeEnemyUnitUpgradeEffects` utilise un barème séparé
@@ -710,23 +725,10 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   comme carte de départ du Mode survie (`survivalBaseMap`) seulement avec le
   paramètre de débogage `?map=island`, et la passe à `createNewRun` pour les
   compteurs d'agrandissement ; voir `CURRENT_STATE.md` §11.
-- **Expansion de map** (`run/mapExpansion.ts`) : fonctions pures sur `MapDef`
-  et un état d'expansion. `main.ts` les applique derrière l'écran de
-  transition, après une victoire.
-  - Les frontières des camps (`expansionAnchors`) viennent du territoire
-    explicite s'il existe, sinon des bords du plateau et de `spawnDepth`
-    (comportement historique).
-  - Chaque nouvelle case reprend l'état (case ou trou, terrain, camp) de
-    l'ancienne case dont l'image par les déplacements de l'étape est la plus
-    proche (`expandCells`) : la forme de la carte et son territoire
-    explicite suivent l'agrandissement. A et B repoussent vers l'extérieur
-    ce qui est au-delà des zones, sans déplacer les objets ; C déplace
-    cases, territoire et objets par `centerExpansionZOffset`, de façon
-    symétrique : le camp du joueur recule d'une case vers +z, le camp ennemi
-    d'une case vers −z, le champ de bataille ne bouge pas. `main.ts`
-    applique le même `offsetForZ` aux bâtiments possédés et à la Baliste.
-  - Un objet déplacé reçoit une `appearanceSeed` figée, pour garder son
-    aspect (voir §11).
+- **Expansion de map** : retirée le 2026-11-04 (`run/mapExpansion.ts`
+  supprimé, `RunState.mapExpansion` disparu, `DESIGN_DECISIONS.md` G40).
+  La carte d'une run ne change plus après le démarrage ; `MapDef.spawnDepth`
+  et le territoire restent ceux de la carte.
 - **Territoire** (`config/territory.ts`, module pur sans DOM ni Three.js) :
   - `TerritoryCell = { x, z, team: 'player' | 'enemy' }`, dans la
     convention de `MapDef.cells` (coin entier de la case). Une case sans
@@ -745,15 +747,16 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     limitées aux cellules existantes) ;
   - `buildTerritoryIndex` (lookup O(1)), `territoryOwnerAtPoint`,
     `isFootprintOwnedBy` (toute l'empreinte doit appartenir au camp).
-- **Territoire courant du jeu** (`main.ts`, `currentTerritory`) : index
-  construit depuis `currentMap` et `currentRun.mapExpansion.spawnDepth`,
-  reconstruit par `rebuildCurrentTerritoryIndex` à chaque changement de l'un
-  des deux (nouvelle run, expansion, test du scénario et retour), jamais par
-  image. `isValidPlacementTile` le lit pour unités et bâtiments ; un index
-  périmé est détecté et reconstruit avec un avertissement. Le territoire
-  explicite de l'arène est porté par `currentMap` et transformé par
-  l'expansion ; il n'existe pas de `RunState.territory` (territoire propre
-  à la run). La simulation ne connaît pas le territoire.
+- **Territoire courant du jeu** : depuis le 2026-11-02 (construction libre,
+  G12) la pose en jeu n'est plus limitée au territoire, et l'index de
+  territoire de `main.ts` (`currentTerritory`,
+  `rebuildCurrentTerritoryIndex`), qui ne servait qu'au placement, a été
+  retiré le 2026-11-04 avec lui (G40). `isValidPlacementTile` ne teste
+  plus que les obstacles, les bâtiments, l'eau, les sources debout et
+  l'existence de la case. Le territoire d'une carte (`MapDef.territory`)
+  sert au rendu des zones, au camp des unités de l'éditeur et aux
+  vagues ; il n'existe pas de `RunState.territory`. La simulation ne
+  connaît pas le territoire.
 
 ## 11. Rendu
 
@@ -1025,8 +1028,10 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     reste libre.
 - **VFX** : `render/vfx/` (`VfxManager`, `lightPool`, `orbitingSprites`,
   `radialBurst`, `vfxMaterials`) et les vues dédiées (`fireballView`,
-  `iceNova`, `shadowProjectileView`, `healVfx`, `tauntVfx`, `telegraph`,
-  `projectiles`, `playerArrowView`, `recyclageAura`).
+  `healVfx`, `tauntVfx`, `telegraph`, `projectiles`, `playerArrowView`,
+  `levelUpVfx`, `buildingDamageFx`). `iceNova`, `shadowProjectileView` et
+  `recyclageAura` ont été retirés le 2026-11-04 ; `VfxManager` ne gère
+  plus que l'impact de Boule de feu.
 - **Préchargement** : les modèles riggés sont préchargés au démarrage
   (`main.ts`), pour que la construction d'une silhouette reste synchrone
   ensuite.
@@ -1071,26 +1076,27 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 ## 12. UI HTML
 
 - Toute l'UI est en DOM par-dessus le canvas, stylée par `ui/style.css`.
-- **`Screens`** (`ui/screens.ts`) : menus, boutique de run, arbre de talents,
-  boutique de la Forge, paramètres, confirmations. Il reçoit des callbacks
-  (`ScreenHandlers`) depuis `main.ts` et lit `RunState` / `MetaProgress`
-  pour l'affichage (prix calculés via `run/`).
-  - L'écran de victoire (`showWaveComplete`) affiche le bilan de vague
-    fourni par `main.ts` (`run/battleSummary.ts`, §10).
-  - Les améliorations de run de la Forge et de l'Église partagent l'overlay
-    d'id interne `unitUpgradeShop` (`showForge(run, progress, site)` /
-    `refreshForge`) : titre et cartes filtrés par site
-    (`runUpgradeSite`, `run/runUpgrades.ts`), Or de la run, niveaux de
-    `RunState.upgrades`, prix `runUpgradeGoldCost`, boutons activés par
-    `canPurchaseRunUpgrade`. `main.ts` l'ouvre (`openForge(site)`,
-    préparation uniquement, au moins un bâtiment de ce site possédé),
-    réalise l'achat (`purchaseForgeUpgrade`, refusé hors du site ouvert) et
-    la ferme (`closeForge`, « Retour » ou Échap, prioritaire sur la pause).
+- **`Screens`** (`ui/screens.ts`) : menus, choix du Héros, arbre de
+  talents, écran de la Forge, paramètres, confirmations, fin de run. Il
+  reçoit des callbacks (`ScreenHandlers`) depuis `main.ts` et lit
+  `RunState` / `MetaProgress` pour l'affichage (prix calculés via `run/`).
+  La Boutique de run, l'écran de fin de manche et l'avertissement d'or
+  restant ont été retirés le 2026-11-04 (G40) : 2 333 → 1 173 lignes.
+  - Les améliorations de run de la Forge utilisent l'overlay d'id interne
+    `unitUpgradeShop` (`showForge(run)` / `refreshForge(run)`) : cartes de
+    `RUN_UPGRADE_DEFS` (`run/runUpgrades.ts`, unités + Baliste), Or de la
+    run, niveaux de `RunState.upgrades`, prix `runUpgradeGoldCost`,
+    boutons activés par `canPurchaseRunUpgrade`. `main.ts` l'ouvre depuis
+    la fiche d'une Forge terminée (`realtimeBuildingAction('openForge')`,
+    simulation en pause), réalise l'achat (`purchaseForgeUpgrade`, refusé
+    si l'écran est fermé ou sans Forge, `hasForge()`) et la ferme
+    (`closeForge`, « Retour » ou Échap, prioritaire sur la pause).
   - Le soin de l'armée à l'Église est calculé et appliqué par
     `run/churchHeal.ts` (PV manquants via `playerUnitMaxHp`, coût, tout ou
     rien) ; la fiche l'affiche et `main.ts` le déclenche.
-- **HUD et composants** : `goldHud`, `waveIndicator`, `inventoryBar`,
-  `sellZone`, `placementPanel`, `selectionBox`, toasts, `combatOverlay`
+- **HUD et composants** : `economyHud` (or, bois, pierre, population ;
+  `goldElement` ancre les popups de pièces), `heroHud`, `waveIndicator`,
+  `buildMenu`, `selectionBox`, toasts, `combatOverlay`
   (barres de PV et textes flottants positionnés par projection monde →
   écran ; les textes flottants partagent la classe `floating-text` et la
   durée `MISS_TEXT_DURATION`), `ballistaIndicator` (HUD de la Baliste), `entityInfoPanel`
@@ -1127,9 +1133,12 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 - **Disposition** (Survie, 2026-11-02) : HUD du Héros en haut à gauche,
   indicateur de vague en haut au centre, debug replié (FPS) en haut à
   droite avec la fiche dessous, barre d'XP du Héros en bas sur toute la
-  largeur, bouton Construire en bas à droite ; ailleurs : HUD de la Baliste ou panneau
-  de placement en bas au centre, or, boutique, vente et inventaire en bas à
-  droite, aide de vitesse en bas à gauche.
+  largeur, bouton Construire en bas à droite, HUD économique à côté ; dans
+  « Tester le scénario » : HUD de la Baliste en bas au centre. Les HUD
+  d'or et de population séparés, le panneau de placement, la zone
+  « Vendre » et la barre d'inventaire (`goldHud`, `populationHud`,
+  `placementPanel`, `sellZone`, `inventoryBar`, `unitUnlockToast`) ont
+  été supprimés le 2026-11-04.
 - **Règles transversales** :
   - pas de dialogue natif (`alert`/`confirm`), sauf dans l'éditeur : alerte
     de carte invalide, confirmation avant de perdre une carte non
@@ -1560,8 +1569,7 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   entité : `World.spawn` (base + overrides d'amélioration) et
   `refreshHeroStats` (niveau + équipement) ; toute lecture de
   `Entity.stats.moveSpeed` (mouvement, prédiction de la Baliste, fiches)
-  voit donc la vitesse finale ; `UNITS` garde les valeurs de base ; fiche
-  de préparation : `placementUnitInfo` applique le même helper. Rendu :
+  voit donc la vitesse finale ; `UNITS` garde les valeurs de base. Rendu :
   `UnitViews.createView` multiplie le `timeScale` du clip `walk` de tout
   kit riggé ; cycle procédural (`WALK_CYCLE_SPEED`) idem.
 - **Camp de départ** : `config/startingBase.ts` (dans `config/`, car le
@@ -1618,25 +1626,29 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
 
 ## 15. Points chauds techniques
 
-- **`main.ts`** est de loin le plus gros fichier du projet. Il contient :
+- **`main.ts`** est de loin le plus gros fichier du projet (8 068 lignes
+  le 2026-11-04 après la passe de modernisation 1 ; 10 536 avant). Il
+  contient :
   - l'état global de session (`world`, `currentRun`, `currentMap`,
     `metaProgress`) ;
   - tous les écouteurs d'entrée ;
-  - la phase de placement et la tour ;
-  - les sélections (préparation et bataille) et le branchement de la fiche
-    d'entité ;
+  - le démarrage et la fin d'une run de Survie (`startSurvivalWorld`,
+    `endSurvivalRun`) ;
+  - les sélections et le branchement de la fiche d'entité ;
   - la consommation des événements de simulation ;
-  - achats, ventes et inventaire ;
-  - bâtiments et expansion de map ;
+  - chantiers, files de production, murs, Forge, Église ;
+  - le Héros (sorts, récolte, cargo, inventaire) ;
   - l'orchestration de l'éditeur.
 
   Beaucoup d'états de module y sont partagés, et l'ordre de déclaration y
-  compte (initialisation au chargement du module).
+  compte (initialisation au chargement du module). Le code de l'ancienne
+  boucle en manches (placement, Boutique, fin de manche, agrandissement,
+  parchemins ; `inPlacementPhase` apparaissait 32 fois) a été retiré le
+  2026-11-04.
 - **`ui/screens.ts`** est le deuxième plus gros fichier : il regroupe tous
   les écrans et leurs calculs d'affichage (prix, effets).
 - Autres fichiers volumineux : `sim/systems/movement.ts` (déplacement,
-  évitement, anti-blocage, collisions) et `render/iceNova.ts` (VFX de la Nova
-  et du Blizzard).
+  évitement, anti-blocage, collisions) et `ui/style.css`.
 
 ## 16. Pièges techniques confirmés
 
@@ -1666,9 +1678,10 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   sphère englobante peut être calculée avec des os pas encore mis à jour,
   puis gardée en cache, et le modèle devient impossible à toucher. Voir
   **KI-23**.
-- **État de placement hors `RunState`** (emplacements, sélection, glisser en
-  cours) : il est remis à zéro à chaque nouvelle run
-  (`resetRunPlacementState`, `main.ts`).
+- **État de session hors `RunState`** (vues, sélections, minuteurs de
+  Mine, correspondances entité ↔ bâtiment possédé) : il est remis à zéro à
+  chaque nouvelle run et à chaque fin de run (`resetRunViews`,
+  `clearBattleWorld`, `main.ts`).
 - **Cache des bornes d'obstacles** (`sim/geometry.ts`) : les bornes sont
   mises en cache par **référence de tableau**, ce qui suppose une liste
   d'obstacles stable pendant une bataille. Or les emprises de bâtiments sont
@@ -1680,9 +1693,27 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
 ## 17. Vérifier une modification
 
 - `npm run build` (depuis `arrow-tactics/`) vérifie les types puis construit
-  le bundle. C'est la seule vérification automatique.
-- Il n'existe **aucune suite de tests**. Les vérifications « headless »
-  passées étaient des scripts jetables, non conservés.
+  le bundle. C'est la vérification de référence.
+- **Tests dans le dépôt** (depuis le 2026-11-04, `arrow-tactics/tests/`,
+  mode d'emploi dans `tests/README.md`) :
+  - `npm run test:sim` : scripts `tests/sim/*.mts` exécutés par Node
+    (24+, suppression native des types via `tests/ts-register.mjs`), sans
+    navigateur ni Vite, qui importent directement `src/sim`, `src/run`,
+    `src/data` et `src/config` (le générateur de carte compris). Environ
+    80 s. `node tests/run-sim.mjs nom` filtre par nom de fichier ;
+  - `npm run test:game` : scripts `tests/game/*.cjs` (Playwright, Edge
+    par `channel: 'msedge'`) : le lanceur démarre un Vite dédié sur le
+    port `TEST_VITE_PORT` (5177), sauf si `VITE_BASE` est défini, et
+    l'arrête à la fin ; chaque script ouvre le jeu et pilote le DOM et
+    `window.__world`. Plusieurs minutes ; `node tests/run-game.mjs nom`
+    filtre ;
+  - `npm test` enchaîne les deux. Un test échoue si son processus sort en
+    erreur ou si sa sortie contient « ECHEC ». Les captures vont dans
+    `tests/game/out/` (ignoré par Git).
+  - Ce n'est **pas** une couverture complète : les tests fixent des
+    contrats (démarrage, production, talents, Forge, défaite, cargo, camps,
+    murs, générateur) ; une modification d'équilibrage peut légitimement
+    en changer un, à documenter.
 - Playwright est installé comme dépendance, mais son navigateur ne l'est pas
   forcément sur la machine. Sous Windows, `channel: 'msedge'` permet
-  d'utiliser Edge à la place.
+  d'utiliser Edge à la place ; c'est ce que font les tests.

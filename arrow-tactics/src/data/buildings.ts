@@ -19,32 +19,19 @@ import type { CargoResource, HarvestTool } from './resources';
  * un décor KayKit ne l'est jamais.
  */
 /**
- * Batiment de production d'unites (Caserne -> Piquier, puis Fantassin au
- * Niv. 2 ; Camp d'archerie -> Archer), GENERIQUE : il en produit gratuitement un lot UNE FOIS PAR MANCHE,
- * au debut de la bataille (sim/systems/buildingProduction.ts).
- */
-export interface UnitProductionConfig {
-  /** Unites produites par manche, dans l'ordre, par niveau interne du
-   *  batiment (index 0 = Niv. 1 ; voir aussi BuildingDef.maxUpgradeLevel).
-   *  Les unites produites recoivent le niveau de production courant de leur
-   *  type au moment de leur apparition (main.ts). */
-  unitsByLevel: readonly (readonly string[])[];
-}
-
-/**
- * Recrutement debloque par un batiment (Caserne -> Piquier, puis Fantassin au
- * Niv. 2 ; Camp d'archerie -> Archer ; Eglise -> Mage, Oracle et Vengeur) : sans au moins un exemplaire
- * possede, l'unite ne se recrute pas en boutique (run/recruitment.ts). Les
- * unites deja possedees, dont l'armee de depart, ne sont jamais concernees.
+ * Unites produites par un batiment (Caserne -> Piquier, puis Homme d'armes au
+ * Niv. 2 ; Camp d'archerie -> Archer ; Eglise -> Oracle et Vengeur ;
+ * Sanctuaire -> Mage ; Auberge -> Villageois ; Ecurie -> Cavalier) : seule
+ * regle de production du jeu (2026-11-04), par la file temps reel de la
+ * fiche du batiment (data/production.ts, producibleUnits ; World.queueProduction).
+ * L'ancien quota gratuit « par manche » (UnitProductionConfig) a ete retire.
  */
 export interface RecruitmentUnlockConfig {
-  /** Unites debloquees (une ou plusieurs : l'Eglise debloque Mage, Oracle et Vengeur). */
+  /** Unites produites (une ou plusieurs : l'Eglise produit Oracle et Vengeur). */
   unitIds: readonly string[];
   /** Niveau interne minimal du batiment pour certaines de ces unites (0 =
-   *  Niv. 1, defaut) : la Caserne Niv. 2 debloque le Fantassin (PROVISOIRE). */
+   *  Niv. 1, defaut) : la Caserne Niv. 2 debloque l'Homme d'armes (PROVISOIRE). */
   minLevels?: Readonly<Record<string, number>>;
-  /** Raison affichee quand ce batiment manque pour recruter l'unite. */
-  missingBuildingHint: string;
 }
 
 /** Attaque automatique d'un batiment defensif (Tour) — voir
@@ -123,13 +110,11 @@ export interface BuildingDef {
    *  aujourd'hui). Requis si `cost` est présent. */
   buildingModel?: string;
   /** Empreinte de collision/placement — requis si `cost` est présent (voir
-   *  main.ts, canPlaceBuildingAt/onValidatePlacement). */
+   *  main.ts, canPlaceBuildingAt). */
   footprintTilesX?: number;
   footprintTilesZ?: number;
-  /** Production d'unites une fois par manche — voir UnitProductionConfig.
-   *  Absent pour les autres. */
-  production?: UnitProductionConfig;
-  /** Recrutement debloque — voir RecruitmentUnlockConfig. */
+  /** Unites produites par la file du batiment — voir RecruitmentUnlockConfig.
+   *  Absent : le batiment ne produit rien. */
   recruitmentUnlock?: RecruitmentUnlockConfig;
   /** Population maximale ajoutee tant que le batiment existe (Maison, voir
    *  data/population.ts). Absent = aucun effet sur la population. */
@@ -145,7 +130,7 @@ export interface BuildingDef {
   hpPerLevel?: number;
   /** Attaque automatique (Tour). Absent = batiment passif. */
   attack?: BuildingAttackConfig;
-  /** Soin de toute l'armee contre de l'or, en preparation (Eglise). */
+  /** Soin de toute l'armee contre de l'or, depuis la fiche en jeu (Eglise). */
   armyHeal?: ArmyHealConfig;
   /** Point de collecte (2026-11-03) : ressources de cargo acceptees par ce
    *  batiment TERMINE et allie (Heros et Villageois y vident leur sac, seul
@@ -183,9 +168,10 @@ export interface BuildingDef {
    *  Absent : toujours `buildingModel`. */
   modelVariants?: readonly string[];
   /** Ameliorations de run accessibles depuis la fiche de ce batiment
-   *  (run/runUpgrades.ts, RunUpgradeSite) : la Forge (unites, Baliste) ou
-   *  le Sanctuaire (parchemins, 2026-11-03). Absent : aucune. */
-  runUpgradeSite?: 'forge' | 'shrine';
+   *  (run/runUpgrades.ts) : la Forge (niveaux de production des unites,
+   *  Baliste). Absent : aucune. Les ameliorations de parchemins du
+   *  Sanctuaire ont ete retirees avec les parchemins (2026-11-04). */
+  runUpgradeSite?: 'forge';
 }
 
 export const BUILDINGS: Record<string, BuildingDef> = {
@@ -252,12 +238,11 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     countsForDefeat: true,
     hpBarHeight: 2.2,
     // Pas de `cost` : jamais achetable/replaçable, toujours présente une
-    // fois pour toutes (voir main.ts, onValidatePlacement) — inchangé par ce
+    // fois pour toutes (voir main.ts, startSurvivalWorld) — inchangé par ce
     // chantier.
   },
-  // Caserne : debloque le recrutement des Fantassins et en produit
-  // gratuitement 1 par manche (2 au Niv. 2), au debut de la bataille (voir
-  // UnitProductionConfig). PV V1 choisis par Claude
+  // Caserne : produit le Piquier, puis l'Homme d'armes au Niv. 2 (file
+  // temps reel). PV V1 choisis par Claude
   // (fourchette "20 à 30 HP" donnée par Antoine, "plus résistante qu'une
   // petite unité mais moins tanky qu'une Sentinelle très améliorée") : 25 HP,
   // à mi-chemin de la fourchette — ISOLÉE ici pour rééquilibrage ultérieur,
@@ -283,16 +268,19 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // Une seule amelioration : Niv. 1 -> Niv. 2 pour 20 or.
     upgradeGoldCostBase: 20,
     maxUpgradeLevel: 1,
-    // Piquier = recrue de base, Fantassin a la Caserne Niv. 2 (decision
-    // d'Antoine, 2026-11-01) ; production : Niv. 1 un Piquier, Niv. 2 un
-    // Piquier et un Fantassin.
-    production: { unitsByLevel: [['piquier'], ['piquier', 'fantassin']] },
-    recruitmentUnlock: { unitIds: ['piquier', 'fantassin'], minLevels: { fantassin: 1 }, missingBuildingHint: 'Nécessite une Caserne' },
+    // Piquier = recrue de base, Homme d'armes a la Caserne Niv. 2 (decision
+    // d'Antoine, 2026-11-01).
+    recruitmentUnlock: { unitIds: ['piquier', 'fantassin'], minLevels: { fantassin: 1 } },
   },
   // Camp d'archerie : meme role que la Caserne pour les Archers (memes PV,
-  // emprise, prix et amelioration). Modele KayKit `blue_archeryrange`
+  // emprise et prix). Modele KayKit `blue_archeryrange`
   // (« Champ de tir à l'arc » de l'editeur), ajuste a l'emprise 3 × 3
   // (3,22 de haut, comme la Caserne).
+  // Amelioration Niv. 2 RETIREE provisoirement (2026-11-04) : son seul effet
+  // etait le quota « 2 Archers par manche », mort avec la production par
+  // manche ; plutot que faire payer 20 or pour rien, le batiment n'est plus
+  // ameliorable. Camp d'archerie Niv. 2 a redefinir en Pass 2
+  // (docs/ROADMAP.md).
   archery: {
     id: 'archery',
     displayName: 'Camp d’archerie',
@@ -307,10 +295,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_archeryrange',
     footprintTilesX: 3,
     footprintTilesZ: 3,
-    upgradeGoldCostBase: 20,
-    maxUpgradeLevel: 1,
-    production: { unitsByLevel: [['archer'], ['archer', 'archer']] },
-    recruitmentUnlock: { unitIds: ['archer'], missingBuildingHint: 'Nécessite un Camp d’archerie' },
+    recruitmentUnlock: { unitIds: ['archer'] },
   },
   // Forge (refonte economique) — batiment allie achetable, sans production,
   // revenu ni effet passif pour l'instant : ciblable, destructible et
@@ -337,7 +322,10 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // depuis le 2026-11-04, bois et pierre sont libres des le depart, la
     // Forge ne donne plus que la pioche de prospecteur (gisements d'or).
     unlocksTools: ['goldPickaxe'],
-    description: 'Outils : pioche de prospecteur (gisements d’or)',
+    // Ecran des ameliorations de run (niveaux de production des unites,
+    // Baliste) depuis sa fiche, une fois terminee (run/runUpgrades.ts).
+    runUpgradeSite: 'forge',
+    description: 'Outils : pioche de prospecteur (gisements d’or) ; améliorations',
   },
   // Maison : +2 de population maximale tant qu'elle existe (voir
   // data/population.ts). Cout et PV PROVISOIRES, non encore fixes par le
@@ -405,9 +393,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     },
   },
   // Eglise : soigne toutes les unites du joueur contre de l'or (run/churchHeal.ts)
-  // et produit l'Oracle et le Vengeur. Le Mage et les parchemins sont au
-  // Sanctuaire depuis le 2026-11-03. Batiment plus tardif (35 or). Valeurs
-  // PROVISOIRES.
+  // et produit l'Oracle et le Vengeur. Le Mage est au Sanctuaire depuis le
+  // 2026-11-03. Batiment plus tardif (35 or). Valeurs PROVISOIRES.
   church: {
     id: 'church',
     displayName: 'Église',
@@ -427,12 +414,14 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     upgradeGoldCostBase: 5,
     hpPerLevel: 5 * HP_PER_PIP,
     armyHeal: { hpPerGold: 5, hpPerGoldPerLevel: 2 },
-    recruitmentUnlock: { unitIds: ['oracle', 'vengeur'], missingBuildingHint: 'Nécessite une Église' },
+    recruitmentUnlock: { unitIds: ['oracle', 'vengeur'] },
   },
   // Sanctuaire (2026-11-03) : batiment de magie, producteur standard (file,
-  // point de ralliement, amelioration par la file) ; produit le Mage et
-  // donne acces aux parchemins (ameliorations de run, run/runUpgrades.ts).
-  // Modele KayKit `blue_shrine`. Valeurs PROVISOIRES.
+  // point de ralliement, amelioration par la file) ; produit le Mage. Les
+  // ameliorations de parchemins qu'il vendait ont ete retirees avec les
+  // parchemins (2026-11-04) ; son amelioration Niv. 2 (+5 PV) reste,
+  // PROVISOIRE, en attendant un vrai role (docs/ROADMAP.md). Modele KayKit
+  // `blue_shrine`. Valeurs PROVISOIRES.
   shrine: {
     id: 'shrine',
     displayName: 'Sanctuaire',
@@ -450,9 +439,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     upgradeGoldCostBase: 15,
     maxUpgradeLevel: 1,
     hpPerLevel: 5 * HP_PER_PIP,
-    recruitmentUnlock: { unitIds: ['mage'], missingBuildingHint: 'Nécessite un Sanctuaire' },
-    runUpgradeSite: 'shrine',
-    description: 'Produit le Mage ; parchemins',
+    recruitmentUnlock: { unitIds: ['mage'] },
+    description: 'Produit le Mage',
   },
   // Auberge (2026-11-03) : producteur standard du Villageois, premiere unite
   // economique. Modele `blue_tavern` (taverne du pack). Valeurs PROVISOIRES.
@@ -470,7 +458,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_tavern',
     footprintTilesX: 2,
     footprintTilesZ: 2,
-    recruitmentUnlock: { unitIds: ['villageois'], missingBuildingHint: 'Nécessite une Auberge' },
+    recruitmentUnlock: { unitIds: ['villageois'] },
     description: 'Produit le Villageois (récolte)',
   },
   // Ecurie (2026-11-03) : producteur standard (comme la Caserne) du Cavalier
@@ -495,7 +483,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     upgradeGoldCostBase: 20,
     maxUpgradeLevel: 1,
     hpPerLevel: 5 * HP_PER_PIP,
-    recruitmentUnlock: { unitIds: ['cavalier'], missingBuildingHint: 'Nécessite une Écurie' },
+    recruitmentUnlock: { unitIds: ['cavalier'] },
     description: 'Produit le Cavalier léger',
   },
   // Scierie (2026-11-02) : ne controle plus la recolte (la Forge donne les
@@ -589,10 +577,10 @@ export function buildTimeOf(buildingId: string): number {
   return getBuilding(buildingId).buildTime ?? DEFAULT_BUILD_TIME;
 }
 
-/** Ids de bâtiments réellement ACHETABLES en boutique de run (2026-08-17) —
- *  filtre générique sur `cost !== undefined`, jamais une liste recopiée à la
- *  main (voir ui/screens.ts, l'onglet "Bâtiments") : un futur bâtiment avec
- *  un `cost` défini y apparaît automatiquement. */
+/** Ids de bâtiments réellement CONSTRUCTIBLES par le joueur (menu
+ *  Construire, 2026-08-17) — filtre générique sur `cost !== undefined`,
+ *  jamais une liste recopiée à la main : un futur bâtiment avec un `cost`
+ *  défini y apparaît automatiquement. */
 export function listBuyableBuildingIds(): string[] {
   return Object.values(BUILDINGS)
     .filter((def) => def.cost !== undefined)
@@ -603,19 +591,4 @@ export function getBuilding(id: string): BuildingDef {
   const def = BUILDINGS[id];
   if (!def) throw new Error(`Bâtiment inconnu : ${id}`);
   return def;
-}
-
-/** Batiment requis pour recruter `unitId` (voir RecruitmentUnlockConfig),
- *  ou null si l'unite n'en exige aucun (Sentinelle). */
-export function recruitmentBuildingFor(unitId: string): BuildingDef | null {
-  return Object.values(BUILDINGS).find((def) => def.recruitmentUnlock?.unitIds.includes(unitId)) ?? null;
-}
-
-/** Unites produites par manche, dans l'ordre, par le batiment `buildingId` a
- *  son niveau interne `level` (borne au dernier niveau defini), aucune sans
- *  production. */
-export function unitsProducedPerWave(buildingId: string, level: number): readonly string[] {
-  const byLevel = BUILDINGS[buildingId]?.production?.unitsByLevel;
-  if (!byLevel || byLevel.length === 0) return [];
-  return byLevel[Math.min(Math.max(level, 0), byLevel.length - 1)]!;
 }

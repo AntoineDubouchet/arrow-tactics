@@ -1,7 +1,6 @@
 import {
   FANTASSIN_ATTACK_COOLDOWN,
   HP_PER_PIP,
-  ICE_NOVA_RADIUS_MULTIPLIER,
   SENTINEL_ATTACK_COOLDOWN_MULTIPLIER,
   SENTINEL_INITIAL_TAUNT_LOCKOUT,
   SENTINEL_MOVE_SPEED_MULTIPLIER,
@@ -151,17 +150,14 @@ export interface UnitDef {
  * Rayon (cases) de la Boule de feu du Mage — SEULE definition ; reference
  * aussi bien par UNITS.mage.abilities ci-dessous QUE par le calcul du rayon
  * de Provocation de la Sentinelle (demande explicite d'Antoine : "2 x rayon
- * Blizzard", 2026-08-14). Ne peut PAS etre importee depuis data/items.ts
- * (ICE_NOVA_RADIUS y est deja calculee comme `mageFireballAbility.radiusTiles
- * * ICE_NOVA_RADIUS_MULTIPLIER` via `getUnit('mage')`) : ce fichier
- * importerait alors units.ts en retour, un cycle. Recalcule donc ICI la MEME
- * formule directement depuis sa vraie source (ce nombre) plutot que de
- * dupliquer une valeur devinee — verifie en headless que le resultat
- * coincide EXACTEMENT avec ICE_NOVA_RADIUS * 2.
+ * Blizzard", 2026-08-14).
  */
 const MAGE_FIREBALL_RADIUS_TILES = 2;
-/** = rayon Blizzard (voir data/items.ts, ICE_NOVA_RADIUS) x2. */
-const SENTINEL_TAUNT_RADIUS_TILES = MAGE_FIREBALL_RADIUS_TILES * ICE_NOVA_RADIUS_MULTIPLIER * 2;
+/** Rayon de Provocation = 2 x l'ancien rayon du Blizzard, soit 2 x (rayon de
+ *  la Boule de feu x 1,15). Le Blizzard et sa constante ont ete retires avec
+ *  les parchemins (2026-11-04) ; le facteur 1,15 reste ecrit ici tel quel
+ *  pour que la valeur (4,6 cases) ne change pas. */
+const SENTINEL_TAUNT_RADIUS_TILES = MAGE_FIREBALL_RADIUS_TILES * 1.15 * 2;
 
 export const UNITS: Record<string, UnitDef> = {
   fantassin: {

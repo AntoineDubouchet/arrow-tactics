@@ -376,17 +376,17 @@ export interface Entity {
    *  (data/loot.ts, DESTRUCTIBLE_LOOT). */
   destructible: string | null;
 
-  /** Statut ROOT/MOVEMENT LOCK generique (2026-08-14, Nova de glace — voir
-   *  sim/world.ts, applyIceNovaRoot) : secondes RESTANTES avant expiration,
-   *  0 = pas immobilise. Decompte dans movementSystem, comme sidestepTimer/
-   *  unstickTimer. Gate UNIQUEMENT le mouvement volontaire (marche neutre,
-   *  poursuite, degagement, declenchement d'une nouvelle Charge) — jamais le
-   *  combat (combatSystem est entierement independant du mouvement) ni les
-   *  capacites qui ne demandent aucun deplacement (Boule de feu du Mage) :
-   *  une unite rootee peut donc continuer d'attaquer une cible deja a
-   *  portee, subir des degats et mourir normalement. Concu explicitement
-   *  pour etre generique/reutilisable (pieges, gel, mini-boss, autres
-   *  sorts...), pas specifique a la Nova de glace. */
+  /** Statut ROOT/MOVEMENT LOCK generique (2026-08-14) : secondes RESTANTES
+   *  avant expiration, 0 = pas immobilise. Decompte dans movementSystem,
+   *  comme sidestepTimer/unstickTimer. Gate UNIQUEMENT le mouvement
+   *  volontaire (marche neutre, poursuite, degagement, declenchement d'une
+   *  nouvelle Charge) — jamais le combat (combatSystem est entierement
+   *  independant du mouvement) ni les capacites qui ne demandent aucun
+   *  deplacement (Boule de feu du Mage) : une unite rootee peut donc
+   *  continuer d'attaquer une cible deja a portee, subir des degats et
+   *  mourir normalement. Generique (pieges, gel, mini-boss, sorts...) ;
+   *  aucune source ne le pose depuis le retrait de la Nova de glace
+   *  (2026-11-04), le mecanisme reste pret pour un futur sort. */
   rootTimer: number;
 
   /** Bonus de degats AJOUTE au `damage` d'une capacite generique (voir
@@ -493,23 +493,22 @@ export interface Entity {
    *  VERS ce batiment. */
   footprintObstacle: ObstacleDef | null;
 
-  /** Unites restant a produire pendant cette manche par un batiment de
-   *  production (Caserne, Camp d'archerie — voir data/buildings.ts,
-   *  BuildingDef.production et sim/systems/buildingProduction.ts), dans
-   *  l'ordre : fixees a l'apparition du batiment (World.spawnBuilding),
-   *  retirees a chaque unite produite, jamais renouvelees en cours de
-   *  bataille. Vide = rien a produire. */
+  /** Unites TERMINEES par la file de production, en attente de sortie
+   *  (sim/systems/buildingProduction.ts) : une unite y entre a la fin de sa
+   *  duree (tickProductionOrders) et en sort des qu'une place de population
+   *  et une case libre autour du batiment existent. Toujours vide a
+   *  l'apparition du batiment (World.spawnBuilding ; l'ancien quota gratuit
+   *  de debut de manche a ete retire le 2026-11-04). */
   productionQueue: string[];
   /** File de production TEMPS REEL (2026-11-02, remplace la commande unique
    *  du 2026-11-01) : commandes dans l'ordre des clics, seule la premiere
-   *  avance. Une unite terminee rejoint productionQueue (meme apparition que
-   *  la production de debut de manche, legacy) ; une amelioration terminee
-   *  emet World.productionUpgradeEvents (le niveau du batiment est applique
-   *  par l'orchestration). Videe a la mort du batiment. */
+   *  avance. Une unite terminee rejoint productionQueue ; une amelioration
+   *  terminee emet World.productionUpgradeEvents (le niveau du batiment est
+   *  applique par l'orchestration). Videe a la mort du batiment. */
   productionOrders: ProductionOrder[];
-  /** Vrai tant que le quota restant attend une place de population (voir
-   *  buildingProductionSystem) : affiche par la fiche, jamais lu par la
-   *  simulation elle-meme. */
+  /** Vrai tant que la premiere unite terminee attend une place de population
+   *  (voir buildingProductionSystem) : affiche par la fiche, jamais lu par
+   *  la simulation elle-meme. */
   productionWaitingForPopulation: boolean;
   /** Attaque automatique d'un batiment defensif (Tour), null pour toute
    *  autre entite. Distincte de targetId/attackTimer : le ciblage et le

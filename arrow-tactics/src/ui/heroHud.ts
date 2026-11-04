@@ -20,6 +20,18 @@ import { createItemIcon } from './itemIcons';
  * Visible pendant la bataille (meme cycle de vie que GoldHud), mis a jour a
  * chaque frame par main.ts, indifferent a la selection courante.
  */
+/** Touches des raccourcis de la barre d'action du Heros (KeyboardEvent.code :
+ *  rang superieur du clavier, quelle que soit la disposition, AZERTY
+ *  compris), dans l'ordre des six emplacements de sorts. */
+const ACTION_SHORTCUT_CODES = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'];
+
+/** Emplacement (0 a 5) de la barre d'action associe a la touche `code`, null
+ *  sinon — voir HeroHud.activateSlot. */
+export function heroActionShortcutSlot(code: string): number | null {
+  const index = ACTION_SHORTCUT_CODES.indexOf(code);
+  return index >= 0 ? index : null;
+}
+
 export interface HeroHudState {
   level: number;
   xp: number;

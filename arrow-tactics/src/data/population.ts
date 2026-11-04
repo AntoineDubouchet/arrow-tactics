@@ -5,10 +5,11 @@ import { getUnit } from './units';
 /**
  * Population du joueur : chaque unite occupe `UnitDef.populationCost`
  * places ; le maximum vaut PLAYER_BASE_POPULATION plus le `populationBonus`
- * de chaque batiment existant (Maison). Fonctions pures, partagees par la
- * preparation (armee et batiments de la run, voir run/population.ts) et par
- * la simulation (entites vivantes, voir sim/systems/buildingProduction.ts) : une
- * seule regle de calcul, quelle que soit la source.
+ * de chaque batiment existant (Maison). Fonctions pures, lues sur les
+ * entites vivantes (populationOfEntities : simulation,
+ * sim/systems/buildingProduction.ts, et HUD, main.ts) : une seule regle de
+ * calcul, une seule source (la population de la run en preparation,
+ * run/population.ts, a ete retiree avec le jeu en manches le 2026-11-04).
  *
  * Seul le camp du joueur a une population : les ennemis et les batiments
  * n'en consomment jamais.

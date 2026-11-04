@@ -69,7 +69,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | C1 | Grand arbre de talents abandonné | Remplacée |
 | C2 | Exclusivités dans l'arbre de talents | Remplacée (fondateurs) / Active (talents frères) |
 | C3 | Attribution des points de talent | Active (forme actuelle) / Remplacée (formes antérieures) |
-| C4 | Déblocage d'une unité en battant cet ennemi | Active |
+| C4 | Déblocage d'une unité en battant cet ennemi | Active (enregistrement) / Ouverte (plus aucun consommateur depuis G40 ; Pass 2) |
 | D1 | Bâtiments gameplay achetés plutôt qu'accordés par un talent | Active |
 | D2 | Bâtiments gameplay et bâtiments décoratifs distincts | Active |
 | D3 | Placement obligatoire de la tour en début de run | Remplacée (Baliste définie par la carte) |
@@ -78,11 +78,11 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | D6 | Améliorations de la Mine et de la Caserne propres à chaque bâtiment | Active |
 | D7 | Départ de run, population et bâtiments de recrutement | Active |
 | D8 | Murailles du joueur (Wall V1) | Abandonnée le 2026-11-02, remplacée par G23 |
-| E1 | Manipulation directe pendant le placement | Active |
+| E1 | Manipulation directe pendant le placement | Remplacée (placement retiré, G40) / Active (gestes RTS directs en jeu et dans l'éditeur) |
 | E2 | Collision des décors : emprise rectangulaire, props traversables | Remplacée (décors bloquants) / Active (emprise rectangulaire des obstacles) |
 | E3 | Rotation des décors dans l'éditeur | Remplacée (W/E) / Active (anneau et Ctrl+molette) |
-| E4 | Agrandissement progressif de la carte | Active (cycle A/B/C, étape C symétrique) / Remplacée (camp joueur fixe à l'étape C) / Ouverte (runs longues) |
-| E5 | Territoire par cases, couche séparée du terrain | Active (territoire de la carte, suit l'expansion) / Ouverte (territoire de run) |
+| E4 | Agrandissement progressif de la carte | Retirée du code (2026-11-04, G40) ; runs longues toujours Ouvertes |
+| E5 | Territoire par cases, couche séparée du terrain | Active (territoire de la carte) / Ouverte (territoire de run) |
 | E6 | Aspect des décors fixé par leur position | Active |
 | E7 | Relief 2.5D : falaises infranchissables, pentes, combat 2D | Active (prototype) / Ouverte (avantage de hauteur, ligne de vue, grande carte) |
 | E8 | Décors purement visuels, traversables, adaptatifs au relief | Active / Remplacée pour les arbres (G11) |
@@ -105,6 +105,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G37 | Bois et pierre récoltables dès le départ ; l'or reste lié à la Forge | Active ; **Ouvert** : l'or |
 | G38 | Départ Survie = petit camp joueur préconstruit (preset dérivé), enceinte arrondie | Active (valeurs provisoires) |
 | G39 | Générateur : gisements avant la mise en forme des forêts, aucun passage d'une case (KI-65) | Active |
+| G40 | Passe de modernisation 1 : retrait du legacy de la boucle en manches (placement, Boutique, parchemins, fin de manche, agrandissement, quota par manche, 4 talents), tests dans le dépôt | Active (2026-11-04) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -395,10 +396,13 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   recrutable et Fantassin verrouillé, production d'1 Piquier par manche ;
   Niv. 2, Fantassin recrutable, production d'1 Piquier et d'1 Fantassin.
   Les 4 Fantassins de l'armée de départ restent (soldats déjà
-  disponibles). Verrou : `RecruitmentUnlockConfig.minLevels` ; production :
-  `UnitProductionConfig.unitsByLevel`.
+  disponibles). Verrou : `RecruitmentUnlockConfig.minLevels`.
+- **Aujourd'hui** (2026-11-04, G40) : la production « par manche »
+  (`UnitProductionConfig.unitsByLevel`) n'existe plus ; le Piquier et, au
+  Niv. 2, l'Homme d'armes se produisent dans la file payée de la Caserne.
+  L'armée de départ n'a plus de Fantassin (G38).
 - **Sources** : `data/units.ts` (`piquier`), `data/buildings.ts`
-  (`barracks`), `run/recruitment.ts`, `CURRENT_STATE.md` §3 et §4.
+  (`barracks`), `data/production.ts`, `CURRENT_STATE.md` §3 et §4.
 
 ### B9 — Vengeur, combattant à deux épées de l'Église
 
@@ -528,8 +532,16 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Raison connue** : la sauvegarde enregistre un fait (« ce type a été
   vaincu ») plutôt qu'une conclusion. Ce fait reste réutilisable plus tard,
   par exemple pour un bestiaire ou des succès.
-- **Aujourd'hui** : mécanisme générique, appliqué au Mage et à la Sentinelle.
-  Le Mage exige en plus une Église possédée pour être recruté (D7).
+- **Aujourd'hui** : l'enregistrement reste (`registerEnemyDefeat`,
+  `defeatedEnemyUnitIds`, `canPlayerRecruitUnit`), mais depuis le retrait
+  de la Boutique (G40, 2026-11-04) **plus aucun code ne le consomme** : le
+  Mage se produit au Sanctuaire sans condition, la Sentinelle n'est
+  produite nulle part, et le toast « Unité débloquée » a été retiré pour
+  ne pas annoncer un déblocage sans effet. À redéfinir en Pass 2 (par quoi
+  faire passer le déblocage : bâtiment, file de production, autre) ;
+  `KNOWN_ISSUES.md` KI-67.
+- **À ne pas faire** : ne pas réafficher un toast de déblocage tant que
+  rien n'en dépend.
 - **Sources** : archive (« Système générique de déblocage d'unités ») ;
   `data/units.ts` (`playerUnlockMode`), `run/metaProgress.ts`.
 
@@ -779,9 +791,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - ne pas donner de Maison gratuite au départ ;
   - ne pas réintroduire de production à intervalle régulier ;
   - ne pas disperser les conditions de recrutement dans l'interface : elles
-    viennent des données (`BuildingDef.recruitmentUnlock`) et de
-    `run/recruitment.ts`.
-- **Sources** : `data/buildings.ts`, `run/recruitment.ts`,
+    viennent des données (`BuildingDef.recruitmentUnlock`, lues par
+    `producibleUnits` de `data/production.ts` depuis le retrait de
+    `run/recruitment.ts`, G40).
+- **Sources** : `data/buildings.ts`, `data/production.ts`,
   `sim/systems/buildingProduction.ts`, `run/runState.ts`,
   `config/constants.ts`, `CURRENT_STATE.md` §2, §4 et §6.
 
@@ -851,7 +864,10 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### E1 — Manipulation directe pendant le placement
 
-- **Statut** : Active.
+- **Statut** : Remplacée pour le placement (la phase de placement a été
+  retirée du code le 2026-11-04, G40) ; Active comme principe : les
+  gestes directs (clic, glisser, rectangle, double-clic) sont ceux du jeu
+  en temps réel et de l'éditeur.
 - **Contexte** : le premier placement passait par un bandeau de jetons à
   cliquer, à côté du plateau.
 - **Décision** : manipuler directement les unités 3D : clic pour
@@ -907,7 +923,11 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### E4 — Agrandissement progressif de la carte
 
-- **Statut** : Active (comportement) / Ouverte (place sur les runs longues).
+- **Statut** : **Retirée du code** le 2026-11-04 (G40 ; `run/mapExpansion.ts`
+  supprimé, `RunState.mapExpansion` disparu, KI-27 sans objet). La
+  question des runs longues (plusieurs cartes, biomes) reste Ouverte ; une
+  réintroduction se ferait depuis l'historique Git, pas depuis ce qui
+  suit, qui décrit le comportement retiré.
 - **Contexte** : il fallait que la carte accompagne la croissance de la
   bataille.
 - **Décision** :
@@ -987,8 +1007,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     le camp ou la position d'entités chargées.
 - **Sources** : `config/territory.ts`, `config/mapDef.ts`,
   `editor/editorState.ts`, `editor/mapSerializer.ts`, `main.ts`
-  (`isValidPlacementTile`), `render/board.ts`, `run/mapExpansion.ts`,
-  `EDITOR.md` §4, `CURRENT_STATE.md` §11.
+  (`isValidPlacementTile`), `render/board.ts`, `EDITOR.md` §4,
+  `CURRENT_STATE.md` §11 (le suivi du territoire par
+  `run/mapExpansion.ts` a disparu avec l'agrandissement, G40).
 
 ### E6 — Aspect des décors fixé par leur position
 
@@ -1010,7 +1031,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **À ne pas faire** : ne pas réintroduire `Math.random` dans les fabriques
   de décors.
 - **Sources** : `config/constants.ts` (`obstacleAppearanceSeed`),
-  `render/obstacleFactory.ts`, `run/mapExpansion.ts`, `EDITOR.md` §6.
+  `render/obstacleFactory.ts`, `EDITOR.md` §6 (le cas « objet déplacé par
+  l'agrandissement » n'existe plus depuis G40).
 
 ### E7 — Relief 2.5D : falaises infranchissables, pentes, combat 2D
 
@@ -2144,6 +2166,67 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   (~140 avant).
 - **Limite** : un passage d'une case posé à la main dans l'éditeur reste
   possible (KI-66).
+
+### G40 — Passe de modernisation 1 : retrait du legacy de la boucle en manches
+
+- **Statut** : Active (2026-11-04).
+- **Contexte** : depuis G10 (temps réel continu), la Survie n'empruntait
+  plus la boucle préparation → bataille → fin de manche, mais tout son code
+  restait : `main.ts` à 10 536 lignes, 32 `inPlacementPhase`, une Boutique
+  masquée, un inventaire de parchemins masqué, un agrandissement désactivé,
+  un quota de production « par manche » encore appliqué, quatre talents
+  sans effet possible. L'audit préalable (rapport Fable 5.1) l'a listé.
+- **Demande d'Antoine** : retirer ce qui est clairement mort ou trompeur,
+  sans changer l'équilibrage général, sans refaire `sim/`, sans toucher à
+  Cargo, Camps, Palissade V2, StartingBase, MapDef, Éditeur de Survie ni
+  au pipeline de stats du Héros ; mettre d'abord un filet de sécurité
+  (tests dans le dépôt).
+- **Retiré** : phase de placement (emplacements, aperçus, panneau « Prêt
+  pour la bataille », avertissement d'or restant) ; Boutique de run
+  (achat ×1 / ×5, annulation, vente, onglets, « +100 or ») ; parchemins de
+  bataille et inventaire de run (`data/items.ts`, `RunState.inventory`,
+  barre d'inventaire, armement) avec leurs primitives de simulation
+  (zones persistantes, projectiles d'ombre, `applyIceNovaRoot`) ; écran
+  de fin de manche et bilan (`run/battleSummary.ts`) ; agrandissement de
+  la carte (`run/mapExpansion.ts`, E4) ; quota gratuit « par manche »
+  (`UnitProductionConfig`, `unitsProducedPerWave`) ; améliorations de
+  parchemins de l'Église puis du Sanctuaire ; talents Aux petits oignons,
+  Blizzard, Soins excédentaires et Recyclage (remboursés,
+  `REMOVED_TALENT_REFUNDS`) ; HUD d'or et de population séparés, zone
+  « Vendre », toast « Unité débloquée », `run/population.ts`,
+  `run/recruitment.ts`, `render/iceNova.ts`, `render/recyclageAura.ts`,
+  `render/shadowProjectileView.ts`.
+- **Conservé** : l'inventaire RPG du Héros et l'Éditeur d'items ; les
+  sorts du Héros ; la Forge (unités + Baliste) ; le Sanctuaire (Mage,
+  Niv. 2) ; l'architecture de l'arbre de talents et ses 5 talents ;
+  `Entity.rootTimer` (statut générique sans source) ; `countsForDefeat`
+  (information) ; le pas d'ouverture `openBattleWithFormationStep` au
+  démarrage (résultat visible inchangé, candidat au retrait, KI-68) ;
+  l'enregistrement du déblocage par victoire (C4, KI-67).
+- **Corrigé au passage** (bugs latents révélés par le retrait) : la Forge
+  refusait tout achat en Survie (garde de préparation) ; le point de
+  ralliement était refusé sur l'Auberge, le Sanctuaire, l'Église et
+  l'Écurie (garde sur `production` au lieu de `recruitmentUnlock`) ; la
+  Forge n'était pas déclarée `runUpgradeSite: 'forge'`.
+- **Changements de ressenti signalés** : plus d'unité gratuite au début
+  d'une vague (le quota « par manche ») ; le Camp d'archerie n'est plus
+  améliorable (son Niv. 2 ne faisait que doubler ce quota ; à redéfinir
+  en Pass 2, KI-69) ; plus de revente d'unités.
+- **Filet de sécurité** : `arrow-tactics/tests/` (`npm run test:sim`,
+  `npm run test:game`, `npm test`), scripts repris des passes précédentes
+  plus `tests/sim/modernisation.mts`, `tests/game/forge-jeu.cjs` et
+  `tests/game/defaite-jeu.cjs` ; voir `ARCHITECTURE.md` §17.
+- **Mesure** : `main.ts` 10 536 → 8 068 lignes, `inPlacementPhase` 32 → 0
+  (une mention en commentaire), `ui/screens.ts` 2 333 → 1 173,
+  `ui/style.css` 4 025 → 3 487.
+- **À ne pas faire** : ne pas réintroduire une phase de préparation, une
+  Boutique globale ou un quota gratuit par vague sans décision explicite ;
+  ne pas reprendre les parchemins depuis le code supprimé sans repenser
+  leur place (G10, `GAME_DESIGN.md` §7).
+- **Sources** : `main.ts` (`startSurvivalWorld`, `endSurvivalRun`,
+  `realtimeBuildingAction`), `run/runState.ts`, `run/runUpgrades.ts`,
+  `run/metaProgress.ts`, `data/talents.ts`, `data/buildings.ts`,
+  `sim/world.ts`, `tests/`.
 
 ### G35 — Dépôt des ressources instantané
 

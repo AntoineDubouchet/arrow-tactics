@@ -4,7 +4,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:sim": "node tests/run-sim.mjs",
+    "test:game": "node tests/run-game.mjs",
+    "test": "npm run test:sim && npm run test:game"
   },
   "private": true,
   "type": "module",

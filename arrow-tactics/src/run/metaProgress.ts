@@ -33,10 +33,10 @@ export const TALENT_TREE_VERSION = 2;
  * désormais". Chaque entree represente donc maintenant la vague qu'il faut
  * REELLEMENT GAGNER (pas seulement atteindre) pour debloquer le point —
  * voir registerWaveReached, comparaison `waveNumber > wave` (strict, pas
- * `>=`). Sur une DEFAITE a la vague listee elle-meme, waveNumber ne bouge
- * pas (applyBattleOutcome n'incremente que sur victoire) : le point n'est
- * donc PAS accorde tant que la vague n'est pas reellement remportee, meme si
- * le joueur l'a jouee jusqu'au bout.
+ * `>=`). Sur une DEFAITE pendant la vague listee elle-meme, waveNumber ne
+ * bouge pas (seule une vague repoussee l'incremente, voir main.ts
+ * completeSurvivalWave) : le point n'est donc PAS accorde tant que la vague
+ * n'est pas reellement repoussee, meme si le joueur l'a jouee jusqu'au bout.
  */
 export const TALENT_POINT_WAVES: number[] = [4];
 
@@ -177,8 +177,20 @@ function mergeLegacyUnlockedUnits(obj: Record<string, unknown>, defeatedEnemyUni
  * "je ne veux pas qu'un joueur perde définitivement ses points").
  * "Maître de la forge" (maitre_forge, 2 points) : retire avec les Runes,
  * dont il divisait le cout ; les ameliorations s'achetent desormais en Or.
+ * Passe de modernisation 1 (2026-11-04, decision d'Antoine) : "Aux petits
+ * oignons" (1), "Blizzard" (1) et "Soins excédentaires" (2) dependaient des
+ * parchemins de bataille, retires ; "Recyclage" (2) de la revente d'unites,
+ * retiree avec la Boutique de run. Memes couts que leurs anciennes
+ * definitions (data/talents.ts a ce moment-la).
  */
-const REMOVED_TALENT_REFUNDS: Record<string, number> = { temps_argent: 2, maitre_forge: 2 };
+export const REMOVED_TALENT_REFUNDS: Readonly<Record<string, number>> = {
+  temps_argent: 2,
+  maitre_forge: 2,
+  aux_petits_oignons: 1,
+  blizzard: 1,
+  soins_excedentaires: 2,
+  recyclage: 2,
+};
 
 /**
  * Retire tout talent de `REMOVED_TALENT_REFUNDS` de `unlockedTalents` et
@@ -191,7 +203,7 @@ const REMOVED_TALENT_REFUNDS: Record<string, number> = { temps_argent: 2, maitre
  * chargements suivants. Sans effet (retourne les memes valeurs) si aucun
  * talent retire n'est present.
  */
-function stripRemovedTalents(unlockedTalents: string[], talentPoints: number): { unlockedTalents: string[]; talentPoints: number } {
+export function stripRemovedTalents(unlockedTalents: string[], talentPoints: number): { unlockedTalents: string[]; talentPoints: number } {
   let refund = 0;
   const filtered = unlockedTalents.filter((id) => {
     const cost = REMOVED_TALENT_REFUNDS[id];
@@ -317,11 +329,11 @@ export function resetTalentPoints(progress: MetaProgress): void {
 
 /**
  * Met a jour le record de vague (pure statistique, voir MetaProgress.highestWaveReached)
- * et accorde un point de talent pour CHAQUE vague REELLEMENT GAGNEE pour la
+ * et accorde un point de talent pour CHAQUE vague REELLEMENT REPOUSSEE pour la
  * premiere fois (`waveNumber > wave`, strict — waveNumber ne depasse `wave`
- * que si cette vague a ete remportee, voir applyBattleOutcome qui
- * n'incremente que sur victoire ; jamais retraverse une seconde fois, voir
- * claimedWaveRewards) parmi DEUX sources : la liste fixe TALENT_POINT_WAVES,
+ * que si cette vague a ete repoussee, voir main.ts completeSurvivalWave qui
+ * incremente apres chaque vague repoussee ; jamais retraverse une seconde
+ * fois, voir claimedWaveRewards) parmi DEUX sources : la liste fixe TALENT_POINT_WAVES,
  * et le palier RECURRENT (TALENT_POINT_RECURRING_START, +INTERVAL —
  * 2026-08-11, "tous les 2 manches a partir de la 6") — les deux
  * s'additionnent, aucune ne remplace l'autre. Retourne true si quoi que ce
@@ -391,11 +403,14 @@ export function registerEnemyDefeat(progress: MetaProgress, unitId: string): boo
 }
 
 /** Fonction GENERIQUE demandee explicitement par Antoine (point 24 :
- *  "canPlayerRecruitUnit(unitId)") — la boutique de run (et tout futur
- *  consommateur) n'a plus jamais besoin de connaitre un id d'unite precis :
- *  une unite 'starter' (ou sans playerUnlockMode, valeur par defaut) est
- *  toujours recrutable, une unite 'defeatEnemy' seulement si elle a deja ete
- *  vaincue au moins une fois (voir registerEnemyDefeat). */
+ *  "canPlayerRecruitUnit(unitId)") : une unite 'starter' (ou sans
+ *  playerUnlockMode, valeur par defaut) est toujours recrutable, une unite
+ *  'defeatEnemy' seulement si elle a deja ete vaincue au moins une fois
+ *  (voir registerEnemyDefeat). SANS CONSOMMATEUR depuis le retrait de la
+ *  Boutique de run (2026-11-04) : la production temps reel
+ *  (data/production.ts, producibleUnits) ne l'applique pas. Regle en attente
+ *  de decision (docs/KNOWN_ISSUES.md, P2) : l'appliquer a la production ou
+ *  retirer le deblocage par victoire. */
 export function canPlayerRecruitUnit(progress: MetaProgress, unitId: string): boolean {
   const mode = getUnit(unitId).playerUnlockMode ?? 'starter';
   if (mode === 'starter') return true;

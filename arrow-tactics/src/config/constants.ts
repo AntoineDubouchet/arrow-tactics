@@ -25,16 +25,6 @@ export const PLACEMENT_ROWS = 7;
  *  a 2 avec le deplacement de groupe centre : a 1, une formation compacte
  *  contre un arbre n'avait souvent aucune case de repli. */
 export const GRID_MOVE_SEARCH_RADIUS = 2;
-/** Seuil de la barriere de securite "il vous reste de l'or non depense"
- *  (voir main.ts, requestValidatePlacement) — proportion de l'or possede au
- *  DEBUT de la phase de placement (goldAtPlacementStart) au-dela de laquelle
- *  le popup de confirmation s'affiche avant de lancer la bataille. Monte de
- *  10% a 30% (2026-08-10, demande d'Antoine : "trop souvent" a 10% — avec de
- *  petits montants d'or en debut de run, meme 1-2 or restants (largement pas
- *  un oubli) depassaient deja le seuil). Valeur exacte (30%, pas 40/50)
- *  choisie par Claude dans la fourchette proposee, a ajuster si Antoine juge
- *  que ca continue de se declencher trop souvent ou pas assez. */
-export const PLACEMENT_GOLD_WARNING_RATIO = 0.3;
 /** Population maximale du joueur sans Maison (voir data/population.ts) ;
  *  chaque Maison y ajoute son `populationBonus` (data/buildings.ts). */
 export const PLAYER_BASE_POPULATION = 5;
@@ -130,52 +120,6 @@ export const ENEMY_GROUP_DELAY_MIN_SECONDS = 1.3;
 export const ENEMY_GROUP_DELAY_MAX_SECONDS = 4.8;
 export const ENEMY_EMPTY_FIELD_SPAWN_SECONDS = 1.5;
 
-// --- Nova de glace / Blizzard (2026-08-14) ---
-// Sort de bataille : impact instantane (aucun projectile, aucun temps de
-// vol) qui immobilise les ennemis d'une zone. Le RAYON n'a pas de valeur
-// propre ici : il se calcule depuis le rayon REEL de la Boule de feu du
-// Mage (voir data/items.ts, ICE_NOVA_RADIUS — lu via findAbility sur
-// data/units.ts, jamais duplique) pour eviter deux sources de verite.
-/** Multiplicateur applique au rayon de la Boule de feu du Mage pour obtenir
- *  le rayon de la Nova de glace (demande explicite d'Antoine : "un tout
- *  petit peu plus grande", +15 %). */
-export const ICE_NOVA_RADIUS_MULTIPLIER = 1.15;
-/** Duree du statut Root applique par la Nova (secondes). */
-export const ICE_NOVA_ROOT_DURATION = 4.0;
-/** Duree de vie de la zone persistante creee par le talent Blizzard
- *  (secondes) — memes centre/rayon que la Nova qui l'a declenchee (voir
- *  main.ts, castIceNova), jamais un second cercle independant. */
-export const BLIZZARD_DURATION = 4.0;
-/** Interval entre deux ticks de degats du Blizzard (secondes) — avec
- *  BLIZZARD_DURATION = 4.0, ca donne exactement 4 ticks (t=1,2,3,4), jamais
- *  de tick a t=0 (demande explicite d'Antoine : "le premier dégât arrive
- *  après une seconde"). */
-export const BLIZZARD_TICK_INTERVAL = 1.0;
-/** Degats internes (x10) par tick de Blizzard : 2 degats affiches. */
-export const BLIZZARD_DAMAGE_PER_TICK = 20;
-
-/** Rayon de recherche (cases) autour du point clique pour resoudre la cible
- *  d'un objet d'inventaire cible comme le parchemin de soin (2026-08-11,
- *  demande d'Antoine : "le soin doit etre plus simple a utiliser, le
- *  curseur n'est pas tres clair... en cas de doute il faut soigner l'unite
- *  avec le moins d'hp") — remplace l'exigence d'un raycast EXACT sur le
- *  mesh d'une unite precise (trop punitif a l'echelle d'une silhouette de
- *  quelques dizaines de cm) par une recherche generreuse autour du point
- *  vise, resolue par "l'unite la plus blessee EN PROPORTION dans ce rayon"
- *  (voir main.ts, findHealTarget*) plutot que la plus proche du curseur. */
-export const HEAL_TARGET_RADIUS = 2;
-
-/** Seuil de PV (fraction de maxHp) en-dessous duquel le talent "Aux petits
- *  oignons" peut se declencher (2026-08-15, demande explicite d'Antoine :
- *  "désormais... lorsqu'un allié tombe à 30% de ses PV ou moins", remplace
- *  l'ancien seuil fixe "1 point de vie affiche"). Seuil INCLUSIF (`<=`) —
- *  toujours compare a `currentHp / maxHp`, jamais une valeur de PV absolue
- *  codee en dur (fonctionne donc identiquement pour un Fantassin a 50 PV
- *  internes ou une Sentinelle a 500). Voir main.ts, belowAutoHealThreshold
- *  pour le mecanisme de FRANCHISSEMENT (pas de re-proc tant que l'unite ne
- *  repasse pas strictement au-dessus). */
-export const AUTO_HEAL_TRIGGER_RATIO = 0.3;
-
 // --- Sentinelle / Provocation (2026-08-14) ---
 // Premiere unite TANK du jeu (demande complete d'Antoine) : encaisse
 // enormement, attire les attaques (Provocation), protege indirectement les
@@ -249,8 +193,8 @@ export const TALENT_PROJECTILE_SPEED_BONUS = 1.0;
  *  degats d'attaque sur le projectile") — nouveau volet du talent, en plus
  *  de la cadence/vitesse ci-dessus. Voir main.ts, effectivePlayerArrowDamage. */
 export const TALENT_PROJECTILE_DAMAGE_BONUS = 20;
-/** butin_de_guerre : or supplementaire par unite ennemie tuee, en plus de
- *  KILL_REWARD (voir run/runState.ts). */
+/** butin_de_guerre : or supplementaire dans le tas lache par chaque unite
+ *  ennemie tuee (World.goldDropBonus, voir data/loot.ts ENEMY_GOLD_DROPS). */
 export const TALENT_BONUS_GOLD_PER_KILL = 1;
 /** reflexes_fantassin : ajoute a UnitStats.dodgeChance (base 0) des
  *  fantassins DU JOUEUR uniquement, voir main.ts. */
@@ -337,22 +281,22 @@ export const COLORS = {
    *  `fireEmberDark` = braises orange sombre/rouge, `fireSmokeTint` = fumee
    *  grise-brune discrete (fondu NORMAL, pas additif — un fondu additif ne
    *  peut pas rendre une teinte "discrete", meme lecon deja tiree pour le
-   *  coeur du parchemin de soin). */
+   *  coeur du VFX de soin). */
   fireCoreBright: 0xfff6d2,
   fireOuterGlow: 0xe8501f,
   fireEmberDark: 0xb23a12,
   fireSmokeTint: 0x6b5a4a,
-  /** Nova de glace / Blizzard (2026-08-14) — palette cyan pale/bleu glace/
-   *  blanc bleute demandee explicitement par Antoine ("évite : néon
-   *  sci-fi... énorme bloom"), volontairement sobre. `iceCore` = flash/
-   *  cristaux (quasi-blanc bleute), `iceGlow` = anneau/teinte principale
-   *  (cyan), `iceDeep` = accents plus sombres (contour de zone, facettes). */
+  /** Palette "glace" (2026-08-14, ancienne Nova de glace, retiree le
+   *  2026-11-04) — cyan pale/bleu glace/blanc bleute, volontairement sobre
+   *  ("évite : néon sci-fi... énorme bloom"). Conservee pour un futur sort
+   *  de glace : `iceCore` = flash/cristaux, `iceGlow` = anneau/teinte
+   *  principale (cyan), `iceDeep` = accents plus sombres. */
   iceCore: 0xeaffff,
   iceGlow: 0x7fd8e6,
   iceDeep: 0x3f8fae,
-  /** Parchemin de soin mineur (2026-08-14) — palette "soin" distincte du
-   *  reste du jeu (jamais confondue avec les couleurs d'equipe, la Nova de
-   *  glace ou la Boule de feu) : vert doux (vie/nature), blanc chaud
+  /** VFX de soin (2026-08-14 ; Soin de l'Oracle et du Heros) — palette
+   *  "soin" distincte du reste du jeu (jamais confondue avec les couleurs
+   *  d'equipe ou la Boule de feu) : vert doux (vie/nature), blanc chaud
    *  (lumiere/benediction), rose pale (le cœur qui monte). */
   healGlow: 0x8be089,
   healCore: 0xfff6d8,
@@ -368,12 +312,6 @@ export const COLORS = {
    *  teinte franchement coloree (meme principe que fireGlow/iceGlow qui
    *  fonctionnent bien en additif malgre le meme type de sol). */
   healGold: 0xffcf6b,
-  /** Surbrillance jaune du talent "Recyclage" (2026-08-14) — anneau distinct
-   *  de l'anneau de selection (couleur du camp), affiche sous une unite
-   *  eligible a la revente bonifiee (< 50% PV) pendant le placement. Jaune
-   *  franc, jamais confondu avec les autres palettes du jeu (soin, glace,
-   *  feu, equipe). */
-  recyclageHighlight: 0xffe34d,
   /** Fleche du joueur en 3 zones (2026-08-14, demande d'Antoine : "l'empennage
    *  doit etre bleu, la pointe grise et le bois au milieu marron clair") —
    *  voir render/playerArrowView.ts, coloration par sommet (le modele .obj
@@ -811,18 +749,18 @@ export const CHARGE_DASH_SPEED = 12;
  *  deja acceptee pour la separation entre corps. */
 export const CHARGE_KNOCKBACK_TILES = 1;
 
-// --- Transition de fin de vague ---
-// Demande d'Antoine (2026-08-09) : la bascule bataille -> boutique etait
+// --- Transition de fin de run ---
+// Demande d'Antoine (2026-08-09) : la bascule vers l'ecran de fin etait
 // instantanee ("trop brusque"), il fallait "sequencer proprement les
-// differentes phases de gameplay". Sequence jouee par ui/waveTransition.ts,
-// en millisecondes (temps reel, hors boucle de simulation deja figee a ce
-// moment via loop.timeScale = 0) : la banniere "Victoire"/"Defaite" apparait
-// en fondu PAR-DESSUS le champ de bataille encore visible (choix d'Antoine
-// parmi 3 options proposees), tient un instant, puis un rideau noir plein
-// ecran se referme — c'est au moment ou il est totalement opaque qu'on vide
-// le champ de bataille et prepare l'ecran suivant (invisible pour le
-// joueur), avant de rouvrir le rideau sur ce nouvel ecran. Duree totale visee
-// ~2 secondes, comme demande.
+// differentes phases de gameplay". Sequence jouee par ui/waveTransition.ts
+// a la defaite (Baliste detruite), en millisecondes (temps reel, hors boucle
+// de simulation deja figee a ce moment via loop.timeScale = 0) : la
+// banniere "Defaite" apparait en fondu PAR-DESSUS le champ de bataille
+// encore visible (choix d'Antoine parmi 3 options proposees), tient un
+// instant, puis un rideau noir plein ecran se referme — c'est au moment ou
+// il est totalement opaque qu'on vide le champ de bataille et prepare
+// l'ecran suivant (invisible pour le joueur), avant de rouvrir le rideau sur
+// ce nouvel ecran. Duree totale visee ~2 secondes, comme demande.
 export const WAVE_TRANSITION_BANNER_FADE_MS = 350;
 export const WAVE_TRANSITION_HOLD_MS = 1100;
 export const WAVE_TRANSITION_CURTAIN_FADE_MS = 400;
@@ -831,7 +769,7 @@ export const WAVE_TRANSITION_CURTAIN_FADE_MS = 400;
  *  ui/talentPointToast.ts) avant qu'il ne s'estompe tout seul — demande
  *  d'Antoine 2026-08-10 ("afficher un message, une pop-up"), choisi discret
  *  et auto-disparaissant plutot qu'une modale a fermer, pour ne pas casser le
- *  sequencement bataille -> boutique deja en place. Monte de 3200 a 6000
+ *  jeu en cours. Monte de 3200 a 6000
  *  (2026-08-14, meme toast enrichi d'une seconde ligne — direction + resume
  *  de l'arbre, voir TalentPointToast.show) : le texte a lire est nettement
  *  plus long qu'a l'origine, 3.2s ne laissait pas le temps de le parcourir. */
@@ -992,47 +930,3 @@ export const MACHINE_GUN_ORIGIN_OFFSET = 0.12;
  *  faible" autour du curseur (demande explicite), jamais un vrai deuxieme
  *  point de visee independant. */
 export const MACHINE_GUN_FALLBACK_TARGET_OFFSET = 0.35;
-
-// --- Talent "Soins excédentaires" (2026-08-15) ---
-// Palier II de la branche Soigneur, sous "Aux petits oignons" (voir
-// data/talents.ts). Chaque point de soin EXCEDENTAIRE (au-dela du plafond de
-// PV, sur n'importe laquelle des 3 sources de soin du joueur — voir main.ts,
-// applyPlayerHeal/triggerShadowProjectiles) genere un projectile d'ombre REEL
-// (vol simule, voir sim/systems/shadowProjectiles.ts), pas un degat instantane.
-
-/** Vitesse de vol (cases/seconde) — nom centralise comme demande, jamais un
- *  litteral duplique. Rapide mais pas instantane (voir HIT_RADIUS interne au
- *  systeme) : assez visible pour se lire comme un vrai projectile sans
- *  jamais sembler lent/mou. Montee de 10 a 15 (2026-08-18, demande explicite
- *  d'Antoine : "plus rapides, plus nerveuses visuellement") — le systeme de
- *  vol (sim/systems/shadowProjectiles.ts) gere deja nativement une vitesse
- *  qui depasse la distance restante en un seul pas (`step >= d`), aucun
- *  risque de depassement/instabilite a cette valeur plus elevee. */
-export const SHADOW_PROJECTILE_SPEED = 15;
-
-/** Degats de BASE (echelle interne x10) d'un projectile d'ombre, avant tout
- *  bonus de la boutique d'amelioration permanente (voir
- *  run/shadowUpgradeEffects.ts, shadowDamagePerProjectile = 1 + niveau*0.5,
- *  qui ajoute a cette base plutot que de la remplacer). 1 PV affiche. */
-export const SHADOW_PROJECTILE_BASE_DAMAGE = 10;
-
-/** Palette du projectile d'ombre — orbe SOMBRE, jamais une grosse explosion
- *  (demande explicite d'Antoine) : `shadowCore` = coeur presque noir,
- *  `shadowGlow` = halo violet/magenta, distincts de toutes les autres
- *  palettes du jeu (feu, glace, soin). */
-export const SHADOW_PROJECTILE_CORE_COLOR = 0x140a1c;
-export const SHADOW_PROJECTILE_GLOW_COLOR = 0x9a3fd9;
-/** Flash/accent MAGENTA a l'impact (2026-08-16, grosse passe VFX) — distinct
- *  du violet d'aura (SHADOW_PROJECTILE_GLOW_COLOR), plus vif/chaud, pour le
- *  "flash magenta" demande explicitement sur l'impact. */
-export const SHADOW_PROJECTILE_IMPACT_COLOR = 0xe85fd9;
-/** Coque semi-transparente autour du noyau (2026-08-18, deuxieme passe VFX —
- *  demande explicite : "petite boule de magie violette... noyau sombre ou
- *  violet intense") — un violet plus clair/vif que le glow externe, pour un
- *  vrai degrade noyau -> coque -> halo, meme principe que la Boule de feu
- *  (coeur clair + coque teintee) mais transpose a la palette sombre/violette. */
-export const SHADOW_PROJECTILE_SHELL_COLOR = 0xc76bf2;
-/** "Couronne" ornee qui orbite/pulse autour du projectile (magic_02.png) —
- *  un mauve plus profond que le glow, pour se distinguer nettement du halo
- *  rond en dessous plutot que de se fondre avec lui. */
-export const SHADOW_PROJECTILE_CROWN_COLOR = 0x7a2fb0;

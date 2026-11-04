@@ -1,7 +1,4 @@
 import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
-import { HEAL_SCROLL_UPGRADE } from '../data/healScrollUpgrade';
-import { ICE_NOVA_UPGRADE } from '../data/iceNovaUpgrade';
-import { SHADOW_UPGRADE } from '../data/shadowUpgrade';
 import { UNIT_UPGRADES, type UpgradeDefBase } from '../data/unitUpgrades';
 import type { MetaProgress } from './metaProgress';
 import { roundGold, spendGold, type RunState } from './runState';
@@ -9,11 +6,15 @@ import { roundGold, spendGold, type RunState } from './runState';
 /**
  * Niveaux d'amelioration de la RUN en cours : id d'amelioration (memes cles
  * que les definitions de data/ : 'fantassin', 'archer', 'mage', 'sentinel',
- * 'ballista', 'mine', 'heal_scroll_minor', 'ice_nova',
- * 'soins_excedentaires') -> niveau achete. Portes par RunState.upgrades :
- * jamais sauvegardes, ils disparaissent avec la run. Seule source des
- * niveaux lue par les formules d'effet (run/*UpgradeEffects.ts) pendant une
- * run.
+ * 'ballista') -> niveau achete. Portes par RunState.upgrades : jamais
+ * sauvegardes, ils disparaissent avec la run. Seule source des niveaux lue
+ * par les formules d'effet (run/*UpgradeEffects.ts) pendant une run.
+ *
+ * Les ameliorations de parchemins (soin, Nova de glace, Soins
+ * excedentaires), vendues au Sanctuaire, ont ete retirees avec les
+ * parchemins de bataille (2026-11-04) : un ancien niveau present dans
+ * RunState.upgrades sous ces cles est simplement ignore (aucune formule ne
+ * le lit, une run ne survit de toute facon pas a un rechargement).
  */
 export type RunUpgradeLevels = Record<string, number>;
 
@@ -57,32 +58,18 @@ export interface PlayerProgression {
   upgrades: RunUpgradeLevels;
 }
 
-// --- Achat d'ameliorations de run en Or (boutique de la Forge) ----------
+// --- Achat d'ameliorations de run en Or (ecran de la Forge) ---------------
 //
 // Ne lit et n'ecrit que RunState.gold et RunState.upgrades. Aucun talent n'en
-// modifie le cout.
+// modifie le cout. Ouvert depuis la fiche d'une Forge TERMINEE, en jeu (le
+// temps est fige tant que l'ecran est ouvert) ; plusieurs Forges ouvrent les
+// MEMES ameliorations, sur les memes niveaux de run.
 
 /** Ameliorations achetables, par id (memes cles que RunState.upgrades). */
 const RUN_UPGRADE_DEFS: Readonly<Record<string, UpgradeDefBase>> = {
   ...UNIT_UPGRADES,
   [BALLISTA_UPGRADE.id]: BALLISTA_UPGRADE,
-  [HEAL_SCROLL_UPGRADE.id]: HEAL_SCROLL_UPGRADE,
-  [ICE_NOVA_UPGRADE.id]: ICE_NOVA_UPGRADE,
-  [SHADOW_UPGRADE.id]: SHADOW_UPGRADE,
 };
-
-/** Batiment qui donne acces a une amelioration de run : la Forge (production
- *  des unites, Baliste) ou le Sanctuaire (parchemins de soin, de Nova de
- *  glace et d'Ombre ; l'Eglise jusqu'au 2026-11-03). Simple point d'acces :
- *  le niveau reste celui de la run, partage par tous les exemplaires
- *  possedes. Identifiant = celui du batiment (BuildingDef.runUpgradeSite). */
-export type RunUpgradeSite = 'forge' | 'shrine';
-
-const SHRINE_UPGRADE_IDS: ReadonlySet<string> = new Set([HEAL_SCROLL_UPGRADE.id, ICE_NOVA_UPGRADE.id, SHADOW_UPGRADE.id]);
-
-export function runUpgradeSite(id: string): RunUpgradeSite {
-  return SHRINE_UPGRADE_IDS.has(id) ? 'shrine' : 'forge';
-}
 
 /** Vrai si `id` designe une amelioration achetable. */
 export function isRunUpgradeId(id: string): boolean {

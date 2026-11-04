@@ -4,8 +4,9 @@ import { getBuilding } from './buildings';
  * Production d'unites en TEMPS REEL (2026-11-01, Hero RTS continu) : un
  * batiment bati recoit des commandes en FILE (2026-11-02 : unites et
  * amelioration du batiment, dans l'ordre des clics, PRODUCTION_QUEUE_MAX au
- * plus), chacune sortant a la fin de sa duree, l'une apres l'autre. Remplace, dans la Survie, la production automatique de debut
- * de manche (BuildingDef.production, legacy). Durees PROVISOIRES, aucun
+ * plus), chacune sortant a la fin de sa duree, l'une apres l'autre. Seule
+ * regle de production du jeu depuis le 2026-11-04 (l'ancien quota gratuit
+ * de debut de manche a ete retire). Durees PROVISOIRES, aucun
  * reequilibrage : le prix reste celui de l'unite (or).
  */
 const UNIT_PRODUCTION_SECONDS: Readonly<Record<string, number>> = {

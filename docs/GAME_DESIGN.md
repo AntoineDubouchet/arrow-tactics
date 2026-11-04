@@ -24,7 +24,7 @@ qui n'est pas encore tranchée est signalée comme question ouverte (§15).
 5. Le bestiaire : un ennemi, une question tactique
 6. L'armée du joueur et le buildcraft
 7. L'intervention directe du joueur
-8. Économie de run et décisions entre les vagues
+8. Économie de run et décisions en temps réel
 9. Progression permanente : rôle de chaque système
 10. Achievements et collection
 11. Lisibilité
@@ -39,10 +39,11 @@ qui n'est pas encore tranchée est signalée comme question ouverte (§15).
 
 **Arrow Tactics est un roguelite tactique de survie.**
 
-À chaque run, le joueur construit progressivement une armée et un build pour
-tenir le plus longtemps possible face à des vagues de plus en plus difficiles.
-Le combat se joue en grande partie tout seul ; le joueur y intervient
-ponctuellement, notamment avec sa Baliste et ses sorts.
+À chaque run, le joueur construit progressivement une base, une armée et un
+build pour tenir le plus longtemps possible face à des vagues de plus en
+plus difficiles, en temps réel continu, avec un Héros qu'il dirige
+lui-même. Le combat se joue en grande partie tout seul ; le joueur y
+intervient ponctuellement, avec son Héros, sa Baliste et ses ordres.
 
 Il n'y a pas de « vraie fin » à atteindre. La défaite finit toujours par
 arriver. Ce qui compte, c'est jusqu'où l'on est allé, pourquoi on est tombé, et
@@ -52,9 +53,10 @@ l'envie de recommencer autrement.
 
 1. **Survivre le plus longtemps possible.** La run n'a pas de fin obligatoire.
    Le record de progression fait partie de la motivation.
-2. **Construire, puis regarder son build agir.** Le cœur du plaisir est la
-   préparation : composer son armée, acheter, placer. Le combat automatique
-   est le verdict de ces décisions.
+2. **Construire, puis regarder son build agir.** Le cœur du plaisir est de
+   bâtir sous pression : explorer, récolter, composer son armée, placer ses
+   bâtiments et ses murs. Le combat automatique est le verdict de ces
+   décisions.
 3. **Garder la main au bon moment.** Le joueur dispose de décisions actives
    ponctuelles qui comptent pendant la bataille.
 4. **Des builds différents, pas seulement plus de contenu.** Chaque ajout doit
@@ -67,18 +69,33 @@ l'envie de recommencer autrement.
 
 ## 3. La boucle centrale
 
+**Arrow Tactics est un Hero RTS Survival en temps réel continu** (décision
+d'Antoine, `DESIGN_DECISIONS.md` G10 ; code aligné par la passe de
+modernisation 1, G40). Il n'y a ni phase de préparation ni manche : tout
+se joue dans le même temps, et les vagues sont des événements qui
+viennent frapper le joueur pendant qu'il construit.
+
 **Pendant une run :**
 
-1. **Préparation** : achats, organisation de l'armée, placement des unités et
-   des bâtiments.
-2. **Vague** : la bataille se joue automatiquement ; le joueur intervient
-   directement quand c'est utile.
-3. **Survie** : si au moins un combattant du joueur tient, la vague est gagnée.
-4. **Récompenses** : ressources de run, et éventuellement progression
-   permanente.
-5. **Nouvelles décisions de build** : renforcer, réorienter, réparer, prendre
-   un risque.
-6. Retour à la préparation, face à une vague plus exigeante.
+1. **Base** : la run commence dans un petit camp préconstruit, autour de la
+   Baliste, avec le Héros et quelques Villageois. La Baliste est le cœur :
+   tant qu'elle tient, la run continue.
+2. **Exploration** : le Héros sort du camp, lève le brouillard, trouve des
+   ressources, des gisements, des camps neutres et du butin, et prend des
+   risques.
+3. **Économie** : les ressources récoltées sont rapportées au camp et
+   transformées en bâtiments, en unités produites, en améliorations. Chaque
+   dépense est un arbitrage entre économie, armée et puissance du Héros.
+4. **Camps** : les camps neutres de la carte sont des objectifs
+   intermédiaires, sources de butin et d'expérience, qui demandent une
+   armée ou un Héros assez forts.
+5. **Vagues** : à intervalles réguliers, une vague ennemie marche sur le
+   camp. L'armée produite, les murs, la Baliste et le Héros la reçoivent
+   automatiquement ; le joueur intervient (ordres, sorts, tir de la
+   Baliste) quand c'est utile. Une vague repoussée rapporte un peu d'or et
+   laisse le jeu continuer ; la Baliste détruite termine la run.
+6. Retour à l'exploration et à l'économie, face à une vague suivante plus
+   exigeante.
 
 **Entre les runs :**
 
@@ -88,7 +105,10 @@ l'envie de recommencer autrement.
    record ou d'essayer un autre build.
 
 Chaque étape doit produire une **décision intéressante**. Une étape qui se
-réduit à une formalité est un signal d'alerte.
+réduit à une formalité est un signal d'alerte. Les « décisions entre les
+vagues » de l'ancienne boucle en manches sont devenues des décisions
+**pendant** la pression : quoi construire, qui produire, où envoyer le
+Héros, avant que la prochaine vague n'arrive.
 
 ## 4. Survie sans fin et montée de la difficulté
 
@@ -147,17 +167,19 @@ Archétypes possibles (exemples, pas des décisions) :
 - **Armée nombreuse** : submerger par le nombre.
 - **Unités d'élite** : peu d'unités, très investies.
 - **Économie / bâtiments** : investir maintenant pour être fort plus tard.
-- **Production** : des bâtiments qui fournissent des renforts à chaque
-  manche.
-- **Soins / projectiles d'ombre** : tenir plus longtemps et convertir le
-  surplus de soin en dégâts.
-- **Glace / contrôle** : maîtriser le rythme et la position des ennemis.
+- **Production** : des bâtiments qui fournissent des renforts en continu.
+- **Héros** : un Paladin puissant, bien équipé, qui porte la défense ou
+  l'exploration.
+- **Soins** ou **contrôle** (glace, ralentissement) : pistes possibles ;
+  les anciens prototypes (projectiles d'ombre, Nova de glace, Blizzard)
+  ont été retirés le 2026-11-04 avec les parchemins de bataille, sans que
+  l'idée soit abandonnée.
 - D'autres archétypes à venir.
 
 **Ce qui fait un archétype** :
 
 - il s'appuie sur **plusieurs systèmes à la fois** (unités, talents,
-  boutique, améliorations de Forge, sorts, bâtiments) ;
+  équipement du Héros, améliorations de Forge, sorts, bâtiments) ;
 - il a des **forces et des faiblesses** identifiables face à certaines
   menaces ;
 - il fait naître des **synergies** : deux choix valent plus ensemble que
@@ -172,9 +194,11 @@ récompensé.
 Le combat est en grande partie automatique, mais le joueur garde des
 **décisions actives** :
 
+- le **Héros** et ses sorts ;
 - la **Baliste** ;
-- les **sorts et parchemins** ;
-- éventuellement d'autres mécaniques futures.
+- les **ordres** donnés aux unités ;
+- éventuellement d'autres mécaniques futures (les parchemins de bataille,
+  retirés le 2026-11-04, en étaient une première forme).
 
 **Principe** : l'intervention directe du joueur doit être **suffisamment
 importante pour compter, sans rendre l'armée secondaire**.
@@ -190,21 +214,26 @@ Ce que l'on cherche :
 
 La puissance exacte de la Baliste et des sorts reste ouverte (§15).
 
-## 8. Économie de run et décisions entre les vagues
+## 8. Économie de run et décisions en temps réel
 
-Le temps entre les vagues est celui des **choix de build**. On y cherche :
+Le temps entre deux vagues est celui des **choix de build**, mais il n'est
+plus un temps à part : le joueur décide pendant que le compte à rebours
+tourne et pendant que le Héros est loin du camp. On y cherche :
 
 - des **arbitrages réels** : renforcer l'armée, investir dans l'économie,
-  préparer une intervention, soigner ;
-- des choix **conséquents** : un achat oriente la suite de la run ;
+  préparer une intervention, soigner, explorer plus loin ;
+- des choix **conséquents** : une dépense oriente la suite de la run ;
 - la possibilité de **corriger** un build en difficulté, sans que tout soit
   réversible gratuitement ;
-- un **placement** qui compte, en particulier face à des menaces qui ciblent
-  certaines positions.
+- un **placement** des bâtiments et des murs qui compte, en particulier
+  face à des menaces qui ciblent certaines positions ;
+- une **tension entre le camp et l'exploration** : le Héros qui s'éloigne
+  gagne des ressources mais laisse la base se défendre seule.
 
 **Orientation UX actuelle**, sans statut de pilier : une interface sobre,
 superposée au champ de bataille, inspirée des jeux de stratégie sur PC, avec
-une manipulation directe des unités.
+une manipulation directe des unités et des fiches de bâtiment comme seul
+point d'achat.
 
 ## 9. Progression permanente : rôle de chaque système
 
@@ -334,7 +363,8 @@ Constat uniquement, sans plan d'action (voir `ROADMAP.md`) :
 - le bestiaire ennemi **reprend les unités du joueur** ; aucun rôle ennemi
   dédié n'existe encore ;
 - le choix d'unités et de sorts pour le joueur reste **restreint** ;
-- l'arbre de talents est **réduit** et les synergies sont rares ;
+- l'arbre de talents est **réduit** (cinq talents depuis le 2026-11-04,
+  aucun propre au Paladin) et les synergies sont rares ;
 - les améliorations de Forge restent surtout des **améliorations de
   statistiques**, peu perceptibles aux premiers niveaux ;
 - les archétypes existent **en ébauche**, sans identité forte ;
@@ -371,9 +401,10 @@ Aucune de ces questions n'est tranchée.
   2026-11-01 (`DESIGN_DECISIONS.md` G8) : recrutement, vagues.
 - La progression de la Sentinelle ennemie.
 - Les rôles ennemis prioritaires.
-- La Caserne et le Camp d'archerie : leurs unités produites doivent-elles
-  persister d'une vague à l'autre ?
-  Faut-il plus de persistance de l'armée en général ?
+- Le Camp d'archerie Niv. 2 : quel effet lui donner, maintenant que le
+  quota « par manche » n'existe plus (Pass 2) ?
+- Le déblocage du Mage et de la Sentinelle en battant l'ennemi : à
+  conserver, et par quoi le faire passer sans Boutique (Pass 2) ?
 
 **Économie et progression**
 
@@ -389,8 +420,8 @@ Aucune de ces questions n'est tranchée.
 
 **Run et cadre**
 
-- Le système de carte sur les runs longues : agrandissement, plusieurs
-  cartes, biomes.
+- Le système de carte sur les runs longues : plusieurs cartes, biomes
+  (l'agrandissement progressif a été retiré le 2026-11-04).
 - La sauvegarde d'une run en cours.
 - La direction audio : le moteur existe, il est déconnecté, et sa place dans
   l'expérience reste à définir.

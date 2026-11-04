@@ -4,13 +4,13 @@ import type { Entity, Team } from '../entity';
 import { segmentIntersectsBox } from '../geometry';
 
 /**
- * Production d'unites par les batiments de production (Caserne, Camp
- * d'archerie — voir data/buildings.ts, BuildingDef.production). Chaque
- * batiment recoit un quota pour la manche au moment de son apparition
- * (World.spawnBuilding, debut de bataille) ; ce systeme le consomme des que
- * la population et les cases libres le permettent, sans jamais le
- * renouveler. Un quota non produit a la fin de la bataille est perdu (le
- * batiment est recree a la bataille suivante avec un quota neuf).
+ * Production d'unites par les batiments producteurs (Caserne, Auberge,
+ * Sanctuaire... — voir data/buildings.ts, BuildingDef.recruitmentUnlock et
+ * data/production.ts). Une seule regle (2026-11-04) : la file temps reel
+ * (Entity.productionOrders), payee par le joueur a la commande ; une unite
+ * terminee attend dans Entity.productionQueue qu'une place de population et
+ * une case libre existent, puis apparait. Aucun quota gratuit a l'apparition
+ * du batiment (ancien modele « par manche », retire).
  *
  * Systeme SIM PUR : decide QUAND et OU une unite apparait, jamais QUELLES
  * STATS elle recoit. L'appelant (main.ts) consomme
@@ -30,13 +30,13 @@ export interface ProductionSpawnEvent {
 }
 
 /**
- * Pour chaque batiment vivant avec un quota restant : limite le lot aux
- * places de population et aux cases libres autour de son emprise, puis
- * pousse un evenement par unite. Un lot partiel est produit ; le reste du
- * quota attend et retente aux ticks suivants. Population et cases sont
- * decomptees au fil du tick : plusieurs batiments ne depassent jamais
- * ensemble le maximum ni ne choisissent la meme case (ordre deterministe,
- * celui des entites).
+ * Pour chaque batiment vivant avec des unites terminees en attente : limite
+ * le lot aux places de population et aux cases libres autour de son emprise,
+ * puis pousse un evenement par unite. Un lot partiel est produit ; le reste
+ * attend et retente aux ticks suivants. Population et cases sont decomptees
+ * au fil du tick : plusieurs batiments ne depassent jamais ensemble le
+ * maximum ni ne choisissent la meme case (ordre deterministe, celui des
+ * entites).
  */
 /** Amelioration d'un batiment terminee dans sa file de production
  *  (World.productionUpgradeEvents) : l'orchestration applique le niveau. */
@@ -79,8 +79,8 @@ export function buildingProductionSystem(entities: Entity[], obstacles: Obstacle
     // Chantier : aucune production tant qu'il n'est pas construit.
     if (!e.alive || e.productionQueue.length === 0 || e.construction) continue;
 
-    // File dans l'ordre (Caserne Niv. 2 : Piquier puis Fantassin) : on
-    // s'arrete a la premiere unite sans place de population, sans la doubler.
+    // Unites terminees dans l'ordre : on s'arrete a la premiere sans place de
+    // population, sans la doubler.
     const costOf = (unitId: string): number => (e.team === 'player' ? unitPopulationCost(unitId) : 0);
     e.productionWaitingForPopulation = costOf(e.productionQueue[0]!) > Math.max(playerRoom, 0);
     if (e.productionWaitingForPopulation) continue;

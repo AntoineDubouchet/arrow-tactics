@@ -12,3 +12,6 @@ Thumbs.db
 # Unités Toon RTS : dérivées d'un pack commercial (Unity Asset Store), dépôt
 # public. Restent locales, reconstruites par tools/toon-units/ (docs/ASSETS.md).
 arrow-tactics/public/assets/units/toon/
+
+# Tests en jeu : captures et telechargements (tests/game/out/)
+arrow-tactics/tests/game/out/

@@ -3,7 +3,6 @@ import { buildCellIndex, cellKey, computeMapCellBounds, resolveMapCells, type Ma
 import { waterCellKeys } from '../config/groundSurfaces';
 import { resourceNodeCellKeys, resourceNodeCells, resourceNodesOf, type ResourceNode } from '../config/resourceNodes';
 import { computeCliffObstacles, resolveMapHeightField } from '../config/terrainElevation';
-import { dist } from '../core/math';
 import { Rng, randomSeed } from '../core/rng';
 import { getBuilding, type BuildingDef } from '../data/buildings';
 import { getUnit, withEffectiveMoveSpeed, type UnitStats } from '../data/units';
@@ -51,8 +50,6 @@ import {
 import { movementSystem, type PathFailure } from './systems/movement';
 import { cachedPathGrid, isReachable, reachableTiles } from './pathfinding';
 import { terrainObstacles } from './geometry';
-import { tickPersistentAreaEffects, type AreaEffectTickEvent, type PersistentAreaEffect } from './systems/persistentAreaEffects';
-import { advanceShadowProjectiles, pickShadowTargets, type ShadowProjectile, type ShadowProjectileEvent } from './systems/shadowProjectiles';
 import { targetingSystem } from './systems/targeting';
 
 /**
@@ -149,15 +146,6 @@ export class World {
    *  18/19 de la demande sur le Mage). Voir sim/systems/abilities.ts,
    *  BlastProjectile/advanceBlasts. */
   blasts: BlastProjectile[] = [];
-  /** Zones d'effet persistantes actives (Blizzard...) — voir
-   *  sim/systems/persistentAreaEffects.ts. Persiste d'un tick a l'autre,
-   *  comme `blasts`. */
-  iceNovaZones: PersistentAreaEffect[] = [];
-  /** Ticks de degats de zone REELLEMENT resolus au dernier step (Blizzard...)
-   *  — vide et repeuple a chaque tick, comme combatEvents/abilityEvents. Voir
-   *  sim/systems/persistentAreaEffects.ts, AreaEffectTickEvent — consomme par
-   *  main.ts pour le flash blanc de degats (2026-08-14, demande d'Antoine). */
-  areaEffectEvents: AreaEffectTickEvent[] = [];
   /** Fleche du joueur : cooldown + vols en cours, voir sim/playerArrow.ts. */
   playerArrow: PlayerArrowState = createPlayerArrowState();
   /** Fleches des batiments defensifs (Tour) EN VOL — voir
@@ -167,23 +155,14 @@ export class World {
    *  repeuple a chaque tick, comme combatEvents. */
   buildingAttackEvents: BuildingAttackEvent[] = [];
   private nextBuildingProjectileId = 1;
-  /** Projectiles d'ombre EN VOL (talent "Soins excédentaires", 2026-08-15) —
-   *  voir sim/systems/shadowProjectiles.ts. Persiste d'un tick a l'autre,
-   *  comme `blasts`/`iceNovaZones` : homing sur la position ACTUELLE de leur
-   *  cible plutot qu'un point verrouille. */
-  shadowProjectiles: ShadowProjectile[] = [];
-  /** Impacts REELLEMENT resolus au dernier step — vide et repeuple a chaque
-   *  tick, comme combatEvents/areaEffectEvents. Consomme par main.ts pour le
-   *  flash blanc de degats + le VFX d'impact d'ombre. */
-  shadowProjectileEvents: ShadowProjectileEvent[] = [];
   /** Evenements de resolution d'impact du dernier step (touche/rate) — 0 a N
    *  (2026-08-14, generalise de "PlayerArrowEvent | null" : talent
    *  "Mitraillette" peut faire resoudre plusieurs carreaux le meme tick, ou
    *  a des ticks differents si leurs vols ont des durees differentes). Vide
    *  si aucun trait ne vient de terminer son vol ce tick. */
   playerArrowEvents: PlayerArrowEvent[] = [];
-  /** Productions d'unites REELLEMENT declenchees au dernier step (Caserne,
-   *  Camp d'archerie) — vide et repeuple a chaque tick, comme combatEvents.
+  /** Unites sorties des files de production au dernier step (Caserne,
+   *  Auberge...) — vide et repeuple a chaque tick, comme combatEvents.
    *  Voir sim/systems/buildingProduction.ts — consomme par main.ts pour
    *  appeler le vrai World.spawn avec les stats effectives (sim/ ne les
    *  connait pas). */
@@ -575,11 +554,10 @@ export class World {
    * corrigee pour les unites, voir CLAUDE.md).
    */
   /**
-   * `productionOverride` : unites a produire pendant CETTE manche par un
-   * batiment de production (BuildingDef.production), calculees par
-   * l'appelant depuis le niveau propre du batiment ; Niv. 1 de
-   * `unitsByLevel` par defaut. Sans effet pour un batiment sans
-   * `def.production`.
+   * Un batiment apparait sans aucune unite a produire : la production passe
+   * uniquement par sa file temps reel (queueProduction), payee par le joueur
+   * (2026-11-04 ; l'ancien quota gratuit de debut de manche, BuildingDef
+   * .production, a ete retire).
    */
   spawnBuilding(
     def: BuildingDef,
@@ -589,14 +567,12 @@ export class World {
     footprint?: ObstacleDef,
     hp?: number,
     maxHpOverride?: number,
-    productionOverride?: readonly string[],
     attackDamageOverride?: number,
     /** Chantier (Entity.construction) : avancement et duree, ou absent
      *  (batiment construit). */
     construction?: ConstructionState,
   ): Entity {
     const effectiveMaxHp = maxHpOverride ?? def.maxHp;
-    const productionQueue = def.production ? (productionOverride ?? def.production.unitsByLevel[0] ?? []) : [];
     const entity: Entity = {
       id: this.nextId++,
       team,
@@ -683,9 +659,9 @@ export class World {
       // correctif que ca permet (un batiment ne bloque plus sa propre ligne
       // de tir/poursuite vers lui-meme).
       footprintObstacle: footprint ?? null,
-      // Production de la manche (Caserne, Camp d'archerie) — voir
-      // Entity.productionQueue : consommee des le premier tick.
-      productionQueue: [...productionQueue],
+      // Unites terminees en attente de sortie (voir Entity.productionQueue) :
+      // aucune a l'apparition, seule la file temps reel en ajoute.
+      productionQueue: [],
       productionOrders: [],
       productionWaitingForPopulation: false,
       // Batiment defensif (Tour) : degats EFFECTIFS du niveau propre du
@@ -746,7 +722,7 @@ export class World {
     const opened = gate && open && !construction;
     const door = gate ? { owner: team, open: opened, wantOpen: opened } : null;
     if (door) footprint.door = door;
-    const e = this.spawnBuilding(def, team, (s.ax + s.bx) / 2, (s.az + s.bz) / 2, footprint, hp, maxHp, undefined, undefined, site);
+    const e = this.spawnBuilding(def, team, (s.ax + s.bx) / 2, (s.az + s.bz) / 2, footprint, hp, maxHp, undefined, site);
     e.wall = { wallType, lineId, index, ax: s.ax, az: s.az, bx: s.bx, bz: s.bz, door };
     return e;
   }
@@ -1118,15 +1094,11 @@ export class World {
     this.combatEvents = [];
     this.abilityEvents = [];
     this.blasts = [];
-    this.iceNovaZones = [];
-    this.areaEffectEvents = [];
     this.playerArrow = createPlayerArrowState();
     this.playerArrowEvents = [];
     this.buildingProjectiles = [];
     this.buildingAttackEvents = [];
     this.nextBuildingProjectileId = 1;
-    this.shadowProjectiles = [];
-    this.shadowProjectileEvents = [];
     this.productionSpawnEvents = [];
     this.productionUpgradeEvents = [];
     this.resourceDepletedEvents = [];
@@ -1164,57 +1136,6 @@ export class World {
    *  retombe sur les constantes de base si omis. */
   fireArrowVolley(shots: ArrowShotSpec[], cooldown?: number, speed?: number): boolean {
     return fireArrowVolley(this.playerArrow, shots, cooldown, speed);
-  }
-
-  /**
-   * Nova de glace (2026-08-14) : impact INSTANTANE, applique le statut Root
-   * (voir Entity.rootTimer) a toute unite du camp OPPOSE a `casterTeam`
-   * presente dans `radius` de (x, z) AU MOMENT de l'appel — jamais un
-   * projectile, jamais de duree de vol, coherent avec "aucun cast long"
-   * (demande explicite d'Antoine). Coupe net tout etat de mouvement en
-   * cours (dash, sidestep, degagement, chemin en cache) pour un arret
-   * IMMEDIAT, sans glissement — et pour interrompre proprement une Charge
-   * de Cavalier deja engagee (preference V1 d'Antoine : "Nova interrompt
-   * immediatement le deplacement de Charge").
-   */
-  applyIceNovaRoot(casterTeam: Team, x: number, z: number, radius: number, duration: number): void {
-    for (const e of this.entities) {
-      if (!e.alive || e.team === casterTeam) continue;
-      if (dist(e.x, e.z, x, z) > radius) continue;
-      e.rootTimer = duration;
-      e.dash = null;
-      e.sidestepTimer = 0;
-      e.unstickTimer = 0;
-      e.path = null;
-      e.steerX = null;
-      e.steerZ = null;
-    }
-  }
-
-  /** Blizzard (talent, 2026-08-14) : cree une zone persistante — voir
-   *  sim/systems/persistentAreaEffects.ts. INDEPENDANTE du Root ci-dessus :
-   *  ne cible jamais les memes unites "figees a t=0", chaque tick re-scanne
-   *  qui est REELLEMENT present dans la zone a cet instant. */
-  createBlizzardZone(casterTeam: Team, x: number, z: number, radius: number, duration: number, tickInterval: number, damagePerTick: number): void {
-    this.iceNovaZones.push({ casterTeam, x, z, radius, elapsed: 0, duration, tickInterval, damagePerTick, ticksFired: 0 });
-  }
-
-  /**
-   * Talent "Soins excédentaires" (2026-08-15) : lance `count` projectiles
-   * d'ombre reels depuis (x, z), chacun infligeant `damagePerProjectile` a un
-   * ennemi VIVANT choisi (voir pickShadowTargets — preference de cibles
-   * distinctes). Sans effet si `count <= 0` ou si aucun ennemi n'est vivant
-   * (le soin excedentaire est alors simplement PERDU, pas d'erreur, pas de
-   * projectile fantome) — voir main.ts, triggerShadowProjectiles.
-   */
-  spawnShadowProjectiles(x: number, z: number, casterTeam: Team, count: number, damagePerProjectile: number, speed: number): void {
-    if (count <= 0) return;
-    const livingEnemies = this.entities.filter((e) => e.alive && e.team !== casterTeam);
-    if (livingEnemies.length === 0) return;
-
-    for (const target of pickShadowTargets(livingEnemies, count, this.rng)) {
-      this.shadowProjectiles.push({ x, z, casterTeam, targetId: target.id, damage: damagePerProjectile, speed });
-    }
   }
 
   /** Met une commande du joueur en file (voir sim/orders.ts). Elle n'est pas
@@ -1298,7 +1219,12 @@ export class World {
     // Points de ralliement : batiment vivant du joueur qui produit des unites.
     for (const r of this.rallyQueue) {
       const b = this.entityById.get(r.entityId);
-      if (b?.alive && b.isBuilding && b.team === 'player' && getBuilding(b.unitId).production) b.rally = r.point;
+      // Tout batiment producteur (file temps reel : Caserne, Auberge,
+      // Sanctuaire, Eglise, Ecurie...). 2026-11-04 : la regle lisait l'ancien
+      // quota par manche (BuildingDef.production), que seuls la Caserne et le
+      // Camp d'archerie avaient — le ralliement des autres producteurs etait
+      // refuse en silence.
+      if (b?.alive && b.isBuilding && b.team === 'player' && getBuilding(b.unitId).recruitmentUnlock) b.rally = r.point;
     }
     this.rallyQueue = [];
     // Sorts des Heros : un nouvel ordre (ou la mort, une Provocation) annule
@@ -1335,9 +1261,7 @@ export class World {
     }
     this.combatEvents = combatSystem(this.entities, dt, this.rng, this.obstacles);
     this.buildingAttackEvents = buildingAttackSystem(this.entities, lookup, this.buildingProjectiles, dt, () => this.nextBuildingProjectileId++);
-    this.areaEffectEvents = tickPersistentAreaEffects(this.iceNovaZones, dt, this.entities);
     this.playerArrowEvents = stepPlayerArrow(this.playerArrow, dt, this.entities);
-    this.shadowProjectileEvents = advanceShadowProjectiles(this.shadowProjectiles, dt, this.entities, this.rng);
     this.productionUpgradeEvents = tickProductionOrders(this.entities, dt);
     this.productionSpawnEvents = buildingProductionSystem(this.entities, this.obstacles);
     deathSystem(this.entities);

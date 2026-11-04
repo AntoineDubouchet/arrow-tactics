@@ -1,25 +1,11 @@
-import { HP_PER_PIP } from '../config/constants';
-import { getHealEffectAmount, getItem } from '../data/items';
 import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
-import { getBuilding, listBuyableBuildingIds } from '../data/buildings';
-import { HEAL_SCROLL_UPGRADE } from '../data/healScrollUpgrade';
-import { ICE_NOVA_UPGRADE } from '../data/iceNovaUpgrade';
-import { SHADOW_UPGRADE } from '../data/shadowUpgrade';
 import { getTalent, listDependents, listFounderTalents, TALENTS } from '../data/talents';
 import { computeTalentTreeLayout, type TalentNodeLayout, type TalentTreeLayoutNode } from './talentTreeLayout';
-import { getUnit, unitPluralName } from '../data/units';
-import { buildingPopulationBonus, unitPopulationCost } from '../data/population';
-import { runPopulation } from '../run/population';
-import { missingRecruitmentBuildingHint } from '../run/recruitment';
+import { getUnit } from '../data/units';
 import { getUnitUpgradeDef, listUpgradableUnitIds } from '../data/unitUpgrades';
-import {
-  canUnlockTalent,
-  isTalentUnlocked,
-  canPlayerRecruitUnit,
-  type MetaProgress,
-} from '../run/metaProgress';
-import { canAddItemsToInventory, canAddItemToInventory, formatGold, type RunState } from '../run/runState';
-import { currentProductionLevel, effectivePlayerUnitCost, unitProductionSummary, type UnitProductionSummary } from '../run/unitUpgradeEffects';
+import { canUnlockTalent, isTalentUnlocked, type MetaProgress } from '../run/metaProgress';
+import { formatGold, type RunState } from '../run/runState';
+import { currentProductionLevel, unitProductionSummary, type UnitProductionSummary } from '../run/unitUpgradeEffects';
 import {
   ballistaAttackSpeedBonus,
   ballistaDamageBonusDisplay,
@@ -28,68 +14,25 @@ import {
   ballistaRemainingUntilDamageBonus,
   ballistaUpgradeLevel,
 } from '../run/ballistaUpgradeEffects';
-import {
-  effectiveHealScrollCost,
-  healBonusDisplay,
-  healNextPurchaseGrantsExtraTarget,
-  healRemainingUntilNextTarget,
-  healScrollUpgradeLevel,
-  healSecondaryTargetCount,
-} from '../run/healScrollUpgradeEffects';
-import {
-  computePlayerIceNovaUpgradeEffects,
-  effectiveIceNovaCost,
-  iceNovaNextPurchaseGrantsDamageBonus,
-  iceNovaRemainingUntilDamageBonus,
-} from '../run/iceNovaUpgradeEffects';
-import { mineGoldRange, mineProductionIntervalSeconds } from '../run/mineUpgradeEffects';
-import {
-  shadowBonusProjectileCount,
-  shadowDamagePerProjectileDisplay,
-  shadowNextPurchaseGrantsBonusProjectile,
-  shadowRemainingUntilBonusProjectile,
-  shadowUpgradeLevel,
-} from '../run/shadowUpgradeEffects';
-import { getEffectiveBuildingCost } from '../run/buildingUpgradeEffects';
-import { canPurchaseRunUpgrade, displayedUpgradeLevel, runUpgradeGoldCost, runUpgradeSite, type RunUpgradeSite } from '../run/runUpgrades';
+import { canPurchaseRunUpgrade, displayedUpgradeLevel, runUpgradeGoldCost } from '../run/runUpgrades';
 import type { AudioSettings } from '../run/userSettings';
 import { createCoinIcon } from './pixelIcon';
-import { createItemIcon } from './itemIcons';
 
 export type ScreenName =
   | 'menu'
   | 'talents'
-  | 'waveComplete'
-  | 'shop'
   | 'pause'
   | 'quitRunConfirm'
   | 'gameOver'
   | 'resetConfirm'
   | 'resetTalentsConfirm'
-  | 'placementGoldWarning'
   | 'settings'
   | 'unitUpgradeShop';
-
-export type WaveResult = 'victoire' | 'defaite';
-
-/** Donnees du bilan de manche (voir run/battleSummary.ts). */
-export interface WaveSummaryView {
-  defeated: readonly { label: string; value: number }[];
-  goldEarned: number;
-}
-
-/** Rythme du bilan de fin de vague (ms) : le titre seul d'abord, puis une
- *  ligne d'ennemis vaincus apres l'autre, l'or gagne en dernier, et enfin
- *  le bouton pour continuer. */
-const WAVE_SUMMARY_FIRST_LINE_MS = 650;
-const WAVE_SUMMARY_LINE_STEP_MS = 420;
-const WAVE_SUMMARY_GOLD_EXTRA_MS = 250;
-const WAVE_SUMMARY_BUTTON_EXTRA_MS = 450;
 
 /** Un curseur de volume construit par `Screens.sliderControl` — `row` est
  *  l'element a inserer dans le panneau, `input`/`valueLabel` sont retenus a
  *  part pour que `refreshSettings` puisse les remettre a jour sans tout
- *  reconstruire (meme motif que shopBuyFantassin etc.). */
+ *  reconstruire. */
 interface SliderControl {
   row: HTMLElement;
   input: HTMLInputElement;
@@ -126,58 +69,10 @@ interface BallistaUpgradeCardRefs {
   costEl: HTMLElement;
 }
 
-/** Refs de la carte "Parchemin de soin" (2026-08-13) — voir
- *  buildHealScrollUpgradeCard/refreshForge. */
-interface HealScrollUpgradeCardRefs {
-  button: HTMLButtonElement;
-  levelEl: HTMLElement;
-  healEl: HTMLElement;
-  secondaryCountEl: HTMLElement;
-  secondaryRatioEl: HTMLElement;
-  nextUpgradeEl: HTMLElement;
-  remainingTargetEl: HTMLElement;
-  costEl: HTMLElement;
-}
-
-/** Refs de la carte "Nova de glace" (2026-08-14) — voir
- *  buildIceNovaUpgradeCard/refreshForge. Duree affichee pour le
- *  Root (immobilisation, TOUJOURS actif) ET la zone Blizzard (degats,
- *  n'agit que si le talent Blizzard est debloque) separement, meme si les
- *  deux partagent le meme bonus. */
-interface IceNovaUpgradeCardRefs {
-  button: HTMLButtonElement;
-  levelEl: HTMLElement;
-  rootDurationEl: HTMLElement;
-  blizzardDurationEl: HTMLElement;
-  damageEl: HTMLElement;
-  nextUpgradeEl: HTMLElement;
-  remainingDamageEl: HTMLElement;
-  costEl: HTMLElement;
-}
-
-/** Refs de la carte "Soins excédentaires" (2026-08-15) — meme convention de
- *  masquage que la Mine (voir MineUpgradeCardRefs) : tant que le talent
- *  "Soins excédentaires" n'est pas debloque, l'ameliorer n'aurait aucun sens
- *  (voir refreshForge). Le NIVEAU deja achete reste toutefois
- *  intact meme masque (voir run/shadowUpgradeEffects.ts) — seule la carte
- *  disparait, jamais la progression. */
-interface ShadowUpgradeCardRefs {
-  card: HTMLElement;
-  button: HTMLButtonElement;
-  levelEl: HTMLElement;
-  damageEl: HTMLElement;
-  bonusCountEl: HTMLElement;
-  nextUpgradeEl: HTMLElement;
-  remainingBonusEl: HTMLElement;
-  costEl: HTMLElement;
-}
-
 export interface ScreenHandlers {
   onPlay: () => void;
   onOpenTalents: () => void;
   onCloseTalents: () => void;
-  onContinueAfterWave: () => void;
-  onContinueAfterShop: () => void;
   /** Entree dans le mode editeur de maps (chantier en cours, voir CLAUDE.md).
    *  Le menu principal est le point d'entree naturel : Antoine a explicitement
    *  demande de pouvoir y revenir facilement pendant ses tests. */
@@ -189,7 +84,7 @@ export interface ScreenHandlers {
   /** Reprend la bataille en cours (bouton "Continuer" du menu pause,
    *  Echap y menait). */
   onResume: () => void;
-  /** Abandonne la bataille en cours et revient au menu principal, comme au
+  /** Abandonne la run en cours et revient au menu principal, comme au
    *  lancement du jeu — pas de reprise possible (aucune sauvegarde de run
    *  pour l'instant, voir CLAUDE.md). Reste utilise TEL QUEL par l'ecran
    *  "Partie terminee" (la run est deja terminee a ce moment-la, rien a
@@ -200,9 +95,9 @@ export interface ScreenHandlers {
    *  d'Antoine : "une vraie confirmation avant de quitter une run en
    *  cours") — n'appelle PLUS onQuit directement, ouvre la confirmation
    *  dediee (voir showQuitRunConfirm). Le menu Pause n'etant accessible QUE
-   *  depuis une bataille/un placement en cours (voir main.ts,
-   *  openPauseMenu), ce bouton represente TOUJOURS "quitter une run en
-   *  cours" — aucune verification de contexte supplementaire necessaire ici. */
+   *  depuis une run en cours (voir main.ts, openPauseMenu), ce bouton
+   *  represente TOUJOURS "quitter une run en cours" — aucune verification de
+   *  contexte supplementaire necessaire ici. */
   onRequestQuitRun: () => void;
   /** "Annuler" de la confirmation — retourne au menu Pause (PAS une reprise
    *  du jeu, voir point 7 de la demande : la partie reste en pause tant que
@@ -212,67 +107,18 @@ export interface ScreenHandlers {
    *  Idempotent (voir main.ts, quitRunConfirmationInFlight) : un double-clic
    *  ne declenche jamais deux fois la navigation/le nettoyage de run. */
   onConfirmQuitRun: () => void;
-  /** Achats de la boutique (chantier economie, etape B — voir CLAUDE.md) :
-   *  chaque handler verifie lui-meme l'or disponible et met a jour
-   *  currentRun (voir main.ts) — Screens ne fait que relayer le clic et
-   *  rafraichir l'affichage ensuite (voir refreshShop). */
-  onBuyFantassin: () => void;
-  onBuyArcher: () => void;
-  onBuyMage: () => void;
-  /** Sentinelle (2026-08-14, tank lourd) — meme motif que les 3 handlers
-   *  ci-dessus, jamais reservee par vague (contrairement au Mage). */
-  onBuySentinel: () => void;
-  /** Oracle (2026-11-01, soutien de l'Eglise) — meme motif. */
-  onBuyOracle: () => void;
-  /** Piquier (Caserne) et Vengeur (Eglise), 2026-11-01 — meme motif. */
-  onBuyPiquier: () => void;
-  onBuyVengeur: () => void;
-  /** Achat d'un parchemin de soin (chantier inventaire, voir CLAUDE.md) —
-   *  verifie lui-meme l'or ET la capacite de l'inventaire (voir
-   *  INVENTORY_CAPACITY). Remplace l'ancien "Soigner une unité" (soin
-   *  instantane et complet entre deux vagues) : le soin ne passe plus que
-   *  par cet objet, utilisable en temps reel pendant la bataille. */
-  onBuyHealScroll: () => void;
-  /** Achat de Nova de glace (2026-08-14) — meme garde-fou que
-   *  onBuyHealScroll (or ET capacite d'inventaire), voir main.ts. */
-  onBuyIceNova: () => void;
-  /** Bouton "×5" a cote de chaque unite (2026-08-13, demande d'Antoine :
-   *  "plus confortable pour acheter plusieurs unités") — achete jusqu'a 5
-   *  exemplaires de `unitId` d'un coup (le handler, main.ts, s'arrete tout
-   *  seul des que l'or manque, meme garde-fou que l'achat simple, pas
-   *  besoin que Screens verifie quoi que ce soit ici). */
-  onBuyFive: (unitId: string) => void;
-  /** Bouton "×5" pour les consommables (Parchemin de soin/Nova de glace...) —
-   *  2026-08-15, chantier polish/equilibrage, demande explicite d'Antoine.
-   *  Distinct de `onBuyFive` (unites, tolerant, s'arrete des qu'un achat
-   *  echoue) : l'achat de 5 consommables d'un coup est ATOMIQUE (voir
-   *  main.ts, buyConsumable — tout ou rien, jamais partiel). */
-  onBuyItemFive: (itemId: string) => void;
-  /** Bouton d'achat d'un bâtiment (Mine, Caserne — 2026-08-17, onglet
-   *  Bâtiments) — N'ACHETE PAS immediatement (demande explicite d'Antoine,
-   *  point 7 : "ne le pose pas immédiatement") : entre en mode placement
-   *  (voir main.ts), l'or n'est retire qu'a la confirmation d'un
-   *  emplacement valide. Le bouton est deja desactive si l'or est
-   *  insuffisant (voir Screens.refreshShop) — n'appelle donc ce handler que
-   *  lorsque l'achat est reellement possible. */
-  onRequestPlaceBuilding: (buildingId: string) => void;
-  /** Bouton "Annuler le dernier achat" de la boutique de run (2026-08-13,
-   *  demande d'Antoine : "au cas où une unité ait été achetée par hasard") —
-   *  le handler verifie lui-meme s'il y a quelque chose a annuler (voir
-   *  main.ts, lastUnitPurchase) ; Screens se contente d'activer/desactiver
-   *  le bouton via `refreshShop`/`showShop` (voir canUndoLastPurchase). */
-  onUndoLastUnitPurchase: () => void;
   /** Achat d'un talent (universel ou fondateur — voir data/talents.ts) — le
    *  handler verifie lui-meme si l'achat est possible (canUnlockTalent) et
    *  sauvegarde ensuite ; Screens ne fait que relayer le clic et rafraichir
-   *  l'affichage (voir refreshTalents), meme motif que les achats boutique.
-   *  Les 3 fondateurs sont achetables librement et independamment, pas
-   *  d'exclusivite entre eux (voir CLAUDE.md, refonte 2026-08-10). */
+   *  l'affichage (voir refreshTalents). Les 3 fondateurs sont achetables
+   *  librement et independamment, pas d'exclusivite entre eux (voir
+   *  CLAUDE.md, refonte 2026-08-10). */
   onUnlockTalent: (id: string) => void;
-  /** Boutique de la FORGE : ameliorations de la run, payees en Or, ouverte
-   *  depuis la fiche d'une Forge en preparation (voir main.ts). `onPurchaseRunUpgrade`
-   *  verifie et realise l'achat (run/runUpgrades.ts, purchaseRunUpgrade) ;
-   *  Screens ne fait que relayer le clic et rafraichir. */
+  /** Ecran de la FORGE : ameliorations de la run, payees en Or, ouvert
+   *  depuis la fiche d'une Forge en jeu (voir main.ts, le temps est fige).
+   *  `onPurchaseRunUpgrade` verifie et realise l'achat (run/runUpgrades.ts,
+   *  purchaseRunUpgrade) ; Screens ne fait que relayer le clic et
+   *  rafraichir. */
   onCloseForge: () => void;
   onPurchaseRunUpgrade: (upgradeId: string) => void;
   /** Bouton "Effacer la sauvegarde" du menu principal (demande d'Antoine,
@@ -298,20 +144,6 @@ export interface ScreenHandlers {
    *  — accorde immédiatement 1 point et sauvegarde, sans passer par une run
    *  ou un palier de vague. A RETIRER quand Antoine aura fini de tester. */
   onDebugGrantTalentPoint: () => void;
-  /** Bouton de DEBUG (2026-08-17, demande explicite d'Antoine : "fais-moi
-   *  un bouton debug pour m'ajouter 100 or... ce bouton sera retiré plus
-   *  tard") — meme motif que onDebugGrantTalentPoint ci-dessus. A RETIRER
-   *  (ce handler, le bouton dans ui/screens.ts, et le style
-   *  .shop-debug-button) une fois les tests termines. */
-  onDebugAddGold: () => void;
-  /** Barriere de securite au clic sur "Pret pour la bataille" (2026-08-10,
-   *  demande d'Antoine) : si l'or restant depasse 10% de l'or au debut de
-   *  CETTE phase de placement, ce popup s'affiche avant de lancer la
-   *  bataille pour de bon (voir main.ts, requestValidatePlacement). "Lancer
-   *  quand meme" appelle onConfirmPlacementWithGold, "Annuler" revient au
-   *  placement sans rien declencher. */
-  onConfirmPlacementWithGold: () => void;
-  onCancelPlacementGoldWarning: () => void;
   /** Ecran Parametres (2026-08-12, demande d'Antoine : "UN SEUL systeme de
    *  parametres reutilisable" depuis le menu principal ET le menu pause).
    *  DEUX points d'entree distincts plutot qu'un seul `onOpenSettings` :
@@ -360,12 +192,11 @@ const TALENT_TREE_LAYOUT_OPTIONS = {
 };
 
 /**
- * Ecrans de meta-jeu : menu principal, arbre de talents, fin de vague,
- * boutique intermanche. Du HTML/CSS par-dessus le canvas, comme toute
- * l'interface. Contenu volontairement squelettique — ce sont des ecrans de
- * navigation, pas les systemes eux-memes (pas d'or, pas de talents reels) :
- * ca viendra apres la fleche du joueur et le test de plaisir, une fois qu'on
- * sait que la boucle de base est amusante.
+ * Ecrans de meta-jeu : menu principal, arbre de talents, Forge, pause,
+ * confirmations, Partie terminee, Parametres. Du HTML/CSS par-dessus le
+ * canvas, comme toute l'interface. La Boutique de run, l'ecran de fin de
+ * manche et l'avertissement d'or restant du jeu en manches ont ete retires
+ * (passe de modernisation 1, 2026-11-04).
  */
 export class Screens {
   private readonly menu: HTMLElement;
@@ -378,8 +209,7 @@ export class Screens {
   private readonly talentsPoints: HTMLElement;
   /** Un bouton par talent (voir data/talents.ts), cle par id — permet a
    *  refreshTalents de mettre a jour chacun individuellement sans reconstruire
-   *  tout l'arbre (contrairement a playerPreview/combatOverlay.syncPlacement,
-   *  le nombre de talents ne change JAMAIS en cours de partie). */
+   *  tout l'arbre (le nombre de talents ne change JAMAIS en cours de partie). */
   private readonly talentNodes = new Map<string, HTMLButtonElement>();
   /**
    * DEUXIEME refonte visuelle 2026-08-14 (demande d'Antoine — le premier
@@ -399,111 +229,19 @@ export class Screens {
    *  survol de n'importe quelle carte, jamais un enfant de chaque carte
    *  (contrairement a l'ancien `.talent-node-desc`). Ajoute directement a
    *  `document.body` pour n'etre jamais clippe par un ancetre `overflow`.
-   *  GENERALISE le 2026-08-17 (demande explicite d'Antoine : "fais le meme
-   *  affichage que pour les points de talents" pour la boutique — Mine,
-   *  Caserne, Nova de glace) : plus reserve aux talents, voir showTooltip/
-   *  attachItemTooltip ci-dessous. Nom de champ conserve pour ne pas
-   *  toucher a chaque site d'appel existant, mais desormais partage. */
+   *  Partage avec les cartes de la Forge (showTooltip). Nom de champ
+   *  conserve pour ne pas toucher a chaque site d'appel existant. */
   private readonly talentTooltip: HTMLElement;
   private readonly talentTooltipName: HTMLElement;
   private readonly talentTooltipDesc: HTMLElement;
-  private readonly waveComplete: HTMLElement;
-  private readonly waveCompleteTitle: HTMLElement;
-  private readonly waveCompleteSubtitle: HTMLElement;
-  private readonly waveSummaryList: HTMLElement;
-  private readonly waveCompleteButton: HTMLElement;
-  /** Minuteries du bilan en cours d'apparition, annulees a chaque nouvel
-   *  affichage. */
-  private waveSummaryTimers: number[] = [];
-  private readonly shop: HTMLElement;
-  private readonly shopGold: HTMLElement;
-  /** Nombre d'or affiché dans shopGold — élément dédié pour ne pas écraser
-   *  l'icône de pièce voisine en réécrivant tout le textContent parent. */
-  private readonly shopGoldAmount: HTMLElement;
-  /** « Population : 7 / 15 » sous l'or de la boutique (voir refreshShop). */
-  private readonly shopPopulation: HTMLElement;
-  private readonly shopBuyFantassin: HTMLButtonElement;
-  private readonly shopBuyArcher: HTMLButtonElement;
-  private readonly shopBuyMage: HTMLButtonElement;
-  private readonly shopBuySentinel: HTMLButtonElement;
-  private readonly shopBuyOracle: HTMLButtonElement;
-  private readonly shopBuyPiquier: HTMLButtonElement;
-  private readonly shopBuyVengeur: HTMLButtonElement;
-  private readonly shopBuyHealScroll: HTMLButtonElement;
-  /** "Annuler le dernier achat" (2026-08-13) — active seulement s'il y a
-   *  quelque chose a annuler, voir refreshShop/showShop. */
-  private readonly shopUndoLastPurchase: HTMLButtonElement;
-  /** Element de PRIX (pas le bouton entier) de chaque objet achetable
-   *  ci-dessus (unites ET, depuis le 2026-08-15, les consommables Parchemin
-   *  de soin/Nova de glace), cle par id — le cout EFFECTIF (voir
-   *  run/unitUpgradeEffects.ts, effectivePlayerUnitCost ;
-   *  run/healScrollUpgradeEffects.ts/run/iceNovaUpgradeEffects.ts) peut
-   *  changer en cours de partie des qu'un niveau d'amelioration permanente
-   *  est achete, contrairement a tout le reste de cette boutique ou le prix
-   *  etait FIXE a la construction (voir shopItemButton). */
-  private readonly shopUnitPriceEls = new Map<string, HTMLElement>();
-  /** Boutons "×5" a cote de chaque objet achetable (2026-08-13, etendu aux
-   *  consommables le 2026-08-15) — cle par id, active/desactive dans
-   *  refreshShop selon `run.gold >= 5 * coutEffectif` ET (pour un
-   *  consommable) la capacite d'inventoire pour 5 exemplaires de plus. */
-  private readonly shopUnitBuyFiveEls = new Map<string, HTMLButtonElement>();
-  /** Ligne complete (bouton simple + ×5) de chaque unite, cle par unitId :
-   *  c'est la ligne entiere qui est masquee quand l'unite n'est pas
-   *  recrutable structurellement (voir refreshShop). */
-  private readonly shopUnitRows = new Map<string, HTMLElement>();
-  /** Categories (onglets) de la boutique et leurs elements : une categorie
-   *  sans element visible disparait entierement (voir refreshShopCategories). */
-  private readonly shopCategories: { id: ShopTab; tab: HTMLButtonElement; panel: HTMLElement; items: HTMLElement[] }[] = [];
-  private activeShopTab: ShopTab = 'units';
-  /** Boutique de la FORGE (ameliorations de la run, en Or ; id interne
+  /** Ecran de la FORGE (ameliorations de la run, en Or ; id interne
    *  historique `unitUpgradeShop`) — voir data/unitUpgrades.ts. */
   private readonly unitUpgradeShop: HTMLElement;
   private readonly forgeGoldAmount: HTMLElement;
-  /** Titre de l'ecran d'ameliorations de run : « Forge » ou « Église »
-   *  selon le batiment qui l'ouvre (voir showForge). */
-  private readonly forgeTitle: HTMLElement;
-  /** Batiment d'acces de l'ecran ouvert : seules ses cartes sont visibles. */
-  private upgradeShopSite: RunUpgradeSite = 'forge';
-  /** Chaque carte d'amelioration et le batiment qui y donne acces
-   *  (run/runUpgrades.ts, runUpgradeSite). */
-  private readonly upgradeCardSites: { card: HTMLElement; site: RunUpgradeSite }[] = [];
   private readonly unitUpgradeCards = new Map<string, UnitUpgradeCardRefs>();
-  /** Cartes "Baliste"/"Parchemin de soin"/"Nova de glace" (2026-08-13,
-   *  2026-08-14) — shape different des unites (voir BallistaUpgradeCardRefs/
-   *  HealScrollUpgradeCardRefs/IceNovaUpgradeCardRefs), donc pas dans
-   *  `unitUpgradeCards`. Une seule carte chacune (pas une Map), toujours
-   *  presentes. */
+  /** Carte "Baliste" (2026-08-13) — shape different des unites (voir
+   *  BallistaUpgradeCardRefs), donc pas dans `unitUpgradeCards`. */
   private readonly ballistaUpgradeCard: BallistaUpgradeCardRefs;
-  private readonly healScrollUpgradeCard: HealScrollUpgradeCardRefs;
-  private readonly iceNovaUpgradeCard: IceNovaUpgradeCardRefs;
-  /** Carte "Soins excédentaires" (2026-08-15) — MASQUEE tant que le talent
-   *  du meme nom n'est pas debloque, voir refreshForge. */
-  private readonly shadowUpgradeCard: ShadowUpgradeCardRefs;
-  /** Onglets de la boutique (2026-08-11, demande d'Antoine : "classer les
-   *  objets de la boutique dans des fenêtres distinctes") — un onglet par
-   *  categorie, une seule visible a la fois via setShopTab. REFONTE
-   *  2026-08-17 (chantier "bâtiments achetables", demande explicite
-   *  d'Antoine) : l'onglet "Soins" disparait — TOUS les parchemins
-   *  (soin compris) vivent desormais dans "Parchemins de bataille" — et un
-   *  nouvel onglet "Bâtiments" apparait (Mine, Caserne). */
-  private readonly shopTabUnits: HTMLButtonElement;
-  private readonly shopTabBuildings: HTMLButtonElement;
-  private readonly shopTabBattleScrolls: HTMLButtonElement;
-  private readonly shopPanelUnits: HTMLElement;
-  private readonly shopPanelBuildings: HTMLElement;
-  private readonly shopPanelBattleScrolls: HTMLElement;
-  /** Boutons d'achat de bâtiment (2026-08-17), cle par buildingId — construits
-   *  dynamiquement depuis `listBuyableBuildingIds()` (jamais deux boutons
-   *  codes en dur, un futur bâtiment achetable apparait automatiquement).
-   *  Le clic n'achete PAS immediatement (voir onRequestPlaceBuilding) :
-   *  entre en mode placement, l'or n'est retire qu'a la confirmation. */
-  private readonly shopBuildingButtons = new Map<string, HTMLButtonElement>();
-  private readonly shopBuildingDescriptions = new Map<string, HTMLElement>();
-  /** Nova de glace (2026-08-14) — bouton d'achat + description DYNAMIQUE
-   *  (voir refreshShop) : le texte change quand le talent Blizzard est
-   *  debloque, sans jamais changer le prix ni le comportement du bouton. */
-  private readonly shopBuyIceNova: HTMLButtonElement;
-  private readonly shopIceNovaDescription: HTMLElement;
   private readonly pause: HTMLElement;
   /** Confirmation "Quitter" pendant une run (2026-08-16, demande d'Antoine)
    *  — voir showQuitRunConfirm/isQuitRunConfirmOpen. `quitRunCancelButton`
@@ -518,8 +256,6 @@ export class Screens {
   private readonly gameOverReason: HTMLElement;
   private readonly resetConfirm: HTMLElement;
   private readonly resetTalentsConfirm: HTMLElement;
-  private readonly placementGoldWarning: HTMLElement;
-  private readonly placementGoldWarningText: HTMLElement;
   private readonly settings: HTMLElement;
   private readonly settingsMaster: SliderControl;
   private readonly settingsCameraSpeed: SliderControl;
@@ -532,8 +268,8 @@ export class Screens {
   /** `uiSound` : callbacks audio (2026-08-12) — Screens ne connait pas
    *  l'AudioManager, juste deux fonctions a appeler ("joue un clic",
    *  "joue un survol"), branchees par main.ts. Point d'insertion unique
-   *  (voir `button()`/`shopItemButton()`) plutot que d'ajouter le son a
-   *  chaque site d'appel individuel dans main.ts. */
+   *  (voir `button()`) plutot que d'ajouter le son a chaque site d'appel
+   *  individuel dans main.ts. */
   constructor(
     handlers: ScreenHandlers,
     private readonly uiSound: { click: () => void; hover: () => void },
@@ -600,195 +336,13 @@ export class Screens {
       this.button('Retour', handlers.onCloseTalents),
     ]);
 
-    this.waveCompleteTitle = this.title('');
-    this.waveCompleteTitle.classList.add('wave-complete-title');
-    this.waveCompleteSubtitle = this.paragraph('');
-    this.waveCompleteSubtitle.classList.add('wave-complete-subtitle');
-    this.waveSummaryList = document.createElement('div');
-    this.waveSummaryList.className = 'wave-summary';
-    this.waveCompleteButton = this.button('Continuer', handlers.onContinueAfterWave);
-    this.waveCompleteButton.classList.add('wave-summary-reveal');
-    this.waveComplete = this.overlay('wave-complete', [
-      this.waveCompleteTitle,
-      this.waveCompleteSubtitle,
-      this.waveSummaryList,
-      this.waveCompleteButton,
-    ]);
-
-    // Boutique par onglets (2026-08-11, demande d'Antoine : "classer les
-    // objets de la boutique dans des fenêtres distinctes") — voir
-    // setShopTab. Unites/Soins/Parchemins de bataille, un seul onglet
-    // visible a la fois.
-    this.shopGold = document.createElement('p');
-    this.shopGold.className = 'screen-text shop-gold';
-    this.shopGoldAmount = document.createElement('span');
-    this.shopGold.append('Or : ', this.shopGoldAmount, createCoinIcon(16));
-    this.shopPopulation = document.createElement('p');
-    this.shopPopulation.className = 'screen-text shop-population';
-
-    // Piquier (2026-11-01) : recrue de base de la Caserne, en tete de liste.
-    const piquierRow = this.unitPurchaseRow(getUnit('piquier'), handlers.onBuyPiquier, () => handlers.onBuyFive('piquier'));
-    this.shopBuyPiquier = piquierRow.button;
-    this.shopUnitRows.set('piquier', piquierRow.row);
-    const fantassinDef = getUnit('fantassin');
-    const archerDef = getUnit('archer');
-    const fantassinRow = this.unitPurchaseRow(fantassinDef, handlers.onBuyFantassin, () => handlers.onBuyFive('fantassin'));
-    const archerRow = this.unitPurchaseRow(archerDef, handlers.onBuyArcher, () => handlers.onBuyFive('archer'));
-    this.shopBuyFantassin = fantassinRow.button;
-    this.shopBuyArcher = archerRow.button;
-    this.shopUnitRows.set('fantassin', fantassinRow.row);
-    this.shopUnitRows.set('archer', archerRow.row);
-    // Mage (2026-08-11) : achetable des le debut a l'epoque, DESORMAIS
-    // reserve jusqu'a MAGE_UNLOCK_WAVE (2026-08-13, voir refreshShop) — la
-    // ligne ENTIERE (bouton + ×5) est masquee tant qu'il n'est pas debloque,
-    // pas juste le bouton d'achat simple.
-    const mageDef = getUnit('mage');
-    const mageRow = this.unitPurchaseRow(mageDef, handlers.onBuyMage, () => handlers.onBuyFive('mage'));
-    this.shopBuyMage = mageRow.button;
-    this.shopUnitRows.set('mage', mageRow.row);
-    // Oracle (2026-11-01) : sous le Mage, l'Eglise recrute les deux.
-    const oracleRow = this.unitPurchaseRow(getUnit('oracle'), handlers.onBuyOracle, () => handlers.onBuyFive('oracle'));
-    this.shopBuyOracle = oracleRow.button;
-    this.shopUnitRows.set('oracle', oracleRow.row);
-    // Vengeur (2026-11-01) : branche offensive de l'Eglise.
-    const vengeurRow = this.unitPurchaseRow(getUnit('vengeur'), handlers.onBuyVengeur, () => handlers.onBuyFive('vengeur'));
-    this.shopBuyVengeur = vengeurRow.button;
-    this.shopUnitRows.set('vengeur', vengeurRow.row);
-    // Sentinelle (2026-08-14, tank lourd) — RESERVEE depuis le 2026-08-15
-    // (systeme generique de deblocage par victoire, voir refreshShop) :
-    // auparavant toujours visible, jamais reservee par vague.
-    const sentinelDef = getUnit('sentinel');
-    const sentinelRow = this.unitPurchaseRow(sentinelDef, handlers.onBuySentinel, () => handlers.onBuyFive('sentinel'));
-    this.shopBuySentinel = sentinelRow.button;
-    this.shopUnitRows.set('sentinel', sentinelRow.row);
-    // Parchemin de soin — "ACHAT x5" (2026-08-15, chantier polish/
-    // equilibrage, demande explicite d'Antoine) : meme unitPurchaseRow que
-    // les unites (bouton simple + ×5), le prix affiche/desactive suit
-    // desormais le cout EFFECTIF (base + niveau d'amelioration permanente x
-    // 0.5, voir run/healScrollUpgradeEffects.ts) au lieu du cout FIXE de
-    // data/items.ts — voir refreshShop pour le recalcul dynamique. REFONTE
-    // 2026-08-17 (demande explicite d'Antoine : "je ne veux plus séparer
-    // artificiellement Parchemin de soins et sorts offensifs... tous les
-    // parchemins doivent désormais se trouver dans PARCHEMINS DE BATAILLE") :
-    // rejoint desormais le MEME panneau que la Nova de glace ci-dessous,
-    // l'onglet "Soins" separe disparait entierement.
-    const scrollDef = getItem('heal_scroll_minor');
-    const healRow = this.unitPurchaseRow(
-      scrollDef,
-      handlers.onBuyHealScroll,
-      () => handlers.onBuyItemFive('heal_scroll_minor'),
-      'heal_scroll_minor',
-    );
-    this.shopBuyHealScroll = healRow.button;
-    // Description en TOOLTIP flottant (2026-08-17), pas un paragraphe
-    // toujours visible — voir attachItemTooltip. Texte STATIQUE (l'objet n'a
-    // pas de valeur effective a recalculer dans sa description, contrairement
-    // a la Nova de glace/aux batiments ci-dessous).
-    this.attachItemTooltip(healRow.button, scrollDef.name, () => scrollDef.description);
-
-    // "Annuler le dernier achat" (2026-08-13, demande d'Antoine : "au cas où
-    // une unité ait été achetée par hasard") — bouton generique (pas
-    // shopItemButton, pas de prix a afficher dessus), style secondaire
-    // discret via .shop-undo-button.
-    this.shopUndoLastPurchase = this.button('Annuler le dernier achat', handlers.onUndoLastUnitPurchase) as HTMLButtonElement;
-    this.shopUndoLastPurchase.classList.add('shop-undo-button');
-
-    this.shopPanelUnits = this.shopTabPanel([...this.shopUnitRows.values(), this.shopUndoLastPurchase]);
-
-    // Nova de glace (2026-08-14) : premier VRAI parchemin de bataille — le
-    // prix vient de data/items.ts (ITEMS.ice_nova.cost), jamais recopie ici
-    // (demande explicite d'Antoine : "pas de texte '4 Gold' independant de
-    // la vraie logique d'achat"). Description sous le bouton, mise a jour
-    // dynamiquement par refreshShop selon que Blizzard est debloque ou non.
-    // "ACHAT x5" (2026-08-15) : meme motif que le Parchemin de soin
-    // ci-dessus — unitPurchaseRow, prix EFFECTIF recalcule dans refreshShop.
-    const iceNovaDef = getItem('ice_nova');
-    const iceNovaRow = this.unitPurchaseRow(
-      iceNovaDef,
-      handlers.onBuyIceNova,
-      () => handlers.onBuyItemFive('ice_nova'),
-      'ice_nova',
-    );
-    this.shopBuyIceNova = iceNovaRow.button;
-    // Description en TOOLTIP flottant (2026-08-17, plus un paragraphe
-    // toujours visible sous le bouton — voir attachItemTooltip) : reste mise
-    // a jour dynamiquement (texte Blizzard) via ce meme element, jamais
-    // affiche dans la mise en page, seulement lu au survol.
-    this.shopIceNovaDescription = this.paragraph(iceNovaDef.description);
-    this.attachItemTooltip(iceNovaRow.button, iceNovaDef.name, () => this.shopIceNovaDescription.textContent ?? '');
-    // TOUS les parchemins dans le MEME panneau (2026-08-17) — Soin d'abord
-    // (ITEM_CATEGORY_ORDER n'a plus qu'une seule categorie, voir data/items.ts,
-    // donc l'ordre d'affichage ici est simplement l'ordre d'ajout).
-    this.shopPanelBattleScrolls = this.shopTabPanel([healRow.row, iceNovaRow.row]);
-
-    // Onglet BÂTIMENTS (2026-08-17, demande explicite d'Antoine) — construit
-    // dynamiquement depuis listBuyableBuildingIds() (data/buildings.ts),
-    // jamais deux boutons codes en dur : un futur bâtiment achetable
-    // (cost defini) y apparait automatiquement. Le clic n'achete PAS
-    // immediatement — voir onRequestPlaceBuilding, entre en mode placement,
-    // l'or n'est retire qu'a la confirmation d'un emplacement valide (voir
-    // main.ts).
-    const buildingRows: HTMLElement[] = [];
-    for (const buildingId of listBuyableBuildingIds()) {
-      const def = getBuilding(buildingId);
-      // Bois / pierre (BuildingDef.resourceCost, PROVISOIRE) a cote du nom.
-      const res = def.resourceCost ?? {};
-      const resText = [res.wood ? `${res.wood} bois` : '', res.stone ? `${res.stone} pierre` : ''].filter(Boolean).join(', ');
-      const label = resText ? `${def.displayName} (${resText})` : def.displayName;
-      const button = this.shopItemButton(label, def.cost ?? 0, () => handlers.onRequestPlaceBuilding(buildingId), buildingId);
-      this.shopBuildingButtons.set(buildingId, button);
-      // Description en TOOLTIP flottant (2026-08-17), pas un paragraphe
-      // toujours visible sous le bouton (demande explicite d'Antoine : "cela
-      // fait beaucoup de texte sous les boutons actuellement") — l'element
-      // reste mis a jour dynamiquement par refreshShop (valeur effective),
-      // seulement jamais ajoute a la mise en page, juste lu au survol.
-      const description = this.paragraph('');
-      this.shopBuildingDescriptions.set(buildingId, description);
-      this.attachItemTooltip(button, def.displayName, () => description.textContent ?? '');
-      buildingRows.push(button);
-    }
-    this.shopPanelBuildings = this.shopTabPanel(buildingRows);
-
-    this.shopTabUnits = this.tabButton('Unités', () => this.setShopTab('units'));
-    this.shopTabBuildings = this.tabButton('Bâtiments', () => this.setShopTab('buildings'));
-    this.shopTabBattleScrolls = this.tabButton('Parchemins de bataille', () => this.setShopTab('battle-scrolls'));
-    const shopTabs = document.createElement('div');
-    shopTabs.className = 'shop-tabs';
-    shopTabs.append(this.shopTabUnits, this.shopTabBuildings, this.shopTabBattleScrolls);
-    // Tiroirs contextuels : seuls les elements achetables comptent (pas le
-    // bouton « Annuler le dernier achat »).
-    this.shopCategories.push(
-      { id: 'units', tab: this.shopTabUnits, panel: this.shopPanelUnits, items: [...this.shopUnitRows.values()] },
-      { id: 'buildings', tab: this.shopTabBuildings, panel: this.shopPanelBuildings, items: buildingRows },
-      { id: 'battle-scrolls', tab: this.shopTabBattleScrolls, panel: this.shopPanelBattleScrolls, items: [healRow.row, iceNovaRow.row] },
-    );
-
-    // Bouton de DEBUG (2026-08-17, voir ScreenHandlers.onDebugAddGold) — A
-    // RETIRER une fois les tests termines, demande explicite d'Antoine ("ce
-    // bouton sera retiré plus tard").
-    const debugAddGoldButton = this.button('+100 or (debug)', handlers.onDebugAddGold);
-    debugAddGoldButton.classList.add('shop-debug-button');
-
-    this.shop = this.overlay('shop', [
-      this.title('Boutique'),
-      this.shopGold,
-      this.shopPopulation,
-      shopTabs,
-      this.shopPanelUnits,
-      this.shopPanelBuildings,
-      this.shopPanelBattleScrolls,
-      debugAddGoldButton,
-      this.button('Continuer', handlers.onContinueAfterShop),
-    ]);
-    this.setShopTab('units');
-
-    // Boutique d'AMELIORATION PERMANENTE des unites (2026-08-13, demande
-    // d'Antoine) — accessible depuis le menu titre. Une carte GENERIQUE par
-    // unite ameliorable (listUpgradableUnitIds, voir data/unitUpgrades.ts) :
-    // ajouter une nouvelle unite ameliorable plus tard (Cavalier, Baliste...)
-    // n'exige aucun changement ici, juste une nouvelle entree dans
-    // UNIT_UPGRADES (point 7 de la demande : "ne hardcode pas toute l'UI
-    // autour de seulement trois unites").
+    // Ecran de la Forge (ameliorations de la run, 2026-08-13) — ouvert
+    // depuis la fiche d'une Forge en jeu. Une carte GENERIQUE par unite
+    // ameliorable (listUpgradableUnitIds, voir data/unitUpgrades.ts) :
+    // ajouter une nouvelle unite ameliorable plus tard n'exige aucun
+    // changement ici, juste une nouvelle entree dans UNIT_UPGRADES (point 7
+    // de la demande : "ne hardcode pas toute l'UI autour de seulement trois
+    // unites").
     const forgeGold = document.createElement('p');
     forgeGold.className = 'screen-text shop-gold';
     this.forgeGoldAmount = document.createElement('span');
@@ -796,40 +350,15 @@ export class Screens {
 
     const cardsContainer = document.createElement('div');
     cardsContainer.className = 'upgrade-cards';
-    for (const unitId of listUpgradableUnitIds()) {
-      const card = this.buildUnitUpgradeCard(unitId, handlers);
-      this.upgradeCardSites.push({ card, site: runUpgradeSite(unitId) });
-      cardsContainer.append(card);
-    }
-    // Baliste / Parchemin de soin / Nova de glace (2026-08-13, 2026-08-14) —
-    // shape different des unites (voir buildBallistaUpgradeCard/
-    // buildHealScrollUpgradeCard/buildIceNovaUpgradeCard), donc construites a
-    // part plutot que par listUpgradableUnitIds ci-dessus.
+    for (const unitId of listUpgradableUnitIds()) cardsContainer.append(this.buildUnitUpgradeCard(unitId, handlers));
+    // Baliste (2026-08-13) — shape different des unites (voir
+    // buildBallistaUpgradeCard), donc construite a part.
     const ballistaCard = this.buildBallistaUpgradeCard(handlers);
     this.ballistaUpgradeCard = ballistaCard.refs;
-    const healScrollCard = this.buildHealScrollUpgradeCard(handlers);
-    this.healScrollUpgradeCard = healScrollCard.refs;
-    const iceNovaCard = this.buildIceNovaUpgradeCard(handlers);
-    this.iceNovaUpgradeCard = iceNovaCard.refs;
-    this.shadowUpgradeCard = this.buildShadowUpgradeCard(handlers);
-    cardsContainer.append(
-      ballistaCard.card,
-      healScrollCard.card,
-      iceNovaCard.card,
-      this.shadowUpgradeCard.card,
-    );
-    // Parchemins et Soins excedentaires : accessibles depuis l'Eglise, plus
-    // depuis la Forge (meme ecran, filtre par batiment d'acces).
-    this.upgradeCardSites.push(
-      { card: ballistaCard.card, site: runUpgradeSite(BALLISTA_UPGRADE.id) },
-      { card: healScrollCard.card, site: runUpgradeSite(HEAL_SCROLL_UPGRADE.id) },
-      { card: iceNovaCard.card, site: runUpgradeSite(ICE_NOVA_UPGRADE.id) },
-      { card: this.shadowUpgradeCard.card, site: runUpgradeSite(SHADOW_UPGRADE.id) },
-    );
+    cardsContainer.append(ballistaCard.card);
 
-    this.forgeTitle = this.title('Forge');
     this.unitUpgradeShop = this.overlay('unit-upgrade-shop', [
-      this.forgeTitle,
+      this.title('Forge'),
       forgeGold,
       cardsContainer,
       this.button('Retour', handlers.onCloseForge),
@@ -876,14 +405,6 @@ export class Screens {
       this.gameOverReason,
       this.gameOverProgress,
       this.button('Retour au menu principal', handlers.onQuit),
-    ]);
-
-    this.placementGoldWarningText = this.paragraph('');
-    this.placementGoldWarning = this.overlay('placement-gold-warning', [
-      this.title('Il vous reste de l’or'),
-      this.placementGoldWarningText,
-      this.button('Annuler', handlers.onCancelPlacementGoldWarning),
-      this.button('Lancer quand même', handlers.onConfirmPlacementWithGold),
     ]);
 
     // Ecran Parametres (2026-08-12) — un seul onglet reellement fonctionnel
@@ -980,74 +501,22 @@ export class Screens {
   hideAll(): void {
     this.menu.classList.remove('screen-overlay--visible');
     this.talents.classList.remove('screen-overlay--visible');
-    this.waveComplete.classList.remove('screen-overlay--visible');
-    this.shop.classList.remove('screen-overlay--visible');
     this.pause.classList.remove('screen-overlay--visible');
     this.quitRunConfirm.classList.remove('screen-overlay--visible');
     this.gameOver.classList.remove('screen-overlay--visible');
     this.resetConfirm.classList.remove('screen-overlay--visible');
     this.resetTalentsConfirm.classList.remove('screen-overlay--visible');
-    this.placementGoldWarning.classList.remove('screen-overlay--visible');
     this.settings.classList.remove('screen-overlay--visible');
     this.unitUpgradeShop.classList.remove('screen-overlay--visible');
   }
 
-  /** `waveNumber` : la vague qui vient d'etre JOUEE (pas la suivante) —
-   *  voir main.ts, waveBeingFought (capture avant l'increment de
-   *  applyBattleOutcome). */
-  showWaveComplete(waveNumber: number, result: WaveResult, summary: WaveSummaryView): void {
-    for (const timer of this.waveSummaryTimers) window.clearTimeout(timer);
-    this.waveSummaryTimers = [];
-
-    this.waveCompleteTitle.textContent = result === 'victoire' ? 'Victoire' : 'Défaite';
-    this.waveCompleteSubtitle.textContent = `Vague ${waveNumber} terminée`;
-
-    // Bilan : une ligne par type d'ennemi vaincu, puis l'or gagne. Toutes les
-    // lignes existent des l'ouverture (hauteur stable) mais restent
-    // invisibles ; elles apparaissent une a une.
-    this.waveSummaryList.replaceChildren();
-    const lines = summary.defeated.map((line) => this.waveSummaryLine(line.label, String(line.value), false));
-    const goldLine = this.waveSummaryLine('Or gagné cette manche', formatGold(summary.goldEarned), true);
-    this.waveSummaryList.append(...lines, goldLine);
-    this.waveCompleteButton.classList.remove('wave-summary-reveal--shown');
-
-    const reveal = (el: HTMLElement, delay: number) => {
-      this.waveSummaryTimers.push(window.setTimeout(() => el.classList.add('wave-summary-reveal--shown'), delay));
-    };
-    lines.forEach((el, i) => reveal(el, WAVE_SUMMARY_FIRST_LINE_MS + i * WAVE_SUMMARY_LINE_STEP_MS));
-    const goldDelay = WAVE_SUMMARY_FIRST_LINE_MS + lines.length * WAVE_SUMMARY_LINE_STEP_MS + WAVE_SUMMARY_GOLD_EXTRA_MS;
-    reveal(goldLine, goldDelay);
-    reveal(this.waveCompleteButton, goldDelay + WAVE_SUMMARY_BUTTON_EXTRA_MS);
-
-    this.show('waveComplete');
-  }
-
-  /** Ligne du bilan (libelle a gauche, valeur a droite), invisible jusqu'a
-   *  son tour (classe wave-summary-reveal--shown). */
-  private waveSummaryLine(label: string, value: string, gold: boolean): HTMLElement {
-    const row = document.createElement('div');
-    row.className = gold ? 'wave-summary-line wave-summary-line--gold wave-summary-reveal' : 'wave-summary-line wave-summary-reveal';
-    const labelEl = document.createElement('span');
-    labelEl.className = 'wave-summary-label';
-    labelEl.textContent = label;
-    const valueEl = document.createElement('span');
-    valueEl.className = 'wave-summary-value';
-    valueEl.textContent = value;
-    if (gold) valueEl.append(' ', createCoinIcon(14));
-    row.append(labelEl, valueEl);
-    return row;
-  }
-
-  /** Toute l'armée du joueur est tombée (demande d'Antoine, 2026-08-09) : la
-   *  run s'arrête net, pas de boutique ni de vague suivante — juste un
-   *  retour au menu principal (même handler que "Quitter" en pause).
-   *  `highestWaveReached` (refonte 2026-08-10, voir CLAUDE.md) : la
-   *  progression permanente n'est plus "+1 point de talent" a chaque run,
-   *  mais un record de vague — cet écran confirme juste qu'il a bien été
-   *  sauvegardé (voir main.ts, registerWaveReached). */
-  /** `heroFell` : defaite par le Heros (Heros a terre et Baliste detruite). */
-  showGameOver(highestWaveReached: number, heroFell = false): void {
-    this.gameOverReason.textContent = heroFell ? 'Le Héros et la Baliste sont tombés. La run se termine ici.' : 'Toute votre armée est tombée. La run se termine ici.';
+  /** Baliste detruite (2026-11-02, coeur de la base) : la run s'arrete net —
+   *  retour au menu principal (meme handler que "Quitter" en pause).
+   *  `highestWaveReached` (refonte 2026-08-10) : la progression permanente
+   *  est un record de vague — cet ecran confirme juste qu'il a bien ete
+   *  sauvegarde (voir main.ts, registerWaveReached). */
+  showGameOver(highestWaveReached: number): void {
+    this.gameOverReason.textContent = 'La Baliste est tombée. La run se termine ici.';
     this.gameOverProgress.textContent = `Meilleure vague atteinte : ${highestWaveReached}.`;
     this.show('gameOver');
   }
@@ -1085,21 +554,13 @@ export class Screens {
     // boxes DOM mesurees apres coup — rien ici ne peut plus les perimer.
   }
 
-  /** Vrai si la boutique est actuellement affichee — permet au bouton
-   *  "Boutique" pendant le placement de basculer entre ouvrir/fermer (voir
-   *  main.ts, openShopFromPlacement) plutot que de toujours rouvrir. */
-  isShopOpen(): boolean {
-    return this.shop.classList.contains('screen-overlay--visible');
-  }
-
-  /** Vrai si un ecran (boutique, Forge, pause, fin de vague, Game Over...)
-   *  recouvre le jeu. */
+  /** Vrai si un ecran (Forge, pause, Game Over...) recouvre le jeu. */
   hasVisibleOverlay(): boolean {
     return document.querySelector('.screen-overlay.screen-overlay--visible') !== null;
   }
 
-  /** Vrai si la boutique de la Forge est affichee (voir main.ts : Echap la
-   *  ferme en priorite, la fiche d'entite est masquee dessous). */
+  /** Vrai si l'ecran de la Forge est affiche (voir main.ts : Echap le ferme
+   *  en priorite, la fiche d'entite est masquee dessous). */
   isForgeOpen(): boolean {
     return this.unitUpgradeShop.classList.contains('screen-overlay--visible');
   }
@@ -1128,271 +589,20 @@ export class Screens {
     return this.quitRunConfirm.classList.contains('screen-overlay--visible');
   }
 
-  /** Ancre pour l'animation de gain/perte d'or pres de l'affichage de la
-   *  boutique (voir main.ts, spawnCoinPopup apres un achat). */
-  get shopGoldElement(): HTMLElement {
-    return this.shopGold;
-  }
-
-  /** Affiche la boutique a jour pour la run en cours — toujours appeler ceci
-   *  plutot que show('shop') directement, sinon l'or/les boutons resteraient
-   *  perimes depuis le dernier passage. `progress` : talents (unites
-   *  recrutables, descriptions dependant d'un talent). `canUndoLastPurchase` (2026-08-13) : active
-   *  ou non le bouton "Annuler le dernier achat" (voir main.ts,
-   *  lastUnitPurchase — Screens ne connait pas cet etat, main.ts le fournit
-   *  a chaque appel). */
-  showShop(run: RunState, progress: MetaProgress, canUndoLastPurchase: boolean): void {
-    this.refreshShop(run, progress, canUndoLastPurchase);
-    this.show('shop');
-  }
-
-  /** Remet a jour l'or affiche et l'activation des boutons — appele a
-   *  l'ouverture de la boutique et apres chaque achat (voir main.ts), pour
-   *  qu'un achat qui vide l'or desactive immediatement les autres sans
-   *  attendre une reouverture de l'ecran. Le PRIX affiche de chaque objet
-   *  achetable (pas seulement son activation) est aussi reecrit ici
-   *  (2026-08-13, voir shopUnitPriceEls ; etendu aux consommables le
-   *  2026-08-15) — contrairement au reste de cette boutique, ce prix n'est
-   *  plus fige pour toujours a la construction. */
-  refreshShop(run: RunState, progress: MetaProgress, canUndoLastPurchase: boolean): void {
-    // formatGold (2026-08-15) : meme fonction que les prix ci-dessous, pour
-    // qu'un residu de virgule flottante ne puisse jamais s'afficher ici non
-    // plus — distinct de GoldHud (toFixed(1) systematique, voir
-    // ui/goldHud.ts), qui reste inchange pour sa propre raison documentee.
-    this.shopGoldAmount.textContent = formatGold(run.gold);
-
-    // Cout de production COURANT (niveau de Forge compris), meme fonction
-    // que le debit reel (main.ts, buyUnit).
-    const costFantassin = effectivePlayerUnitCost('fantassin', run.upgrades);
-    const costArcher = effectivePlayerUnitCost('archer', run.upgrades);
-    const costMage = effectivePlayerUnitCost('mage', run.upgrades);
-    const costSentinel = effectivePlayerUnitCost('sentinel', run.upgrades);
-    const costOracle = effectivePlayerUnitCost('oracle', run.upgrades);
-    const costPiquier = effectivePlayerUnitCost('piquier', run.upgrades);
-    const costVengeur = effectivePlayerUnitCost('vengeur', run.upgrades);
-    // Population (voir run/population.ts) : un recrutement qui depasserait
-    // le maximum est refuse, bouton desactive avec la raison en infobulle.
-    const population = runPopulation(run);
-    this.shopPopulation.textContent = `Population : ${population.used} / ${population.max}`;
-    this.shopPopulation.classList.toggle('shop-population--full', population.used >= population.max);
-    const roomFor = (unitId: string, count: number): boolean => population.used + unitPopulationCost(unitId) * count <= population.max;
-    const gateUnit = (button: HTMLButtonElement, unitId: string, cost: number, count: number): void => {
-      const noRoom = !roomFor(unitId, count);
-      // Fantassin et Archer : verrouilles sans Caserne / Camp d'archerie.
-      const missingBuilding = missingRecruitmentBuildingHint(run, unitId);
-      button.disabled = run.gold < cost * count || noRoom || missingBuilding !== null;
-      // Infobulle : stats de la prochaine unite, une par ligne (population
-      // comprise : le bouton ne l'affiche plus), puis la raison d'un refus.
-      const summary = unitProductionSummary(unitId, currentProductionLevel(run.upgrades, unitId));
-      const lines = [
-        `${getUnit(unitId).name} — Niv. ${displayedUpgradeLevel(summary.productionLevel)}`,
-        `${formatGold(summary.hp)} PV`,
-        `${summary.attackLabel} ${formatGold(summary.attack)}`,
-        ...(summary.tauntShield !== null ? [`Bouclier ${formatGold(summary.tauntShield)} / ennemi`] : []),
-        `Population : ${summary.population}`,
-        `${formatGold(summary.cost)} or`,
-      ];
-      if (missingBuilding !== null) lines.push(missingBuilding);
-      if (noRoom) lines.push(`Population insuffisante (${population.used} / ${population.max}, ${unitPopulationCost(unitId) * count} requise)`);
-      button.title = lines.join('\n');
-    };
-    gateUnit(this.shopBuyFantassin, 'fantassin', costFantassin, 1);
-    gateUnit(this.shopBuyArcher, 'archer', costArcher, 1);
-    gateUnit(this.shopBuyMage, 'mage', costMage, 1);
-    gateUnit(this.shopBuySentinel, 'sentinel', costSentinel, 1);
-    gateUnit(this.shopBuyOracle, 'oracle', costOracle, 1);
-    gateUnit(this.shopBuyPiquier, 'piquier', costPiquier, 1);
-    gateUnit(this.shopBuyVengeur, 'vengeur', costVengeur, 1);
-    const fantassinPriceEl = this.shopUnitPriceEls.get('fantassin');
-    if (fantassinPriceEl) fantassinPriceEl.textContent = formatGold(costFantassin);
-    const archerPriceEl = this.shopUnitPriceEls.get('archer');
-    if (archerPriceEl) archerPriceEl.textContent = formatGold(costArcher);
-    const magePriceEl = this.shopUnitPriceEls.get('mage');
-    if (magePriceEl) magePriceEl.textContent = formatGold(costMage);
-    const sentinelPriceEl = this.shopUnitPriceEls.get('sentinel');
-    if (sentinelPriceEl) sentinelPriceEl.textContent = formatGold(costSentinel);
-    const oraclePriceEl = this.shopUnitPriceEls.get('oracle');
-    if (oraclePriceEl) oraclePriceEl.textContent = formatGold(costOracle);
-    const piquierPriceEl = this.shopUnitPriceEls.get('piquier');
-    if (piquierPriceEl) piquierPriceEl.textContent = formatGold(costPiquier);
-    const vengeurPriceEl = this.shopUnitPriceEls.get('vengeur');
-    if (vengeurPriceEl) vengeurPriceEl.textContent = formatGold(costVengeur);
-
-    // Boutons "×5" (2026-08-13) — desactives des que l'or ne couvre pas 5
-    // achats d'affilee (le cout par unite reste CONSTANT sur ces 5 achats).
-    // Meme exigence pour la population : de la place pour les 5.
-    const fantassinFiveEl = this.shopUnitBuyFiveEls.get('fantassin');
-    if (fantassinFiveEl) gateUnit(fantassinFiveEl, 'fantassin', costFantassin, 5);
-    const archerFiveEl = this.shopUnitBuyFiveEls.get('archer');
-    if (archerFiveEl) gateUnit(archerFiveEl, 'archer', costArcher, 5);
-    const mageFiveEl = this.shopUnitBuyFiveEls.get('mage');
-    if (mageFiveEl) gateUnit(mageFiveEl, 'mage', costMage, 5);
-    const sentinelFiveEl = this.shopUnitBuyFiveEls.get('sentinel');
-    if (sentinelFiveEl) gateUnit(sentinelFiveEl, 'sentinel', costSentinel, 5);
-    const oracleFiveEl = this.shopUnitBuyFiveEls.get('oracle');
-    if (oracleFiveEl) gateUnit(oracleFiveEl, 'oracle', costOracle, 5);
-    const piquierFiveEl = this.shopUnitBuyFiveEls.get('piquier');
-    if (piquierFiveEl) gateUnit(piquierFiveEl, 'piquier', costPiquier, 5);
-    const vengeurFiveEl = this.shopUnitBuyFiveEls.get('vengeur');
-    if (vengeurFiveEl) gateUnit(vengeurFiveEl, 'vengeur', costVengeur, 5);
-
-    // Une unite n'est affichee que si elle est recrutable structurellement :
-    // debloquee par la progression (canPlayerRecruitUnit, Mage/Sentinelle) ET
-    // batiment requis possede (run/recruitment.ts). L'or et la population ne
-    // la masquent jamais : bouton visible mais desactive (gateUnit).
-    for (const [unitId, row] of this.shopUnitRows) {
-      const recruitable = canPlayerRecruitUnit(progress, unitId) && missingRecruitmentBuildingHint(run, unitId) === null;
-      row.style.display = recruitable ? '' : 'none';
-    }
-
-    // Parchemin de soin — cout EFFECTIF (2026-08-15, chantier polish/
-    // equilibrage) : base + niveau d'amelioration permanente x 0.5 (voir
-    // run/healScrollUpgradeEffects.ts, effectiveHealScrollCost), jamais
-    // `getItem(...).cost` seul desormais — SOURCE UNIQUE partagee avec le
-    // calcul de la transaction reelle (main.ts, buyConsumable). Capacite
-    // d'inventaire verifiee SEPAREMENT pour x1 (canAddItemToInventory, une
-    // place suffit deja si une pile existante n'est pas pleine) et x5
-    // (canAddItemsToInventory, verifie les 5 EN MEME TEMPS — jamais un achat
-    // partiel silencieux).
-    const costHeal = effectiveHealScrollCost();
-    this.shopBuyHealScroll.disabled = run.gold < costHeal || !canAddItemToInventory(run.inventory, 'heal_scroll_minor');
-    const healPriceEl = this.shopUnitPriceEls.get('heal_scroll_minor');
-    if (healPriceEl) healPriceEl.textContent = formatGold(costHeal);
-    const healFiveEl = this.shopUnitBuyFiveEls.get('heal_scroll_minor');
-    if (healFiveEl) {
-      healFiveEl.disabled = run.gold < costHeal * 5 || !canAddItemsToInventory(run.inventory, 'heal_scroll_minor', 5);
-    }
-
-    // Nova de glace (2026-08-14) : Blizzard ne change JAMAIS le prix ni le
-    // comportement du bouton (demande explicite) — seule la description
-    // affichee en dessous s'enrichit une fois le talent debloque, jamais
-    // "à la place de" (voir data/talents.ts, blizzard.description). Duree/
-    // degats de tick LUS depuis l'amelioration permanente effective (voir
-    // run/iceNovaUpgradeEffects.ts) plutot que le texte statique de
-    // data/items.ts — sinon la description resterait perimee ("4 secondes")
-    // des le premier niveau achete a la boutique d'amelioration. Cout
-    // EFFECTIF (2026-08-15) — meme motif que le Parchemin de soin ci-dessus.
-    const costIceNova = effectiveIceNovaCost();
-    this.shopBuyIceNova.disabled = run.gold < costIceNova || !canAddItemToInventory(run.inventory, 'ice_nova');
-    const iceNovaPriceEl = this.shopUnitPriceEls.get('ice_nova');
-    if (iceNovaPriceEl) iceNovaPriceEl.textContent = formatGold(costIceNova);
-    const iceNovaFiveEl = this.shopUnitBuyFiveEls.get('ice_nova');
-    if (iceNovaFiveEl) {
-      iceNovaFiveEl.disabled = run.gold < costIceNova * 5 || !canAddItemsToInventory(run.inventory, 'ice_nova', 5);
-    }
-    const iceNovaEffects = computePlayerIceNovaUpgradeEffects(run.upgrades);
-    this.shopIceNovaDescription.textContent = isTalentUnlocked(progress, 'blizzard')
-      ? `Mode de ciblage au sol : immobilise pendant ${iceNovaEffects.rootDuration.toFixed(1)} secondes tous les ennemis présents dans la zone au moment de l’impact. Crée en plus un Blizzard infligeant ${iceNovaEffects.damagePerTickInternal / HP_PER_PIP} dégâts chaque seconde pendant ${iceNovaEffects.blizzardDuration.toFixed(1)} secondes.`
-      : `Mode de ciblage au sol : immobilise pendant ${iceNovaEffects.rootDuration.toFixed(1)} secondes tous les ennemis présents dans la zone au moment de l’impact.`;
-
-    // Bâtiments (2026-08-17, demande explicite d'Antoine) — desactive si
-    // l'or est insuffisant : "n'entre même pas en placement mode" (point 9),
-    // donc rien de plus a faire cote main.ts pour empecher ce cas — un clic
-    // sur un bouton deja desactive n'appelle jamais son handler. Prix ET
-    // description DYNAMIQUES (2026-08-18, correctif : le prix affiche sur le
-    // bouton restait fige a la valeur de BASE depuis sa construction, jamais
-    // reecrit malgre le mecanisme shopUnitPriceEls deja generique — voir
-    // getEffectiveBuildingCost, SOURCE UNIQUE partagee avec la transaction
-    // reelle dans main.ts).
-    for (const buildingId of listBuyableBuildingIds()) {
-      const cost = getEffectiveBuildingCost(buildingId);
-      const button = this.shopBuildingButtons.get(buildingId);
-      // Bois et pierre aussi (une case pour une muraille).
-      const res = getBuilding(buildingId).resourceCost ?? {};
-      const resourcesOk = run.resources.wood >= (res.wood ?? 0) && run.resources.stone >= (res.stone ?? 0);
-      if (button) button.disabled = run.gold < cost || !resourcesOk;
-      const priceEl = this.shopUnitPriceEls.get(buildingId);
-      if (priceEl) priceEl.textContent = formatGold(cost);
-      const description = this.shopBuildingDescriptions.get(buildingId);
-      if (description) description.textContent = this.describeBuildingShopItem(buildingId, cost);
-    }
-
-    this.shopUndoLastPurchase.disabled = !canUndoLastPurchase;
-    this.refreshShopCategories();
-  }
-
-  /** Tiroirs contextuels : une categorie sans aucun element visible n'est pas
-   *  affichee (ni onglet, ni panneau vide) ; si c'etait la categorie ouverte,
-   *  la premiere categorie visible s'ouvre a sa place. */
-  private refreshShopCategories(): void {
-    for (const category of this.shopCategories) {
-      const visible = category.items.some((item) => item.style.display !== 'none');
-      category.tab.style.display = visible ? '' : 'none';
-    }
-    const isVisible = (id: ShopTab): boolean => this.shopCategories.some((c) => c.id === id && c.tab.style.display !== 'none');
-    if (!isVisible(this.activeShopTab)) {
-      const first = this.shopCategories.find((c) => isVisible(c.id));
-      this.setShopTab(first ? first.id : this.activeShopTab);
-    } else this.setShopTab(this.activeShopTab);
-  }
-
-  /** Texte descriptif DYNAMIQUE d'un bâtiment achetable (2026-08-17) — la
-   *  Mine/la Caserne affichent leur valeur EFFECTIVE (base + amelioration
-   *  permanente), jamais un texte statique qui deviendrait perime des le
-   *  premier niveau achete (meme motif que la description de la Nova de
-   *  glace, voir refreshShop). Prefixe desormais par le cout EN PARTIE
-   *  (2026-08-18, demande explicite d'Antoine, point 14 : "CASERNE / Coût :
-   *  65 Gold / Produit automatiquement...") — `cost` deja calcule par
-   *  l'appelant (refreshShop, getEffectiveBuildingCost), jamais recalcule
-   *  ici. Generique par id pour le reste (pas un if/else code en dur a
-   *  etendre a la main pour un futur bâtiment sans production/revenu —
-   *  retombe sur juste la ligne de cout dans ce cas). */
-  private describeBuildingShopItem(buildingId: string, cost: number): string {
-    const costLine = `Coût : ${formatGold(cost)} Gold.`;
-    // Batiment neuf : niveau 1 (interne 0), ameliorable ensuite depuis sa fiche.
-    if (buildingId === 'mine') {
-      const { min, max } = mineGoldRange(0);
-      return `${costLine} Produit ${min} à ${max} Gold toutes les ${mineProductionIntervalSeconds()} secondes pendant la bataille. S’améliore depuis sa fiche.`;
-    }
-    if (buildingId === 'forge') {
-      return `${costLine} Permettra d’améliorer l’armée.`;
-    }
-    const def = getBuilding(buildingId);
-    // Caserne, Camp d'archerie : unite debloquee et production de niveau 1.
-    if (def.production) {
-      const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
-      const first = def.production.unitsByLevel[0] ?? [];
-      const units = unitPluralName(getUnit(first[0]!));
-      return `${costLine} Débloque les ${units} et en produit ${formatGold(first.length)} par manche. ${size}.`;
-    }
-    // Batiment defensif (Tour) : valeurs de niveau 1, lues dans ses donnees.
-    if (def.attack) {
-      const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
-      const stats = `${size} · ${formatGold(def.maxHp / HP_PER_PIP)} PV · ${formatGold(def.attack.damage / HP_PER_PIP)} dégâts · portée ${formatGold(def.attack.rangeTiles)} cases`;
-      return `${costLine} Bâtiment défensif automatique à longue portée. ${stats}. S’améliore depuis sa fiche.`;
-    }
-    // Eglise : soin de l'armee contre de l'or (valeurs de niveau 1).
-    if (def.armyHeal) {
-      const size = `${def.footprintTilesX ?? 1} × ${def.footprintTilesZ ?? 1}`;
-      return `${costLine} Soigne toutes vos unités contre de l’or (${formatGold(def.armyHeal.hpPerGold)} PV par or). ${size} · ${formatGold(def.maxHp / HP_PER_PIP)} PV. Débloque le recrutement des Mages et donne accès aux améliorations des parchemins. S’améliore depuis sa fiche.`;
-    }
-    const populationBonus = buildingPopulationBonus(buildingId);
-    if (populationBonus > 0) {
-      return `${costLine} +${populationBonus} population maximale tant qu’elle reste debout.`;
-    }
-    return costLine;
-  }
-
-  /** Affiche la boutique de la Forge a jour — toujours appeler ceci plutot
-   *  que show('unitUpgradeShop') directement (meme motif que
-   *  showShop/showTalents). */
-  showForge(run: RunState, progress: MetaProgress, site: RunUpgradeSite = 'forge'): void {
-    this.upgradeShopSite = site;
-    this.forgeTitle.textContent = site === 'shrine' ? 'Sanctuaire' : 'Forge';
-    this.refreshForge(run, progress);
+  /** Affiche l'ecran de la Forge a jour — toujours appeler ceci plutot que
+   *  show('unitUpgradeShop') directement (meme motif que showTalents). */
+  showForge(run: RunState): void {
+    this.refreshForge(run);
     this.show('unitUpgradeShop');
   }
 
   /** Remet a jour l'Or et chaque carte — appelee a l'ouverture ET apres
    *  chaque achat (voir main.ts, onPurchaseRunUpgrade). Niveaux : ceux de la
    *  RUN (run.upgrades) ; prix : bareme en Or (runUpgradeGoldCost) ; achat
-   *  possible : canPurchaseRunUpgrade. `progress` ne sert qu'aux talents
-   *  (carte Soins excedentaires). */
-  refreshForge(run: RunState, progress: MetaProgress): void {
+   *  possible : canPurchaseRunUpgrade. */
+  refreshForge(run: RunState): void {
     const levels = run.upgrades;
     this.forgeGoldAmount.textContent = formatGold(run.gold);
-    // Seules les cartes du batiment d'acces ouvert (Forge ou Eglise).
-    for (const { card, site } of this.upgradeCardSites) card.classList.toggle('upgrade-card--other-site', site !== this.upgradeShopSite);
     // Niveau de production : stats de la PROCHAINE unite produite et gain du
     // niveau suivant (voir data/unitUpgrades.ts) ; les unites deja
     // recrutees gardent le leur (rappel sur la carte).
@@ -1439,93 +649,6 @@ export class Screens {
           : `Prochain bonus de dégâts : dans ${remaining} améliorations`;
       refs.costEl.textContent = formatGold(nextCost);
       refs.button.disabled = !canPurchaseRunUpgrade(run, BALLISTA_UPGRADE.id);
-    }
-
-    // Parchemin de soin (2026-08-13) — voir run/healScrollUpgradeEffects.ts.
-    {
-      const level = healScrollUpgradeLevel(levels);
-      const healBonus = healBonusDisplay(level);
-      const secondaryCount = healSecondaryTargetCount(level);
-      const nextCost = runUpgradeGoldCost(HEAL_SCROLL_UPGRADE.id, level);
-      const remaining = healRemainingUntilNextTarget(level);
-      const grantsTarget = healNextPurchaseGrantsExtraTarget(level);
-      const refs = this.healScrollUpgradeCard;
-      const baseHealDisplay = getHealEffectAmount('heal_scroll_minor') / HP_PER_PIP;
-
-      refs.levelEl.textContent = `Niveau : ${displayedUpgradeLevel(level)}`;
-      refs.healEl.textContent = `Soin : +${healBonus} HP (total ${baseHealDisplay + healBonus} HP)`;
-      refs.secondaryCountEl.textContent = `Alliés secondaires : ${secondaryCount}`;
-      refs.secondaryRatioEl.textContent = `Soin secondaire : ${Math.round(HEAL_SCROLL_UPGRADE.secondaryHealRatio * 100)} %`;
-      // Palier de cible supplementaire mis en avant si le PROCHAIN achat le
-      // declenche (point 32 de la demande).
-      refs.nextUpgradeEl.textContent = grantsTarget
-        ? 'Prochaine amélioration : +1 soin, +1 allié secondaire à 50 %'
-        : 'Prochaine amélioration : +1 soin';
-      refs.remainingTargetEl.textContent =
-        remaining === 1
-          ? 'Prochain allié supplémentaire : dans 1 amélioration'
-          : `Prochain allié supplémentaire : dans ${remaining} améliorations`;
-      refs.costEl.textContent = formatGold(nextCost);
-      refs.button.disabled = !canPurchaseRunUpgrade(run, HEAL_SCROLL_UPGRADE.id);
-    }
-
-    // Nova de glace (2026-08-14) — voir run/iceNovaUpgradeEffects.ts. Duree
-    // du Root (immobilisation, TOUJOURS active) et duree de la zone Blizzard
-    // (degats, agit seulement si le talent Blizzard est debloque) affichees
-    // separement — meme bonus partage, mais deux effets gameplay distincts.
-    {
-      const effects = computePlayerIceNovaUpgradeEffects(levels);
-      const nextCost = runUpgradeGoldCost(ICE_NOVA_UPGRADE.id, effects.level);
-      const remaining = iceNovaRemainingUntilDamageBonus(effects.level);
-      const grantsDamage = iceNovaNextPurchaseGrantsDamageBonus(effects.level);
-      const refs = this.iceNovaUpgradeCard;
-
-      refs.levelEl.textContent = `Niveau : ${displayedUpgradeLevel(effects.level)}`;
-      refs.rootDurationEl.textContent = `Immobilisation : ${effects.rootDuration.toFixed(1)} s`;
-      refs.blizzardDurationEl.textContent = `Durée des dégâts (zone) : ${effects.blizzardDuration.toFixed(1)} s`;
-      refs.damageEl.textContent = `Dégâts de tick : +${effects.damageBonusDisplay}`;
-      // Palier de degats mis en avant si le PROCHAIN achat le declenche
-      // (meme convention que les autres cartes a palier).
-      refs.nextUpgradeEl.textContent = grantsDamage
-        ? 'Prochaine amélioration : +0,5 s de durée, +1 DÉGÂT de tick'
-        : 'Prochaine amélioration : +0,5 s de durée';
-      refs.remainingDamageEl.textContent =
-        remaining === 1
-          ? 'Prochain bonus de dégâts : dans 1 amélioration'
-          : `Prochain bonus de dégâts : dans ${remaining} améliorations`;
-      refs.costEl.textContent = formatGold(nextCost);
-      refs.button.disabled = !canPurchaseRunUpgrade(run, ICE_NOVA_UPGRADE.id);
-    }
-
-    // Soins excédentaires (2026-08-15) — voir run/shadowUpgradeEffects.ts.
-    // Carte MASQUEE tant que le talent du meme nom n'est pas debloque (le
-    // niveau deja achete, lui, N'EST JAMAIS PERDU — voir data/shadowUpgrade.ts) :
-    // meme convention que la Mine.
-    {
-      const refs = this.shadowUpgradeCard;
-      const unlocked = isTalentUnlocked(progress, 'soins_excedentaires');
-      refs.card.style.display = unlocked ? '' : 'none';
-      if (unlocked) {
-        const level = shadowUpgradeLevel(levels);
-        const damage = shadowDamagePerProjectileDisplay(level);
-        const bonusCount = shadowBonusProjectileCount(level);
-        const nextCost = runUpgradeGoldCost(SHADOW_UPGRADE.id, level);
-        const remaining = shadowRemainingUntilBonusProjectile(level);
-        const grantsBonus = shadowNextPurchaseGrantsBonusProjectile(level);
-
-        refs.levelEl.textContent = `Niveau : ${displayedUpgradeLevel(level)}`;
-        refs.damageEl.textContent = `Dégâts par projectile : ${damage}`;
-        refs.bonusCountEl.textContent = `Projectiles bonus par soin excédentaire : +${bonusCount}`;
-        refs.nextUpgradeEl.textContent = grantsBonus
-          ? 'Prochaine amélioration : +0,5 dégât, +1 projectile bonus'
-          : 'Prochaine amélioration : +0,5 dégât';
-        refs.remainingBonusEl.textContent =
-          remaining === 1
-            ? 'Prochain projectile bonus : dans 1 amélioration'
-            : `Prochain projectile bonus : dans ${remaining} améliorations`;
-        refs.costEl.textContent = formatGold(nextCost);
-        refs.button.disabled = !canPurchaseRunUpgrade(run, SHADOW_UPGRADE.id);
-      }
     }
   }
 
@@ -1639,153 +762,8 @@ export class Screens {
     };
   }
 
-  /** Carte "Parchemin de soin" (2026-08-13, boutique d'amelioration) — soin +
-   *  cibles secondaires, shape different de buildUnitUpgradeCard. */
-  private buildHealScrollUpgradeCard(handlers: ScreenHandlers): { card: HTMLElement; refs: HealScrollUpgradeCardRefs } {
-    const card = document.createElement('div');
-    card.className = 'upgrade-card';
-
-    const nameEl = document.createElement('h3');
-    nameEl.className = 'upgrade-card-name';
-    nameEl.textContent = 'Parchemin de soin';
-
-    const levelEl = document.createElement('p');
-    levelEl.className = 'upgrade-card-line';
-    const healEl = document.createElement('p');
-    healEl.className = 'upgrade-card-line';
-    const secondaryCountEl = document.createElement('p');
-    secondaryCountEl.className = 'upgrade-card-line';
-    const secondaryRatioEl = document.createElement('p');
-    secondaryRatioEl.className = 'upgrade-card-line';
-    const nextUpgradeEl = document.createElement('p');
-    nextUpgradeEl.className = 'upgrade-card-line upgrade-card-next';
-    const remainingTargetEl = document.createElement('p');
-    remainingTargetEl.className = 'upgrade-card-line upgrade-card-dim';
-
-    const buyRow = document.createElement('div');
-    buyRow.className = 'upgrade-card-buy-row';
-    const costEl = document.createElement('span');
-    const costGroup = document.createElement('span');
-    costGroup.className = 'shop-item-price-group';
-    costGroup.append(costEl, createCoinIcon(14));
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'screen-button upgrade-card-button';
-    button.textContent = 'Améliorer';
-    button.addEventListener('mouseenter', () => this.uiSound.hover());
-    button.addEventListener('click', () => {
-      this.uiSound.click();
-      handlers.onPurchaseRunUpgrade(HEAL_SCROLL_UPGRADE.id);
-    });
-    buyRow.append(costGroup, button);
-
-    card.append(nameEl, levelEl, healEl, secondaryCountEl, secondaryRatioEl, nextUpgradeEl, remainingTargetEl, buyRow);
-
-    return { card, refs: { button, levelEl, healEl, secondaryCountEl, secondaryRatioEl, nextUpgradeEl, remainingTargetEl, costEl } };
-  }
-
-  /** Carte "Nova de glace" (2026-08-14, boutique d'amelioration) — duree
-   *  (Root + zone Blizzard) + degats de tick, shape different de
-   *  buildUnitUpgradeCard. */
-  private buildIceNovaUpgradeCard(handlers: ScreenHandlers): { card: HTMLElement; refs: IceNovaUpgradeCardRefs } {
-    const card = document.createElement('div');
-    card.className = 'upgrade-card';
-
-    const nameEl = document.createElement('h3');
-    nameEl.className = 'upgrade-card-name';
-    nameEl.textContent = 'Nova de glace';
-
-    const levelEl = document.createElement('p');
-    levelEl.className = 'upgrade-card-line';
-    const rootDurationEl = document.createElement('p');
-    rootDurationEl.className = 'upgrade-card-line';
-    const blizzardDurationEl = document.createElement('p');
-    blizzardDurationEl.className = 'upgrade-card-line';
-    const damageEl = document.createElement('p');
-    damageEl.className = 'upgrade-card-line';
-    const nextUpgradeEl = document.createElement('p');
-    nextUpgradeEl.className = 'upgrade-card-line upgrade-card-next';
-    const remainingDamageEl = document.createElement('p');
-    remainingDamageEl.className = 'upgrade-card-line upgrade-card-dim';
-
-    const buyRow = document.createElement('div');
-    buyRow.className = 'upgrade-card-buy-row';
-    const costEl = document.createElement('span');
-    const costGroup = document.createElement('span');
-    costGroup.className = 'shop-item-price-group';
-    costGroup.append(costEl, createCoinIcon(14));
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'screen-button upgrade-card-button';
-    button.textContent = 'Améliorer';
-    button.addEventListener('mouseenter', () => this.uiSound.hover());
-    button.addEventListener('click', () => {
-      this.uiSound.click();
-      handlers.onPurchaseRunUpgrade(ICE_NOVA_UPGRADE.id);
-    });
-    buyRow.append(costGroup, button);
-
-    card.append(nameEl, levelEl, rootDurationEl, blizzardDurationEl, damageEl, nextUpgradeEl, remainingDamageEl, buyRow);
-
-    return { card, refs: { button, levelEl, rootDurationEl, blizzardDurationEl, damageEl, nextUpgradeEl, remainingDamageEl, costEl } };
-  }
-
-  /** Carte "Soins excédentaires" (2026-08-15, boutique d'amelioration) —
-   *  Degats par projectile + Bonus de nombre de projectiles (palier tous les
-   *  3 achats), MASQUEE (voir refreshForge) tant que le talent du
-   *  meme nom n'est pas debloque — meme convention que la Mine. */
-  private buildShadowUpgradeCard(handlers: ScreenHandlers): ShadowUpgradeCardRefs {
-    const card = document.createElement('div');
-    card.className = 'upgrade-card';
-
-    const nameEl = document.createElement('h3');
-    nameEl.className = 'upgrade-card-name';
-    nameEl.textContent = 'Soins excédentaires';
-
-    const levelEl = document.createElement('p');
-    levelEl.className = 'upgrade-card-line';
-    const damageEl = document.createElement('p');
-    damageEl.className = 'upgrade-card-line';
-    const bonusCountEl = document.createElement('p');
-    bonusCountEl.className = 'upgrade-card-line';
-    const nextUpgradeEl = document.createElement('p');
-    nextUpgradeEl.className = 'upgrade-card-line upgrade-card-next';
-    const remainingBonusEl = document.createElement('p');
-    remainingBonusEl.className = 'upgrade-card-line upgrade-card-dim';
-
-    const buyRow = document.createElement('div');
-    buyRow.className = 'upgrade-card-buy-row';
-    const costEl = document.createElement('span');
-    const costGroup = document.createElement('span');
-    costGroup.className = 'shop-item-price-group';
-    costGroup.append(costEl, createCoinIcon(14));
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'screen-button upgrade-card-button';
-    button.textContent = 'Améliorer';
-    button.addEventListener('mouseenter', () => this.uiSound.hover());
-    button.addEventListener('click', () => {
-      this.uiSound.click();
-      handlers.onPurchaseRunUpgrade(SHADOW_UPGRADE.id);
-    });
-    buyRow.append(costGroup, button);
-
-    card.append(nameEl, levelEl, damageEl, bonusCountEl, nextUpgradeEl, remainingBonusEl, buyRow);
-
-    return { card, button, levelEl, damageEl, bonusCountEl, nextUpgradeEl, remainingBonusEl, costEl };
-  }
-
-  /** Bascule quel onglet de la boutique est visible (2026-08-11) — voir le
-   *  constructeur pour la construction des onglets/panneaux. */
-  private setShopTab(tab: ShopTab): void {
-    this.activeShopTab = tab;
-    for (const category of this.shopCategories) {
-      const active = category.id === tab && category.tab.style.display !== 'none';
-      category.tab.classList.toggle('shop-tab--active', active);
-      category.panel.classList.toggle('shop-tab-content--active', active);
-    }
-  }
-
+  /** Onglet (Parametres) — classes historiques `.shop-tab*`, partagees par
+   *  l'ancienne Boutique de run (retiree). */
   private tabButton(label: string, onClick: () => void): HTMLButtonElement {
     const b = document.createElement('button');
     b.type = 'button';
@@ -1808,10 +786,6 @@ export class Screens {
         return this.menu;
       case 'talents':
         return this.talents;
-      case 'waveComplete':
-        return this.waveComplete;
-      case 'shop':
-        return this.shop;
       case 'pause':
         return this.pause;
       case 'quitRunConfirm':
@@ -1822,8 +796,6 @@ export class Screens {
         return this.resetConfirm;
       case 'resetTalentsConfirm':
         return this.resetTalentsConfirm;
-      case 'placementGoldWarning':
-        return this.placementGoldWarning;
       case 'settings':
         return this.settings;
       case 'unitUpgradeShop':
@@ -1832,7 +804,7 @@ export class Screens {
   }
 
   /** Affiche l'ecran Parametres a jour — toujours appeler ceci plutot que
-   *  show('settings') directement (meme motif que showShop/showTalents). */
+   *  show('settings') directement (meme motif que showTalents). */
   showSettings(audio: AudioSettings, cameraSpeed = 1, hudGrid = false, hudUnlocked = false): void {
     this.refreshSettings(audio);
     this.setSliderValue(this.settingsCameraSpeed, cameraSpeed);
@@ -1915,14 +887,6 @@ export class Screens {
 
     row.append(input, box, labelEl);
     return { row, input };
-  }
-
-  /** Affiche la barriere de securite "il vous reste de l'or" — voir
-   *  ScreenHandlers.onConfirmPlacementWithGold. */
-  showPlacementGoldWarning(goldRemaining: number): void {
-    this.placementGoldWarningText.textContent =
-      `Il vous reste ${goldRemaining} or non dépensé. Lancer la bataille quand même ?`;
-    this.show('placementGoldWarning');
   }
 
   /**
@@ -2100,29 +1064,12 @@ export class Screens {
     return node;
   }
 
-  /** Attache le tooltip flottant PARTAGE (voir showTooltip) au survol d'un
-   *  bouton de boutique — 2026-08-17, demande explicite d'Antoine ("fais le
-   *  meme affichage que pour les points de talents... cela fait beaucoup de
-   *  texte sous les boutons actuellement") : remplace les paragraphes de
-   *  description toujours visibles (Mine, Caserne, Nova de glace) par un
-   *  survol, exactement comme l'arbre de talents. `descriptionOf` est un
-   *  PROVIDER (pas une chaine figee) : lu a CHAQUE survol, donc reflete
-   *  toujours la derniere description recalculee par refreshShop (valeurs
-   *  effectives — revenu de Mine, texte Blizzard de la Nova...), jamais un
-   *  texte perime capture une seule fois a la construction. */
-  private attachItemTooltip(anchor: HTMLElement, name: string, descriptionOf: () => string): void {
-    anchor.addEventListener('mouseenter', () => this.showTooltip(anchor, name, descriptionOf()));
-    anchor.addEventListener('mouseleave', () => this.hideTalentTooltip());
-  }
-
   /** Positionne et affiche le tooltip PARTAGE pres de `anchor` — prefere la
    *  droite (assez de place), sinon la gauche, sinon au-dessus/en dessous ;
    *  toujours entierement clampe dans la fenetre (section 24 : "reste
    *  entièrement dans la fenêtre"). `position: fixed` (voir CSS) : ne
    *  participe jamais au flux normal, ne peut donc jamais pousser une carte
-   *  voisine ni changer la taille de l'arbre. GENERALISE (2026-08-17) : plus
-   *  seulement pour un TalentDef, prend directement nom/description — voir
-   *  attachItemTooltip pour la boutique. */
+   *  voisine ni changer la taille de l'arbre. */
   private showTooltip(anchor: HTMLElement, name: string, description: string): void {
     this.talentTooltipName.textContent = name;
     this.talentTooltipDesc.textContent = description;
@@ -2202,114 +1149,7 @@ export class Screens {
     return b;
   }
 
-  /** Bouton d'achat de la boutique : nom + coût + icône de pièce (2026-08-11,
-   *  demande d'Antoine : "il faut que l'icône de gold apparaisse à côté de
-   *  chaque prix dans le jeu"). Typé HTMLButtonElement (besoin de
-   *  .disabled) et retourné directement — refreshShop doit pouvoir le
-   *  retrouver ensuite pour l'activer/désactiver. Le coût est FIXE pour
-   *  chaque objet SAUF si `unitId` est fourni (2026-08-13, boutique
-   *  d'amélioration permanente) : dans ce cas le prix AFFICHÉ peut varier en
-   *  cours de partie (voir run/unitUpgradeEffects.ts,
-   *  effectivePlayerUnitCost), donc l'élément de prix est enregistré dans
-   *  `shopUnitPriceEls` pour que refreshShop puisse le réécrire. */
-  private shopItemButton(name: string, cost: number, onClick: () => void, unitId?: string, iconItemId?: string): HTMLButtonElement {
-    const b = document.createElement('button');
-    b.className = 'screen-button shop-item-button';
-    b.type = 'button';
-
-    // Nom + icone de l'OBJET groupes ensemble (2026-08-14, demande
-    // d'Antoine : "utilise les nouvelles images... en boutique") — meme
-    // logique de groupement que priceGroup ci-dessous, pour que
-    // justify-content:space-between ne separe que ces deux groupes, jamais
-    // l'icone du nom. `iconItemId` optionnel : les lignes d'unite
-    // (unitPurchaseRow) n'en fournissent pas, aucune icone d'objet a montrer.
-    const nameGroup = document.createElement('span');
-    nameGroup.className = 'shop-item-name-group';
-    if (iconItemId) {
-      const icon = createItemIcon(iconItemId, 22);
-      icon.classList.add('shop-item-icon');
-      nameGroup.appendChild(icon);
-    }
-    const nameEl = document.createElement('span');
-    nameEl.textContent = name;
-    nameGroup.appendChild(nameEl);
-
-    // Prix + icone groupes dans leur PROPRE conteneur (2026-08-11, bug
-    // remonte par Antoine : "trop d'espacement entre la pièce et le
-    // montant") — avec 3 enfants directs et justify-content:space-between
-    // sur le bouton, l'espace restant se repartissait entre CHAQUE paire
-    // (nom<->prix ET prix<->icone), ecartant la piece du nombre au lieu de
-    // les coller. En les regroupant, seul le nom et ce groupe sont
-    // espaces par le bouton ; a l'interieur du groupe, un petit gap fixe
-    // (meme valeur que .shop-gold, "Or : 8🪙" juste au-dessus) les garde
-    // colles l'un a l'autre.
-    const priceGroup = document.createElement('span');
-    priceGroup.className = 'shop-item-price-group';
-    const priceEl = document.createElement('span');
-    priceEl.className = 'shop-item-price';
-    // formatGold (2026-08-15, chantier polish/equilibrage) : les prix de
-    // consommables sont desormais FRACTIONNAIRES (base + niveau x 0.5) —
-    // jamais un `String(cost)` brut qui pourrait un jour afficher un residu
-    // de virgule flottante, jamais de ".0" superflu sur un prix entier.
-    priceEl.textContent = formatGold(cost);
-    priceGroup.append(priceEl, createCoinIcon(14));
-    if (unitId) this.shopUnitPriceEls.set(unitId, priceEl);
-
-    b.append(nameGroup, priceGroup);
-    b.addEventListener('mouseenter', () => this.uiSound.hover());
-    b.addEventListener('click', () => {
-      this.uiSound.click();
-      onClick();
-    });
-    return b;
-  }
-
-  /** Ligne d'achat d'UN objet achetable (unite OU consommable, voir
-   *  2026-08-15 ci-dessous) : bouton d'achat simple (shopItemButton) + petit
-   *  bouton "×5" a droite (2026-08-13, demande d'Antoine : "plus confortable
-   *  pour acheter plusieurs unités") — deux <button> FRERES dans un
-   *  conteneur <div> (jamais un bouton imbrique dans un autre, invalide en
-   *  HTML). Enregistre le bouton ×5 dans `shopUnitBuyFiveEls` pour que
-   *  refreshShop puisse l'activer/desactiver separement du bouton simple (le
-   *  ×5 a besoin de 5x l'or, pas juste 1x).
-   *
-   *  Etendue le 2026-08-15 (chantier polish/equilibrage, "ACHAT x5" pour les
-   *  consommables) : `def` n'est plus specifique aux unites (`{id, name,
-   *  cost}` suffit deja pour un ItemDef) — REUTILISE telle quelle pour le
-   *  Parchemin de soin/la Nova de glace, aucune deuxieme implementation de
-   *  ligne d'achat. `iconItemId` optionnel (nouveau) : les unites n'en ont
-   *  toujours pas, les consommables passent leur propre id pour afficher
-   *  leur icone (voir createItemIcon). */
-  private unitPurchaseRow(
-    def: { id: string; name: string; cost: number; populationCost?: number },
-    onBuyOne: () => void,
-    onBuyFive: () => void,
-    iconItemId?: string,
-  ): { row: HTMLElement; button: HTMLButtonElement } {
-    // Bouton compact : nom et prix. Le niveau, les stats et la population
-    // d'une unite sont dans son infobulle (voir refreshShop, gateUnit).
-    const button = this.shopItemButton(def.name, def.cost, onBuyOne, def.id, iconItemId);
-
-    const five = document.createElement('button');
-    five.type = 'button';
-    five.className = 'shop-x5-button';
-    five.textContent = '×5';
-    five.addEventListener('mouseenter', () => this.uiSound.hover());
-    five.addEventListener('click', () => {
-      this.uiSound.click();
-      onBuyFive();
-    });
-    this.shopUnitBuyFiveEls.set(def.id, five);
-
-    const row = document.createElement('div');
-    row.className = 'shop-unit-row';
-    row.append(button, five);
-    return { row, button };
-  }
 }
-
-/** Categories (onglets) de la boutique de run. */
-type ShopTab = 'units' | 'buildings' | 'battle-scrolls';
 
 /** Stats d'une unite produite, sur une ligne (« 8 PV · Attaque 2 · Pop. 1 »). */
 function formatUnitStats(summary: UnitProductionSummary): string {

@@ -59,4 +59,10 @@ export class EconomyHud {
   setVisible(visible: boolean): void {
     this.root.hidden = !visible;
   }
+
+  /** Ancre de l'animation de gain / perte d'or (ui/coinPopup.ts) : la
+   *  valeur d'or de la ligne. */
+  get goldElement(): HTMLElement {
+    return this.values.get('gold')!;
+  }
 }

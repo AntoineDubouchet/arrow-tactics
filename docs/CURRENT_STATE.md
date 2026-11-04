@@ -31,13 +31,13 @@ contient ni intentions de design ni décisions futures.
 6 undecies. Cargo économique : inventaire RPG ≠ sac de ressources
 6 duodecies. Camp de départ, vitesse ×1,4, bois et pierre libres
 7. Économie d'or
-8. Boutique de run
-9. Inventaire et parchemins de bataille
+8. Boutique de run (retirée le 2026-11-04)
+9. Inventaire et parchemins de bataille (retirés le 2026-11-04)
 10. Vagues ennemies
-11. Arène, territoire et expansion de la carte
+11. Arène et territoire (agrandissement retiré le 2026-11-04)
 12. Talents
 13. Méta-progression : points de talent
-14. Améliorations de Forge et d’Église
+14. Améliorations de Forge
 15. Sauvegarde : ce qui persiste
 16. Éditeur de maps
 16 bis. Atelier de personnage
@@ -54,13 +54,17 @@ Roguelite tactique web en vue 3/4. Le mode jouable, le **Mode survie**, se
 joue en **temps réel continu** (2026-11-01, §6 bis) sur une grande carte
 procédurale (une par run ; l'ancienne arène reste accessible par
 `?map=arena`) : le joueur explore, récolte, construit, produit et combat
-sans changement de phase ; les vagues sont des événements dans le temps. Il intervient avec la Baliste et
-des parchemins de bataille.
+sans changement de phase ; les vagues sont des événements dans le temps.
+Il intervient avec le Héros (sorts, construction, récolte), la Baliste et
+des ordres à ses unités. Depuis la **passe de modernisation 1**
+(2026-11-04, `DESIGN_DECISIONS.md` G40), l'ancienne boucle en manches
+(préparation, Boutique, parchemins de bataille, fin de manche,
+agrandissement, quota de production « par manche ») n'existe plus dans le
+code.
 
-- L'**Or** est la monnaie principale de la run. Il sert à recruter des unités,
-  acheter des parchemins, construire des bâtiments et acheter des
-  améliorations : à la **Forge**, ou sur la fiche d'une Mine ou d'une
-  Caserne.
+- L'**Or** est la monnaie principale de la run. Il sert à produire des
+  unités dans les bâtiments, construire des bâtiments et acheter des
+  améliorations : à la **Forge**, ou sur la fiche du bâtiment.
 - **Direction Hero RTS** (provisoire, §6 bis) : la run commence dans un
   **petit camp préconstruit** (2026-11-04, §6 duodecies : Baliste, Auberge,
   deux Maisons, deux Villageois, enceinte de Palissade et porte ouverte)
@@ -80,20 +84,23 @@ des parchemins de bataille.
 
 ## 2. Déroulé d'une run
 
-Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
-`onValidatePlacement`, fin de bataille dans la boucle de jeu.
+Fonctions concernées dans `main.ts` : `startNewRun`, `createFreshRun`,
+`startSurvivalRealtime`, `startSurvivalWorld`, `completeSurvivalWave`,
+`endSurvivalRun`, boucle de jeu.
 
-> **Depuis le 2026-11-01, la Survie n'a plus de préparation** (§6 bis,
-> « Survie en temps réel continu ») : `startNewRun` lance directement le jeu
-> (`startSurvivalRealtime`), les vagues arrivent par compte à rebours et une
-> vague repoussée ne change plus de phase. Ce qui suit sur la préparation,
-> la Boutique et la fin de manche décrit le code **legacy**, conservé mais
-> plus emprunté par la Survie.
+> Depuis le 2026-11-01, la Survie se joue en **temps réel continu** (§6 bis).
+> Depuis le 2026-11-04 (passe de modernisation 1, `DESIGN_DECISIONS.md`
+> G40), l'ancienne boucle en manches n'existe plus dans le code : ni phase
+> de placement, ni Boutique de run, ni écran de fin de manche, ni
+> agrandissement de la carte, ni parchemins de bataille. Il n'y a qu'un
+> seul chemin, décrit ici.
 
-1. **Nouvelle run** (menu → **Mode survie**, `createNewRun`) :
+1. **Nouvelle run** (menu → **Mode survie** → choix du Héros,
+   `createFreshRun` → `createNewRun`) :
    - armée de départ : le **Héros** et **deux Villageois** (camp de départ,
      §6 duodecies), avec la Baliste (`STARTING_FANTASSIN_COUNT` = 0 Homme
-     d'armes ; 3 puis 4 avant). Le Héros ne compte pas dans la population. « Homme d'armes » est le nom affiché de l'unité `fantassin`
+     d'armes ; 3 puis 4 avant). Le Héros ne compte pas dans la population.
+     « Homme d'armes » est le nom affiché de l'unité `fantassin`
      (identifiant, stats et cartes inchangés) ;
    - or de départ : **20** (`STARTING_GOLD`), 25 avec le talent Or de départ
      (+5, `TALENT_STARTING_GOLD_BONUS`) ;
@@ -101,90 +108,65 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
      Maison du camp de départ, 2 Villageois ; 0 / 5 avant le 2026-11-04) ;
    - stock de départ : **0 bois, 0 pierre** (`STARTING_RESOURCES`,
      provisoire) : il faut explorer et déposer avant tout chantier ;
-   - inventaire vide ; bâtiments : ceux du camp de départ (Auberge, deux
-     Maisons), terminés et gratuits ; aucune amélioration
-     (`upgrades = {}`), vague 1.
+   - inventaire RPG du Héros vide (§6 ter) ; bâtiments : ceux du camp de
+     départ (Auberge, deux Maisons), terminés et gratuits ; aucune
+     amélioration de run (`upgrades = {}`), vague 1.
 
    **Début de run** : 20 or, 0 bois, 0 pierre, le Héros, deux Villageois et
    la Baliste dans le camp de départ, Pop. 2 / 9. Aucun chantier n'est
    possible avant le premier dépôt de ressources (bois et pierre se
-   récoltent dès le départ, sans Forge). Recruter exige un bâtiment (§4) : Fantassin → Caserne,
-   Piquier → Caserne (Fantassin → Caserne Niv. 2), Archer → Camp d'archerie,
-   Mage → Sanctuaire, Oracle et Vengeur → Église, Cavalier léger → Écurie
-   (2026-11-03, §6 nonies). Maison + Caserne ou Maison +
-   Camp d'archerie tiennent dans les 20 or (16 et 14 bois, à ramasser
-   d'abord) ; Caserne + Camp d'archerie (30 or) non. Tout bâtiment acheté est
-   d'abord un chantier, bâti par le Héros en bataille (§6 bis).
+   récoltent dès le départ, sans Forge). Produire une unité exige le
+   bâtiment correspondant (§4, §6 sexies) : Piquier → Caserne, Homme
+   d'armes → Caserne Niv. 2, Archer → Camp d'archerie, Mage → Sanctuaire,
+   Oracle et Vengeur → Église, Cavalier léger → Écurie (2026-11-03,
+   §6 nonies). Maison + Caserne ou Maison + Camp d'archerie tiennent dans
+   les 20 or (16 et 14 bois, à ramasser d'abord) ; Caserne + Camp
+   d'archerie (30 or) non. Tout bâtiment acheté est d'abord un chantier,
+   bâti par le Héros (§6 bis).
 
-   **Population** (`data/population.ts`, `run/population.ts`) : maximum
-   5 + 2 par Maison possédée (5, 7, 9, 11…) ; en bataille, par Maison
-   vivante ; chaque
-   unité en occupe `populationCost` (Piquier, Fantassin et Archer 1,
-   Oracle 2, Mage et Vengeur 3, Sentinelle 5). Affichée par le HUD « Pop. N / M » et dans la boutique.
-   Un recrutement qui dépasserait le maximum est refusé ; la production
-   des bâtiments est limitée de la même façon (§6).
-2. **Démarrage direct**. La run part de l'arène officielle (§11) remise à
-   neuf. La Baliste est créée directement à la position définie par la
-   carte (`MapDef.ballista`, (0.5, 15.5) pour l'arène) : il n'y a plus de
-   placement manuel de la tour. La caméra reprend son angle par défaut et
-   cadre toute la carte, puis la préparation commence.
-3. **Phase de placement**. La boutique s'ouvre automatiquement. Le joueur
-   peut :
-   - déplacer, sélectionner et vendre ses unités ;
-   - acheter, poser et déplacer des bâtiments ;
-   - ouvrir une Forge possédée pour acheter des améliorations (§14) ;
-   - améliorer une Mine ou une Caserne depuis sa fiche (§6) ;
-   - utiliser un parchemin de soin.
+   **Population** (`data/population.ts`) : maximum 5 + 2 par Maison vivante
+   et terminée (5, 7, 9, 11…) ; chaque unité en occupe `populationCost`
+   (Piquier, Fantassin, Archer et Villageois 1, Oracle 2, Mage et Vengeur 3,
+   Sentinelle 5). Affichée par le HUD économique « Pop. N / M ». Une
+   production qui dépasserait le maximum attend une place (§6 sexies).
+2. **Démarrage direct** (`startSurvivalRealtime` → `startSurvivalWorld`) :
+   le HUD de jeu s'affiche, puis le monde est peuplé depuis la run :
+   armée en formation autour de la Baliste (`computeArmyFormation`),
+   Baliste à la position de la carte (`MapDef.ballista`, plus de placement
+   manuel), bâtiments possédés (camp de départ), camps neutres, murs et
+   barils de la carte, butin de démonstration éventuel (`?loot=demo`). La
+   caméra reprend son angle par défaut sur le camp, et la première vague
+   est décomptée (§10). Les unités présentes au lancement font encore le
+   pas d'ouverture d'une case (`openBattleWithFormationStep`, voir le
+   point 4) : héritage conservé tel quel le 2026-11-04, à trancher.
+3. **Jeu en temps réel, sans phase**. Le joueur explore, récolte et dépose
+   (§6 bis, §6 undecies), pose des chantiers par le menu Construire (§6
+   bis), produit des unités dans ses bâtiments (file payée, §6 sexies),
+   améliore un bâtiment depuis sa fiche (§6), ouvre la Forge pour les
+   améliorations de run (§14), soigne l'armée à l'Église, répare, place
+   des points de ralliement. Les écrans Forge, pause et menus figent la
+   simulation ; l'inventaire du Héros ne la fige pas.
 
-   **Sélection des unités**, avec les mêmes gestes qu'en bataille et dans
-   l'éditeur :
+   **Sélection des unités**, mêmes gestes que dans l'éditeur :
    - clic gauche pour une sélection simple ;
    - Maj + clic pour ajouter ou retirer (Maj + clic dans le vide ne change
      rien) ;
-   - glisser depuis le sol pour un rectangle de sélection (depuis une
-     unité, le glisser la déplace ou la vend) ;
+   - glisser depuis le sol pour un rectangle de sélection ;
    - double-clic pour les unités du même type **visibles à l'écran**.
 
-   **Déplacement des unités** :
-   - au survol du terrain, un aperçu montre la destination de chaque unité
-     sélectionnée : une empreinte verte (valide) ou rouge (invalide) et une
-     silhouette translucide ;
-   - un clic au sol, ou le glisser d'une unité, applique exactement le plan
-     affiché :
-     - au clic, le centre du groupe vient au point visé ;
-     - au glisser, l'unité saisie arrive sous le curseur et le groupe suit ;
-   - les unités bloquées prennent la case libre la plus proche (2 cases au
-     plus), sans jamais se superposer ;
-   - le déplacement est tout ou rien ;
-   - après un déplacement réussi (unité seule ou groupe, au clic comme au
-     glisser), la sélection est vidée et l'aperçu disparaît aussitôt ;
-   - après un refus, rien ne bouge : la sélection et l'aperçu restent
-     disponibles pour une nouvelle tentative ;
-   - glisser une unité ou un groupe sur « Vendre » le vend, comme avant.
-
-   Ce mécanisme est détaillé dans `EDITOR.md` §8. Les cases de destination
-   doivent appartenir au territoire joueur (§11).
-
-   **Sélection des bâtiments et de la Baliste** :
-   - un clic sur une Mine, une Caserne ou une Forge possédée la sélectionne ;
-     un second clic la désélectionne. Un glisser la déplace (§6) ;
-   - la Baliste se sélectionne par un clic sur sa **base** (son empreinte au
-     sol), jamais par le haut de la tour. Elle ne se déplace pas en
-     préparation ;
-   - l'élément sélectionné est entouré d'un anneau à la couleur du camp ;
-   - les sélections sont **exclusives** : unités, un bâtiment ou la Baliste,
-     jamais deux familles à la fois. Sélectionner l'une vide les autres.
-
-   « Prêt pour la bataille » lance le combat. Une confirmation est demandée
-   s'il reste plus de 30 % de l'or du début du placement
-   (`PLACEMENT_GOLD_WARNING_RATIO`).
-4. **Bataille automatique**. Le joueur intervient avec la Baliste, les
-   parchemins de bataille et des ordres à ses unités. Le contrôle RTS est
-   **permanent** pendant la bataille ; il n'y a pas de mode à basculer :
+   **Sélection des bâtiments et de la Baliste** : un clic sur un bâtiment
+   possédé l'inspecte (fiche d'entité, ci-dessous) ; un second clic le
+   désélectionne. La Baliste se sélectionne par un clic sur sa **base**
+   (son empreinte au sol), jamais par le haut de la tour. L'élément
+   sélectionné est entouré d'un anneau à la couleur du camp. Les
+   sélections sont **exclusives** : unités, ou un bâtiment, ou la Baliste,
+   jamais deux familles à la fois.
+4. **Bataille automatique**. Le joueur intervient avec le Héros, la
+   Baliste et des ordres à ses unités. Le contrôle RTS est
+   **permanent** ; il n'y a pas de mode à basculer :
    - **clic gauche** : sélectionner une unité alliée, Maj + clic pour
      ajouter ou retirer, glisser pour un rectangle de sélection, double-clic
-     pour les unités visibles du même type ; si un parchemin est armé, le
-     clic gauche sert à l'utiliser ;
+     pour les unités visibles du même type ;
    - **clic gauche sur une Mine, une Caserne, une Forge ou la Baliste alliée** :
      inspection seule (fiche d'entité, ci-dessous), avec un anneau à la
      couleur du camp. Un bâtiment inspecté n'est **jamais commandable** : il
@@ -240,53 +222,37 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
    place et passe directement en Garde. Les unités produites ensuite par
    une Caserne ou un Camp d'archerie passent directement en Garde, sans ce
    pas.
-5. **Fin de bataille**, dès qu'un camp n'a plus de combattant (unités et
-   bâtiments du joueur comptent tous les deux). La **victoire** exige en plus
-   que tous les groupes ennemis de la vague soient apparus (§10) ; la
-   défaite reste immédiate :
-   - **Victoire** : une bannière, puis un rideau noir, derrière lequel sont
-     versés le bonus d'or et appliquée l'étape d'expansion de la carte ;
-     ensuite l'écran de bilan de la manche (ci-dessous), puis le placement
-     de la vague suivante.
-   - **Défaite** : écran « Partie terminée », puis retour au menu.
-6. **Abandon** (Échap → Quitter → confirmation) : retour au menu. Les gains de
+5. **Vague repoussée** (`completeSurvivalWave`) : quand tous les groupes
+   de la vague sont apparus et qu'aucun ennemi ne reste, la run
+   **continue sans écran** : +5 or (`WAVE_CLEAR_BONUS`), record de vague
+   et point de talent éventuels enregistrés, bannière « Vague N
+   repoussée ! +5 or », compte à rebours de la vague suivante (§10). Aucun
+   agrandissement de la carte, aucun bilan de manche (retirés le
+   2026-11-04, `DESIGN_DECISIONS.md` G40).
+6. **Défaite** (`endSurvivalRun`) : immédiate dès que la base du joueur
+   est perdue, c'est-à-dire la **Baliste détruite** (`World.isBaseLost`,
+   décision du 2026-11-02 ; `countsForDefeat` et `countCombatants` ne
+   servent plus qu'à l'information). La mort du Héros ne termine rien : il
+   revient à la Baliste (§6 bis) ; l'armée et les autres bâtiments peuvent
+   tomber entièrement. Bannière « Vague N — Défaite », record et premier
+   point de talent sauvegardés, monde vidé, HUD masqué, écran « Partie
+   terminée » (« La Baliste est tombée ») puis « Retour au menu principal ».
+7. **Abandon** (Échap → Quitter → confirmation) : retour au menu. Les gains de
    méta-progression déjà obtenus pendant la run restent acquis (ils sont
-   sauvegardés au fil des batailles), mais **aucune récompense supplémentaire
-   n'est accordée à l'abandon**.
-
-### Bilan de fin de vague
-
-Sources : `run/battleSummary.ts`, `ui/screens.ts` (`showWaveComplete`),
-`main.ts`.
-
-Après une victoire, l'écran de fin de vague présente :
-
-- « **VICTOIRE** », d'abord seul, puis « Vague N terminée » ;
-- une ligne par type d'ennemi réellement vaincu pendant la manche
-  (« Fantassins vaincus 8 », « Sentinelles vaincues 1 »), dans l'ordre
-  Fantassin, Archer, Mage, Sentinelle (puis Oracle, Piquier et Vengeur,
-  jamais ennemis aujourd'hui) ; aucune ligne à 0 ;
-- « **Or gagné cette manche** », en dernier ;
-- le bouton « Continuer », vers la préparation suivante.
-
-Les lignes apparaissent une à une (environ 0,4 s d'écart), puis l'or, puis
-le bouton ; l'écran reste affiché jusqu'au clic.
-
-- **Ennemis vaincus** : comptés à leur mort réelle dans la simulation, une
-  seule fois par unité (même détection que l'or des kills).
-- **Or gagné cette manche** : tout l'or **gagné** pendant la manche, soit
-  la récompense de chaque ennemi tué (Butin de guerre compris), chaque
-  production de Mine et le bonus de victoire. N'y entrent ni l'or possédé
-  au départ, ni les achats, reventes, annulations ou le bouton de debug.
-  Le compteur repart de zéro au lancement de chaque vraie bataille.
-
+   sauvegardés à chaque vague repoussée), mais **aucune récompense
+   supplémentaire n'est accordée à l'abandon**.
 ### Fiche d'entité
 
 Sources : `run/entityInfo.ts`, `ui/entityInfoPanel.ts`, `main.ts`
 (`currentEntityInfo`, `updateEntityInfoPanel`).
 
-Une fiche compacte décrit ce que le joueur a sélectionné, en préparation et
-en bataille. Elle n'existe pas dans l'éditeur.
+Une fiche compacte décrit ce que le joueur a sélectionné. Elle n'existe pas
+dans l'éditeur.
+
+> Depuis le 2026-11-04, il n'y a plus de préparation : là où cette section
+> distingue encore « en préparation » et « en bataille », lire « en jeu,
+> sur un bâtiment terminé » pour les boutons (améliorer, soigner, Ouvrir la
+> Forge, produire) et « en jeu » pour les états dynamiques.
 
 - **Sélections prises en charge** :
   - préparation : unité seule, groupe, Mine, Caserne, Forge, Baliste ;
@@ -327,24 +293,25 @@ en bataille. Elle n'existe pas dans l'éditeur.
   - **Mine** : PV, production (« 3 à 7 or »), fréquence (« toutes les
     60 s »), en jeu « Prochaine tranche : dans N s », et emprise. En préparation, aussi l'effet du niveau suivant et le bouton
     **« Améliorer la mine — N or »** (§6) ;
-  - **Caserne / Camp d'archerie** : « Nom — Niv. N », PV, production
-    (« 1 Piquier par manche »), recrutement débloqué (« Recrutement de
-    Piquiers et de Fantassins (Niv. 2) », « Recrutement d'Archers ») et emprise. En préparation, au
-    Niv. 1, aussi l'effet du Niv. 2 (« 1 Piquier et 1 Fantassin par manche ») et le
-    bouton **« Améliorer — 20 or »** ; au Niv. 2, « Niveau maximum » et plus
-    de bouton. En bataille, « En attente : N (population pleine) » ou
-    « (aucune case libre) » tant que le quota de la manche n'est pas
-    produit ;
-  - **Forge** : PV et emprise. En préparation, la fiche porte le bouton
-    **« Ouvrir la Forge »** (§14) ; en bataille, aucun bouton ;
+  - **Caserne / Camp d'archerie / Sanctuaire / Église / Écurie / Auberge**
+    (bâtiments de production, 2026-11-04) : « Nom — Niv. N » (Caserne,
+    Sanctuaire, Église), PV, unités produites, emprise, puis les boutons de
+    la **file de production** (« Produire : Nom — N or · T s », un par
+    unité productible, désactivé si l'or manque ou si la file est pleine),
+    les ordres en cours (clic : annuler, or rendu), **« Améliorer — N
+    or »** (Caserne Niv. 1 → 2 ; Sanctuaire et Église), point de
+    ralliement et réparation (§6 sexies). Plus aucune mention « par
+    manche » ni « En attente : N » ;
+  - **Forge** : PV et emprise ; terminée, la fiche porte le bouton
+    **« Ouvrir la Forge »** (§14) ; un chantier n'a pas ce bouton ;
   - **Tour** : « Tour — Niv. N », PV, dégâts, portée, cadence (« 1 tir /
     2.5 s ») et emprise. En préparation, aussi l'effet du niveau suivant
     (« +5 PV, +2 dégâts ») et le bouton **« Améliorer — N or »** (§6) ;
-  - **Église** : « Église — Niv. N », PV, soin (« 5 PV par or »),
-    recrutement débloqué (« Recrutement de Mages, d’Oracles et de Vengeurs ») et emprise. En préparation, aussi les PV manquants de l'armée, l'effet du
-    niveau suivant (« +5 PV, +2 PV par or ») et les boutons **« Soigner
-    l'armée — N or »**, **« Améliorer — N or »** et **« Améliorations de
-    l'Église »** (§6, §14). En bataille, « En préparation uniquement » ;
+  - **Église** : « Église — Niv. N », PV, soin (« 5 PV par or »), unités
+    produites (Oracle, Vengeur) et emprise ; les PV manquants de l'armée,
+    l'effet du niveau suivant (« +5 PV, +2 PV par or ») et les boutons
+    **« Soigner l'armée — N or »** et **« Améliorer — N or »** (§6). Le
+    bouton « Améliorations de l'Église » (parchemins) n'existe plus (§9) ;
   - **Baliste** : PV, dégâts par carreau, portée (« 18 cases »), recharge,
     carreaux par volée. En préparation : PV max / max,
     « Mode : Automatique au début de la bataille » et « Prête pour la
@@ -432,9 +399,8 @@ bestiaire et l'éditeur.
     recharge conservée. Oracle tué pendant l'incantation : rien n'est
     soigné ;
   - sans allié blessé, il n'incante pas et garde sa recharge ;
-  - effets du parchemin (halo doré, « +2 ») sur l'allié soigné, Oracle
-    tourné vers lui pendant l'incantation ; pas de télégraphe au sol ; ne
-    déclenche pas « Soins excédentaires ».
+  - halo doré et « +2 » sur l'allié soigné (`render/healVfx.ts`), Oracle
+    tourné vers lui pendant l'incantation ; pas de télégraphe au sol.
 - **Piquier** (2026-11-01, valeurs PROVISOIRES, `DESIGN_DECISIONS.md` B8) :
   population 1, 2 cases/s, rayon 0,45. Lance et petit bouclier ; sa portée
   de 1,4 lui permet de frapper depuis le deuxième rang. Coup d'estoc
@@ -454,42 +420,40 @@ bestiaire et l'éditeur.
 - Le coût payé en partie est le coût de base **plus le surcoût du niveau
   de production courant** de l'unité (§14) : Fantassin et Archer +1 or,
   Mage +3, Sentinelle +10 par niveau ; l'Oracle, le Piquier et le Vengeur
-  n'ont pas de niveau de production (coût fixe). La boutique affiche ce coût, le niveau
-  (« Niv. N ») et, en infobulle, les stats de la prochaine recrue.
+  n'ont pas de niveau de production (coût fixe). La fiche du bâtiment
+  producteur affiche ce coût (« Produire : Nom — N or · T s ») ; la carte
+  de la Forge, le niveau et les stats de la prochaine recrue (§14).
 
 ## 4. Déblocage des unités
 
-Sources : `data/units.ts` (`playerUnlockMode`), `run/metaProgress.ts`
-(`canPlayerRecruitUnit`, `registerEnemyDefeat`).
+Sources : `data/units.ts` (`playerUnlockMode`), `data/buildings.ts`
+(`recruitmentUnlock`), `data/production.ts` (`producibleUnits`),
+`run/metaProgress.ts` (`canPlayerRecruitUnit`, `registerEnemyDefeat`).
 
-- **Fantassin et Archer** : recrutables seulement si le joueur possède au
-  moins une **Caserne** (Fantassin) ou un **Camp d'archerie** (Archer)
-  (`run/recruitment.ts`, d'après `BuildingDef.recruitmentUnlock`). Sinon,
-  le bouton reste visible mais désactivé, avec « Nécessite une Caserne » ou
-  « Nécessite un Camp d'archerie » en infobulle, et l'achat est refusé.
-  L'armée de départ n'est pas concernée. Les unités déjà possédées restent. Un bâtiment détruit en
-  bataille bloque le recrutement à la préparation suivante s'il était le
-  dernier ; en construire un le débloque aussitôt.
-- **Mage et Sentinelle** (`defeatEnemy`) : recrutables après avoir vaincu au
-  moins un exemplaire **ennemi** de ce type.
-  - Le **Mage** exige en plus au moins un **Sanctuaire** possédé (Église
-    jusqu'au 2026-11-03), selon la même règle que le Fantassin et l'Archer
-    (« Nécessite un Sanctuaire »). Les Mages possédés restent si le dernier
-    Sanctuaire est détruit.
-  - La Sentinelle n'exige aucun bâtiment.
-  - Le déblocage est permanent, enregistré dès la mort de l'ennemi
-    (`defeatedEnemyUnitIds`) et signalé par un toast.
-  - Tant qu'elles ne sont pas débloquées, ces unités sont masquées dans la
-    boutique.
-- **Oracle** (`starter`) : recrutable dès la première run, à condition de
-  posséder au moins une **Église** (« Nécessite une Église »). Sans Église,
-  sa ligne de boutique est masquée (`refreshShop`).
-- **Vengeur** (`starter`) : même règle que l'Oracle (Église).
-- **Piquier** (`starter`) : recrutable avec une **Caserne** ; il est en tête
-  de la boutique. Le **Fantassin** exige désormais une **Caserne Niv. 2**
-  (`RecruitmentUnlockConfig.minLevels`, décision d'Antoine ; « Nécessite
-  une Caserne Niv. 2 ») ; sa ligne est masquée en dessous. L'armée de
-  départ garde ses 4 Fantassins (soldats déjà disponibles en début de run).
+Depuis le 2026-11-04, une unité du joueur ne s'obtient que par la **file de
+production d'un bâtiment** (§6 sexies) : la seule condition est de
+posséder ce bâtiment, terminé et vivant, au niveau requis
+(`RecruitmentUnlockConfig.minLevels`), et de payer son coût.
+
+| Unité | Bâtiment |
+|---|---|
+| Piquier | Caserne |
+| Homme d'armes | Caserne Niv. 2 (décision d'Antoine) |
+| Archer | Camp d'archerie |
+| Mage | Sanctuaire (Église jusqu'au 2026-11-03) |
+| Oracle, Vengeur | Église |
+| Cavalier léger | Écurie (§6 nonies) |
+| Villageois | Auberge (§6 nonies) |
+| Sentinelle | Aucun bâtiment ne la produit aujourd'hui |
+
+- **Déblocage par victoire** (`defeatEnemy`, Mage et Sentinelle) : la
+  méta-progression enregistre toujours le premier ennemi vaincu de chaque
+  type (`defeatedEnemyUnitIds`, `registerEnemyDefeat`), mais **aucun
+  consommateur** ne lit plus ce déblocage depuis le retrait de la Boutique
+  : le Mage se produit au Sanctuaire sans condition de victoire. Le toast
+  « Unité débloquée » a été retiré pour ne pas annoncer un déblocage sans
+  effet. À redéfinir en Pass 2 (`KNOWN_ISSUES.md` KI-67,
+  `DESIGN_DECISIONS.md` C4).
 - `MAGE_UNLOCK_WAVE` (`config/constants.ts`) ne règle que l'**apparition des
   Mages ennemis**, pas leur déblocage pour le joueur.
 
@@ -566,8 +530,6 @@ AUTO), `main.ts`.
     supplémentaires visent les deux ennemis les plus proches du point visé
     (le curseur en MANUEL, le point anticipé en AUTO), dans un rayon de 3.
 - **Amélioration de Forge « Baliste »** : voir §14.
-- **Parchemin armé** : le clic gauche sert au parchemin. En MANUEL, Q tire
-  quand même avec la Baliste, et le parchemin reste armé.
 - **Réticule** (MANUEL seulement) : un anneau doré discret suit le sol sous
   le curseur pendant la bataille, plus visible quand la Baliste est prête,
   presque transparent pendant la recharge, masqué si elle est détruite. La
@@ -587,26 +549,27 @@ AUTO), `main.ts`.
 ## 6. Bâtiments gameplay : Mine, Caserne, Camp d'archerie, Forge, Tour et Église
 
 Sources : `data/buildings.ts`, `data/mineUpgrade.ts`, `run/buildingUpgrades.ts`,
-`run/mineUpgradeEffects.ts`, `run/recruitment.ts`,
+`run/mineUpgradeEffects.ts`, `data/production.ts`,
 `run/buildingUpgradeEffects.ts`, `sim/systems/buildingProduction.ts`,
 `sim/systems/buildingAttack.ts` (tir de la Tour), `render/projectiles.ts`,
 `run/churchHeal.ts` (soin de l'Église), `main.ts`.
 
-Ils s'achètent en Or dans l'onglet « Bâtiments » de la boutique de run.
+Ils s'achètent en Or, bois et pierre par le menu **Construire** du temps
+réel (§6 bis) ; la Boutique et son onglet « Bâtiments » n'existent plus
+(2026-11-04, §8).
 
-- **Achat** : cliquer sur le bâtiment passe en mode placement. L'or n'est
-  payé qu'au clic de confirmation sur un emplacement valide, dont toute
-  l'emprise est en territoire joueur ; Échap ou clic droit annule sans
-  rien payer.
+- **Achat** : choisir le bâtiment dans le menu Construire passe en mode
+  placement ; le coût n'est payé qu'au clic de confirmation sur un
+  emplacement valide ; Échap ou clic droit annule sans rien payer. Le
+  bâtiment est d'abord un **chantier**, bâti par le Héros (§6 bis).
 - **Rotation** : Ctrl+molette pendant le placement, par pas de 45°.
-- **Déplacement** : un bâtiment possédé se déplace gratuitement en le
-  faisant glisser pendant le placement.
-- **Persistance** : les bâtiments restent d'une vague à l'autre, avec leurs
-  PV. Un bâtiment détruit en bataille disparaît de la run à la fin de la
-  vague. Plusieurs exemplaires de chaque bâtiment sont possibles.
-- **Survie du camp** : ces bâtiments comptent pour la défaite
-  (`countsForDefeat`), comme les unités et la Baliste — sauf les pièces de
-  mur (Palissade, §6 octies).
+- **Déplacement** : aucun ; un bâtiment posé ne se déplace plus (le
+  glisser de l'ancienne préparation a disparu avec elle).
+- **Persistance** : les bâtiments restent toute la run, avec leurs PV ; un
+  bâtiment détruit disparaît de la run. Plusieurs exemplaires de chaque
+  bâtiment sont possibles.
+- **Survie du camp** : seule la **Baliste** compte pour la défaite (§2) ;
+  `countsForDefeat` ne sert plus qu'au décompte des combattants.
 
 **Murs** : le **Wall V1** (muraille case par case, porte KayKit, virages,
 tracé sur grille) est **supprimé** depuis le 2026-11-02. Le seul mur jouable
@@ -627,7 +590,7 @@ est la **Palissade V2**, géométrique et sans grille : voir §6 octies.
 |---|---|---|---|---|---|---|---|
 | Coût en partie | 20 | 15 | 15 | 5 | 10 | 20 | 35 |
 | PV / emprise | 15 / 2×2 | 25 / 3×3 | 25 / 3×3 | 10 / 2×2 | 15 / 2×2 | 15 / 2×2 | 15 / 2×2 |
-| Effet | Produit de l'or pendant la bataille (voir ci-dessous) | Débloque le recrutement des Piquiers (Fantassins au Niv. 2) ; produit 1 Piquier par manche, plus 1 Fantassin au Niv. 2 (voir ci-dessous) | Débloque le recrutement des Archers et en produit (voir ci-dessous) | +2 population maximale (§2) | Accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; débloque le recrutement du Mage, de l'Oracle et du Vengeur (§4) ; accès aux améliorations des parchemins et de Soins excédentaires (voir ci-dessous et §14) |
+| Effet | Produit de l'or (voir ci-dessous) | Produit des Piquiers, et des Hommes d'armes au Niv. 2 (file payée, voir ci-dessous) | Produit des Archers (file payée, voir ci-dessous) | +2 population maximale (§2) | Pioche de prospecteur (§6 nonies) ; accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; produit l'Oracle et le Vengeur (§4 ; le Mage : Sanctuaire, §6 nonies) |
 
 Le coût d'achat est fixe : il ne dépend d'aucune amélioration (une Mine
 coûte toujours 20, une Caserne toujours 15).
@@ -639,15 +602,21 @@ de l'Église** :
   niveau**
   (`OwnedBuilding.level`), affiché à partir de « Niv. 1 » ; deux bâtiments
   du même type peuvent avoir des niveaux différents ;
-- il s'achète depuis la fiche du bâtiment, en préparation seulement
+- il s'achète depuis la fiche du bâtiment, en jeu, sur un bâtiment terminé
   (« Améliorer la mine — N or », « Améliorer — N or » pour les autres ;
-  bouton désactivé si l'or manque). Il n'agit que sur ce bâtiment ;
+  bouton désactivé si l'or manque) ; l'amélioration entre dans la file de
+  production du bâtiment et s'applique au bout de `BUILDING_UPGRADE_SECONDS`
+  (§6 sexies). Il n'agit que sur ce bâtiment ;
 - prix : base × 2^niveau, la base étant propre au bâtiment
   (`BuildingDef.upgradeGoldCostBase`) : 25 / 50 / 100 / 200… or pour la
-  Mine, 5 / 10 / 20 / 40… pour la Tour et l'Église. La Caserne et le Camp
-  d'archerie n'ont qu'**une** amélioration, Niv. 1 → Niv. 2 pour 20 or
-  (`BuildingDef.maxUpgradeLevel`) ; elle n'ajoute ni PV ni autre bonus.
-  Indépendant du prix des améliorations d'unités à la Forge ;
+  Mine, 5 / 10 / 20 / 40… pour la Tour, l'Église et le Sanctuaire. La
+  Caserne n'a qu'**une** amélioration, Niv. 1 → Niv. 2 pour 20 or
+  (`BuildingDef.maxUpgradeLevel`), qui ouvre la production de l'Homme
+  d'armes sans ajouter de PV. Le **Camp d'archerie n'est plus améliorable**
+  depuis le 2026-11-04 : son Niv. 2 ne faisait que doubler le quota « par
+  manche », disparu ; « Camp d'archerie Niv. 2 » est à redéfinir en Pass 2
+  (`KNOWN_ISSUES.md` KI-69). Indépendant du prix des améliorations
+  d'unités à la Forge ;
 - un niveau qui augmente les PV max (Tour, Église) augmente aussi les PV actuels du
   même écart : les PV manquants restent les mêmes ;
 - le niveau suit le bâtiment d'une vague à l'autre, et disparaît avec lui
@@ -669,35 +638,30 @@ Production de la Mine (Survie en temps réel, 2026-11-02) :
 - un chantier de Mine ne produit rien ; jamais dans « Tester le
   scénario » ; une Mine détruite s'arrête aussitôt.
 
-Production de la Caserne et du Camp d'archerie :
+Production de la Caserne, du Camp d'archerie et des autres bâtiments de
+recrutement (Sanctuaire, Église, Écurie, Auberge) :
 
-- **Une fois par manche** : au début de chaque bataille, chaque bâtiment
-  reçoit la liste d'unités de son niveau (`UnitProductionConfig.unitsByLevel`),
-  produite dans l'ordre, gratuitement, dès que possible :
-  - Caserne : **1 Piquier** au Niv. 1, **1 Piquier puis 1 Fantassin** au
-    Niv. 2 (2026-11-01) ;
-  - Camp d'archerie : 1 Archer au Niv. 1, 2 au Niv. 2.
-
-  Aucun minuteur, aucune production répétée Aucun minuteur, aucune production répétée
-  pendant la bataille. Chaque bâtiment produit son propre quota.
-- **Population** : le quota est limité aux places libres ; ce qui manque
-  attend et réessaie pendant la bataille (une mort libère une place).
-  L'ordre est gardé : une Caserne Niv. 2 avec une seule place produit le
-  Piquier, le Fantassin attend. Un
-  quota non produit à la fin de la bataille est perdu, sans cumul.
-- **Cases** : les unités apparaissent sur des cases libres autour de
-  l'emprise, les plus avancées vers le champ de bataille d'abord ; si
-  toutes sont occupées, le quota attend une case libre.
-- **Lot partiel, volontaire** : un Camp Niv. 2 (quota 2) avec une seule
-  place produit 1 Archer et garde l'autre en attente. Plusieurs bâtiments
-  se servent dans l'ordre stable des entités (ordre d'achat) : avec une
-  seule place, la Caserne achetée en premier produit, le Camp attend la
-  prochaine place libérée.
-- **Bonus** : les unités produites reçoivent les mêmes bonus qu'une unité
-  achetée : talents, et niveau de production courant **au moment de leur
+- **Une seule règle depuis le 2026-11-04** : la **file de production
+  payée** de la fiche du bâtiment (§6 sexies, `World.queueProduction`,
+  `sim/systems/buildingProduction.ts`). Chaque ordre coûte l'or de l'unité
+  (coût de son niveau de production, §14) et dure `data/production.ts`
+  secondes ; au plus `PRODUCTION_QUEUE_MAX` ordres par bâtiment ; une
+  annulation rend l'or. Même règle en jeu et dans « Tester le scénario ».
+- **Retiré** : l'ancien quota gratuit « par manche » (`unitsByLevel`,
+  `unitsProducedPerWave`, « 1 Piquier par manche », « En attente : N »)
+  n'existe plus, ni dans le code ni dans les fiches (`DESIGN_DECISIONS.md`
+  G40). Plus aucune unité n'apparaît gratuitement au début d'une vague.
+- **Population et cases** : une unité dont la durée est écoulée attend
+  une place de population libre et une case libre autour de l'emprise
+  (les plus avancées vers le champ de bataille d'abord) ; elle sort dès
+  que les deux sont réunies. Les bâtiments se servent dans l'ordre stable
+  des entités.
+- **Bonus** : les unités produites reçoivent les mêmes bonus qu'avant :
+  talents, et niveau de production courant **au moment de leur
   apparition** (§14).
-- **Comportement** : ils passent directement en Garde, sans pas
-  d'ouverture (§2).
+- **Comportement** : elles passent directement en Garde, sans pas
+  d'ouverture (§2), ou marchent vers le point de ralliement s'il existe
+  (§6 sexies).
 - **Persistance** : ils **ne rejoignent pas** l'armée qui persiste entre les
   vagues.
 - **Modèles** : `blue_barracks` et `blue_archeryrange` (KayKit), ajustés à
@@ -727,9 +691,9 @@ pour rester à la hauteur de la Caserne et de la tour de la Baliste) :
 
 Soin de l'Église (modèle `blue_church`, ajusté à l'emprise 2 × 2) :
 
-- **Action** « Soigner l'armée — N or » sur sa fiche, **en préparation
-  uniquement** (en bataille, la fiche indique « En préparation
-  uniquement », sans bouton) : rend à toutes les unités possédées du joueur
+- **Action** « Soigner l'armée — N or » sur sa fiche, en jeu, sur une
+  Église terminée (2026-11-04 ; « en préparation uniquement » avant) :
+  rend à toutes les unités vivantes du joueur
   leurs PV manquants, jusqu'au maximum propre à chacune (niveau de
   production compris). Jamais les bâtiments, la Baliste ni les ennemis.
 - **Coût** : `ceil(PV manquants de toute l'armée / efficacité)`, avec
@@ -740,16 +704,15 @@ Soin de l'Église (modèle `blue_church`, ajusté à l'emprise 2 × 2) :
   si l'or manque ; « Armée déjà au maximum », désactivé, si personne n'est
   blessé (aucun or dépensé). Plusieurs Églises ne cumulent rien : chacune
   soigne avec sa propre efficacité.
-- **Améliorations** : depuis le 2026-11-03, les parchemins sont au
-  **Sanctuaire** (« Parchemins du Sanctuaire », §6 nonies) ; l'Église n'a
-  plus d'écran d'améliorations.
-- **Recrutement** : posséder au moins une Église débloque le recrutement
-  de l'Oracle et du Vengeur (§4) ; le Mage est au Sanctuaire.
+- **Améliorations** : l'Église n'a plus d'écran d'améliorations (parchemins
+  passés au Sanctuaire le 2026-11-03, puis retirés le 2026-11-04, §9).
+- **Production** : l'Église produit l'Oracle et le Vengeur (§4) ; le Mage
+  est au Sanctuaire.
 - Une Église détruite disparaît de la run comme les autres bâtiments.
 
 La Forge (modèle `blue_blacksmith`) est un vrai bâtiment : ciblable,
 destructible, collidable. Elle n'a ni production ni revenu ; toutes les
-Forges ouvrent la **même** boutique d'améliorations, sans bonus par
+Forges ouvrent le **même** écran d'améliorations (§14), sans bonus par
 exemplaire. Elle n'améliore plus la Mine ni la Caserne. Si toutes les Forges sont détruites, les améliorations déjà
 achetées restent actives, mais aucun nouvel achat n'est possible tant
 qu'une Forge n'est pas reconstruite.
@@ -1126,11 +1089,10 @@ horizon) derrière la carte ronde ; même rendu dans l'éditeur.
   rend leurs PV aux unités vivantes ;
 - **menu Construire** : un clic gauche sur le terrain le ferme, sans rien
   faire d'autre (2026-11-02) ;
-- **Boutique globale** : absente de la Survie (bouton masqué) ; parchemins
-  et achat d'unités ne passent plus par elle (voir `ROADMAP.md` §6 quater) ;
-- **inventaire** (6 emplacements) et encart **« AUTO BALISTE — prête »** :
-  masqués en Survie (2026-11-02) ; l'encart de la Baliste reste dans
-  « Tester le scénario » ;
+- **Boutique globale** et **inventaire de parchemins** : supprimés du code
+  le 2026-11-04 (§8, §9 ; masqués en Survie depuis le 2026-11-02) ;
+- encart **« AUTO BALISTE — prête »** : masqué en Survie (2026-11-02) ;
+  il reste dans « Tester le scénario » ;
 - **Baliste en mode AUTO** : n'acquiert et ne garde que des cibles **vues**
   par le camp du joueur (vision gameplay `sim/vision.ts`, mêmes rayons que
   le brouillard, positions simulées). Sa vision (18) égale sa portée (18).
@@ -1485,9 +1447,10 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   l'autre ; une destruction ne change aucune autre Maison.
 - **Sanctuaire** (`blue_shrine`, 2 × 2) : producteur standard (chantier,
   file de 5, ralliement, amélioration Niv. 2 par la file, réparation, terre
-  battue). Produit le **Mage** (retiré de l'Église) ; « Parchemins du
-  Sanctuaire » ouvre les améliorations de run des parchemins (soin, Nova de
-  glace, Ombre ; avant : à l'Église).
+  battue). Produit le **Mage** (retiré de l'Église). Le bouton
+  « Parchemins du Sanctuaire » et ses améliorations de run (soin, Nova de
+  glace, Ombre) ont été retirés le 2026-11-04 avec les parchemins (§9) ;
+  son amélioration Niv. 2 (+5 PV) reste, provisoire.
 - **Église** : soin de l'armée, Oracle et Vengeur (inchangés).
 - **Écurie** (`blue_stables`, 3 × 3) : producteur standard ; produit le
   **Cavalier léger** (unité `cavalier` existante, 15 or, 12 s) ;
@@ -1763,10 +1726,10 @@ valeurs **provisoires**) :
 Sources : `run/runState.ts`, `run/talentEffects.ts`, `run/runUpgrades.ts`,
 `main.ts`.
 
-L'Or est la **monnaie principale** de la run. Il sert à recruter des unités,
-acheter des parchemins, construire des bâtiments et acheter des
-améliorations (Forge §14, Mine et Caserne §6). Bois et pierre s'y ajoutent
-pour les bâtiments (§6 bis).
+L'Or est la **monnaie principale** de la run. Il sert à produire des
+unités (§6 sexies), construire des bâtiments (§6 bis) et acheter des
+améliorations (Forge §14, fiche des bâtiments §6). Bois et pierre s'y
+ajoutent pour les bâtiments (§6 bis, §6 undecies).
 
 Gains :
 
@@ -1775,74 +1738,45 @@ Gains :
   guerre ;
 - **Mines** : une tranche toutes les 60 s de simulation par Mine terminée,
   sans plafond (§6) ;
-- **victoire** : +5 (`WAVE_CLEAR_BONUS`) ; rien à la défaite ;
-- **ventes** d'unités.
+- **vague repoussée** : +5 (`WAVE_CLEAR_BONUS`) ; rien à la défaite ;
+- **or de gisement** extrait et déposé au Camp de mineur (§6 undecies) ;
+- **annulation** d'une production en file : or rendu (§6 sexies).
 
-Revente d'unités (phase de placement uniquement) :
-
-- **Geste** : glisser une unité ou un groupe vers « Vendre », ou cliquer sur
-  « Vendre » pour vendre la sélection.
-- **Barème** : `KILL_REWARD`.
-- **Avec le talent Recyclage** : une unité sous 50 % de ses PV maximum
-  rapporte `round(3 × coût)` au lieu du barème normal, où le coût est
-  celui du niveau de production de l'unité vendue. Les unités concernées
-  sont surlignées en jaune.
+Il n'y a plus de revente d'unités depuis le 2026-11-04 (§8).
 
 Tous les montants d'or sont arrondis au dixième (`roundGold`).
 
 ## 8. Boutique de run
 
-> **Legacy depuis le 2026-11-01** : la Survie en temps réel continu n'ouvre
-> plus la Boutique (§6 bis). Le code reste, pour la conversion à venir.
+**Retirée le 2026-11-04** (passe de modernisation 1, `DESIGN_DECISIONS.md`
+G40). Il n'existe plus de Boutique (onglets Unités / Bâtiments /
+Parchemins, achat ×1 / ×5, « Annuler le dernier achat », « Vendre »,
+bouton « +100 or (debug) »). Ce qu'elle vendait passe par :
 
-Sources : `ui/screens.ts`, `main.ts` (`buyUnit`, `buyUnitFive`,
-`buyConsumable`, `undoLastUnitPurchase`).
+- les **unités** : la file de production payée de chaque bâtiment
+  (§6 sexies) ;
+- les **bâtiments** : le menu **Construire** du temps réel (§6 bis) ;
+- les **améliorations** : la fiche du bâtiment (§6) ou la Forge (§14).
 
-- **Accès** : la boutique s'ouvre automatiquement au début de chaque
-  placement, et reste disponible via le bouton « Boutique ».
-- **Onglets** : Unités, Bâtiments, Parchemins de bataille.
-- **Unités** :
-  - achat ×1, ou ×5 (achète jusqu'à 5 exemplaires tant que l'or suffit) ;
-  - une unité achetée pendant le placement est utilisable immédiatement ;
-  - « Annuler le dernier achat » rembourse le dernier achat d'unité (un seul
-    niveau d'annulation).
-- **Parchemins** : achat ×1 ou ×5. L'achat est tout-ou-rien : l'or **et** la
-  place en inventaire doivent suffire.
+Il n'y a plus de revente d'unités.
 
 ## 9. Inventaire et parchemins de bataille
 
-Sources : `data/items.ts`, `run/runState.ts` (`INVENTORY_CAPACITY`,
-`canAddItemToInventory`), `run/healScrollUpgradeEffects.ts`,
-`run/iceNovaUpgradeEffects.ts`, `main.ts`.
+**Retirés le 2026-11-04** (G40) : les parchemins de bataille (Parchemin de
+soin mineur, Nova de glace), l'inventaire de 12 emplacements de la run
+(`RunState.inventory`, `INVENTORY_CAPACITY`), la barre d'inventaire du
+bas de l'écran, l'armement d'un objet au clic, et les primitives de
+simulation qui ne servaient qu'à eux (immobilisation par la Nova, zones
+persistantes du Blizzard, projectiles d'ombre des Soins excédentaires).
 
-- **Capacité** : 12 emplacements. Les objets identiques s'empilent
-  (`maxStack` : 10 pour le soin, 3 pour la Nova) ; un emplacement contient
-  une pile.
-- **Utilisation** : cliquer sur l'emplacement arme l'objet, puis un clic
-  cible. Échap ou clic droit désarme sans consommer.
-- **Raccourcis 1 à 6** : les six emplacements de la première ligne (numéro
-  dans leur coin, vides compris) répondent aux touches du rang supérieur du
-  clavier (`KeyboardEvent.code` `Digit1` à `Digit6`, mêmes touches en
-  AZERTY). Une touche fait exactement comme un clic sur l'emplacement (même
-  vérification de phase) ; un emplacement vide ne fait rien. Ignorées en
-  appui maintenu, avec Maj / Ctrl / Alt, pendant une saisie, dans l'éditeur
-  et quand un écran recouvre le jeu (boutique, Forge, pause, fin de vague).
+Les touches **1 à 6** commandent désormais les **actions du Héros** de son
+encart (§6 bis, `ui/heroHud.ts`). L'**inventaire RPG** du Héros (équipement,
+objets de butin, touche I) est un autre système, conservé (§6 ter).
 
-| Objet | Coût en partie | Utilisable | Effet de base |
-|---|---|---|---|
-| Parchemin de soin mineur | 1 | placement et bataille | Soigne 5 PV à l'unité alliée blessée la plus touchée (en proportion de ses PV max) dans un rayon de 2 autour du clic |
-| Nova de glace | 4 | bataille | Immobilise pendant 4 s les ennemis présents dans un rayon d'environ 2,3 (1,15 × rayon de la Boule de feu) |
-
-Effets liés aux talents :
-
-- **Blizzard** : la Nova de glace crée en plus une zone de 4 s qui inflige 2
-  dégâts par seconde aux ennemis présents.
-- **Aux petits oignons** : quand un allié passe sous 30 % de ses PV maximum,
-  un parchemin de soin de l'inventaire est consommé automatiquement sur lui.
-- **Soins excédentaires** : la part d'un soin qui dépasse le maximum de PV
-  génère des projectiles d'ombre vers des ennemis.
-
-Un parchemin de soin ne cible jamais un bâtiment.
+Le talent Blizzard, les talents Aux petits oignons et Soins excédentaires,
+et les améliorations de parchemins de l'Église puis du Sanctuaire ont
+disparu avec eux (§12, §14). Les sorts du Héros (Soin, Tourbillon) ne
+sont pas concernés (§6 bis, §6 decies).
 
 ## 10. Vagues ennemies
 
@@ -1909,16 +1843,24 @@ ennemis arrivent par groupes :
   apparaît brièvement à chaque arrivée.
 - « Tester le scénario » n'a pas de mini-vagues (ennemis de la carte).
 
-## 11. Arène, territoire et expansion de la carte
+## 11. Arène et territoire (agrandissement retiré)
 
 Sources : `config/maps/survivalArena.ts`, `config/territory.ts`,
-`run/mapExpansion.ts`, `main.ts` (`startNewRun`, `isValidPlacementTile`,
-`rebuildCurrentTerritoryIndex`).
+`main.ts` (`startNewRun`, `isValidPlacementTile`).
 
 Depuis le 2026-11-01, le Mode survie se joue par défaut sur la **carte
-procédurale** (§6 bis : disque de 96 cases, territoire central fixe, sans
-agrandissement). Cette section décrit l'**arène** dessinée, toujours
-accessible par `?map=arena`, sur laquelle E4 reste actif.
+procédurale** (§6 bis : disque de 96 cases, territoire central fixe).
+Cette section décrit l'**arène** dessinée, toujours accessible par
+`?map=arena`.
+
+> **L'agrandissement progressif de la carte (étapes A / B / C, E4) a été
+> retiré du code le 2026-11-04** (`run/mapExpansion.ts` supprimé,
+> `RunState.mapExpansion` disparu, `DESIGN_DECISIONS.md` G40) : aucune
+> carte ne s'agrandit plus, arène comprise. Les paragraphes ci-dessous
+> qui décrivent les étapes A / B / C, `expansionAnchors`, `spawnDepth`
+> après agrandissement ou `offsetForZ` sont **historiques** ; seuls la
+> carte elle-même, son territoire dessiné et la position de la Baliste
+> restent en vigueur.
 
 **Arène du Mode survie**
 
@@ -2361,10 +2303,16 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
 ## 12. Talents
 
 Sources : `data/talents.ts`, `run/metaProgress.ts` (`canUnlockTalent`,
-`resetTalentPoints`).
+`resetTalentPoints`, `REMOVED_TALENT_REFUNDS`, `stripRemovedTalents`).
 
-- **Racine** : **Or de départ** (coût 1). Il doit être débloqué avant tout
-  autre talent.
+**Cinq talents** restent actifs depuis le 2026-11-04 (passe de
+modernisation 1 ; neuf avant). L'architecture de l'arbre (racine, paliers,
+prérequis, exclusivités, branches `economie` / `precision` / `armee`) est
+conservée pour la suite (`ROADMAP.md` L2). Il n'y a pas encore d'arbre
+propre au Paladin.
+
+- **Racine** : **Or de départ** (coût 1, +5 or de départ). Il doit être
+  débloqué avant tout autre talent.
 
 Palier I (coût 1 chacun, débloquables indépendamment les uns des autres) :
 
@@ -2372,22 +2320,21 @@ Palier I (coût 1 chacun, débloquables indépendamment les uns des autres) :
 |---|---|---|
 | Économie | Butin de guerre | +1 or par ennemi tué |
 | Précision | Tir rapide | Voir §5 |
-| Armée | Réflexes de vétéran | +30 % de chance d'esquive pour les Fantassins du joueur |
-| Soigneur | Aux petits oignons | Soin automatique sous 30 % de PV (voir §9) |
-| Glace | Blizzard | Zone de dégâts ajoutée à la Nova de glace (voir §9) |
+| Armée | Réflexes de vétéran | +30 % de chance d'esquive pour les Hommes d'armes du joueur |
 
 Palier II (coût 2, prérequis = le talent de Palier I de la même branche) :
 
 | Talent | Prérequis | Effet |
 |---|---|---|
-| Recyclage | Butin de guerre | Revente améliorée (voir §7) |
 | Mitraillette | Tir rapide | Voir §5 |
-| Soins excédentaires | Aux petits oignons | Projectiles d'ombre (voir §9) |
 
-- **Talent retiré** : « Maître de la forge » (qui divisait le coût en Runes
-  des améliorations) n'existe plus. Une sauvegarde qui l'avait débloqué le
-  perd au chargement et récupère ses 2 points (`REMOVED_TALENT_REFUNDS`,
-  `run/metaProgress.ts`) ; les autres talents sont conservés.
+- **Talents retirés**, remboursés au chargement d'une ancienne sauvegarde
+  (`REMOVED_TALENT_REFUNDS`, appliqué par `stripRemovedTalents` dans
+  `loadMetaProgress`) : « Le temps, c'est de l'argent » (2 points),
+  « Maître de la forge » (2), et depuis le 2026-11-04 « Aux petits
+  oignons » (1), « Blizzard » (1), « Soins excédentaires » (2) et
+  « Recyclage » (2), qui dépendaient des parchemins de bataille ou de la
+  revente d'unités (§8, §9). Les autres talents sont conservés.
 - **Exclusivité** : une exclusivité existe entre talents qui partagent le
   même prérequis ; aucun talent actuel n'est concerné.
 - **Réinitialisation** : « Réinitialiser les talents » rembourse tous les
@@ -2409,67 +2356,63 @@ Autres éléments :
 
 - **Record** : le plus haut numéro de vague atteint est conservé et affiché.
 
-## 14. Améliorations de Forge et d’Église
+## 14. Améliorations de Forge
 
-Sources : `run/runUpgrades.ts` (niveaux, coûts, achat), `data/*Upgrade.ts`,
-`run/*UpgradeEffects.ts`, `ui/screens.ts` (overlay), `main.ts`
-(`openForge`, `purchaseForgeUpgrade`).
+Sources : `run/runUpgrades.ts` (`RUN_UPGRADE_DEFS`, niveaux, coûts, achat),
+`data/unitUpgrades.ts`, `data/ballistaUpgrade.ts`,
+`run/unitUpgradeEffects.ts`, `run/ballistaUpgradeEffects.ts`,
+`ui/screens.ts` (`showForge`, `refreshForge`), `main.ts` (`openForge`,
+`purchaseForgeUpgrade`, `hasForge`).
 
 Les améliorations sont **propres à la run** : niveaux stockés dans
 `RunState.upgrades`, remis à `{}` à chaque nouvelle run, jamais
-sauvegardés. Elles s'achètent en Or, depuis une Forge ou une Église
-(`runUpgradeSite`) : la **Forge** propose la production des unités et la
-Baliste, l'**Église** le Parchemin de soin, la Nova de glace et Soins
-excédentaires. Le bâtiment n'est qu'un point d'accès : les niveaux restent
-ceux de la run, partagés par toutes les Forges ou Églises possédées
-(plusieurs Églises ne permettent aucun achat supplémentaire). La Mine, la
-Caserne, la Tour et l'Église elle-même s'améliorent depuis leur fiche (§6).
+sauvegardés. Elles s'achètent en Or, **en temps réel**, depuis une Forge
+terminée (`BuildingDef.runUpgradeSite: 'forge'`) : production des unités
+(Homme d'armes, Archer, Mage, Sentinelle) et Baliste. Le bâtiment n'est
+qu'un point d'accès : les niveaux restent ceux de la run, partagés par
+toutes les Forges possédées. La Mine, la Caserne, la Tour, l'Église et le
+Sanctuaire s'améliorent depuis leur fiche (§6). Depuis le 2026-11-04,
+aucun autre bâtiment ne vend d'amélioration de run : les cartes de
+parchemins de l'Église puis du Sanctuaire ont été retirées (§9).
 
-- **Accès** : en préparation, sélectionner une Forge possédée puis
-  « Ouvrir la Forge », ou une Église possédée puis « Améliorations de
-  l'Église ». En bataille, ces écrans sont inaccessibles.
-- **Overlay** : même écran pour les deux, titre « Forge » ou « Église »,
-  seules les cartes du bâtiment ouvert ; Or actuel, une carte par amélioration avec
-  son niveau (affiché à partir de 1), ses effets et le coût du niveau
-  suivant. « Retour » ou Échap
-  ramène à la préparation, le bâtiment toujours sélectionné. Pendant
-  l'overlay, « Vendre », « Boutique » et « Prêt pour la bataille » sont
-  masqués.
-- **Achat** : Or débité, niveau +1, effet immédiat (fiches, unités recrutées
-  ensuite, prochaine bataille). Bouton désactivé si l'Or ne suffit pas.
+- **Accès** : sélectionner une Forge possédée et terminée, puis « Ouvrir
+  la Forge » sur sa fiche. Un chantier de Forge n'a pas ce bouton. L'écran
+  met la simulation en **pause** ; « Retour » ou Échap la reprend. (Avant
+  le 2026-11-04, une garde de préparation refusait tout achat en Survie :
+  l'écran s'ouvrait mais aucun achat ne passait ; corrigé par la passe.)
+- **Overlay** (`screen-unit-upgrade-shop`, titre « Forge ») : Or actuel,
+  une carte par amélioration avec son niveau (affiché à partir de 1), ses
+  effets et le coût du niveau suivant. Bouton désactivé si l'Or ne suffit
+  pas.
+- **Achat** : Or débité, niveau +1, effet immédiat (fiches, unités
+  produites ensuite, Baliste à sa prochaine apparition).
 - **Niveau de production des unités** (`data/unitUpgrades.ts`,
   `run/unitUpgradeEffects.ts`) :
   - améliorer une unité à la Forge élève le niveau auquel les **futures**
-    unités de ce type sont produites (boutique, Caserne, Camp d'archerie,
-    Tester le scénario) ;
+    unités de ce type sont produites (files de production, Tester le
+    scénario) ;
   - chaque unité possédée garde à vie le niveau de sa création
     (`OwnedUnit.productionLevel`) : ses PV, dégâts, bouclier et coût en
     dérivent. Une amélioration ne modifie jamais une unité déjà créée, ni
     ses PV actuels ;
-  - chaque niveau augmente aussi le coût de recrutement des futures
+  - chaque niveau augmente aussi le coût de production des futures
     recrues (tableau ci-dessous) ; la population ne change pas ;
   - la carte de la Forge montre le niveau de production, les stats et le
     coût de la prochaine unité, et le gain du niveau suivant.
 - **Coût** (`runUpgradeGoldCost(id, niveau)`) : `7 × 2^niveau` pour les
-  unités (7 / 14 / 28 / 56…) ; 1 / 2 / 4 / 8 / 16… pour la Baliste et les
-  parchemins. Aucun talent ne modifie ce coût.
+  unités (7 / 14 / 28 / 56…) ; 1 / 2 / 4 / 8 / 16… pour la Baliste. Aucun
+  talent ne modifie ce coût.
 - **Plafond** : aucune amélioration n'a de niveau maximum.
-- **Prix** : les améliorations de la Baliste et des parchemins
-  n'augmentent pas le prix de ce qu'elles améliorent ; celles des unités,
-  si (surcoût de recrutement par niveau).
+- **Prix** : l'amélioration de la Baliste n'augmente pas son prix ; celles
+  des unités, si (surcoût de production par niveau).
 
-| Amélioration (accès) | Effet par niveau |
+| Amélioration | Effet par niveau |
 |---|---|
-| Fantassin | +3 PV, +1 attaque ; recrutement +1 or |
-| Archer | +2 PV, +1 attaque ; recrutement +1 or |
-| Mage | +3 PV, +2 Boule de feu ; recrutement +3 or |
-| Sentinelle | +15 PV, +1 bouclier par ennemi provoqué (jamais d'attaque) ; recrutement +10 or |
-| Baliste (Forge) | +20 % de cadence (additif), +10 PV ; +1 dégât tous les 3 niveaux |
-| Parchemin de soin (Église) | +1 PV soigné ; une cible secondaire de plus tous les 3 niveaux (moitié du soin, à 2 cases de la cible) |
-| Nova de glace (Église) | +0,5 s d'immobilisation et de Blizzard ; +1 dégât de Blizzard tous les 3 niveaux |
-| Soins excédentaires (Église) | +0,5 dégât par projectile ; +1 projectile tous les 3 niveaux |
-
-La carte « Soins excédentaires » n'apparaît qu'avec le talent du même nom.
+| Homme d'armes | +3 PV, +1 attaque ; production +1 or |
+| Archer | +2 PV, +1 attaque ; production +1 or |
+| Mage | +3 PV, +2 Boule de feu ; production +3 or |
+| Sentinelle | +15 PV, +1 bouclier par ennemi provoqué (jamais d'attaque) ; production +10 or |
+| Baliste | +20 % de cadence (additif), +10 PV ; +1 dégât tous les 3 niveaux |
 
 ## 15. Sauvegarde : ce qui persiste
 
@@ -2795,7 +2738,8 @@ du menu principal, écran distinct de l'Atelier et de l'éditeur de maps :
   fois 2 » à l'écran, ni dans le HUD joueur ni en mode debug ; la vitesse
   courante se lit dans le détail du compteur FPS.
 - **Bouton « +1 point de talent (debug) »** dans l'écran des talents.
-- **Bouton « +100 or (debug) »** dans la boutique de run.
+- Le bouton « +100 or (debug) » a disparu avec la Boutique (2026-11-04) ;
+  `window.arrowEconomy.set(...)` (§6 quinquies) reste le moyen de debug.
 
 ## 19. Absent ou retiré
 
@@ -2810,16 +2754,25 @@ de la documentation. L'historique des retraits relèvera de
   - la capacité Charge existe dans le code, mais aucune unité ne la possède.
 - **Ennemis** : pas de bâtiments ennemis.
 - **Talents** : « Le temps, c'est de l'argent » n'existe plus (la Mine est un
-  bâtiment acheté), ni « Maître de la forge » (§12). Les points des
-  anciennes sauvegardes sont remboursés.
+  bâtiment acheté), ni « Maître de la forge », ni, depuis le 2026-11-04,
+  « Aux petits oignons », « Blizzard », « Soins excédentaires » et
+  « Recyclage » (§12). Les points des anciennes sauvegardes sont
+  remboursés.
 - **Économie** : plus de Runes, ni de gain de Runes en fin de vague, ni de
   boutique d'amélioration permanente dans le menu principal. Les
   améliorations s'achètent en Or à la Forge et sont propres à la run (§14).
-- **Boutique** : pas d'onglet « Soins » ni de bouton « Soigner une unité » ;
-  le soin passe uniquement par le parchemin.
+- **Boucle en manches** (retirée le 2026-11-04, G40) : plus de phase de
+  placement ni de « Prêt pour la bataille », plus de Boutique de run
+  (achat, ×5, annulation, « Vendre », « +100 or »), plus de parchemins de
+  bataille ni d'inventaire de run, plus d'écran de fin de manche ni de
+  bilan, plus d'agrandissement de la carte, plus de quota de production
+  gratuit « par manche », plus d'améliorations de parchemins à l'Église ou
+  au Sanctuaire, plus de toast « Unité débloquée ». Les HUD d'or et de
+  population séparés, le panneau de placement, les aperçus de placement,
+  la zone « Vendre » et la barre d'inventaire ont disparu avec eux.
 - **Cartes** : pas de succession de cartes prédéfinies distinctes au fil des
-  vagues, ni de choix de carte. Le Mode survie part toujours de la même
-  arène ; seule l'expansion A/B/C la modifie.
+  vagues, ni de choix de carte (carte procédurale par run, §6 bis ; arène
+  par `?map=arena`).
 - **Baliste** : plus de placement manuel de la tour en début de run ; sa
   position vient de la carte (§5).
 - **Sauvegarde** : pas de sauvegarde d'une run en cours.
@@ -2829,4 +2782,7 @@ de la documentation. L'historique des retraits relèvera de
   recharge séparée en bas à droite : un seul HUD de Baliste (§5).
 - **Éditeur** : pas de mode rotation W/E. La rotation se fait par l'anneau
   de sélection et par Ctrl+molette.
-- **Tests** : pas de tests automatisés (voir `ARCHITECTURE.md`, §17).
+- **Tests** : depuis le 2026-11-04, une petite suite existe dans
+  `arrow-tactics/tests/` (`npm run test:sim`, `npm run test:game`,
+  `npm test` ; voir `ARCHITECTURE.md` §17 et `tests/README.md`). Ce
+  n'est pas une couverture complète.

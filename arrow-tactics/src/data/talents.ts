@@ -24,9 +24,19 @@
  * d'Antoine, revient sur le mecanisme "specialisation exclusive et
  * permanente" garde a la passe precedente). Seul le talent universel reste
  * un prerequis des 3 fondateurs.
+ *
+ * PASSE DE MODERNISATION 1 (2026-11-04, decision d'Antoine) : les talents
+ * sans effet dans le Hero RTS temps reel ont ete retires — Aux petits
+ * oignons, Blizzard et Soins excedentaires (ils dependaient des parchemins de
+ * bataille, eux-memes retires) et Recyclage (revente d'unites, retiree avec
+ * la Boutique de run). Les branches Soigneur et Glace disparaissent avec eux.
+ * Les sauvegardes qui les avaient debloques sont remboursees au chargement
+ * (run/metaProgress.ts, REMOVED_TALENT_REFUNDS). Restent les cinq talents
+ * actifs : Or de depart, Butin de guerre, Tir rapide, Mitraillette,
+ * Reflexes de veteran.
  */
 
-export type TalentBranch = 'economie' | 'precision' | 'armee' | 'soigneur' | 'glace';
+export type TalentBranch = 'economie' | 'precision' | 'armee';
 
 export interface TalentDef {
   id: string;
@@ -80,102 +90,13 @@ export const TALENTS: Record<string, TalentDef> = {
     branch: 'armee',
     cost: 1,
   },
-  aux_petits_oignons: {
-    id: 'aux_petits_oignons',
-    name: 'Aux petits oignons',
-    // Talent fondateur de la specialisation Soigneur (2026-08-11, demande
-    // d'Antoine — SEUIL REFONDU le 2026-08-15, demande explicite : "il doit
-    // pouvoir se déclencher lorsque l'allié atteint 30% de ses PV maximum ou
-    // moins", sur FRANCHISSEMENT du seuil, pas a chaque tick sous 30%).
-    // Effet implante en dehors de ce fichier (voir main.ts, la boucle qui
-    // lit world.combatEvents + AUTO_HEAL_TRIGGER_RATIO/belowAutoHealThreshold) :
-    // consomme un VRAI parchemin de soin mineur de l'inventaire (pas un soin
-    // gratuit illimite) des qu'un allie du joueur passe SOUS 30% de ses PV
-    // maximum et survit au coup ; sans effet si l'inventaire n'en contient
-    // aucun. Le montant (5 PV) est ecrit en dur ici comme partout ailleurs
-    // dans ce fichier (ex. tir_rapide) — a corriger a la main si
-    // data/items.ts, heal_scroll_minor change encore de valeur.
-    description:
-      'Quand un allié tombe à 30 % de ses PV maximum ou moins, utilise automatiquement un parchemin de soin mineur sur lui, le soignant de 5 PV (s’il vous en reste un).',
-    branch: 'soigneur',
-    cost: 1,
-  },
-  blizzard: {
-    id: 'blizzard',
-    name: 'Blizzard',
-    // 2026-08-14, demande d'Antoine : talent fondateur (meme palier EXACT
-    // que butin_de_guerre/aux_petits_oignons — cout 1, prerequis "or_depart"
-    // uniquement, 0/1) qui AJOUTE un effet a Nova de glace sans jamais
-    // remplacer son Root (voir main.ts, castIceNova : les deux effets se
-    // declenchent TOUJOURS ensemble une fois le talent debloque, jamais l'un
-    // a la place de l'autre). Le mot "en plus" est volontaire dans la
-    // description — demande explicite d'Antoine, "je ne veux aucune
-    // formulation laissant croire que Nova est remplacée ou transformée".
-    description:
-      'Nova de glace crée en plus un Blizzard pendant 4 secondes. Toutes les secondes, les ennemis présents dans la zone subissent 2 dégâts.',
-    branch: 'glace',
-    cost: 1,
-  },
-  // Premier "palier 2" du jeu (2026-08-14, demande d'Antoine : "ce sont des
-  // points de talents à ajouter pour le palier 2 à la suite de butin de
-  // guerre"). Avait a l'origine un second talent au meme palier ("Le temps,
-  // c'est de l'argent", choix exclusif avec Recyclage) — RETIRE le
-  // 2026-08-17 (demande explicite d'Antoine : la Mine devient un batiment
-  // achetable en boutique de run, plus un talent, voir data/buildings.ts) —
-  // voir run/metaProgress.ts, migrateAwayFromRemovedTalents pour le
-  // remboursement automatique des anciennes sauvegardes qui l'avaient
-  // debloque. Recyclage n'a donc plus aucune exclusivite de fratrie a ce
-  // palier pour l'instant (seul talent avec `requires: 'butin_de_guerre'`) —
-  // un futur second choix de palier 2 pourra le rejoindre sans code
-  // supplementaire (voir le commentaire generique sur `requires` en tete de
-  // fichier).
-  recyclage: {
-    id: 'recyclage',
-    name: 'Recyclage',
-    // Effet implante dans main.ts (sellUnit) : remplace le bareme normal de
-    // vente (KILL_REWARD) par 300% du cout d'achat EFFECTIF (avec ameliorations
-    // permanentes, voir run/unitUpgradeEffects.ts effectivePlayerUnitCost) —
-    // uniquement si l'unite vendue a moins de 50% de ses PV maximum EFFECTIFS
-    // au moment de la vente. La mise en surbrillance jaune des unites
-    // concernees pendant le placement (refreshPlayerPreview) n'a d'effet que
-    // si ce talent est deverrouille.
-    description:
-      'Vendre une unité dont les PV sont sous 50 % de son maximum rapporte 300 % de son coût d’achat au lieu du barème normal. Les unités concernées sont mises en surbrillance jaune pendant le placement.',
-    branch: 'economie',
-    cost: 2,
-    requires: 'butin_de_guerre',
-  },
   // Palier 2 de la branche Precision (2026-08-14, demande d'Antoine) — SEUL
   // talent avec `requires: 'tir_rapide'` pour l'instant, donc aucune
   // exclusivite de fratrie ne s'applique (voir le commentaire generique
   // sur `requires` en tete de fichier) : achetable des que Tir rapide est
   // debloque, independamment de tout le reste. Cout NON precise par
-  // Antoine, choisi par Claude (2, meme convention que le palier 2
-  // Economie ci-dessus) — a ajuster si besoin.
-  // Palier 2 de la branche Soigneur (2026-08-15, demande d'Antoine) — SEUL
-  // talent avec `requires: 'aux_petits_oignons'` pour l'instant, donc aucune
-  // exclusivite de fratrie ne s'applique (meme situation que Mitraillette
-  // ci-dessous). Cout NON precise par Antoine au-dela de "meme convention
-  // que les autres palier 2" — 2, comme Recyclage/Le temps.../Mitraillette.
-  soins_excedentaires: {
-    id: 'soins_excedentaires',
-    name: 'Soins excédentaires',
-    // Effet implante dans main.ts (triggerShadowProjectiles) + sim/systems/
-    // shadowProjectiles.ts : chaque point de soin EXCEDENTAIRE (soin
-    // demande au-dela du plafond de PV max, sur CHACUNE des 3 sources de
-    // soin du joueur — parchemin manuel, declenchement automatique d'Aux
-    // petits oignons, cibles secondaires de l'amelioration du parchemin)
-    // genere un projectile d'ombre reel (vol simule, pas de degats
-    // instantanes) qui inflige 1 degat (base) a un ennemi vivant choisi
-    // aleatoirement, en preferant des cibles distinctes d'un projectile a
-    // l'autre. Sans effet si le soin ne deborde jamais du plafond, ou si
-    // aucun ennemi n'est vivant au moment du calcul.
-    description:
-      'Chaque point de soin excédentaire (au-delà du plafond de PV) génère un projectile d’ombre infligeant 1 dégât à un ennemi aléatoire. Les projectiles préfèrent des cibles distinctes entre elles.',
-    branch: 'soigneur',
-    cost: 2,
-    requires: 'aux_petits_oignons',
-  },
+  // Antoine, choisi par Claude (2, meme convention que l'ancien palier 2
+  // Economie, Recyclage, retire le 2026-11-04) — a ajuster si besoin.
   mitraillette: {
     id: 'mitraillette',
     name: 'Mitraillette',
@@ -213,7 +134,7 @@ export function getTalent(id: string): TalentDef {
  *  buildTalentTree, qui le codait localement) — source UNIQUE, reutilisee
  *  aussi par ui/talentPointToast.ts pour resumer le contenu de l'arbre sans
  *  dupliquer cette liste a un troisieme endroit. */
-export const TALENT_BRANCH_ORDER: TalentBranch[] = ['economie', 'precision', 'armee', 'soigneur', 'glace'];
+export const TALENT_BRANCH_ORDER: TalentBranch[] = ['economie', 'precision', 'armee'];
 
 /** Le talent "fondateur" de chaque branche, dans TALENT_BRANCH_ORDER — un
  *  seul par branche aujourd'hui (voir TALENTS), leve si une branche listee
@@ -227,7 +148,7 @@ export function listFounderTalents(): TalentDef[] {
 }
 
 /** Talents dont `requires` pointe vers `id` (2026-08-14, premier "palier 2"
- *  — voir Recyclage/Le temps c'est de l'argent) — utilisee par
+ *  — voir Mitraillette) — utilisee par
  *  ui/screens.ts pour empiler les talents dependants sous leur parent dans
  *  l'arbre, generique a n'importe quel talent (pas seulement les
  *  fondateurs) : une future branche a plusieurs niveaux fonctionnera sans

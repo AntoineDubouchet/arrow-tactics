@@ -24,34 +24,12 @@ export type PositionResolver = (entity: Entity) => { x: number; z: number };
 export type HealthBarFilter = (entity: Entity) => boolean;
 
 /** Un seul emplacement DOM par barre de PV — voir createBar. Regroupe les
- *  references dont sync()/syncPlacement() ont besoin a CHAQUE frame, pour ne
- *  jamais re-parcourir le DOM (`querySelector`) comme avant ce refonte. */
+ *  references dont sync() a besoin a CHAQUE frame, pour ne jamais
+ *  re-parcourir le DOM (`querySelector`) comme avant ce refonte. */
 interface HealthBarRefs {
   bar: HTMLElement;
   fillEl: HTMLElement;
   shieldFill: HTMLElement;
-}
-
-/** Ce dont syncPlacement a besoin d'un emplacement de placement — pas une
- *  Entity complete (aucune n'existe encore avant le debut de la bataille). */
-export interface PlacementHpSubject {
-  unitId: string;
-  x: number;
-  z: number;
-  hp: number;
-  /** PV maximum de CETTE unite (niveau de production compris). */
-  maxHp: number;
-}
-
-/** Bâtiment (Mine, Caserne, Forge, Baliste) en phase de placement : aucune
- *  Entity non plus, l'appelant fournit PV, plafond et gabarit de BuildingDef. */
-export interface PlacementBuildingHpSubject {
-  x: number;
-  z: number;
-  hp: number;
-  maxHp: number;
-  radius: number;
-  hpBarHeight: number;
 }
 
 /**
@@ -68,20 +46,10 @@ export class CombatOverlay {
    *  HealthBarRefs. Remplace l'ancienne paire pipBars/shieldFills (2026-08-14,
    *  refonte largeur clampee) : un seul Map, une seule recherche par entite. */
   private readonly healthBars = new Map<number, HealthBarRefs>();
-  /** Barres de PV de la phase de PLACEMENT (demande d'Antoine, 2026-08-09:
-   *  le joueur doit voir l'etat de sante de son armee avant de valider, pas
-   *  seulement pendant la bataille) — reconstruites entierement a chaque
-   *  appel plutot que mises en cache par id comme healthBars : l'ordre/le
-   *  nombre d'unites peut changer d'un appel a l'autre (vente, achat) pendant
-   *  le placement, un id base sur l'index serait instable. Le nombre d'unites
-   *  reste petit, la simplicite l'emporte sur la reutilisation d'elements DOM
-   *  (meme logique que playerPreview, reconstruit en entier a chaque
-   *  refreshPlayerPreview). */
-  private readonly placementPipBars: HTMLElement[] = [];
   private readonly scratch = new THREE.Vector3();
-  /** Taille du canvas, mise en cache UNE FOIS par appel a sync()/syncPlacement()
-   *  plutot que relue a chaque entite dans project() — voir le correctif de
-   *  performance ci-dessous. */
+  /** Taille du canvas, mise en cache UNE FOIS par appel a sync() plutot que
+   *  relue a chaque entite dans project() — voir le correctif de performance
+   *  ci-dessous. */
   private canvasWidth = 0;
   private canvasHeight = 0;
 
@@ -190,46 +158,6 @@ export class CombatOverlay {
     }
   }
 
-  /** Barres de PV pendant la phase de placement — voir placementPipBars.
-   *  Le PLAFOND de PV d'une unite JOUEUR depend de son niveau de production
-   *  (voir run/unitUpgradeEffects.ts) — ce module ne connait pas ce systeme,
-   *  il recoit le nombre deja calcule par l'appelant (main.ts) dans chaque
-   *  sujet, meme principe que `resolvePosition` ci-dessus. `buildings` :
-   *  bâtiments du joueur a afficher, reconstruits de la meme facon.
-   *  L'appelant ne passe que les sujets dont la barre doit etre visible. */
-  syncPlacement(slots: PlacementHpSubject[], buildings: PlacementBuildingHpSubject[] = []): void {
-    this.refreshCanvasSize();
-    for (const bar of this.placementPipBars) bar.remove();
-    this.placementPipBars.length = 0;
-
-    for (const slot of slots) {
-      const maxHp = slot.maxHp;
-      const barHeight = getUnit(slot.unitId).visual.hpBarHeight ?? HP_BAR_WORLD_HEIGHT;
-      const screen = this.project(slot.x, barHeight, slot.z);
-      if (!screen) continue;
-
-      // Pas de Shield pendant le placement (aucune Entity n'existe encore,
-      // voir PlacementHpSubject — le Shield ne peut exister qu'en bataille).
-      const { bar, fillEl } = this.createBar(maxHp, getUnit(slot.unitId).stats.radius, 'player');
-      bar.style.left = `${screen.x}px`;
-      bar.style.top = `${screen.y}px`;
-      this.updateFill(fillEl, slot.hp, maxHp);
-      this.root.appendChild(bar);
-      this.placementPipBars.push(bar);
-    }
-
-    for (const building of buildings) {
-      const screen = this.project(building.x, building.hpBarHeight, building.z);
-      if (!screen) continue;
-      const { bar, fillEl } = this.createBar(building.maxHp, building.radius, 'player');
-      bar.style.left = `${screen.x}px`;
-      bar.style.top = `${screen.y}px`;
-      this.updateFill(fillEl, building.hp, building.maxHp);
-      this.root.appendChild(bar);
-      this.placementPipBars.push(bar);
-    }
-  }
-
   /** Fait apparaitre le texte "rate" au-dessus d'un point du plateau. */
   spawnMissText(x: number, z: number): void {
     this.spawnFloatingText(x, z, 'miss-text', 'raté');
@@ -249,18 +177,13 @@ export class CombatOverlay {
     this.spawnFloatingText(x, z, 'fire-text', `🔥${String(amount).replace('.', ',')}`);
   }
 
-  /** Texte flottant "+N" au-dessus d'une unite soignee (objet d'inventaire,
-   *  voir main.ts useArmedItemOnClick) — meme retour que spawnMissText, pour
-   *  confirmer l'effet meme quand le gain est trop petit pour deplacer la
-   *  barre de PV (1 pip = HP_PER_PIP, un soin plus fin que ca ne change
-   *  souvent rien a l'affichage bien qu'il s'applique correctement). */
-  /** `secondary` (2026-08-13, boutique d'amelioration "Parchemin de soin") :
-   *  variante VISUELLEMENT plus discrete (voir .heal-text--secondary) pour
-   *  les cibles secondaires d'un soin en chaine — la cible principale garde
-   *  le retour normal, point 29 de la demande : "légèrement plus petit /
-   *  discret", jamais un gros effet identique repete pour chaque allie. */
-  spawnHealText(x: number, z: number, amount: number, secondary = false): void {
-    this.spawnFloatingText(x, z, secondary ? 'heal-text heal-text--secondary' : 'heal-text', `+${amount}`);
+  /** Texte flottant "+N" au-dessus d'une unite soignee (Soin de l'Oracle ou
+   *  du Heros, voir main.ts) — meme retour que spawnMissText, pour confirmer
+   *  l'effet meme quand le gain est trop petit pour deplacer la barre de PV
+   *  (1 pip = HP_PER_PIP, un soin plus fin que ca ne change souvent rien a
+   *  l'affichage bien qu'il s'applique correctement). */
+  spawnHealText(x: number, z: number, amount: number): void {
+    this.spawnFloatingText(x, z, 'heal-text', `+${amount}`);
   }
 
   /** Texte flottant "+N or" au-dessus d'une unite ENNEMIE qui vient d'etre
@@ -297,7 +220,6 @@ export class CombatOverlay {
 
   clear(): void {
     this.healthBars.clear();
-    this.placementPipBars.length = 0;
     this.root.innerHTML = '';
   }
 

@@ -2,28 +2,30 @@ import { getBuilding } from '../data/buildings';
 import { isBuildingBuilt, roundGold, spendGold, type OwnedBuilding, type RunState } from './runState';
 
 /**
- * Ameliorations PAR BATIMENT : chaque Mine, Caserne, Camp d'archerie,
- * Tour et Eglise a son propre
- * niveau (OwnedBuilding.level, interne, 0 = aucune amelioration), achete
- * depuis la fiche de CE batiment pendant la preparation. Ce n'est plus une
- * amelioration globale de la Forge : deux Mines peuvent avoir des niveaux
- * differents. Effets : run/mineUpgradeEffects.ts, run/buildingUpgradeEffects.ts
- * (PV et degats de la Tour), data/buildings.ts (unitsProducedPerWave pour la
- * production de la Caserne et du Camp d'archerie). Independant du
- * prix des ameliorations d'unites a la Forge.
+ * Ameliorations PAR BATIMENT : chaque Mine, Caserne, Tour, Eglise,
+ * Sanctuaire et Ecurie a son propre niveau (OwnedBuilding.level, interne,
+ * 0 = aucune amelioration), achete depuis la fiche de CE batiment en jeu
+ * (producteurs : par la file de production, avec une duree ; les autres :
+ * tout de suite). Ce n'est pas une amelioration globale de la Forge : deux
+ * Mines peuvent avoir des niveaux differents. Effets :
+ * run/mineUpgradeEffects.ts, run/buildingUpgradeEffects.ts (PV et degats de
+ * la Tour), data/buildings.ts (RecruitmentUnlockConfig.minLevels : l'Homme
+ * d'armes a la Caserne Niv. 2). Independant du prix des ameliorations
+ * d'unites a la Forge. Le Camp d'archerie n'est plus ameliorable (2026-11-04,
+ * son Niv. 2 n'avait plus d'effet ; a redefinir en Pass 2).
  */
 
 /** Croissance du prix : x2 a chaque niveau. Le prix du premier niveau est
  *  propre a chaque batiment (BuildingDef.upgradeGoldCostBase : Mine 25,
- *  Caserne et Camp d'archerie 20, Tour 5). */
+ *  Caserne 20, Tour 5). */
 const BUILDING_UPGRADE_GOLD_COST_GROWTH = 2;
 
 export function isUpgradableBuilding(buildingId: string): boolean {
   return getBuilding(buildingId).upgradeGoldCostBase !== undefined;
 }
 
-/** Vrai quand le batiment a atteint BuildingDef.maxUpgradeLevel (Caserne et
- *  Camp d'archerie : Niv. 2) ; jamais pour un batiment sans plafond. */
+/** Vrai quand le batiment a atteint BuildingDef.maxUpgradeLevel (Caserne,
+ *  Sanctuaire, Ecurie : Niv. 2) ; jamais pour un batiment sans plafond. */
 export function isBuildingAtMaxLevel(buildingId: string, level: number): boolean {
   const max = getBuilding(buildingId).maxUpgradeLevel;
   return max !== undefined && level >= max;

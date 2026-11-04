@@ -26,11 +26,10 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-02 | Placement en jeu sans test direct des cellules | Dette (atténuée) |
 | KI-03 | Bâtiment potentiellement inatteignable | À vérifier |
 | KI-04 | Contrat implicite « ordre de spawn = ordre de l'armée » | Dette |
-| KI-09 | Descriptions de talents aux valeurs codées en dur | Dette |
-| KI-10 | Commentaire inexact du bouton d'achat ×5 | Dette |
+| KI-09 | Descriptions de talents aux valeurs codées en dur | Dette (réduite à 2 talents) |
 | KI-11 | Nom trompeur `MAGE_UNLOCK_WAVE` | Dette |
 | KI-12 | Sens implicite du « record de vague » | Dette |
-| KI-15 | Aucune suite de tests automatisée | Dette |
+| KI-15 | Aucune suite de tests automatisée | Corrigé en partie (2026-11-04 : `tests/`, `npm test`) |
 | KI-16 | Assets inutilisés copiés dans le build | Confirmé (mesuré) |
 | KI-20 | Validation partielle des positions dans l'éditeur | Dette |
 | KI-21 | Justificatifs de provenance et de droits des assets non archivés | Dette |
@@ -38,7 +37,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-23 | Raycast sur un modèle animé avant son premier rendu | Dette |
 | KI-24 | Espace réactive le bouton qui a gardé le focus | Confirmé (éditeur) / Corrigé en jeu pour Espace |
 | KI-26 | Arbres et props pivotent autour de l'origine de leur modèle | Dette (lecture du code) |
-| KI-27 | L'agrandissement de run ne déplace ni le relief ni les surfaces | Confirmé (mesuré, arène candidate) |
+| KI-27 | L'agrandissement de run ne déplace ni le relief ni les surfaces | Sans objet (agrandissement retiré le 2026-11-04, G40) |
 | KI-28 | Faces de raccord sombres aux coins d'un bord qui change de niveau | Confirmé (rendu par défaut ; absent de `?relief=`) |
 | KI-29 | Lave peignable mais franchissable (eau corrigée le 2026-11-01) | Limite assumée (lave : rendu seulement) |
 | KI-30 | Cadence d'attaque allongée d'un pas par l'arrondi flottant | Confirmé (mesuré) |
@@ -70,6 +69,9 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-62 | Tourbillon : rotation du modèle entier (5 tours/s), sans clip dédié (arme et jambes figées dans le clip courant) ; VFX procédural provisoire (arcs, cercle de zone) | Limite assumée (prototype) |
 | KI-64 | Villageois : clips Spearman, estoc en guise de coup de hache / pioche ; ramassage et dépôt sur la pose de repos, sans geste de travail dédié | Limite assumée (assets) |
 | KI-66 | Pathfinding : la grille A* ignore le rayon des corps ; un passage d'une case (posé à la main dans l'éditeur : gisement, arbre, baril contre un obstacle ou une falaise) paraît praticable et le Héros y oscille ; le générateur n'en produit plus (G39) | Limite assumée |
+| KI-67 | Déblocage par victoire (Mage, Sentinelle) enregistré mais plus consommé depuis le retrait de la Boutique | Dette (Pass 2, décision d'Antoine) |
+| KI-68 | Pas d'ouverture d'une case au démarrage de la Survie (`openBattleWithFormationStep`), héritage des manches | Dette (décision d'Antoine) |
+| KI-69 | Camp d'archerie Niv. 2 sans effet possible : bâtiment rendu non améliorable, niveau à redéfinir | À faire (Pass 2) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
@@ -81,7 +83,8 @@ la Palissade V2 est au menu Construire du temps réel, à tout angle ;
 KI-61, Villageois avec son propre modèle, ses outils et son sac depuis le
 2026-11-03, G32 ; KI-63, piles de ressources retirées de l'inventaire RPG le
 2026-11-03, G33 ; KI-65, passages d'une case des cartes générées supprimés le
-2026-11-04, G39 : `camp.mts` et `camp-boucle.cjs` repassent).
+2026-11-04, G39 : `camp.mts` et `camp-boucle.cjs` repassent ; KI-10,
+`buyUnitFive` supprimé avec la Boutique le 2026-11-04, G40).
 
 Retirées lors de la refonte de l'éditeur, résolues côté code :
 
@@ -234,10 +237,13 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 ### KI-27 — L'agrandissement de run ne déplace ni le relief ni les surfaces
 
-- **Statut** : Confirmé, mesuré sur l'arène candidate
-  (`config/maps/islandArena.ts`) avec les fonctions du jeu
-  (`applyMapExpansionStep`, `run/mapExpansion.ts`). Sans effet sur l'arène
-  officielle actuelle, plate et sans surface peinte.
+- **Statut** : **Sans objet depuis le 2026-11-04** : l'agrandissement a été
+  retiré du code (`run/mapExpansion.ts` supprimé, `DESIGN_DECISIONS.md`
+  G40). L'entrée reste pour mémoire, au cas où un agrandissement serait
+  réintroduit depuis l'historique Git. Avant : Confirmé, mesuré sur
+  l'arène candidate (`config/maps/islandArena.ts`) avec les fonctions du
+  jeu (`applyMapExpansionStep`). Sans effet sur l'arène officielle, plate
+  et sans surface peinte.
 - **Cause** : `expandedMap` transforme `cells`, `territory`, décors et
   unités, mais recopie `elevationCells`, `reliefLogic` et `surfaceCells`
   sans les déplacer (`EDITOR.md`, « Surfaces et agrandissement de run »).
@@ -273,6 +279,46 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   dans sa période réelle.
 - **Piste** : comparer à une tolérance (`attackTimer > 1e-9`). Cela changerait
   le rythme de combat existant (Fantassin), donc à décider avec Antoine.
+
+### KI-67 — Déblocage par victoire enregistré mais sans consommateur
+
+- **Statut** : Dette (2026-11-04, passe de modernisation 1).
+- **Écart** : `registerEnemyDefeat` / `defeatedEnemyUnitIds` /
+  `canPlayerRecruitUnit` (`run/metaProgress.ts`, `playerUnlockMode:
+  'defeatEnemy'` du Mage et de la Sentinelle) sont toujours alimentés et
+  sauvegardés, mais plus rien ne les lit depuis le retrait de la Boutique :
+  le Mage se produit au Sanctuaire sans condition ; aucun bâtiment ne
+  produit la Sentinelle.
+- **Impact actuel** : aucun en jeu ; le toast « Unité débloquée » a été
+  retiré pour ne pas annoncer un déblocage sans effet.
+- **Piste** : Pass 2, décision d'Antoine (`DESIGN_DECISIONS.md` C4) :
+  brancher le déblocage sur les files de production, ou le retirer.
+
+### KI-68 — Pas d'ouverture au démarrage de la Survie (héritage)
+
+- **Statut** : Dette (2026-11-04).
+- **Écart** : `startSurvivalWorld` appelle encore
+  `openBattleWithFormationStep` (`main.ts`) : les unités présentes au
+  démarrage (deux Villageois) font un pas d'une case « vers l'ennemi » puis
+  passent en Garde, règle du début de bataille en manches
+  (`DESIGN_DECISIONS.md` B5). Conservé pour ne pas changer le résultat
+  visible pendant la passe.
+- **Impact actuel** : un pas des Villageois au lancement, sans conséquence.
+- **Piste** : décision d'Antoine ; retirer l'appel (et sans doute B5 pour
+  la Survie) ou le garder pour « Tester le scénario » seulement.
+
+### KI-69 — Camp d'archerie Niv. 2 à redéfinir
+
+- **Statut** : À faire (Pass 2).
+- **Écart** : l'amélioration du Camp d'archerie ne faisait que porter son
+  quota « par manche » de 1 à 2 Archers ; le quota retiré, le niveau
+  n'aurait eu aucun effet. Le bâtiment a été rendu **non améliorable**
+  (`upgradeGoldCostBase` et `maxUpgradeLevel` retirés) plutôt que de vendre
+  un niveau vide.
+- **Impact actuel** : pas de bouton « Améliorer » sur le Camp d'archerie ;
+  la Caserne garde son Niv. 2 (production de l'Homme d'armes).
+- **Piste** : lui donner un effet réel (PV, vitesse de production, unité
+  supplémentaire…) en Pass 2.
 
 ## B. Éditeur de maps
 
@@ -578,7 +624,7 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 - **Statut** : à faire si besoin (2026-11-02).
 - **Constat** : dans l'éditeur, une porte ne se retire pas seule et une
   ligne ne se modifie pas en partie (déplacer A ou B) : il faut la
-  supprimer et la retracer. Le mode Préparation (legacy) n'a plus aucun mur.
+  supprimer et la retracer.
 
 ### KI-58 — Gisements bloquants sur les cartes existantes
 
@@ -658,29 +704,15 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 - **Statut** : Dette.
 - **Risque** : les textes de `data/talents.ts` écrivent leurs valeurs en dur :
-  - Aux petits oignons : 5 PV ;
   - Tir rapide : 60 % et 100 % ;
-  - Recyclage : 300 % et 50 % ;
-  - Réflexes de vétéran : 30 % ;
-  - Blizzard : 4 s et 2 dégâts.
+  - Réflexes de vétéran : 30 %.
 
-  Ces textes ne suivent pas les constantes de `config/constants.ts` et
-  `data/items.ts`, ni les améliorations de Forge. Le soin réel du
-  parchemin, par exemple, peut dépasser 5 PV.
+  (Aux petits oignons, Recyclage et Blizzard ont été retirés le 2026-11-04,
+  G40.) Ces textes ne suivent pas les constantes de `config/constants.ts`.
 - **Impact actuel** : les textes sont exacts pour les valeurs **de base**.
 - **Vérification** : comparer chaque description aux constantes
   correspondantes.
 - **Piste** : construire les descriptions à partir des constantes.
-
-### KI-10 — Commentaire inexact du bouton d'achat ×5
-
-- **Statut** : Dette.
-- **Écart** : `buyUnitFive` (`main.ts`) appelle `buyUnit` cinq fois sans
-  s'arrêter, alors que son commentaire affirme qu'il s'arrête au premier
-  échec.
-- **Impact actuel** : aucun, chaque appel vérifiant déjà l'or et le
-  déblocage.
-- **Piste** : aligner le commentaire, ou ajouter l'arrêt.
 
 ### KI-11 — Nom trompeur `MAGE_UNLOCK_WAVE`
 
@@ -706,13 +738,14 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 ### KI-15 — Aucune suite de tests automatisée
 
-- **Statut** : Dette.
-- **Écart** : `package.json` n'a pas de script `test`. Les vérifications
-  « headless » passées étaient des scripts jetables, non conservés.
-  `npm run build` est la seule vérification automatique.
-- **Impact actuel** : les régressions de logique pure (`run/`, `sim/`) ne se
-  détectent qu'à la main.
-- **Piste** : des tests ciblés sur les fonctions pures et sur `World`.
+- **Statut** : Corrigé en partie (2026-11-04, G40).
+- **État** : `arrow-tactics/tests/` contient les scripts repris des passes
+  précédentes et ceux de la passe de modernisation : `npm run test:sim`
+  (Node, sans navigateur, ~80 s), `npm run test:game` (Playwright + Edge,
+  Vite dédié sur le port 5177, plusieurs minutes), `npm test` (les deux).
+  Voir `ARCHITECTURE.md` §17 et `tests/README.md`.
+- **Reste** : pas de couverture systématique ; aucun test unitaire fin ;
+  les tests en jeu dépendent d'Edge installé et de temporisations.
 
 ### KI-16 — Assets inutilisés copiés dans le build
 

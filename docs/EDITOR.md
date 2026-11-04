@@ -1167,12 +1167,11 @@ Limitations de l'éditeur, sans entrée dans `KNOWN_ISSUES.md` :
   chemin 1×1 paraît donc un peu plus large que sa case (1,1 à 1,3), et les
   taches de « Mixte » restent coupées au bord de leur case. Pas de
   remplissage ni de pinceau plus grand que 4×4.
-- **Surfaces et agrandissement de run** : `run/mapExpansion.ts` recopie
-  `surfaceCells` sans les déplacer, comme `elevationCells`, alors que les
-  cases et le territoire sont transformés. C'est sans effet aujourd'hui,
-  puisque l'arène du Mode survie n'a ni relief ni surface peinte ; mesuré
-  sur l'arène candidate (`islandArena.ts`) : falaises et poches isolées
-  dès la vague 2 (`KNOWN_ISSUES.md` KI-27).
+- **Surfaces et agrandissement de run** : sans objet depuis le 2026-11-04,
+  l'agrandissement de la carte ayant été retiré du code
+  (`run/mapExpansion.ts` supprimé, `DESIGN_DECISIONS.md` G40 ; ancien
+  KI-27). Les surfaces et le relief d'une carte restent tels quels toute
+  la run.
 - **Falaises** : la carte peut en contenir (`elevationCells`), l'éditeur les
   conserve à l'enregistrement, mais ses pinceaux ne produisent que des
   pentes ; sculpter sur une falaise la remplace par des pentes.

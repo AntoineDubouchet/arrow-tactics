@@ -57,8 +57,13 @@ systèmes de progression.
 - **Hors de C1** : le README et les réglages Claude du projet
   (`.claude/settings.json`) ont été nettoyés séparément.
 
-### C2 — Socle de vérification et harnais de simulation — *Direction forte*
+### C2 — Socle de vérification et harnais de simulation — *En cours (socle posé le 2026-11-04)*
 
+- **État** : `arrow-tactics/tests/` existe depuis la passe de modernisation
+  1 (`DESIGN_DECISIONS.md` G40) : `npm run test:sim` (Node, logique pure
+  et `World`), `npm run test:game` (Playwright + Edge), `npm test`. Les
+  scripts sont ceux des passes précédentes, repris, plus trois tests de
+  contrat de la passe. Pas encore de harnais d'équilibrage massif.
 - **Objectif** :
   - premiers tests automatisés sur la logique pure (`run/`, `data/`) et sur
     `World` ;
@@ -241,14 +246,16 @@ rejouabilité.
 - **Décisions ouvertes** : profondeur de l'arbre ; exclusivités ; nouvelles
   branches (l'idée « Héros » est notée, non engagée).
 
-### L3 — Boutique de run et améliorations de Forge — *Implémenté (équilibrage à poursuivre)*
+### L3 — Améliorations de Forge et achats en run — *Implémenté (équilibrage à poursuivre)*
 
 - **État** : le système est en place (Forge construite en Or, améliorations
-  propres à la run achetées en Or ; voir `CURRENT_STATE.md` §6 et §14). La
-  Mine et la Caserne s'améliorent désormais chacune depuis sa fiche
-  (`DESIGN_DECISIONS.md` D6). Le barème reste provisoire et son équilibrage
-  est à poursuivre avec M2.
-- **Objectif** : enrichir la variété de la boutique de run et des
+  propres à la run achetées en Or, en temps réel ; voir `CURRENT_STATE.md`
+  §6 et §14). La Mine, la Caserne, la Tour, l'Église et le Sanctuaire
+  s'améliorent chacun depuis sa fiche (`DESIGN_DECISIONS.md` D6). La
+  **Boutique de run** a été retirée du code le 2026-11-04 (G40) : les
+  achats passent par les fiches de bâtiment et le menu Construire. Le
+  barème reste provisoire et son équilibrage est à poursuivre avec M2.
+- **Objectif** : enrichir la variété des achats de run et des
   améliorations achetables en Or à la Forge.
 - **Pourquoi** : multiplier les arbitrages économiques pendant la run
   (investir ou survivre) et différencier les runs entre elles. Les Runes, qui
@@ -308,8 +315,9 @@ Chantiers continus, menés au fil des besoins plutôt qu'en blocs isolés.
   individuel, non instancié) et de la simulation à grand effectif. C'est un
   prérequis de toute ambition sur les vagues longues (M1, L1).
 - **T4 — Structure du code** : extraire progressivement de `main.ts` et
-  `ui/screens.ts` ce que les chantiers touchent (boutique, placement,
-  bâtiments). Jamais de refonte isolée sans besoin concret.
+  `ui/screens.ts` ce que les chantiers touchent (bâtiments, production,
+  Héros). La passe de modernisation 1 a retiré 2 468 lignes de `main.ts`
+  sans refonte (G40). Jamais de refonte isolée sans besoin concret.
 - **T5 — Outils** :
   - éditeur de maps : KI-20, KI-24, nom de carte modifiable, priorité de
     clic des petits décors traversables ;
@@ -385,8 +393,9 @@ construire avant une décision explicite d'Antoine :
 - les **capacités du Héros** au-delà du Soin (autres sorts, objets,
   équipement de départ), **d'autres héros** à l'écran de choix (structure
   prête : `data/heroes.ts`), et des niveaux au-delà du 3 ;
-- un **vrai inventaire** du Héros (les 6 emplacements legacy sont masqués
-  en Survie) ; des **icônes** de bâtiments pour le panneau Construire ;
+- un **vrai inventaire** du Héros au-delà du sac de 12 (les 6 emplacements
+  de parchemins ont été supprimés le 2026-11-04) ; des **icônes** de
+  bâtiments pour le panneau Construire ;
 - **cycle jour / nuit et lumières locales** (torches, braseros, Baliste) :
   voir l'audit d'éclairage de la passe du 2026-11-02 (rapport) ; à
   construire sur `Renderer` (lumières centralisées, `LIGHT_LEVEL`) ;
@@ -395,8 +404,6 @@ construire avant une décision explicite d'Antoine :
   tas ;
 - l'économie de RTS associée (production, améliorations) au-delà des coûts
   actuels ;
-- le **remplacement de la Boutique** actuelle (ni retrait ni extension
-  incompatible d'ici là) ;
 - plusieurs joueurs réels (Rouge, Vert, Jaune) dans la simulation, au-delà
   de la couche d'allégeance actuelle ;
 - des camps neutres de carte au-delà des deux camps générés (G14) :
@@ -404,20 +411,26 @@ construire avant une décision explicite d'Antoine :
 
 ## 6 quater. Survie en temps réel continu — ce qui reste legacy
 
-La Survie n'emprunte plus la préparation (`DESIGN_DECISIONS.md` G10). Reste
-à convertir ou à retirer :
+La passe de modernisation 1 (2026-11-04, `DESIGN_DECISIONS.md` G40) a
+retiré la boucle en manches du code : placement, Boutique, parchemins de
+bataille, fin de manche, agrandissement, quota « par manche », quatre
+talents morts, HUD et vues associés. Reste, à décider ou à construire :
 
-- **Boutique** : parchemins de bataille (plus achetables en Survie),
-  recrutement direct, « Vendre » ; à remplacer par des commandes de
-  bâtiment ou du Héros, puis retirer la Boutique ;
-- **file de production** au-delà d'une entrée, annulation et remboursement ;
+- **Pass 2 (décisions d'Antoine)** :
+  - le **déblocage par victoire** du Mage et de la Sentinelle (C4,
+    KI-67) : par quoi le faire passer, ou le retirer ;
+  - **Camp d'archerie Niv. 2** (KI-69) : lui donner un effet réel ;
+  - le **pas d'ouverture** au démarrage (`openBattleWithFormationStep`,
+    KI-68, B5) : retirer ou réserver à « Tester le scénario » ;
+  - la **Sentinelle** du joueur : aucun bâtiment ne la produit ;
+  - un **arbre de talents du Paladin** (L2) ; l'arbre actuel garde cinq
+    talents et son architecture ;
+  - `Entity.rootTimer` (immobilisation sans source) et `applyPlayerHeal`
+    (soin de zone sans appelant) : réutiliser ou retirer ;
+  - `canPlayerRecruitUnit` et `WAVE_CLEAR_BONUS` (+5 or par vague
+    repoussée, seule trace du gain « de fin de manche ») : confirmer ;
 - améliorations de la **Baliste** et des unités déjà en jeu (appliquées à
-  l'apparition seulement), production de la Caserne par niveau (legacy
-  `unitsProducedPerWave`) ;
-- code de préparation (`startPlacement`, emplacements, aperçus, panneau
-  « Prêt pour la bataille », écran de fin de manche, `applyBattleOutcome`
-  hors défaite) et agrandissement E4 : conservés, plus utilisés par la
-  Survie ;
+  l'apparition seulement) ;
 - acquisition des **unités** selon la vision (aujourd'hui : portée d'aggro) ;
 - **unités spéciales** capables de traverser les forêts (arbres bloquants
   depuis G11 ; même principe que `canTraverseWater`) ;

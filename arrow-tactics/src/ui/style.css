@@ -7,12 +7,9 @@
      reutilise la teinte doree deja etablie dans le jeu plutot que d'en
      inventer une nouvelle. */
   --accent-gold: #e8c15c;
-  /* Largeur commune du bloc Boutique/Vendre ET de l'encart Or au-dessus
-     (2026-08-14, demande d'Antoine : "je veux que l'encart Gold ait
-     EXACTEMENT la meme largeur que Boutique... n'hardcode pas deux largeurs
-     differentes"). UNE SEULE variable, lue par .shop-button ET .gold-hud —
-     changer la largeur du bloc Boutique/Vendre garde les deux synchronises
-     par construction. */
+  /* Largeur du bloc du bouton Construire (bas a droite) et marge des
+     elements qui le longent (nom historique : largeur commune du bloc
+     Boutique/Vendre et de l'encart Or, retires le 2026-11-04). */
   --shop-panel-width: 120px;
 }
 
@@ -31,10 +28,9 @@
    handler de clic) — garantit "TOUS les boutons" sans risquer d'en oublier
    un. :focus-visible aligne au meme style (coherence clavier/souris),
    `outline: none` pour ne jamais empiler l'anneau natif par-dessus.
-   Exceptions explicites : .shop-undo-button et .danger-button, dont le
-   rouge EST l'identite visuelle complete (bordure + fond, action
-   d'annulation/irreversible) — un halo dore par-dessus brouillerait ce
-   signal, voir plus bas. */
+   Exception explicite : .danger-button, dont le rouge EST l'identite
+   visuelle complete (bordure + fond, action irreversible) — un halo dore
+   par-dessus brouillerait ce signal, voir plus bas. */
 button:not(:disabled):hover,
 button:not(:disabled):focus-visible {
   border-color: var(--accent-gold);
@@ -152,11 +148,10 @@ img {
   font-variant-numeric: tabular-nums;
 }
 
-/* Rappel discret pendant le placement d'un batiment achete (2026-08-17,
-   demande d'Antoine : "affiche une petite indication discrete") — meme
-   famille visuelle que l'ancienne aide du debug (fond semi-transparent, texte attenue),
-   centre en bas de l'ecran, juste au-dessus de .placement-panel pour ne
-   jamais le recouvrir. */
+/* Rappel discret pendant la pose d'un batiment (2026-08-17, demande
+   d'Antoine : "affiche une petite indication discrete") — meme famille
+   visuelle que l'ancienne aide du debug (fond semi-transparent, texte
+   attenue), centre en bas de l'ecran. */
 .building-rotation-hint {
   position: fixed;
   left: 50%;
@@ -294,15 +289,6 @@ img {
   color: #63e04a;
 }
 
-/* Cible SECONDAIRE d'un soin en chaine (2026-08-13, boutique d'amelioration
-   "Parchemin de soin") — plus petit/discret que la cible principale, point
-   29 de la demande. */
-.heal-text--secondary {
-  font-size: 10px;
-  font-weight: 600;
-  opacity: 0.75;
-}
-
 .screen-overlay {
   position: fixed;
   inset: 0;
@@ -347,23 +333,6 @@ img {
   text-align: center;
 }
 
-/* --- Bilan de fin de vague (ui/screens.ts, showWaveComplete) ---
-   VICTOIRE apparait d'abord, seul et bien visible ; les lignes du bilan
-   arrivent ensuite une a une (classe --shown posee par minuterie), l'or
-   gagne en dernier, puis le bouton. */
-.wave-complete-title {
-  font-size: 34px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent-gold);
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
-}
-
-.screen-wave-complete.screen-overlay--visible .wave-complete-title {
-  animation: wave-title-in 420ms ease-out both;
-}
-
 @keyframes wave-title-in {
   from {
     opacity: 0;
@@ -373,70 +342,6 @@ img {
     opacity: 1;
     transform: scale(1);
   }
-}
-
-.wave-complete-subtitle {
-  margin: -4px 0 0;
-  font-size: 13px;
-  text-align: center;
-  color: var(--ink-dim);
-}
-
-.wave-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 280px;
-  margin: 6px 0 4px;
-}
-
-.wave-summary-line {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 24px;
-  font-size: 15px;
-}
-
-.wave-summary-label {
-  color: var(--ink-dim);
-}
-
-.wave-summary-value {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.wave-summary-line--gold {
-  margin-top: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--edge);
-  font-size: 16px;
-}
-
-.wave-summary-line--gold .wave-summary-label,
-.wave-summary-line--gold .wave-summary-value {
-  color: var(--accent-gold);
-}
-
-.wave-summary-reveal {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(6px);
-  transition:
-    opacity 260ms ease-out,
-    transform 260ms ease-out;
-}
-
-/* inherit (jamais auto) : un ecran masque desactive ses clics, ses lignes
-   revelees ne doivent pas les reactiver par-dessus le menu. */
-.wave-summary-reveal.wave-summary-reveal--shown {
-  opacity: 1;
-  pointer-events: inherit;
-  transform: none;
 }
 
 .screen-text {
@@ -465,62 +370,6 @@ img {
   background: rgba(231, 227, 216, 0.16);
 }
 
-/* Bouton d'achat boutique : nom a gauche, cout + icone piece a droite
-   (2026-08-11, demande d'Antoine : "l'icône de gold à côté de chaque
-   prix"). */
-.shop-item-button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-/* Ligne d'achat d'une unite : bouton simple + "×5" (2026-08-13, demande
-   d'Antoine : "plus confortable pour acheter plusieurs unités"). */
-.shop-unit-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-}
-
-.shop-unit-row .shop-item-button {
-  flex: 1;
-  min-width: 0;
-}
-
-.shop-x5-button {
-  flex: none;
-  min-width: 0;
-  padding: 10px 10px;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--ink);
-  background: rgba(231, 227, 216, 0.08);
-  border: 1px solid var(--edge);
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.shop-x5-button:hover:not(:disabled) {
-  background: rgba(231, 227, 216, 0.16);
-}
-
-/* Nom + icone de l'objet colles l'un a l'autre (2026-08-14, voir
-   screens.ts, shopItemButton) — meme principe que .shop-item-price-group. */
-.shop-item-name-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.shop-item-icon {
-  flex: none;
-  display: block;
-}
-
 /* Prix + icone colles l'un a l'autre (voir screens.ts, shopItemButton) —
    meme gap que .shop-gold juste en dessous, pour un espacement uniforme
    entre chaque montant et son icone de piece dans toute la boutique. */
@@ -530,38 +379,12 @@ img {
   gap: 6px;
 }
 
-.shop-item-price {
-  font-weight: 700;
-  color: #e8c15c;
-}
-
-/* "Annuler le dernier achat" (2026-08-13) — style secondaire/discret, teinte
-   rougeatre (coherente avec une action d'annulation/remboursement) plutot
-   que le bleu neutre des autres boutons de la boutique. */
-.shop-undo-button {
-  min-width: 0;
-  padding: 6px 14px;
-  font-size: 11px;
-  color: rgba(231, 227, 216, 0.75);
-  border-color: rgba(224, 90, 74, 0.4);
-}
-
-/* Specificite (3 classes/pseudo-classes) volontairement superieure a la
-   regle generique button:hover ci-dessus : garde le rouge (identite
-   "annulation") intact au survol plutot qu'un halo dore qui brouillerait
-   le signal. */
-.shop-undo-button:hover:not(:disabled) {
-  background: rgba(224, 90, 74, 0.14);
-  border-color: rgba(224, 90, 74, 0.7);
-  box-shadow: 0 0 0 1px rgba(224, 90, 74, 0.7), 0 0 10px rgba(224, 74, 74, 0.35);
-}
-
 /* Bouton de DANGER FORT (2026-08-16, demande d'Antoine : confirmation de
    sortie de run — "fond rouge sombre / rouge, bordure rouge, hover plus
    lumineux, texte tres lisible... doit clairement se distinguer du bouton
    Annuler"). Volontairement plus appuye que les nuances subtiles deja
-   existantes (.shop-undo-button/.editor-button--danger, un simple leger
-   tint) : le fond doit se lire comme "action irreversible" au premier coup
+   existantes (.editor-button--danger, un simple leger tint) : le fond
+   doit se lire comme "action irreversible" au premier coup
    d'oeil, pas seulement au survol. Nom GENERIQUE (pas ".quit-run-button")
    pour rester reutilisable par une future action tout aussi dangereuse,
    demande explicite : "ne cree pas une deuxieme architecture de popup". */
@@ -571,8 +394,8 @@ img {
   color: #f5e6e6;
 }
 
-/* Meme specificite/motif que .shop-undo-button:hover ci-dessus — garde le
-   rouge (jamais un halo dore) au survol, juste plus lumineux qu'au repos. */
+/* Garde le rouge (jamais un halo dore) au survol, juste plus lumineux
+   qu'au repos. */
 .danger-button:hover:not(:disabled),
 .danger-button:focus-visible:not(:disabled) {
   background: #8a1f1f;
@@ -600,38 +423,10 @@ img {
   box-shadow: 0 0 0 1px rgba(170, 130, 255, 0.8), 0 0 10px rgba(170, 130, 255, 0.35);
 }
 
-/* Bouton de DEBUG "+100 or" (2026-08-17) — meme famille visuelle que
-   .talent-debug-button (bordure en tirets, teinte distincte de couleur) —
-   A RETIRER en meme temps que le bouton lui-meme (voir ui/screens.ts). */
-.shop-debug-button {
-  min-width: 0;
-  padding: 6px 14px;
-  font-size: 11px;
-  color: rgba(255, 210, 130, 0.85);
-  border-style: dashed;
-  border-color: rgba(255, 190, 80, 0.5);
-}
-
-.shop-debug-button:hover:not(:disabled) {
-  background: rgba(255, 190, 80, 0.12);
-  border-color: rgba(255, 190, 80, 0.8);
-  box-shadow: 0 0 0 1px rgba(255, 190, 80, 0.8), 0 0 10px rgba(255, 190, 80, 0.35);
-}
-
 .shop-gold {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-/* Population de la run sous l'or (voir Screens.refreshShop). */
-.shop-population {
-  margin-top: -4px;
-  font-variant-numeric: tabular-nums;
-}
-
-.shop-population--full {
-  color: #e8a35c;
 }
 
 /* --- Onglets de la boutique (2026-08-11, demande d'Antoine : "classer les
@@ -675,17 +470,6 @@ img {
 
 .shop-tab-content--active {
   display: flex;
-}
-
-/* Description sous un bouton d'achat (2026-08-14, Nova de glace) — plus
-   petite/attenuee que le texte normal, ne pousse jamais le bouton lui-meme
-   hors de sa taille habituelle. */
-.shop-item-description {
-  font-size: 12px;
-  opacity: 0.75;
-  margin: -6px 0 0;
-  text-align: center;
-  max-width: 260px;
 }
 
 /* --- Boutique d'amelioration permanente des unites (2026-08-13, demande
@@ -762,23 +546,6 @@ img {
   min-width: 0;
   padding: 6px 14px;
   font-size: 11px;
-}
-
-.placement-panel {
-  position: fixed;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
-  backdrop-filter: blur(6px);
-  z-index: 5;
 }
 
 .placement-validate {
@@ -1082,124 +849,9 @@ img {
 
 /* --- Boutique + vente d'unites pendant le placement (chantier economie) --- */
 
-.sell-zone-container {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  display: none;
-  flex-direction: column;
-  gap: 8px;
-  /* Au-dessus de .screen-overlay (z-index 10, voir plus bas) : demande
-     d'Antoine, 2026-08-10, "je voudrais que l'on puisse continuer a appuyer
-     sur Boutique pour en sortir rapidement" — le bouton doit rester
-     cliquable PAR-DESSUS la boutique elle-meme une fois ouverte pour la
-     refermer d'un clic, pas seulement via "Continuer". Un enfant ne peut
-     jamais depasser le z-index de son PARENT vis-a-vis d'un frere de ce
-     parent (regle de contexte d'empilement CSS) : c'est le conteneur entier
-     qu'il faut remonter, pas juste le bouton. Sans consequence sur "Vendre" :
-     le canvas reste couvert par le fond de la boutique, impossible d'y
-     demarrer un glisser d'unite pendant qu'elle est ouverte. */
-  z-index: 15;
-}
-
-/* Pendant la bataille (2026-08-14) : reste visible mais inutilisable plutot
-   que de disparaitre — voir sellZone.ts, setEnabled. */
-.sell-zone-container--disabled {
-  opacity: 0.45;
-  pointer-events: none;
-}
-
-.shop-button {
-  width: var(--shop-panel-width);
-  padding: 10px 0;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--ink);
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.shop-button:hover {
-  background: rgba(231, 227, 216, 0.16);
-}
-
 /* --- Affichage permanent de l'or (2026-08-11) — voir goldHud.ts. Pose
    au-dessus du bloc Boutique/Vendre (bottom:16px, hauteur totale du bloc
    ~112px + un peu de marge) : bottom:140px, meme colonne (right:16px). --- */
-
-.gold-hud {
-  position: fixed;
-  right: 16px;
-  bottom: 140px;
-  /* Largeur/alignement/rayon de bordure partages avec .shop-button
-     (2026-08-14, demande d'Antoine — voir --shop-panel-width dans :root) :
-     meme colonne droite (right:16px), meme largeur, memes bords, contenu
-     CENTRE comme le texte d'un bouton plutot qu'aligne a gauche. */
-  width: var(--shop-panel-width);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
-  z-index: 5;
-}
-
-.gold-hud-icon {
-  display: block;
-}
-
-/* Population (voir populationHud.ts) : meme colonne et meme style que l'or,
-   juste au-dessus. */
-.population-hud {
-  position: fixed;
-  right: 16px;
-  bottom: 182px;
-  width: var(--shop-panel-width);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
-  z-index: 5;
-}
-
-.population-hud-label {
-  font-size: 11px;
-  opacity: 0.75;
-}
-
-.population-hud-amount {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  font-variant-numeric: tabular-nums;
-}
-
-.population-hud--full .population-hud-amount {
-  color: #e8a35c;
-}
-
-.population-hud--over .population-hud-amount {
-  color: #e8665c;
-}
-
-.gold-hud-amount {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  color: #e8c15c;
-  font-variant-numeric: tabular-nums;
-}
 
 /* --- Icones "pixel art" generees par code (2026-08-11) — voir pixelIcon.ts.
    image-rendering: pixelated evite tout lissage lors de la mise a l'echelle
@@ -1230,164 +882,6 @@ img {
 
 /* --- Inventaire (chantier inventaire, 2026-08-09) --- */
 /* A gauche du bloc Boutique/Vendre (right:16px, largeur 120px) : 16+120+12 = 148. */
-
-.inventory-bar {
-  position: fixed;
-  right: 148px;
-  bottom: 16px;
-  display: none;
-  flex-wrap: wrap;
-  /* Capacite doublee (2026-08-14, 6 -> 12) : s'enroule sur plusieurs lignes
-     de 6 emplacements plutot que de retrecir les icones (demande explicite
-     d'Antoine) — largeur figee a exactement 6 colonnes (6 * 48px + 5 * 6px
-     de gap), la grille grandit vers le HAUT depuis l'ancre bottom:16px au
-     fur et a mesure que des lignes supplementaires apparaissent. */
-  max-width: 318px;
-  justify-content: flex-end;
-  gap: 6px;
-  z-index: 5;
-}
-
-.inventory-slot {
-  position: relative;
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-/* Touche du raccourci (1 a 6) d'un emplacement de la premiere ligne, vide
-   ou non. */
-.inventory-slot-key {
-  position: absolute;
-  top: 2px;
-  left: 4px;
-  font-size: 9px;
-  line-height: 1;
-  color: var(--ink-dim);
-  pointer-events: none;
-}
-
-/* Pastille de quantite (2026-08-14, chantier stack — voir inventoryBar.ts,
-   buildDisplayStacks) : coin bas-droit, seulement quand une pile contient
-   plus d'un exemplaire. */
-.inventory-slot-count {
-  position: absolute;
-  right: 2px;
-  bottom: 1px;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--ink);
-  background: rgba(20, 18, 14, 0.85);
-  border: 1px solid var(--edge);
-  border-radius: 4px;
-  padding: 1px 3px;
-  pointer-events: none;
-}
-
-.inventory-slot:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.inventory-slot:not(:disabled):hover {
-  background: rgba(231, 227, 216, 0.16);
-}
-
-.inventory-slot--armed {
-  border-color: rgba(99, 224, 74, 0.7);
-  background: rgba(99, 224, 74, 0.16);
-}
-
-.inventory-slot--enter svg {
-  animation: inventory-slot-enter 0.25s ease-out;
-}
-
-@keyframes inventory-slot-enter {
-  from {
-    transform: translateX(10px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.inventory-cursor-icon {
-  position: fixed;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  filter: drop-shadow(0 0 4px rgba(99, 224, 74, 0.7));
-  z-index: 7;
-}
-
-.sell-zone {
-  width: var(--shop-panel-width);
-  height: 64px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--ink-dim);
-  background: var(--panel);
-  border: 1px dashed var(--edge);
-  border-radius: 6px;
-  /* Desormais aussi un bouton cliquable direct (2026-08-14, voir sellZone.ts
-     setSelection) en plus d'une zone de drop — curseur pointeur pour le
-     signaler, sauf quand rien n'est selectionnable (.sell-zone--inactive). */
-  cursor: pointer;
-  transition: background 0.1s, border-color 0.1s, color 0.1s;
-}
-
-/* Rien a vendre (2026-08-14) : bouton visuellement attenue/desactive — voir
-   sellZone.ts, le clic ne fait rien tant que cette classe est presente. */
-.sell-zone--inactive {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.sell-zone-label {
-  line-height: 1.2;
-}
-
-/* Montant total de la vente en cours (2026-08-14, "VENDRE (5) +10 Gold",
-   point 29 de la demande — facultatif mais garde car lisible) — ligne
-   secondaire plus discrete, vide (donc invisible) tant qu'aucune unite n'est
-   selectionnee. */
-.sell-zone-amount {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: var(--accent-gold);
-  min-height: 12px;
-}
-
-.sell-zone--armed {
-  color: #e05a5a;
-  background: rgba(224, 74, 74, 0.16);
-  border-color: rgba(224, 74, 74, 0.5);
-}
-
-.sell-zone--armed .sell-zone-amount {
-  color: #e05a5a;
-}
 
 .sell-ghost {
   position: fixed;
@@ -2284,38 +1778,6 @@ img {
   font-weight: 500;
   color: var(--ink);
   opacity: 0.8;
-}
-
-/* Toast "nouvelle unité débloquée" (2026-08-15) — voir ui/unitUnlockToast.ts.
-   Meme patron que .talent-point-toast (fondu haut->bas, jamais recree) mais
-   volontairement plus discret/simple : une seule ligne, teinte distincte
-   (playerZone, "nouvelle capacite" plutot que "ressource gagnee" — evite la
-   confusion avec le toast de point de talent, qui reste dore). */
-.unit-unlock-toast {
-  position: fixed;
-  top: 56px;
-  left: 50%;
-  transform: translate(-50%, -8px);
-  padding: 8px 18px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-align: center;
-  color: var(--ink);
-  background: var(--panel);
-  /* Meme bleu que COLORS.playerZone (cote 3D) — pas de var CSS partagee avec
-     le rendu Three.js, valeur reprise telle quelle pour rester coherente. */
-  border: 1px solid #4a90d9;
-  border-radius: 6px;
-  opacity: 0;
-  pointer-events: none;
-  z-index: 20;
-  transition: opacity 0.25s ease, transform 0.25s ease;
-}
-
-.unit-unlock-toast--visible {
-  opacity: 1;
-  transform: translate(-50%, 0);
 }
 
 /* Arbre de talents — DEUXIEME refonte visuelle 2026-08-14 (demande complete

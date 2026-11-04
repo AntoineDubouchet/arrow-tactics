@@ -66,8 +66,8 @@ export const LOOT_TABLES: Readonly<Record<string, LootTable>> = {
 
 /** Or lache au sol a la mort d'un ennemi (2026-11-02), par type d'unite :
  *  tas de min..max pieces (RNG du monde), a ramasser, porter et deposer.
- *  Deduit de l'ancienne prime par kill (KILL_REWARD, arrondie) ; unites
- *  neutres ajoutees. PROVISOIRE. */
+ *  Deduit de l'ancienne prime par kill directe (moitie du cout d'achat,
+ *  arrondie ; retiree le 2026-11-04) ; unites neutres ajoutees. PROVISOIRE. */
 export const ENEMY_GOLD_DROPS: Readonly<Record<string, { min: number; max: number }>> = {
   fantassin: { min: 1, max: 1 },
   archer: { min: 1, max: 2 },

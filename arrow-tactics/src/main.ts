@@ -3,13 +3,10 @@ import './ui/style.css';
 import * as THREE from 'three';
 import {
   ARCHER_ATTACK_RELEASE_FRACTION,
-  AUTO_HEAL_TRIGGER_RATIO,
   ARCHER_PROJECTILE_DURATION,
   BALLISTA_TOWER_FOOTPRINT,
-  BLIZZARD_TICK_INTERVAL,
   CAMERA,
   COLORS,
-  HEAL_TARGET_RADIUS,
   HP_PER_PIP,
   isBlockingMapObstacle,
   obstacleCenter,
@@ -19,8 +16,7 @@ import {
   PLAYER_ARROW_RANGE,
   GRID_MOVE_SEARCH_RADIUS,
   type ObstacleDef,
-  PLACEMENT_GOLD_WARNING_RATIO,
-  SHADOW_PROJECTILE_SPEED,
+  PLACEMENT_ROWS,
   TILE,
   obstacleBounds,
   SIM_HZ,
@@ -50,18 +46,13 @@ import { officialHudLayout } from './ui/hudDefaultLayout';
 import { HudLayout, type HudResize } from './ui/hudLayout';
 import { ISLAND_ARENA_MAP } from './config/maps/islandArena';
 import { generateSurvivalMap, ringSpawnSectors } from './config/maps/proceduralSurvival';
-import { buildTerritoryIndex, resolveMapTerritory, territoryOwnerAtPoint, type TerritoryCell, type TerritoryIndex } from './config/territory';
-import { applyMapExpansionStep, expansionStepForCompletedWave } from './run/mapExpansion';
+import type { TerritoryCell } from './config/territory';
 import { Loop } from './core/loop';
 import { dist } from './core/math';
 import { clampToCellsDistance, type CellCorner } from './core/cameraBounds';
 import { populationOfEntities } from './data/population';
-import { canRecruitWithinPopulation, runPopulation } from './run/population';
-import { PopulationHud } from './ui/populationHud';
 import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMoveMember } from './core/gridGroupMove';
-import { BUILDINGS, BUILDING_ROTATION_STEP, buildingFootprintTiles, buildTimeOf, getBuilding, listBuyableBuildingIds, unitsProducedPerWave } from './data/buildings';
-import { hasRecruitmentBuilding } from './run/recruitment';
-import { getItem, type GamePhase, type IceNovaEffect } from './data/items';
+import { BUILDINGS, BUILDING_ROTATION_STEP, buildingFootprintTiles, buildTimeOf, getBuilding, listBuyableBuildingIds } from './data/buildings';
 import { getUnit, WAVE_UNIT_BY_ROLE, type UnitStats } from './data/units';
 import { ENEMY_GOLD_DROPS, ENEMY_LOOT_TABLES } from './data/loot';
 import {
@@ -134,19 +125,15 @@ import { preloadArcherModel } from './render/archerRig';
 import { preloadSentinelModel } from './render/sentinelRig';
 import { TelegraphView } from './render/telegraph';
 import { FireballView } from './render/fireballView';
-import { IceNovaView } from './render/iceNova';
 import { HealVfxView } from './render/healVfx';
 import { SpellCastVfxView } from './render/spellCastVfx';
 import { toonUnitPortrait } from './render/toonThumbnail';
 import { MoveOrderFeedback } from './render/moveOrderFeedback';
 import { AttackOrderFeedback } from './render/attackOrderFeedback';
 import { SpellTargetFeedback } from './render/spellTargetFeedback';
-import { RecyclageAuraView } from './render/recyclageAura';
 import { TauntVfxView } from './render/tauntVfx';
-import { ShadowProjectileView } from './render/shadowProjectileView';
 import { VfxManager } from './render/vfx/VfxManager';
 import {
-  canPlayerRecruitUnit,
   grantFirstRunPointIfNeeded,
   isTalentUnlocked,
   loadMetaProgress,
@@ -164,17 +151,13 @@ import {
   effectivePlayerUnitCost,
   enemyUnitUpgradeLevel,
   playerUnitMaxHp,
-  playerUnitProductionCost,
 } from './run/unitUpgradeEffects';
-import { HEAL_SCROLL_UPGRADE } from './data/healScrollUpgrade';
 import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
-import { computePlayerIceNovaUpgradeEffects, effectiveIceNovaCost } from './run/iceNovaUpgradeEffects';
 import { mineProductionIntervalSeconds, rollMineGold } from './run/mineUpgradeEffects';
 import { applyOwnedBuildingUpgrade, buildingUpgradeGoldCost, canUpgradeOwnedBuilding, ownedBuildingLevel, upgradeOwnedBuilding } from './run/buildingUpgrades';
 import { harvestPermissionsOf } from './run/harvestPermissions';
 import { FogOfWar, type VisionSource } from './render/fogOfWar';
 import { DepotTargetRing, ResourcePileViews, type DepotRingTarget } from './render/resourcePiles';
-import { createBattleSummary, defeatedLines, recordEnemyDefeated, recordGoldEarned } from './run/battleSummary';
 import { randomSeed, Rng } from './core/rng';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp, getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
 import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './run/playerUnitStats';
@@ -193,35 +176,21 @@ import {
   battleGroupInfo,
   battleUnitInfo,
   heroSheetInfo,
-  placementBallistaInfo,
-  placementBuildingInfo,
-  placementGroupInfo,
-  placementUnitInfo,
+  ownedBuildingInfo,
   type EntityInfoViewModel,
 } from './run/entityInfo';
-import { computePlayerShadowEffects } from './run/shadowUpgradeEffects';
 import {
-  effectiveHealScrollCost,
-  effectivePlayerHealAmount,
-  effectivePlayerSecondaryHealAmount,
-  healScrollUpgradeLevel,
-  healSecondaryTargetCount,
-} from './run/healScrollUpgradeEffects';
-import {
-  applyBattleOutcome,
   applyWaveVictory,
-  canAddItemsToInventory,
   computeEnemyWaveComposition,
   createNewRun,
-  KILL_REWARD,
   formatGold,
   isBuildingBuilt,
   roundGold,
   type OwnedBuilding,
   type RunState,
 } from './run/runState';
-import { displayedUpgradeLevel, purchaseRunUpgrade, runUpgradeSite, type PlayerProgression, type RunUpgradeLevels, type RunUpgradeSite } from './run/runUpgrades';
-import { armyMissingHp, churchHealCost, churchHealHpPerGold, healArmyAtChurch } from './run/churchHeal';
+import { displayedUpgradeLevel, purchaseRunUpgrade, type PlayerProgression, type RunUpgradeLevels } from './run/runUpgrades';
+import { churchHealCost, churchHealHpPerGold } from './run/churchHeal';
 import { forwardDir, type Entity, type Team } from './sim/entity';
 import type { PlayerCommand } from './sim/orders';
 import type { ArrowShotSpec } from './sim/playerArrow';
@@ -234,8 +203,7 @@ import { WaveIndicator } from './ui/waveIndicator';
 import { BallistaIndicator, type BallistaStatus } from './ui/ballistaIndicator';
 import { EntityInfoPanel } from './ui/entityInfoPanel';
 import { CharacterWorkshop } from './workshop/workshopUI';
-import { GoldHud } from './ui/goldHud';
-import { HeroHud, type HeroHudState } from './ui/heroHud';
+import { heroActionShortcutSlot, HeroHud, type HeroHudState } from './ui/heroHud';
 import { HeroSelectScreen, type HeroChoice } from './ui/heroSelect';
 import { HeroInventoryPanel } from './ui/heroInventory';
 import { ItemEditor } from './itemEditor/itemEditorUI';
@@ -264,16 +232,12 @@ import { formatRepairCost, repairCost, repairRefund, type RepairCost } from './r
 import { DestructibleViews } from './render/destructibleViews';
 import { resourceOfObstacle, type ResourceKind, type ResourceNode } from './config/resourceNodes';
 import type { HeroEvent } from './sim/systems/hero';
-import { CombatOverlay, type PlacementBuildingHpSubject } from './ui/combatOverlay';
+import { CombatOverlay } from './ui/combatOverlay';
 import { spawnCoinPopup } from './ui/coinPopup';
 import { DebugPanel } from './ui/debug';
-import { InventoryBar, inventoryShortcutSlot } from './ui/inventoryBar';
-import { PlacementPanel } from './ui/placementPanel';
-import { Screens, type WaveResult } from './ui/screens';
-import { SellZone } from './ui/sellZone';
+import { Screens } from './ui/screens';
 import { SelectionBox } from './ui/selectionBox';
 import { TalentPointToast } from './ui/talentPointToast';
-import { UnitUnlockToast } from './ui/unitUnlockToast';
 import { WaveTransition } from './ui/waveTransition';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -301,7 +265,6 @@ renderer.scene.add(battleSelection.group);
 // Jamais active en meme temps que battleSelection.
 const battleEnemyInspection = new BattleSelection();
 renderer.scene.add(battleEnemyInspection.group);
-const goldHud = new GoldHud();
 /** HUD du Heros : encart haut a gauche (portrait, PV, mana, sort en cours,
  *  sorts, inventaire), barre d'XP en bas, sac et stocks (ui/heroHud.ts). */
 const heroHud = new HeroHud(() => selectPlayerHero(), (spellId) => armSpellTargeting(spellId), () => toggleHeroInventory());
@@ -313,14 +276,12 @@ const heroInventory = new HeroInventoryPanel(
   loadInventoryWindowPosition(),
   saveInventoryWindowPosition,
 );
-const populationHud = new PopulationHud();
 /** Ligne economique permanente (stock utilisable, population), en haut a droite. */
 const economyHud = new EconomyHud();
 /** Barre d'action globale, centree au-dessus de la barre d'XP. */
 const actionProgressBar = new ActionProgressBar();
 const telegraphView = new TelegraphView();
 const fireballView = new FireballView();
-const iceNovaView = new IceNovaView();
 const healVfxView = new HealVfxView();
 // Retour visuel des ordres de deplacement acceptes (voir le consommateur de
 // world.commandResults dans onStep).
@@ -329,10 +290,8 @@ const moveOrderFeedback = new MoveOrderFeedback();
 // sous la cible (meme taille que la selection et l'inspection).
 const attackOrderFeedback = new AttackOrderFeedback();
 const spellTargetFeedback = new SpellTargetFeedback();
-const recyclageAuraView = new RecyclageAuraView();
 const tauntVfxView = new TauntVfxView();
-const shadowProjectileView = new ShadowProjectileView();
-const vfxManager = new VfxManager(fireballView, shadowProjectileView);
+const vfxManager = new VfxManager(fireballView);
 
 // Map actuellement chargee : premiere etape du chantier editeur (voir
 // config/mapDef.ts) — le jeu lit desormais une MapDef plutot que des
@@ -369,8 +328,8 @@ let survivalMapUsed = false;
 let currentMap: MapDef = survivalBaseMap;
 world.setMap(currentMap);
 
-/** Relief de la carte en jeu (currentMap), pour les regles de pose de la
- *  preparation. */
+/** Relief de la carte en jeu (currentMap), pour les regles de pose des
+ *  batiments et des murs. */
 function gameTerrain(): TerrainHeightField {
   return resolveMapHeightField(currentMap);
 }
@@ -384,8 +343,8 @@ function syncActiveTerrain(): void {
 }
 
 // Limite du deplacement de la camera en jeu : le point vise reste a moins de
-// CAMERA.maxTargetDistanceFromTerrain cases du terrain de la carte courante
-// (agrandissements compris). Ni dans l'editeur ni pendant son test.
+// CAMERA.maxTargetDistanceFromTerrain cases du terrain de la carte courante.
+// Ni dans l'editeur ni pendant son test.
 let cameraBoundsMap: MapDef | null = null;
 let cameraBoundsCells: readonly CellCorner[] = [];
 renderer.setTargetConstraint((x, z) => {
@@ -476,11 +435,9 @@ if (reliefShadowsParam === 'on' || reliefShadowsParam === 'off') setReliefShadow
 // ensuite (l'apercu de placement ET l'editeur de maps les appellent sans
 // savoir qu'un chargement reseau est en jeu), donc ce chargement doit etre
 // termine avant que le menu principal ne devienne interactif.
-// `board` reste mutable (2026-08-18) : reassigne par applyMapExpansionForCompletedWave
-// quand le plateau grandit entre deux vagues (agrandissement progressif de
-// la map, voir run/mapExpansion.ts) — le tout premier plateau charge ici
-// reste toujours a la taille de DEPART (aucune run n'existe encore a ce
-// stade du chargement du module).
+// `board` reste mutable : reassigne par rebuildGameBoardVisuals quand une
+// nouvelle run change de carte (carte procedurale, nouvelle graine) — le
+// tout premier plateau charge ici est celui de la premiere carte generee.
 const footmanParam = new URLSearchParams(location.search).get('footman');
 // Laboratoire unites Toon RTS : `?toonUnits=human` (Fantassin, Archer, Mage)
 // ou une liste (`fantassin,mage`), `barbarian`, `human,barbarian` (humains
@@ -534,14 +491,11 @@ renderer.scene.add(projectiles.group);
 renderer.scene.add(playerArrowView.group);
 renderer.scene.add(telegraphView.group);
 renderer.scene.add(fireballView.group);
-renderer.scene.add(iceNovaView.group);
 renderer.scene.add(healVfxView.group);
 renderer.scene.add(moveOrderFeedback.group);
 renderer.scene.add(attackOrderFeedback.group);
 renderer.scene.add(spellTargetFeedback.group);
-renderer.scene.add(recyclageAuraView.group);
 renderer.scene.add(tauntVfxView.group);
-renderer.scene.add(shadowProjectileView.group);
 
 // Baliste du joueur : a la position definie par la carte (MapDef.ballista,
 // voir resolveBallistaOrigin — sinon repli historique du coin), orientee vers
@@ -559,8 +513,8 @@ let playerArrowOrigin = resolveBallistaOrigin(currentMap);
 // BallistaTowerPlatform pour pourquoi la rotation locale de la baliste reste
 // valide sans changement.
 const environmentAssets = await loadEnvironmentAssets();
-// Modeles des batiments gameplay charges a la demande : necessaires des la
-// premiere preparation, charges une fois au demarrage.
+// Modeles des batiments gameplay charges a la demande : necessaires des le
+// lancement d'une run (camp de depart), charges une fois au demarrage.
 await ensureModels(Object.values(BUILDINGS).flatMap((def) => (def.buildingModel ? [def.buildingModel] : [])));
 const { platform: ballistaPlatform, ballista, mountHeight } = await buildBallistaTowerPlatform(environmentAssets);
 // Correctif (2026-08-14, Antoine : "le tir de la baliste semble partir de la
@@ -604,14 +558,13 @@ renderer.scene.add(ballistaPlatform);
  * run/runState.ts, RunState.buildings/OwnedBuilding). Contrairement à
  * l'ancien mesh UNIQUE de la Mine (réutilisé d'une bataille à l'autre), le
  * NOMBRE de bâtiments possédés varie au fil d'une run : `ownedBuildingViews`
- * est entièrement RECONSTRUIT (jamais patché) à chaque changement (achat,
- * retour au menu, début de placement) — leur nombre reste toujours petit
- * (quelques unités), une reconstruction complète reste largement assez
- * rapide (même principe déjà accepté pour playerPreview).
+ * est entièrement RECONSTRUIT (jamais patché) au lancement d'une run et au
+ * retour au menu — leur nombre reste toujours petit (quelques unités), une
+ * reconstruction complète reste largement assez rapide ; en jeu, un
+ * chantier pose ajoute sa vue a la volee (spawnOwnedBuildingRealtime).
  */
-// `let` (2026-08-18) : recalculee par rebuildGameBoardVisuals des que la
-// tour est reellement placee par le joueur (voir confirmTowerPlacement) ou
-// que la map s'agrandit — valeur de repli ici (avant meme qu'un run existe)
+// `let` : recalculee par rebuildGameBoardVisuals/applyRunBallistaPosition au
+// lancement d'une run — valeur de repli ici (avant meme qu'une run existe)
 // sans consequence, voir computeBallistaObstacle.
 let ballistaObstacleDef: ObstacleDef = computeBallistaObstacle(playerArrowOrigin);
 // Groupe dedie aux debris de destruction (voir render/buildingView.ts) —
@@ -626,10 +579,9 @@ interface OwnedBuildingView {
   view: BuildingView;
 }
 /** Un mesh + BuildingView par entree de `currentRun.buildings`, MEME ORDRE
- *  (index i <-> index i) — voir refreshOwnedBuildingViews. Existe aussi bien
- *  pendant le PLACEMENT (le joueur voit ses bâtiments déjà construits) que
- *  pendant la BATAILLE (une fois wire a une Entity reelle, voir
- *  buildingViewsByEntityId plus bas). */
+ *  (index i <-> index i) — voir refreshOwnedBuildingViews ; en jeu, chaque
+ *  vue est reliee a une Entity reelle (voir buildingViewsByEntityId plus
+ *  bas). */
 const ownedBuildingViews: OwnedBuildingView[] = [];
 
 function clearOwnedBuildingViews(): void {
@@ -670,39 +622,25 @@ function gameplayBuildingObstacle(buildingId: string, x: number, z: number, rota
   };
 }
 
-/** Toutes les empreintes de collision actives pour la bataille/le placement
- *  REEL en cours — TOUS les bâtiments possédés (Mine, Caserne — voir
- *  currentRun.buildings) PLUS la plateforme Baliste (toujours presente).
- *  Utilisee par isValidPlacementTile (placement d'UNITE, evite de poser une
- *  unite dans un bâtiment) ET par onValidatePlacement (avant que
- *  World.spawnBuilding n'injecte lui-meme chaque empreinte). Jamais utilisee
+/** Toutes les empreintes de collision actives pour la run en cours — TOUS
+ *  les bâtiments possédés (voir currentRun.buildings) PLUS la plateforme
+ *  Baliste (toujours presente). Utilisee par isValidPlacementTile (pose d'un
+ *  batiment ou d'un mur, jamais dans un batiment existant). Jamais utilisee
  *  par setupTestBattle/testScenario (carte d'editeur, sans lien avec la
  *  progression d'une run reelle). */
-/** `excludeBuildingIndex` (2026-08-17, "il faut pouvoir rebouger ses
- *  bâtiments pendant la phase de placement") : exclut UN bâtiment possédé
- *  (par index dans currentRun.buildings) de sa PROPRE empreinte de
- *  collision — indispensable pendant un DEPLACEMENT, sinon un bâtiment ne
- *  pourrait jamais valider une case proche de sa position d'ORIGINE
- *  (toujours "occupée" par lui-même). Absent = comportement inchangé
- *  (toutes les empreintes actives, y compris celle du bâtiment qu'on
- *  regarde). */
-function activeBuildingObstacles(excludeBuildingIndex?: number): ObstacleDef[] {
-  const owned = currentRun.buildings.filter((_, i) => i !== excludeBuildingIndex);
-  return [...owned.map(ownedBuildingObstacle), ballistaObstacleDef];
+function activeBuildingObstacles(): ObstacleDef[] {
+  return [...currentRun.buildings.map(ownedBuildingObstacle), ballistaObstacleDef];
 }
 
 /** Reconstruit un mesh + BuildingView par bâtiment REELLEMENT possédé (voir
- *  currentRun.buildings) — a appeler apres CHAQUE changement (achat en
- *  placement, retour au menu principal, debut d'une nouvelle phase de
- *  placement). */
+ *  currentRun.buildings) — au lancement d'une run (camp de depart) et au
+ *  retour au menu principal ; en jeu, un chantier pose ajoute sa propre vue
+ *  (spawnOwnedBuildingRealtime). */
 function refreshOwnedBuildingViews(): void {
   clearOwnedBuildingViews();
   currentRun.buildings.forEach((owned, i) => {
     const mesh = buildObstacleMesh(ownedBuildingObstacle(owned), environmentAssets);
-    // Index dans currentRun.buildings (2026-08-17, "rebouger ses bâtiments"),
-    // meme convention que placementSlots/userData['slotIndex'] pour les
-    // unites (voir findSlotIndex) — permet de retrouver quel bâtiment un
-    // clic vise, voir findOwnedBuildingIndex.
+    // Index dans currentRun.buildings, pour relier la vue a son entree.
     mesh.userData['ownedBuildingIndex'] = i;
     renderer.scene.add(mesh);
     const view = new BuildingView(mesh, buildingVfxGroup);
@@ -710,155 +648,46 @@ function refreshOwnedBuildingViews(): void {
     ownedBuildingViews.push({ mesh, view });
   });
 }
-
-/** Meme patron que findSlotIndex (unites) — remonte les parents jusqu'a
- *  trouver un mesh tagge `ownedBuildingIndex` (2026-08-17). */
-function findOwnedBuildingIndex(object: THREE.Object3D | null): number | null {
-  let current = object;
-  while (current) {
-    const index = current.userData['ownedBuildingIndex'];
-    if (typeof index === 'number') return index;
-    current = current.parent;
-  }
-  return null;
-}
-
-/** Retrouve, sous le curseur, l'index d'un bâtiment DEJA POSSEDE — utilise
- *  par le clic simple pendant le placement (voir requestMoveBuilding), meme
- *  patron que findHoveredSlot pour les unites. */
-/** Le curseur vise-t-il la base de la Baliste en preparation ? Seule son
- *  empreinte au sol compte (ballistaObstacleDef : la meme collision que celle
- *  qui bloque le placement des unites), jamais la silhouette haute de la
- *  tour : un clic sur sa partie haute dont le point au sol tombe ailleurs
- *  reste un geste normal (rectangle, deplacement). Un modele d'unite touche
- *  par le rayon garde la priorite. */
-function isBallistaHoveredInPlacement(event: MouseEvent): boolean {
-  const point = computeGroundPoint(event);
-  if (!point) return false;
-  const b = obstacleBounds(ballistaObstacleDef);
-  if (!(point.x > b.minX && point.x < b.maxX && point.z > b.minZ && point.z < b.maxZ)) return false;
-  return findHoveredSlot(event) === null;
-}
-
-function findHoveredOwnedBuilding(event: MouseEvent): number | null {
-  setRaycasterFromEvent(event);
-  const hit = raycaster.intersectObjects(
-    ownedBuildingViews.map((v) => v.mesh),
-    true,
-  )[0];
-  return hit ? findOwnedBuildingIndex(hit.object) : null;
-}
 // PAS d'appel eager ici : `currentRun` n'est declare que plus bas dans ce
 // fichier (TDZ — provoquait "Cannot access 'currentRun' before
 // initialization" au chargement de la page, trouve en testant en direct).
 // `refreshOwnedBuildingViews()` est deja appelee explicitement partout ou
-// c'est necessaire (startPlacement, onValidatePlacement,
-// returnToEditorAfterTest, startNewRun) — currentRun.buildings est de toute
-// facon toujours vide au tout premier chargement (createNewRun()).
+// c'est necessaire (startSurvivalWorld, returnToEditorAfterTest, quitToMenu)
+// — currentRun.buildings est de toute facon toujours vide au tout premier
+// chargement (createNewRun()).
 
 /**
  * Reconstruit le plateau visuel REEL (sol/grille/zones/obstacles) et
- * repositionne la Baliste, a partir de `currentMap`/`spawnDepth` ACTUELS
- * (2026-08-18) — factorise entre applyMapExpansionForCompletedWave
- * (agrandissement en cours de run) et resetGameBoardToSurvivalMap (retour a
- * la carte de depart pour une run neuve, voir startNewRun) : les deux
- * situations impliquent exactement la meme reconstruction. N'appelle
- * JAMAIS world.setMap()/refreshOwnedBuildingViews() elle-meme — les
- * appelants savent chacun ce qui est necessaire en plus (ex. translater
- * currentRun.buildings AVANT de rafraichir leurs meshes, pertinent
- * seulement pour une vraie expansion, jamais pour un reset).
+ * repositionne la Baliste, a partir de `currentMap` ACTUELLE — appelee par
+ * resetGameBoardToSurvivalMap quand une nouvelle run change de carte (carte
+ * procedurale, nouvelle graine). N'appelle JAMAIS world.setMap()/
+ * refreshOwnedBuildingViews() elle-meme — l'appelant sait ce qui est
+ * necessaire en plus.
  */
-async function rebuildGameBoardVisuals(spawnDepth: number): Promise<void> {
+async function rebuildGameBoardVisuals(): Promise<void> {
   // Position de la Baliste de la run (currentRun.ballistaPosition, fixee au
-  // demarrage depuis la carte, voir startNewRun, puis reculee avec le camp
-  // joueur a chaque etape C) ; hors run, celle de la carte.
+  // demarrage depuis la carte, voir startNewRun) ; hors run, celle de la
+  // carte.
   playerArrowOrigin = currentRun.ballistaPosition ?? resolveBallistaOrigin(currentMap);
   ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
 
-  // Grille masquee par defaut : startPlacement() (qui s'execute juste apres,
-  // une fois le joueur sorti de l'ecran de fin de vague/la boutique) la rend
-  // visible. Les zones de territoire restent affichees sans interruption,
-  // en preparation comme en bataille : le nouveau plateau les montre deja.
+  // Grille masquee en jeu ; les zones de territoire restent affichees.
   renderer.scene.remove(board.group);
-  board = await createBoard(currentMap, spawnDepth);
+  board = await createBoard(currentMap);
   board.gridLines.visible = false;
   renderer.scene.add(board.group);
 }
 
 /**
- * Agrandissement progressif du champ de bataille (2026-08-18, demande
- * d'Antoine) — appelee UNE FOIS PAR BATAILLE REELLEMENT GAGNEE, depuis le
- * callback `onBlackout` de la sequence de victoire (voir plus bas,
- * `waveTransition.play`) : "après validation réelle de Victory et avant
- * Placement" — donc derriere le rideau noir, jamais pendant un combat
- * (aucune Entity n'existe a ce moment, `world.entities` deja vide par
- * `world.clear()`, appele juste avant dans le meme callback).
- *
- * `completedWave` : le numero de la vague qui vient REELLEMENT d'etre
- * gagnee (1-indexe, celui affiche au joueur — `waveBeingFought`, capture
- * AVANT l'increment de `waveNumber` par `applyBattleOutcome`).
- *
- * Idempotence (demande explicite d'Antoine : "une vague ne doit jamais
- * appliquer deux fois son expansion") : si cette vague a deja declenche son
- * expansion (reload/callback relance), ne fait RIEN — voir
- * `currentRun.mapExpansion.lastExpandedWave`.
- */
-async function applyMapExpansionForCompletedWave(completedWave: number): Promise<void> {
-  if (completedWave <= currentRun.mapExpansion.lastExpandedWave) return;
-  // Survie Hero RTS (carte generee ou dessinee) : deja a sa taille, pas
-  // d'agrandissement E4 (choix d'Antoine, 2026-11-01).
-  if (usesHeroRtsRules(currentMap)) return;
-
-  const step = expansionStepForCompletedWave(completedWave);
-  const result = applyMapExpansionStep(currentMap, currentRun.mapExpansion, step);
-  currentMap = result.map;
-  currentRun.mapExpansion = { ...result.state, lastExpandedWave: completedWave };
-  rebuildCurrentTerritoryIndex();
-
-  // Batiments POSSEDES et Baliste de la run : translates SEULEMENT par
-  // l'ETAPE C (offsetForZ vaut toujours 0 pour spawnBack/sides — voir
-  // run/mapExpansion.ts), avec le camp joueur qui recule d'une case. MEME
-  // fonction centralisee que le terrain et les decors.
-  for (const owned of currentRun.buildings) owned.z += result.offsetForZ(owned.z);
-  if (currentRun.ballistaPosition) {
-    const ballista = currentRun.ballistaPosition;
-    currentRun.ballistaPosition = { x: ballista.x, z: ballista.z + result.offsetForZ(ballista.z) };
-  }
-
-  await rebuildGameBoardVisuals(currentRun.mapExpansion.spawnDepth);
-
-  // Pathfinding/occupancy (demande explicite : "recalculer navigation/
-  // occupancy si necessaire") : World.setMap reconstruit obstacles/bounds
-  // depuis currentMap — sera de toute facon rappelee au debut de la
-  // PROCHAINE bataille (onValidatePlacement), mais appelee ici aussi pour
-  // qu'aucun code entre ces deux moments ne puisse lire un World perime.
-  world.setMap(currentMap);
-
-  // Meshes des batiments possedes reconstruits a leur NOUVELLE position
-  // (pertinent seulement apres l'ETAPE C, qui vient de muter owned.z
-  // ci-dessus) — startPlacement() le referait de toute facon un peu plus
-  // tard, mais evite tout etat visuel perime avant meme que le joueur
-  // n'atteigne l'ecran de fin de vague/la boutique.
-  refreshOwnedBuildingViews();
-}
-
-/**
- * Remet le plateau REEL a la carte de depart (2026-08-18) — necessaire
- * uniquement si une run PRECEDENTE avait agrandi `currentMap` (voir
- * applyMapExpansionForCompletedWave ci-dessus) : `currentMap` est un module
- * partage entre runs, `currentRun.mapExpansion` vient deja d'etre
- * reinitialise par `createNewRun` (voir startNewRun) au moment ou cette
- * fonction est appelee, mais `currentMap`/le rendu/la Baliste ne le savent
- * pas encore sans cet appel explicite — sans lui, une nouvelle run
- * demarrerait avec un plateau visuel/une simulation encore a l'ancienne
- * taille agrandie, desynchronises de `currentRun.mapExpansion` (repartie a
- * zero).
+ * Remet le plateau REEL a la carte de depart de la run (survivalBaseMap) :
+ * `currentMap` est un module partage entre runs ; apres une run sur une
+ * carte procedurale, la suivante en genere une nouvelle (voir startNewRun),
+ * et le plateau visuel, la Baliste et la simulation doivent la suivre.
  */
 async function resetGameBoardToSurvivalMap(): Promise<void> {
   currentMap = survivalBaseMap;
-  rebuildCurrentTerritoryIndex();
-  await rebuildGameBoardVisuals(currentRun.mapExpansion.spawnDepth);
+  await rebuildGameBoardVisuals();
   world.setMap(currentMap);
 }
 
@@ -867,7 +696,7 @@ async function resetGameBoardToSurvivalMap(): Promise<void> {
  *  SEUL point de dispatch generique (2026-08-17) : remplace les anciens
  *  `if (target.id === mineEntityId) ... else if (target.id === ballistaEntityId) ...`
  *  codes en dur, desormais inadaptes puisque le nombre de bâtiments varie.
- *  Vide pendant le placement (aucune Entity n'existe encore). */
+ *  Vide hors jeu (aucune Entity n'existe). */
 const buildingViewsByEntityId = new Map<number, BuildingView>();
 
 /** Flash blanc de degats pour n'importe quelle entite touchee : batiment
@@ -880,45 +709,26 @@ function playHitFlash(entityId: number): void {
   else unitViews.playHit(entityId);
 }
 
-/** Vrai tant qu'aucun camp n'a encore ete elimine sur la bataille en cours. */
+/** Vrai des que la run est perdue (Baliste detruite) ou que le test de
+ *  l'editeur est termine : la simulation est figee, la fin se joue. */
 let battleOver = false;
 
-/** Ids d'ennemis deja recompenses en or (voir la boucle de jeu, or en temps
- *  reel a chaque kill, 2026-08-11) — evite de recompenser deux fois la
- *  meme mort si plusieurs coups visaient la meme unite au meme tick.
- *  Videe a chaque `world.clear()` (voir les sites d'appel) : les ids
- *  d'entite ne sont jamais reutilises (World.nextId ne revient jamais en
- *  arriere), donc ce n'est pas necessaire pour l'exactitude, seulement pour
- *  eviter une croissance non bornee sur une longue session. */
+/** Ids d'ennemis deja comptes comme vaincus (voir la boucle de jeu,
+ *  deblocage par victoire) — evite de compter deux fois la meme mort si
+ *  plusieurs coups visaient la meme unite au meme tick. Videe a chaque
+ *  `world.clear()` (voir les sites d'appel) : les ids d'entite ne sont
+ *  jamais reutilises (World.nextId ne revient jamais en arriere), donc ce
+ *  n'est pas necessaire pour l'exactitude, seulement pour eviter une
+ *  croissance non bornee sur une longue session. */
 const rewardedEnemyDeaths = new Set<number>();
 
-/** Bilan de la manche en cours (run/battleSummary.ts) : ennemis vaincus par
- *  type et or GAGNE pendant la manche (morts ennemies, productions des
- *  Mines, bonus de victoire), affiche sur l'ecran de fin de vague. Remis a
- *  zero au lancement de chaque vraie bataille (onValidatePlacement). */
-let battleSummary = createBattleSummary();
-
-/** Ids d'entites JOUEUR actuellement EN DESSOUS du seuil "Aux petits
- *  oignons" (voir AUTO_HEAL_TRIGGER_RATIO) — 2026-08-15, demande explicite
- *  d'Antoine : "je ne veux surtout pas qu'un allie reste sous 30% et
- *  consomme un parchemin chaque tick... je veux un comportement de
- *  FRANCHISSEMENT de seuil". Un id present ici signifie "le proc a deja ete
- *  consomme pour ce franchissement" — retire UNIQUEMENT quand l'unite
- *  repasse STRICTEMENT au-dessus du seuil (voir applyPlayerHeal, la SEULE
- *  facon dont les PV remontent), jamais sur un simple hit. Videe a chaque
- *  `world.clear()` (memes 5 sites que rewardedEnemyDeaths) : les ids
- *  d'entite ne sont jamais reutilises au sein d'une bataille, mais chaque
- *  nouvelle bataille recree des entites fraiches sans rapport avec l'etat
- *  de la precedente. */
-const belowAutoHealThreshold = new Set<number>();
-
-/** Production des Mines pendant une vraie bataille (voir la boucle de jeu) :
- *  temps de bataille ecoule depuis la derniere production de chaque Mine,
- *  par id d'entite. Vide a chaque world.clear() (memes sites que
+/** Production des Mines pendant une run (voir la boucle de jeu) : temps de
+ *  simulation ecoule depuis la derniere production de chaque Mine, par id
+ *  d'entite. Vide a chaque world.clear() (memes sites que
  *  rewardedEnemyDeaths). */
 const mineProductionTimers = new Map<number, number>();
 /** Tirage du montant de chaque production : RNG a graine, re-semee a chaque
- *  debut de bataille reelle depuis la graine du World (deterministe), jamais
+ *  lancement de run depuis la graine du World (deterministe), jamais
  *  Math.random. */
 let mineGoldRng = new Rng(1);
 
@@ -994,11 +804,10 @@ function isTalentActive(id: string): boolean {
  *  boutique d'amelioration du joueur, mais jamais lues depuis metaProgress
  *  (voir run/unitUpgradeEffects.ts, computeEnemyUnitUpgradeEffects). Vagues
  *  1 a 3 : statOverrides vide (undefined), comportement STRICTEMENT
- *  inchange. Uniquement branchee sur le spawn de bataille REEL
- *  (onValidatePlacement, currentRun.waveNumber) — jamais sur setupTestBattle
- *  (raccourci de dev / "Tester le scenario" de l'editeur, qui lit
- *  currentMap.enemyUnits sans lien avec une progression de run reelle, voir
- *  CLAUDE.md). */
+ *  inchange. Uniquement branchee sur les vagues d'une run REELLE
+ *  (spawnEnemyReinforcements, currentRun.waveNumber) — jamais sur
+ *  setupTestBattle ("Tester le scenario" de l'editeur, qui lit
+ *  currentMap.enemyUnits sans lien avec une progression de run reelle). */
 function enemyStatOverrides(unitId: string, waveNumber: number): Partial<UnitStats> | undefined {
   const overrides = computeEnemyUnitUpgradeEffects(unitId, waveNumber).statOverrides;
   return Object.keys(overrides).length > 0 ? overrides : undefined;
@@ -1024,58 +833,19 @@ function rememberPlayerUnitLevel(entity: Entity, productionLevel: number, explic
   entity.level = resolveUnitLevel(explicit, unitLevelFromUpgradeLevel(productionLevel));
 }
 
-// --- Economie / progression de run (chantier en cours — voir CLAUDE.md) -
+// --- Economie / progression de run ------------------------------------------
 //
-// L'or et l'armee possedee survivent d'une vague a l'autre TANT QUE le
-// joueur reste dans la meme run (roguelite classique, confirme par Antoine :
-// une unite blessee reste blessee jusqu'au soin, une unite morte est perdue
-// pour de bon). Une nouvelle run (reset complet) ne demarre qu'au clic sur
-// "Jouer" depuis le menu principal (voir startNewRun) — continuer apres la
-// boutique reutilise la MEME run, juste la vague suivante.
+// L'or, le stock, les batiments et la progression du Heros vivent le temps
+// d'une run (temps reel continu). Une nouvelle run (reset complet) ne
+// demarre qu'au clic sur "Mode survie" depuis le menu principal (voir
+// startNewRun).
 let currentRun = createFreshRun();
-
-/** Territoire courant du jeu (config/territory.ts) : SOURCE UNIQUE de la zone
- *  de placement du joueur, lue par isValidPlacementTile. Territoire
- *  explicite de currentMap s'il existe, sinon bandes historiques derivees de
- *  currentMap + spawnDepth de la run (resolveMapTerritory). Un territoire
- *  explicite ne suit pas encore l'expansion de la carte. Reconstruit par
- *  rebuildCurrentTerritoryIndex a chaque changement de l'une de ces deux sources, jamais par validation ni
- *  par image. `map`/`spawnDepth` memorisent les sources de l'index, pour
- *  detecter un index perime (voir currentTerritoryIndex). */
-interface CurrentTerritory {
-  index: TerritoryIndex;
-  map: MapDef;
-  spawnDepth: number;
-}
-let currentTerritory = deriveCurrentTerritory();
-
-function deriveCurrentTerritory(): CurrentTerritory {
-  const spawnDepth = currentRun.mapExpansion.spawnDepth;
-  return { index: buildTerritoryIndex(resolveMapTerritory(currentMap, spawnDepth)), map: currentMap, spawnDepth };
-}
-
-/** A appeler juste apres tout changement de currentMap ou de
- *  currentRun.mapExpansion.spawnDepth. */
-function rebuildCurrentTerritoryIndex(): void {
-  currentTerritory = deriveCurrentTerritory();
-}
-
-/** Index du territoire courant. Garde-fou : si un changement de source a
- *  oublie de reconstruire l'index, il est reconstruit ici (avec un
- *  avertissement en console) plutot que de valider contre une zone perimee. */
-function currentTerritoryIndex(): TerritoryIndex {
-  if (currentTerritory.map !== currentMap || currentTerritory.spawnDepth !== currentRun.mapExpansion.spawnDepth) {
-    console.warn('Index de territoire perime : reconstruit.');
-    rebuildCurrentTerritoryIndex();
-  }
-  return currentTerritory.index;
-}
 
 /** Nouvelle run : aucune amelioration (elles s'achetent en Or a la Forge
  *  pendant la run) ; aucun niveau n'est conserve d'une run a l'autre. */
 function createFreshRun(heroId: string = DEFAULT_HERO_ID): RunState {
   const upgrades: RunUpgradeLevels = {};
-  return createNewRun(computeStartingGoldBonus(metaProgress), playerUnitMaxHp('fantassin', 0), upgrades, survivalBaseMap, heroId);
+  return createNewRun(computeStartingGoldBonus(metaProgress), upgrades, heroId);
 }
 
 /** Camp de depart (2026-11-04, config/startingBase.ts) : ses batiments
@@ -1103,37 +873,17 @@ function applyStartingBaseToRun(): void {
 function playerProgression(): PlayerProgression {
   return { talents: metaProgress, upgrades: inTestMode ? {} : currentRun.upgrades };
 }
-/** Or gagne a la derniere bataille (kills + bonus de vague) — retenu entre
- *  applyBattleOutcome et l'ouverture de la boutique pour y jouer l'animation
- *  de gain (voir onContinueAfterWave), l'ecran boutique n'existant pas
- *  encore visuellement au moment ou l'or est calcule. */
-let lastBattleGoldEarned = 0;
 
-/** Dernier achat d'UNITE fait en boutique de run (2026-08-13, demande
- *  d'Antoine : "un bouton retour dans la boutique au cas où une unité ait
- *  été achetée par hasard") — `null` si rien a annuler. Alimente le bouton
- *  "Annuler le dernier achat" (voir ScreenHandlers.onUndoLastUnitPurchase) :
- *  un filet de secours pour un misclic, pas un historique general — remis a
- *  `null` a l'ouverture de CHAQUE nouvelle phase de placement (voir
- *  startPlacement) et des qu'une unite est vendue (voir sellUnit, pour
- *  eviter un double-remboursement si l'unite juste achetee est ensuite
- *  vendue). Suppose l'invariant deja etabli ailleurs (voir addUnitToPlacement) :
- *  un achat pousse TOUJOURS currentRun.army/placementSlots au MEME index, en
- *  DERNIERE position — annuler revient donc a retirer le DERNIER element des
- *  deux tableaux. */
-let lastUnitPurchase: { unitId: string; cost: number } | null = null;
-
-/** Bataille de "Tester le scenario" : bataille immediate, sans phase de
- *  placement, avec les unites de la carte et une VRAIE Baliste (batiment de
- *  simulation : PV, collision, condition de defaite), exactement comme en
- *  vraie bataille. `playerArrowOrigin` et `ballistaObstacleDef` doivent avoir
- *  ete calcules par l'appelant (voir testScenario), apres world.setMap. */
+/** Partie de "Tester le scenario" : partie immediate avec les unites de la
+ *  carte et une VRAIE Baliste (batiment de simulation : PV, collision,
+ *  condition de defaite), exactement comme en vraie run. `playerArrowOrigin`
+ *  et `ballistaObstacleDef` doivent avoir ete calcules par l'appelant (voir
+ *  testScenario), apres world.setMap. */
 function setupTestBattle(): void {
   resetBattleControls();
   world.clear();
   forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
-  belowAutoHealThreshold.clear();
   mineProductionTimers.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
@@ -1142,11 +892,9 @@ function setupTestBattle(): void {
   playerArrowView.clear();
   telegraphView.clear();
   fireballView.clear();
-  iceNovaView.clear();
   healVfxView.clear();
   moveOrderFeedback.clear();
   tauntVfxView.clear();
-  shadowProjectileView.clear();
   battleOver = false;
 
   for (const pos of currentMap.playerUnits) {
@@ -1202,7 +950,7 @@ function setupTestBattle(): void {
   for (const def of currentMap.camps ?? []) world.addCamp(campSpecOf(def));
   for (const d of currentMap.destructibles ?? []) world.addDestructible(d.kind, d.x, d.z);
   campViews.setCamps(currentMap.camps ?? []);
-  // Apres les unites, comme en vraie bataille (voir onValidatePlacement).
+  // Apres les unites, comme en vraie run (voir startSurvivalWorld).
   spawnBallistaBuilding();
   // Apres la Baliste : son empreinte compte dans le pas d'ouverture.
   openBattleWithFormationStep();
@@ -1223,8 +971,8 @@ function holdPlayerUnitsInGuard(entityIds?: readonly number[]): void {
 const openingStepEntityIds = new Set<number>();
 
 /**
- * Debut de bataille (vraie ou "Tester le scenario") : toute la formation du
- * joueur avance d'exactement une case vers l'ennemi (forwardDir), offsets
+ * Lancement (vraie run ou "Tester le scenario") : toute la formation du
+ * joueur avance d'exactement une case vers -z (forwardDir), offsets
  * conserves, puis passe en Garde a l'arrivee (fin normale d'un ordre
  * `move`). Une courte mise en mouvement, jamais une charge : aucune cible
  * ennemie n'est assignee. Tout ou rien, pour ne jamais deformer la
@@ -1233,7 +981,11 @@ const openingStepEntityIds = new Set<number>();
  * le groupe reste en place et passe directement en Garde. Un ordre `move`
  * `exact` par unite vers SA case : un ordre de groupe redistribuerait les
  * places, un ordre ordinaire s'arreterait a la tolerance du rayon.
- * Les unites produites ensuite par une Caserne n'en font pas partie.
+ * Les unites produites ensuite n'en font pas partie.
+ * HERITAGE du jeu en manches (pas d'ouverture de la formation vers le camp
+ * ennemi) : conserve tel quel pour ne pas changer le lancement visible
+ * (Heros et Villageois du camp de depart avancent d'une case au nord) ;
+ * candidat au retrait, a decider (docs/KNOWN_ISSUES.md).
  */
 function openBattleWithFormationStep(): void {
   openingStepEntityIds.clear();
@@ -1258,17 +1010,13 @@ function openBattleWithFormationStep(): void {
   }
 }
 
-// --- Phase de placement -----------------------------------------------
+// --- Formation de depart et vagues ------------------------------------------
 //
-// L'armee du joueur vient desormais de la run en cours (voir run/runState.ts,
-// currentRun.army) plutot que d'un roster fixe : elle grandit avec les achats
-// en boutique et retrecit avec les pertes. Le choix reste avant tout un choix
-// de POSITION — c'est deja le coeur du gameplay tactique vise.
-//
-// Interaction : clic gauche sur une unite pour la selectionner (surbrillance
-// aux couleurs du camp), clic gauche sur une case libre de la zone pour l'y
-// deplacer. Pas de bandeau de jetons a cliquer a cote du plateau — tout se
-// passe directement sur les unites, comme dans un vrai jeu de tactique.
+// L'armee de depart vient de la run (run/runState.ts, currentRun.army :
+// Heros et unites du camp de depart) ; les vagues viennent de la composition
+// de run/runState.ts, placees en secteurs autour de la Baliste. Les fonctions
+// de formation en rangs ne servent plus qu'aux arenes de debogage
+// (`?map=arena|island`) et a la formation ennemie de ces arenes.
 
 /** Distingue melee (rangees avant) de distance (rangees arriere), voir
  *  layoutFormation — demande d'Antoine, 2026-08-10. Base sur la portee
@@ -1296,8 +1044,7 @@ function isRangedUnit(unitId: string): boolean {
  * melee/distance interne), pour rester directement zippable avec le tableau
  * d'origine par l'appelant.
  *
- * Purement une disposition de DEPART — le joueur peut toujours deplacer
- * chaque unite avant de valider.
+ * Purement une disposition de DEPART.
  */
 function layoutFormation(unitIds: string[], frontZ: number, rowStep: number, perRow: number): { x: number; z: number }[] {
   const meleeIndices: number[] = [];
@@ -1348,14 +1095,9 @@ function computeArmyFormation(unitIds: string[], map: MapDef): { x: number; z: n
       return { x: slot.x, z: slot.z };
     });
   }
+  // Arenes de debogage : bandes historiques de PLACEMENT_ROWS rangees.
   const halfH = (map.height * TILE) / 2;
-  // spawnDepth DYNAMIQUE (2026-08-18, agrandissement progressif de la map) —
-  // remplace la constante globale PLACEMENT_ROWS pour le jeu REEL : voir
-  // run/mapExpansion.ts, MapExpansionState.spawnDepth (demarre a
-  // PLACEMENT_ROWS, +1 a chaque application de l'ETAPE A). Cette fonction
-  // n'est jamais appelee par l'editeur/setupTestBattle (voir leurs propres
-  // docstrings), donc `currentRun` existe toujours ici.
-  const frontZ = halfH - currentRun.mapExpansion.spawnDepth * TILE + 0.5;
+  const frontZ = halfH - PLACEMENT_ROWS * TILE + 0.5;
   const perRow = Math.max(1, map.width - 2);
   return layoutFormation(unitIds, frontZ, TILE, perRow);
 }
@@ -1383,8 +1125,8 @@ function computeEnemyWavePlan(waveNumber: number, map: MapDef): EnemyReinforceme
   if (usesHeroRtsRules(map) && map.ballista) return ringEnemyWavePlan(waveNumber, groups, map.ballista);
   const halfW = (map.width * TILE) / 2;
   const halfH = (map.height * TILE) / 2;
-  // spawnDepth DYNAMIQUE — voir computeArmyFormation ci-dessus, meme raisonnement.
-  const spawnDepth = currentRun.mapExpansion.spawnDepth;
+  // Arenes de debogage : bande historique de PLACEMENT_ROWS rangees.
+  const spawnDepth = PLACEMENT_ROWS;
   const enemyFrontZ = -halfH + spawnDepth * TILE - 0.5;
   const perRow = Math.max(1, map.width - 2);
   return {
@@ -1454,178 +1196,38 @@ function spawnEnemyReinforcements(spawns: EnemyReinforcementSpawn[]): void {
   }
 }
 
-/** Indicateur de vague : total et nombre de groupes en preparation, groupes
- *  restants en bataille. */
+/** Indicateur de vague : compte a rebours de la prochaine vague, groupes
+ *  restants pendant une vague. */
 function refreshWaveIndicator(): void {
-  if (!inPlacementPhase && !inTestMode && survivalNextWaveTick !== null) {
+  if (!inTestMode && survivalNextWaveTick !== null) {
     const seconds = Math.max(0, Math.ceil((survivalNextWaveTick - world.tick) / SIM_HZ));
     waveIndicator.update(currentRun.waveNumber, `dans ${seconds} s`);
-    return;
-  }
-  if (inPlacementPhase) {
-    const plan = computeEnemyWavePlan(currentRun.waveNumber, currentMap);
-    const total = plan.groups.reduce((sum, group) => sum + group.length, 0);
-    waveIndicator.update(currentRun.waveNumber, plan.groups.length > 1 ? `${total} ennemis · ${plan.groups.length} groupes` : `${total} ennemis`);
     return;
   }
   const pending = world.pendingEnemyGroups();
   waveIndicator.update(currentRun.waveNumber, pending > 0 ? `Renforts : ${pending} groupe${pending > 1 ? 's' : ''}` : undefined);
 }
 
-interface PlacementSlot {
-  unitId: string;
-  x: number | null;
-  z: number | null;
-  /** PV actuels a spawner (voir World.spawn) — une unite blessee survivante
-   *  d'une vague precedente reste blessee tant qu'elle n'est pas soignee. */
-  hp: number;
-  /** Niveau de production de l'unite (OwnedUnit.productionLevel), fige. */
-  productionLevel: number;
-}
-
-let placementSlots: PlacementSlot[] = [];
-/** Selection courante pendant la phase de placement — indices dans
- *  `placementSlots` (2026-08-14, refonte demandee par Antoine : "évite de
- *  conserver selectedUnit dans dix endroits différents"). REMPLACE l'ancien
- *  couple selectedSlot/selectedGroup (deux variables mutuellement exclusives
- *  qu'il fallait synchroniser a la main partout) par UNE seule source de
- *  verite : tableau vide = rien de selectionne, 1 element = selection
- *  simple, 2+ = selection de groupe — plus aucune distinction de CAS entre
- *  les deux, chaque appelant lit juste `.length`. Jamais de doublon (voir
- *  setSelection). Fonctions dediees juste en dessous (clearSelection/
- *  setSelection/isSelected) plutot qu'une mutation directe eparpillee. */
-let selectedIndices: number[] = [];
-
-function clearSelection(): void {
-  selectedIndices = [];
-}
-
-/** Remplace ENTIEREMENT la selection courante (jamais un ajout) — source
- *  unique pour les 3 façons de selectionner (clic simple, double-clic meme
- *  type, rectangle glisse). Deduplique par securite (aucun appelant actuel
- *  n'en produit, mais un tableau selectionne doit rester un ensemble). */
-function setSelection(indices: number[]): void {
-  selectedIndices = Array.from(new Set(indices));
-}
-
-function isSelected(index: number): boolean {
-  return selectedIndices.includes(index);
-}
-
-let inPlacementPhase = false;
-
-/** Or possede au tout DEBUT de la phase de placement en cours (capture au
- *  sommet de startPlacement, avant l'ouverture automatique de la boutique) —
- *  sert de reference a la barriere de securite "il vous reste de l'or", voir
- *  requestValidatePlacement. */
-let goldAtPlacementStart = 0;
-
-/** Glisser une unite en main vers l'onglet "Vendre" (demande d'Antoine,
- *  2026-08-08) : clic maintenu sur une unite, puis glisser au-dessus de la
- *  zone pour la vendre. `dragging` ne passe a vrai qu'apres avoir depasse
- *  un petit seuil de deplacement ecran (voir UNIT_DRAG_THRESHOLD_PX) — sinon
- *  un simple clic (sans bouger) serait interprete comme un glisser manque et
- *  ne selectionnerait jamais l'unite. */
-interface UnitDragState {
-  slotIndex: number;
-  /** Non-null si le slot glisse fait partie du groupe actuellement
-   *  selectionne (voir selectedIndices) : on deplace ou on vend alors tout
-   *  le groupe d'un bloc plutot que ce seul slot — le slot saisi arrive
-   *  sous le curseur, le groupe suit (voir placementDragProposal). */
-  groupIndices: number[] | null;
-  startClientX: number;
-  startClientY: number;
-  dragging: boolean;
-  /** Maj enfoncee a l'appui : un clic sans glisser ajoute ou retire l'unite
-   *  de la selection (toggleSlotSelection) au lieu de la selection simple. */
-  shift: boolean;
-}
-let unitDrag: UnitDragState | null = null;
+/** Seuil (px ecran) au-dela duquel un clic gauche maintenu devient un
+ *  rectangle de selection (en jeu et dans l'editeur), jamais un clic. */
 const UNIT_DRAG_THRESHOLD_PX = 6;
 
-/** Double-clic MANUEL sur une unite en placement (voir le listener
- *  mousedown correspondant) — pas de mecanisme base sur l'evenement natif
- *  'dblclick', abandonne le 2026-08-10 apres un bug remonte par Antoine (le
- *  premier clic selectionnait puis le second desselectionnait, la selection
- *  de groupe n'apparaissait jamais). */
-let lastUnitClickSlot: number | null = null;
-let lastUnitClickTime = 0;
+/** Fenetre du double-clic MANUEL (en jeu et dans l'editeur) — pas de
+ *  mecanisme base sur l'evenement natif 'dblclick', abandonne le 2026-08-10
+ *  apres un bug remonte par Antoine (le premier clic selectionnait puis le
+ *  second desselectionnait, la selection de groupe n'apparaissait jamais). */
 const DOUBLE_CLICK_WINDOW_MS = 400;
 
-/** Meme detection manuelle, pour l'editeur de maps (2026-08-11, demande
- *  d'Antoine : "double clic pour selectionner une unite" — comprendre
- *  "toutes celles du meme type", voir selectVisibleSameTypeEditorUnits).
- *  Etat separe de lastUnitClickSlot/lastUnitClickTime : placement et
- *  editeur ne sont jamais actifs en meme temps, mais partagent le meme id
- *  d'objet (nextId commun, voir EditorState) — reutiliser le meme etat
- *  risquerait une collision accidentelle entre les deux contextes. */
+/** Detection manuelle du double-clic dans l'editeur de maps (2026-08-11,
+ *  demande d'Antoine : "double clic pour selectionner une unite" —
+ *  comprendre "toutes celles du meme type", voir
+ *  selectVisibleSameTypeEditorUnits). Etat separe de celui de la selection
+ *  en jeu (lastBattleUnitClickId). */
 let lastEditorUnitClickId: number | null = null;
 let lastEditorUnitClickTime = 0;
 
-/** Double-clic : selectionne toutes les unites du MEME TYPE que
- *  `hoveredSlot` VISIBLES a l'ecran (projetees dans le canvas), comme en
- *  bataille et dans l'editeur — jamais celles hors champ. Sans plafond.
- *  Devient une selection de groupe normale, sauf s'il n'y a qu'UNE seule
- *  unite de ce type (simple selection dans ce cas, meme convention que
- *  selectUnitsInRect avec un seul resultat). Trie par distance au point de
- *  reference par pure coherence visuelle (le groupe le plus proche
- *  d'abord). */
-function selectSameTypeGroup(hoveredSlot: number): void {
-  const origin = placementSlots[hoveredSlot]!;
-  const viewport = canvas.getBoundingClientRect();
-  const sameType = placementSlots
-    .map((slot, i) => ({ i, slot }))
-    .filter(({ slot }) => slot.unitId === origin.unitId && slot.x !== null && slot.z !== null)
-    .filter(({ slot }) => isInScreenRect(worldToScreen(slot.x!, slot.z!), viewport))
-    .sort((a, b) => {
-      const da = (a.slot.x! - origin.x!) ** 2 + (a.slot.z! - origin.z!) ** 2;
-      const db = (b.slot.x! - origin.x!) ** 2 + (b.slot.z! - origin.z!) ** 2;
-      return da - db;
-    })
-    .map(({ i }) => i);
-
-  setSelection(sameType.length <= 1 ? [hoveredSlot] : sameType);
-  refreshPlayerPreview();
-}
-
-function cancelUnitDrag(): void {
-  unitDrag = null;
-  sellZone.hideGhost();
-  sellZone.setArmed(false);
-  unitMovePreview.hide();
-}
-
-/** Glisser sur le SOL (pas sur une unite) pendant le placement : au-dela du
- *  seuil, dessine un rectangle de selection (voir SelectionBox) plutot que
- *  de deplacer quoi que ce soit. Resolu au relachement (voir le listener
- *  mouseup plus bas, selectUnitsInRect). */
-interface GroundDragState {
-  startClientX: number;
-  startClientY: number;
-  dragging: boolean;
-  /** Maj enfoncee a l'appui : un clic sans glisser ne fait rien (ni
-   *  deplacement ni deselection), comme Maj + clic dans le vide en bataille. */
-  shift: boolean;
-  /** Unite occupant la case sous le curseur a l'appui, quand le rayon a
-   *  manque son modele (voir findFallbackSlot) : un clic sans glisser la
-   *  selectionne ; un glisser reste un rectangle. */
-  fallbackSlot: number | null;
-}
-let groundDrag: GroundDragState | null = null;
-
-function cancelGroundDrag(): void {
-  groundDrag = null;
-  selectionBox.hide();
-}
-
-const playerPreview = new THREE.Group();
-const enemyPreview = new THREE.Group();
-renderer.scene.add(playerPreview);
-renderer.scene.add(enemyPreview);
-
 /** Apercu de deplacement d'unites sur la grille (empreintes vertes/rouges et
- *  silhouettes translucides), partage par la preparation et l'editeur : voir
- *  updateMovePreview. */
+ *  silhouettes translucides) de l'editeur : voir updateMovePreview. */
 const unitMovePreview = new UnitMovePreview();
 renderer.scene.add(unitMovePreview.group);
 
@@ -1651,288 +1253,28 @@ function createAimReticle(): THREE.Mesh {
   return ring;
 }
 
-/** Anneau plat de la cible de soin (voir healTargetRing). Distinct de
- *  l'anneau de selection des unites (render/unitSelectionRing.ts). */
-function createHealTargetRing(): THREE.Mesh {
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.34, 0.44, 24),
-    new THREE.MeshBasicMaterial({ color: COLORS.playerHead, transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.02;
-  return ring;
-}
-
-/** Une unite posee est-elle eligible au bonus de revente du talent
- *  "Recyclage" (2026-08-14, voir data/talents.ts, sellUnit) — sous 50% de
- *  ses PV maximum EFFECTIFS (avec ameliorations permanentes, coherent avec
- *  le calcul de revente reel). Sans effet si le talent n'est pas
- *  deverrouille. */
-function isRecyclageEligible(slot: PlacementSlot): boolean {
-  if (!isTalentActive('recyclage')) return false;
-  return slot.hp < 0.5 * playerUnitMaxHp(slot.unitId, slot.productionLevel);
-}
-
-/** Anneau de PREVISUALISATION de la cible de soin (2026-08-11, demande
- *  d'Antoine : "le curseur n'est pas tres clair quant a l'unite soignee") —
- *  un objet INDEPENDANT ajoute une seule fois a la scene et simplement
- *  repositionne/masque a chaque survol, plutot qu'un enfant reconstruit avec
- *  le reste de playerPreview. Voir updateHealTargetPreview. */
-const healTargetRing = createHealTargetRing();
-healTargetRing.visible = false;
-renderer.scene.add(healTargetRing);
-
-/** Met a jour (ou masque) l'anneau de previsualisation de la cible de soin
- *  selon la position actuelle du curseur — utilise EXACTEMENT la meme
- *  resolution de cible que le clic reel (findHealTargetEntity/
- *  findHealTargetSlotIndex), pour que ce que le joueur voit corresponde
- *  toujours a ce qui se passera vraiment au clic. */
-function updateHealTargetPreview(event: MouseEvent): void {
-  healTargetRing.visible = false;
-  if (armedItemIndex === null) return;
-  const owned = currentRun.inventory[armedItemIndex];
-  if (!owned || getItem(owned.itemId).effect.type !== 'heal') return;
-
-  const point = computeGroundPoint(event);
-  if (!point) return;
-
-  if (inBattlePhase()) {
-    const target = findHealTargetEntity(point.x, point.z);
-    if (!target) return;
-    const pos = unitViews.getPosition(target.id) ?? { x: target.x, z: target.z };
-    healTargetRing.position.set(pos.x, 0.02 + surfaceY(pos.x, pos.z), pos.z);
-    healTargetRing.visible = true;
-  } else if (inPlacementPhase) {
-    const slotIndex = findHealTargetSlotIndex(point.x, point.z);
-    if (slotIndex === null) return;
-    const slot = placementSlots[slotIndex]!;
-    healTargetRing.position.set(slot.x ?? 0, 0.02 + surfaceY(slot.x ?? 0, slot.z ?? 0), slot.z ?? 0);
-    healTargetRing.visible = true;
-  }
-}
-
 /**
- * Anneau de PREVISUALISATION de la Nova de glace (2026-08-14, meme motif
- * qu'updateHealTargetPreview ci-dessus) — suit le point du sol sous le
- * curseur tant que l'objet est arme, a EXACTEMENT le rayon gameplay reel
- * (voir data/items.ts, IceNovaEffect.radiusTiles) : le joueur voit toujours
- * precisement qui sera touche avant de cliquer. Contrairement au soin, aucun
- * ciblage de cible n'est resolu ici — un point du sol suffit, la zone
- * touchera qui s'y trouvera au moment du clic.
+ * Demarrage du monde d'une run Hero RTS (2026-11-04, remplace l'ancien
+ * `onValidatePlacement` du jeu en manches) : vide le monde et les vues,
+ * pose la carte, puis cree directement, dans cet ordre, l'armee de depart
+ * (Heros avec sa progression, Villageois du camp de depart, aux places du
+ * preset — computeArmyFormation), les batiments possedes (camp de depart :
+ * Baliste exclue, voir spawnBallistaBuilding), la Baliste, les camps
+ * neutres, les murs de la carte (enceinte du camp de depart comprise), les
+ * barils, puis les reglages de run (tas entames, bonus d'or des talents,
+ * compte a rebours de la premiere vague). Aucune phase de preparation, aucun
+ * placement : la simulation tourne des le retour.
  */
-function updateIceNovaTargetPreview(event: MouseEvent): void {
-  iceNovaView.hideTargetPreview();
-  if (armedItemIndex === null || !inBattlePhase()) return;
-  const owned = currentRun.inventory[armedItemIndex];
-  if (!owned) return;
-  const def = getItem(owned.itemId);
-  if (def.effect.type !== 'ice-nova') return;
-
-  const point = computeGroundPoint(event);
-  if (!point) return;
-  iceNovaView.showTargetPreview(point.x, point.z, def.effect.radiusTiles);
-}
-
-/**
- * Orchestration de la Nova de glace (2026-08-14) — impact INSTANTANE : Root
- * sur les ennemis presents dans la zone A CET INSTANT, VFX, PUIS (et
- * SEULEMENT si le talent Blizzard est debloque) une zone persistante en
- * PLUS — jamais a la place. Voir data/talents.ts, blizzard : "Nova de glace
- * crée en plus un Blizzard", jamais "remplace par". Les deux effets
- * (Root et Blizzard) sont totalement INDEPENDANTS cote simulation (voir
- * World.applyIceNovaRoot / World.createBlizzardZone / sim/systems/
- * persistentAreaEffects.ts) : le Root ne regarde que t=0, le Blizzard
- * re-scanne la zone a chaque tick — jamais la meme liste de cibles figee.
- */
-function castIceNova(x: number, z: number, effect: IceNovaEffect): void {
-  // Duree du Root/du Blizzard et degats de tick : valeurs EFFECTIVES (base +
-  // amelioration permanente, voir run/iceNovaUpgradeEffects.ts), jamais les
-  // valeurs de base de l'objet (effect.rootDuration) ni les constantes brutes
-  // (BLIZZARD_DURATION/BLIZZARD_DAMAGE_PER_TICK) directement — 2026-08-14,
-  // demande d'Antoine : "la durée doit augmenter de 0.5 par amélioration...
-  // tous les 3 achats augmente les dégâts du tick de 1".
-  const upgrade = computePlayerIceNovaUpgradeEffects(playerProgression().upgrades);
-  world.applyIceNovaRoot('player', x, z, effect.radiusTiles, upgrade.rootDuration);
-  iceNovaView.spawnImpact(x, z, effect.radiusTiles);
-
-  if (isTalentActive('blizzard')) {
-    world.createBlizzardZone('player', x, z, effect.radiusTiles, upgrade.blizzardDuration, BLIZZARD_TICK_INTERVAL, upgrade.damagePerTickInternal);
-  }
-}
-
-/**
- * Talent "Soins excédentaires" (2026-08-15) : `totalOverhealInternal`
- * (échelle interne x10) est la somme du soin REELLEMENT excedentaire
- * (demande - reellement applique, plafonne au maxHp) sur TOUTES les cibles
- * d'une meme action de soin (voir applyPlayerHeal) — appelee depuis les 2
- * usages manuels du parchemin de soin (bataille) ET le declenchement
- * automatique d'"Aux petits oignons", jamais depuis le placement (aucun
- * ennemi n'existe encore, voir useArmedItemOnPlacementClick).
- *
- * GATE sur le talent lui-meme EN PREMIER (pas seulement l'amelioration
- * permanente) : sans "Soins excédentaires" débloqué, le mecanisme entier
- * n'existe pas, meme a 0 degat de base — un niveau d'amelioration deja
- * achete (jamais supprime par un reset des talents, voir
- * run/shadowUpgradeEffects.ts) redevient donc automatiquement actif des que
- * le talent est re-debloque, sans code supplementaire : ce gate est
- * reevalue A CHAQUE appel, jamais mis en cache.
- *
- * `baseProjectileCount` = 1 projectile par point de soin EXCEDENTAIRE
- * AFFICHE (HP_PER_PIP) — floor() : un total fractionnaire (soins secondaires
- * a 0.5 pres) ne produit jamais un projectile "a moitie". Le bonus de
- * l'amelioration permanente (`bonusProjectileCount`) ne s'ajoute JAMAIS a un
- * overheal nul (demande explicite : "0 overheal → 0 projectiles, meme au
- * niveau 30").
- */
-function triggerShadowProjectiles(x: number, z: number, totalOverhealInternal: number): void {
-  if (!isTalentActive('soins_excedentaires')) return;
-
-  const baseProjectileCount = Math.floor(totalOverhealInternal / HP_PER_PIP);
-  if (baseProjectileCount <= 0) return;
-
-  const { damagePerProjectileInternal, bonusProjectileCount } = computePlayerShadowEffects(playerProgression().upgrades);
-  const count = baseProjectileCount + bonusProjectileCount;
-  world.spawnShadowProjectiles(x, z, 'player', count, damagePerProjectileInternal, SHADOW_PROJECTILE_SPEED);
-}
-
-function refreshPlayerPreview(): void {
-  playerPreview.clear();
-  placementSlots.forEach((slot, index) => {
-    if (slot.x === null || slot.z === null) return;
-    const mesh = buildUnit(slot.unitId, 'player');
-    mesh.position.set(slot.x, surfaceY(slot.x, slot.z), slot.z);
-    mesh.userData['slotIndex'] = index;
-    if (isSelected(index)) attachUnitSelectionRing(mesh, 'player', getUnit(slot.unitId).stats.radius);
-    // Talent "Recyclage" : la surbrillance n'est PLUS un enfant statique du
-    // mesh ici (voir recyclageAuraView, une aura de particules animee en
-    // continu, synchronisee separement chaque frame dans la boucle de rendu
-    // — 2026-08-14, "on ne voit vraiment pas quand un soldat peut être
-    // recyclé... n'hésite pas").
-    playerPreview.add(mesh);
-  });
-  // Bouton "Vendre" cliquable (2026-08-14, demande d'Antoine, point 28-29) :
-  // reflete la selection courante a CHAQUE rafraichissement de l'apercu —
-  // refreshPlayerPreview tourne deja apres tout changement de selection ET
-  // apres toute vente/achat, donc un seul point d'appel suffit, jamais besoin
-  // de le repeter a chaque site qui modifie selectedIndices.
-  sellZone.setSelection(selectedIndices.length, computeSellValue(selectedIndices));
-  refreshMovePreview();
-}
-
-/** Valeur de revente EFFECTIVE d'un lot d'unites (somme des valeurs
- *  individuelles, jamais un montant approxime "count * valeur unique") —
- *  SOURCE PARTAGEE entre l'affichage du bouton "Vendre" (ci-dessus) et la
- *  vente reelle (voir sellUnits) : la meme formule par unite (Recyclage vs
- *  bareme normal) ne doit jamais diverger entre "ce qui est annonce" et "ce
- *  qui est effectivement credite". */
-function computeSellValue(indices: number[]): number {
-  let total = 0;
-  for (const index of indices) {
-    const slot = placementSlots[index];
-    if (!slot) continue;
-    total += isRecyclageEligible(slot) ? Math.round(3 * playerUnitProductionCost(slot.unitId, slot.productionLevel)) : (KILL_REWARD[slot.unitId] ?? 0);
-  }
-  return total;
-}
-
-/** Remonte la hierarchie Three.js depuis l'objet touche par le raycast
- *  jusqu'au groupe racine d'une unite, qui seul porte `slotIndex`. */
-function findSlotIndex(object: THREE.Object3D | null): number | null {
-  let current = object;
-  while (current) {
-    const index = current.userData['slotIndex'];
-    if (typeof index === 'number') return index;
-    current = current.parent;
-  }
-  return null;
-}
-
-/** Enregistre un clic sur l'unite `index` pour la detection manuelle du
- *  double-clic, commune au clic sur le modele (a l'appui) et au clic par sa
- *  case (au relachement, voir findFallbackSlot). Renvoie vrai si ce clic
- *  complete un double-clic. Maj + clic n'est jamais un double-clic. */
-function registerSlotClick(index: number, shift: boolean, now: number): boolean {
-  if (shift) {
-    lastUnitClickSlot = null;
-    return false;
-  }
-  if (index === lastUnitClickSlot && now - lastUnitClickTime < DOUBLE_CLICK_WINDOW_MS) {
-    lastUnitClickSlot = null;
-    return true;
-  }
-  lastUnitClickSlot = index;
-  lastUnitClickTime = now;
-  return false;
-}
-
-/** Clic simple sur une unite : selection UNIQUE (remplace toujours une
- *  eventuelle selection de groupe en cours, point 16 de la demande) — sauf
- *  si CETTE unite etait deja la SEULE selectionnee, auquel cas le clic la
- *  desselectionne (toggle, comportement d'origine preserve). */
-function selectSlot(index: number): void {
-  setSelection(selectedIndices.length === 1 && selectedIndices[0] === index ? [] : [index]);
-  refreshPlayerPreview();
-}
-
-/** Maj + clic sur une unite : l'ajoute a la selection si elle n'y est pas,
- *  l'en retire sinon (meme geste qu'en bataille et dans l'editeur). */
-function toggleSlotSelection(index: number): void {
-  setSelection(isSelected(index) ? selectedIndices.filter((i) => i !== index) : [...selectedIndices, index]);
-  refreshPlayerPreview();
-}
-
-/** Barriere de securite (2026-08-10, demande d'Antoine) : si l'or restant
- *  depasse PLACEMENT_GOLD_WARNING_RATIO de l'or possede au tout DEBUT de
- *  cette phase de placement (voir goldAtPlacementStart, capture dans
- *  startPlacement), affiche un popup de confirmation plutot que de lancer la
- *  bataille tout de suite — evite de partir au combat en oubliant de
- *  depenser l'or accumule. En dessous du seuil, valide directement sans rien
- *  demander. */
-function requestValidatePlacement(): void {
-  const threshold = goldAtPlacementStart * PLACEMENT_GOLD_WARNING_RATIO;
-  if (currentRun.gold > threshold) {
-    screens.showPlacementGoldWarning(currentRun.gold);
-  } else {
-    onValidatePlacement();
-  }
-}
-
-function onValidatePlacement(): void {
+function startSurvivalWorld(): void {
   resetBattleControls();
-  inPlacementPhase = false;
-  placementPanel.hide();
-  // Reste visible mais desactive pendant la bataille (2026-08-14, demande
-  // d'Antoine : "laisse les visible ils sont simplement censes etre
-  // inutilisables") — plus de setVisible(false) ici.
-  sellZone.setEnabled(false);
-  // inventoryBar reste visible : c'est justement pendant la bataille qui
-  // commence qu'on peut utiliser les objets (voir armInventorySlot).
-  disarmItem();
-  cancelUnitDrag();
-  cancelGroundDrag();
-  // Deselectionne/annule tout ce qui touche aux bâtiments possedes
-  // (2026-08-18) : la selection/le deplacement n'ont plus de sens une fois
-  // la bataille commencee. cancelBuildingPlacement() efface deja
-  // buildingClickCandidate au passage (voir son commentaire), inconditionnel
-  // et sans effet si aucun placement n'etait en cours.
   cancelBuildingPlacement();
-  selectedBuildingIndex = null;
-  placementBallistaSelected = false;
-  updateBuildingSelectionRing();
-  clearSelection();
-  playerPreview.clear();
-  enemyPreview.clear();
-  // La grille disparait en bataille ; les zones de territoire restent
-  // affichees (meme filtre discret qu'en preparation).
   board.gridLines.visible = false;
 
   world.clear();
   forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
-  belowAutoHealThreshold.clear();
   mineProductionTimers.clear();
   mineGoldRng = new Rng((world.seed ^ 0x9e3779b9) >>> 0);
-  battleSummary = createBattleSummary();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
   combatOverlay.clear();
@@ -1940,41 +1282,37 @@ function onValidatePlacement(): void {
   playerArrowView.clear();
   telegraphView.clear();
   fireballView.clear();
-  iceNovaView.clear();
   healVfxView.clear();
   moveOrderFeedback.clear();
   tauntVfxView.clear();
-  shadowProjectileView.clear();
   battleOver = false;
 
-  // world.setMap n'injecte plus l'obstacle de la Mine lui-meme depuis le
-  // 2026-08-16 (architecture BUILDING) : World.spawnBuilding s'en charge
-  // desormais lui-meme (voir plus bas), ce qui lui permet de retirer cette
-  // meme empreinte automatiquement des que le batiment meurt (voir
-  // World.releaseDeadBuildingFootprints) — un obstacle injecte ici, sans
-  // Entity associee, resterait bloque pour toujours meme apres destruction.
+  // world.setMap n'injecte pas l'empreinte des batiments : World.spawnBuilding
+  // s'en charge, ce qui lui permet de la retirer automatiquement des que le
+  // batiment meurt (World.releaseDeadBuildingFootprints).
   world.setMap(currentMap);
-
-  // Outils de recolte (Forge) resolus avant chaque pas ; tas au sol deja
-  // entames pendant les manches precedentes.
+  // Tas au sol deja entames (toujours vides au lancement, conserve pour une
+  // future reprise de run).
   world.applyResourcePileAmounts(currentRun.resourcePileAmounts);
-  for (const slot of placementSlots) {
-    if (slot.x === null || slot.z === null) continue;
-    // Heros : progression de la run (XP, niveau, morts, sac), fiche de son niveau.
-    const spawned = slot.unitId === HERO_UNIT_ID ? world.spawnHero('player', slot.x, slot.z, currentRun.hero, slot.hp, heroKit(currentRun.hero.heroId)) : world.spawn(
-      slot.unitId,
+
+  // Armee de depart (RunState.army) : Heros a la place du preset du camp de
+  // depart avec la progression de la run (XP, niveau, morts, sac), unites du
+  // preset (Villageois) a leurs places.
+  const formation = computeArmyFormation(currentRun.army.map((u) => u.unitId), currentMap);
+  currentRun.army.forEach((unit, i) => {
+    const at = formation[i]!;
+    const spawned = unit.unitId === HERO_UNIT_ID ? world.spawnHero('player', at.x, at.z, currentRun.hero, unit.hp, heroKit(currentRun.hero.heroId)) : world.spawn(
+      unit.unitId,
       'player',
-      slot.x,
-      slot.z,
-      slot.hp,
-      playerUnitStatOverrides(slot.unitId, slot.productionLevel, playerProgression()),
-      playerUnitAbilityDamageBonus(slot.unitId, slot.productionLevel),
-      playerUnitTauntShieldBonus(slot.unitId, slot.productionLevel),
+      at.x,
+      at.z,
+      unit.hp,
+      playerUnitStatOverrides(unit.unitId, unit.productionLevel, playerProgression()),
+      playerUnitAbilityDamageBonus(unit.unitId, unit.productionLevel),
+      playerUnitTauntShieldBonus(unit.unitId, unit.productionLevel),
     );
-    rememberPlayerUnitLevel(spawned, slot.productionLevel);
-  }
-  // Mini-vagues : seul le premier groupe apparait maintenant ; les suivants
-  // sont crees a leur arrivee (enemyReinforcementSpawns, boucle de jeu).
+    rememberPlayerUnitLevel(spawned, unit.productionLevel);
+  });
   // Survie en temps reel continu (2026-11-01) : aucune vague au lancement ;
   // la premiere arrive apres un compte a rebours en temps de simulation
   // (stepSurvivalWaves).
@@ -1982,22 +1320,15 @@ function onValidatePlacement(): void {
   survivalNextWaveTick = Math.round(SURVIVAL_FIRST_WAVE_DELAY_SECONDS * SIM_HZ);
   refreshWaveIndicator();
 
-  // Batiments POSSEDES par le joueur (2026-08-17, Mine/Caserne achetables —
-  // voir run/runState.ts, RunState.buildings) : les meshes existent deja
-  // (visibles pendant tout le placement, voir refreshOwnedBuildingViews) —
-  // reconstruits ici pour repartir d'un etat visuel propre (flash eteint),
-  // PUIS une vraie Entity est spawnee pour chacun, dans le MEME ORDRE que
-  // currentRun.buildings (invariant requis par applyBattleOutcome, voir son
-  // commentaire de fonction). PV ACTUELS reels (owned.hp, jamais pleins PV a
-  // chaque bataille — un bâtiment blesse le reste jusqu'a la fin de la run,
-  // meme convention que les unites). buildingViewsByEntityId (dispatch
-  // generique du flash/de la destruction, voir plus haut) regroupe Mine/
-  // Caserne ET la Baliste dans la MEME Map.
+  // Batiments POSSEDES (camp de depart, voir applyStartingBaseToRun) : une
+  // vue par entree, PUIS une vraie Entity pour chacune, dans le MEME ORDRE
+  // que currentRun.buildings (ownedBuildingIndexByEntityId). PV ACTUELS
+  // reels (owned.hp). buildingViewsByEntityId (dispatch generique du flash/
+  // de la destruction) regroupe ces batiments ET la Baliste.
   buildingViewsByEntityId.clear();
   refreshOwnedBuildingViews();
   currentRun.buildings.forEach((owned, i) => {
-    // PV max, degats (Tour) et quota de production de la manche (Caserne,
-    // Camp d'archerie) du niveau PROPRE au batiment.
+    // PV max et degats (Tour) du niveau PROPRE au batiment.
     const level = ownedBuildingLevel(owned);
     const entity = world.spawnBuilding(
       getBuilding(owned.buildingId),
@@ -2007,9 +1338,8 @@ function onValidatePlacement(): void {
       ownedBuildingObstacle(owned),
       owned.hp,
       effectiveBuildingMaxHp(owned.buildingId, level),
-      unitsProducedPerWave(owned.buildingId, level),
       effectiveBuildingAttackDamage(owned.buildingId, level),
-      // Chantier : a construire par le Heros pendant la bataille.
+      // Chantier : a construire par le Heros.
       owned.constructionProgress !== undefined ? { progress: owned.constructionProgress, buildTime: buildTimeOf(owned.buildingId) } : undefined,
     );
     const view = ownedBuildingViews[i]!.view;
@@ -2017,13 +1347,13 @@ function onValidatePlacement(): void {
     buildingViewsByEntityId.set(entity.id, view);
     ownedBuildingIndexByEntityId.set(entity.id, i);
   });
-  // La Baliste est TOUJOURS presente (jamais achetee, contrairement a la
-  // Mine/la Caserne ci-dessus).
+  // La Baliste est TOUJOURS presente (jamais construite, contrairement aux
+  // batiments ci-dessus).
   spawnBallistaBuilding();
-  // Camps neutres de la carte generee (2026-11-02) : gardes a leurs postes
-  // et coffre, parametres resolus depuis data/camps.ts.
+  // Camps neutres de la carte (2026-11-02) : gardes a leurs postes et
+  // coffre, parametres resolus depuis data/camps.ts.
   for (const def of currentMap.camps ?? []) world.addCamp(campSpecOf(def));
-  // Murs V2 de la carte (MapDef.walls), bâtis.
+  // Murs V2 de la carte (MapDef.walls, enceinte du camp de depart), bâtis.
   spawnMapWalls();
   // Objets destructibles de la carte (barils des camps).
   for (const d of currentMap.destructibles ?? []) world.addDestructible(d.kind, d.x, d.z);
@@ -2038,8 +1368,8 @@ function onValidatePlacement(): void {
   loop.timeScale = 1;
 }
 
-/** Cree le batiment de simulation de la Baliste pour la bataille en cours —
- *  SOURCE UNIQUE partagee par une vraie bataille (onValidatePlacement) et
+/** Cree le batiment de simulation de la Baliste pour la partie en cours —
+ *  SOURCE UNIQUE partagee par une vraie run (startSurvivalWorld) et
  *  "Tester le scenario" (setupTestBattle). A `playerArrowOrigin`, avec
  *  l'empreinte `ballistaObstacleDef` (meme position que le modele visuel et
  *  l'origine du tir : les trois doivent avoir ete calcules juste avant).
@@ -2047,7 +1377,7 @@ function onValidatePlacement(): void {
  *  voir run/ballistaUpgradeEffects.ts) : `hp` omis expres pour retomber sur
  *  ce plafond EFFECTIF (voir World.spawnBuilding) — sans ca, une Baliste
  *  amelioree apparaitrait avec plus de PV MAX mais pas plus de PV ACTUELS.
- *  Remet aussi le visuel a neuf (une Baliste detruite lors d'une bataille
+ *  Remet aussi le visuel a neuf (une Baliste detruite lors d'une partie
  *  precedente redevient visible). */
 function spawnBallistaBuilding(): void {
   ballistaBuildingView.reset();
@@ -2063,22 +1393,14 @@ function spawnBallistaBuilding(): void {
   buildingViewsByEntityId.set(ballistaEntityId, ballistaBuildingView);
 }
 
-/** A appeler a chaque `world.clear()` : les ids d'entites repartent de 1
- *  dans la bataille suivante, donc aucune reference a un batiment de la
- *  bataille videe ne doit survivre (l'ancien id de la Baliste ou d'une Mine
- *  pourrait designer une tout autre entite du test suivant). Remet aussi le
- *  visuel de la Baliste dans son etat normal : detruite pendant la bataille
- *  videe, elle doit reapparaitre des la preparation suivante (ou le
- *  depart d'une nouvelle run, ou l'editeur), pas seulement au
- *  lancement de la prochaine bataille. Visuel seulement : l'entite et sa
- *  collision ne sont recreees que par spawnBallistaBuilding. */
 /** Index dans currentRun.buildings de chaque batiment possede spawne pour la
- *  bataille en cours, par id d'entite (meme ordre de spawn, voir
- *  onValidatePlacement) : relie une Mine ou une Caserne de la bataille a son
- *  niveau propre (OwnedBuilding.level). */
+ *  partie en cours, par id d'entite (meme ordre de spawn, voir
+ *  startSurvivalWorld ; chantiers poses en jeu : spawnOwnedBuildingRealtime) :
+ *  relie une Mine ou une Caserne en jeu a son niveau propre
+ *  (OwnedBuilding.level). */
 const ownedBuildingIndexByEntityId = new Map<number, number>();
 
-/** Niveau propre d'un batiment possede de la bataille en cours, ou null
+/** Niveau propre d'un batiment possede de la partie en cours, ou null
  *  (Baliste, batiment hors run). */
 function battleOwnedBuildingLevel(entity: Entity): number | null {
   if (scenarioBuildingEntityIds.has(entity.id)) return 0;
@@ -2112,97 +1434,17 @@ function forgetBattleBuildings(): void {
   ballistaBuildingView.reset();
 }
 
-function startPlacement(): void {
-  goldAtPlacementStart = currentRun.gold;
-  world.applyResourcePileAmounts(currentRun.resourcePileAmounts);
-  // Le bouton "Annuler le dernier achat" ne doit valoir que pour CETTE
-  // session de boutique (voir lastUnitPurchase) — un achat de la vague
-  // precedente n'a plus de sens a annuler une fois une nouvelle phase de
-  // placement commencee.
-  lastUnitPurchase = null;
-  // Reconstruit les meshes des batiments POSSEDES (Mine, Caserne...) depuis
-  // currentRun.buildings — reflete immediatement un achat fait pendant la
-  // vague precedente (voir requestPlaceBuilding/confirmBuildingPlacement).
-  refreshOwnedBuildingViews();
-
-  screens.hideAll();
-  inPlacementPhase = true;
-  board.gridLines.visible = true;
-  board.zones.visible = true;
-  waveIndicator.setVisible(true);
-  goldHud.setVisible(true);
-  heroHud.setVisible(true); actionProgressBar.setVisible(true);
-  populationHud.setVisible(true);
-
-  const formation = computeArmyFormation(currentRun.army.map((u) => u.unitId), currentMap);
-  placementSlots = currentRun.army.map((unit, i) => ({
-    unitId: unit.unitId,
-    x: formation[i]!.x,
-    z: formation[i]!.z,
-    hp: unit.hp,
-    productionLevel: unit.productionLevel,
-  }));
-  clearSelection();
-  refreshPlayerPreview();
-
-  // Apercu : seulement le premier groupe, la menace presente au lancement ;
-  // le total et le nombre de groupes sont dans l'indicateur de vague.
-  refreshWaveIndicator();
-  enemyPreview.clear();
-  for (const pos of computeEnemyWavePlan(currentRun.waveNumber, currentMap).groups[0] ?? []) {
-    const mesh = buildUnit(pos.unitId, 'enemy');
-    mesh.position.set(pos.x, surfaceY(pos.x, pos.z), pos.z);
-    mesh.rotation.y = Math.PI;
-    enemyPreview.add(mesh);
-  }
-
-  placementPanel.show();
-  sellZone.setVisible(true);
-  sellZone.setEnabled(true);
-  inventoryBar.setVisible(true);
-  inventoryBar.refresh(currentRun.inventory);
-
-  // La boutique s'ouvre desormais automatiquement a CHAQUE debut de phase de
-  // placement (demande d'Antoine, 2026-08-10 : "dès le début... et à chaque
-  // début de phase de placement"), y compris le tout premier placement d'une
-  // run (voir startNewRun) — plus besoin de cliquer sur "Boutique" pour la
-  // voir au moins une fois. L'ancien ecran boutique "intermediaire" separe
-  // (entre l'ecran de fin de vague et le placement) a disparu : il n'existe
-  // plus qu'UNE facon d'ouvrir la boutique, celle-ci, que ce soit ici ou via
-  // le bouton "Boutique" pendant le placement (voir openShopFromPlacement).
-  openShopFromPlacement();
-  if (lastBattleGoldEarned !== 0) {
-    spawnCoinPopup(screens.shopGoldElement, lastBattleGoldEarned);
-    lastBattleGoldEarned = 0;
-  }
-}
-
-/** Remet a zero l'etat de placement/occupation qui vit hors de RunState, pour
- *  qu'une nouvelle run (sa premiere preparation passe par
- *  isValidPlacementTile) n'herite d'aucune case occupee par la run
- *  precedente. A appeler apres `currentRun = createNewRun(...)` :
- *  refreshOwnedBuildingViews reconstruit depuis la nouvelle run. */
-function resetRunPlacementState(): void {
-  placementSlots = [];
-  clearSelection();
-  lastUnitClickSlot = null;
-  lastUnitPurchase = null;
-  cancelUnitDrag();
-  cancelGroundDrag();
+/** Remet a zero les vues et modes de pose qui vivent hors de RunState. A
+ *  appeler apres `currentRun = createNewRun(...)` : refreshOwnedBuildingViews
+ *  reconstruit depuis la nouvelle run. */
+function resetRunViews(): void {
   cancelBuildingPlacement();
-  selectedBuildingIndex = null;
-  placementBallistaSelected = false;
-  updateBuildingSelectionRing();
-  disarmItem();
-  playerPreview.clear();
-  enemyPreview.clear();
   refreshOwnedBuildingViews();
 }
 
-/** Clic sur "Mode survie" au menu principal : demarre une run TOUTE NEUVE (or et
- *  armee reinitialises, voir createNewRun) avant d'entrer en placement —
- *  contrairement a "Continuer" depuis la boutique, qui reutilise la run en
- *  cours pour passer a la vague suivante (voir startPlacement seul). */
+/** Clic sur "Mode survie" au menu principal (apres le choix du Heros) :
+ *  demarre une run TOUTE NEUVE (or, stock, camp de depart, Heros — voir
+ *  createNewRun, applyStartingBaseToRun) directement en jeu. */
 function startNewRun(heroId: string = selectedHeroId): void {
   if (survivalMapUsed && survivalBaseMap.generator) survivalBaseMap = survivalMapFor(survivalUrlSeed ?? randomSeed());
   survivalMapUsed = true;
@@ -2218,23 +1460,17 @@ function startNewRun(heroId: string = selectedHeroId): void {
   heroCameraLock = false;
   resourcePileViews.clear();
   // Baliste native (Mode survie) : creee directement a la position definie
-  // par la carte officielle (MapDef.ballista), sans placement par le joueur.
+  // par la carte (MapDef.ballista), sans placement par le joueur.
   currentRun.ballistaPosition = resolveBallistaOrigin(survivalBaseMap);
   // Abords du camp deja explores (terrain memorise, pas visible), un peu
   // au-dela de la vision de la Baliste (data/vision.ts).
   fogOfWar?.exploreDisc(currentRun.ballistaPosition.x, currentRun.ballistaPosition.z, INITIAL_EXPLORED_RADIUS);
-  rebuildCurrentTerritoryIndex();
-  resetRunPlacementState();
-  // Une run PRECEDENTE peut avoir agrandi le plateau (2026-08-18, voir
-  // applyMapExpansionForCompletedWave) — currentMap est un module partage
-  // entre runs, currentRun.mapExpansion vient de repartir de zero ci-dessus
-  // mais currentMap/le rendu ne le savent pas encore : resynchronise AVANT
-  // la preparation (jamais en parallele — startPlacement() lirait sinon un
-  // plateau perime le temps de la reconstruction async). Reste synchrone
+  resetRunViews();
+  // currentMap est un module partage entre runs : une nouvelle carte
+  // generee (ou le retour d'un test de l'editeur) exige de reconstruire le
+  // plateau AVANT de lancer la run (jamais en parallele). Reste synchrone
   // (`() => void`, signature exigee par ScreenHandlers.onPlay) : le cas
-  // courant (carte de depart deja en place) demarre immediatement, seul le
-  // retour d'une run agrandie attend la reconstruction. Plus de placement de
-  // la tour : la preparation commence directement.
+  // courant (carte deja en place) demarre immediatement.
   // Camera (2026-11-02) : centree sur le Heros et le suivant des le lancement.
   if (currentMap === survivalBaseMap) {
     applyRunBallistaPosition();
@@ -2434,7 +1670,7 @@ window.addEventListener('blur', () => (edgePointer = null));
 
 function updateEdgeScroll(realDt: number): void {
   if (!edgePointer?.overCanvas || inEditorMode || pauseMenuOpen || heroInventory.isOpen() || hudLayout.isDragging() || hudLayout.isCalibrating() || document.querySelector('.screen-overlay--visible')) return;
-  if (!inBattlePhase() && !inPlacementPhase) return;
+  if (!inBattlePhase()) return;
   const m = EDGE_SCROLL_MARGIN;
   const dirX = edgePointer.x <= m ? 1 : edgePointer.x >= innerWidth - 1 - m ? -1 : 0;
   const dirY = edgePointer.y <= m ? 1 : edgePointer.y >= innerHeight - 1 - m ? -1 : 0;
@@ -2463,7 +1699,6 @@ function placeSpellCursorRing(): void {
 function armSpellTargeting(spellId: string): void {
   const hero = playerHero();
   if (!hero?.alive || !hero.hero?.spells.some((s) => s.id === spellId) || !canIssueRtsOrder()) return;
-  disarmItem();
   if (buildingPlacementMode) cancelBuildingPlacement();
   cancelWallPlacement();
   buildMenu.close();
@@ -2774,44 +2009,32 @@ let survivalNextWaveTick: number | null = null;
 let survivalWaveActive = false;
 
 /** Lancement d'une run : directement en jeu, sans preparation ni bouton de
- *  lancement. Heros et Baliste apparaissent, la simulation tourne ; la
- *  premiere vague suit un compte a rebours (choix d'Antoine, 120 s). */
+ *  lancement. HUD de jeu affiche, monde cree (startSurvivalWorld), la
+ *  simulation tourne ; la premiere vague suit un compte a rebours (choix
+ *  d'Antoine, 120 s). */
 function startSurvivalRealtime(): void {
   screens.hideAll();
-  refreshOwnedBuildingViews();
   waveIndicator.setVisible(true);
-  goldHud.setVisible(false);
   heroHud.setVisible(true); actionProgressBar.setVisible(true);
-  populationHud.setVisible(false);
   // Ligne economique (stock utilisable, population) en haut a droite.
   economyHud.setVisible(true);
-  // Inventaire a 6 emplacements (legacy) : retire de la Survie en temps reel
-  // (2026-11-02), aucun objet n'y est obtenu ; le bouton Construire prend la
-  // place de l'ancien bloc Boutique / Vendre.
-  inventoryBar.setVisible(false);
   buildMenu.setVisible(true);
-  const formation = computeArmyFormation(currentRun.army.map((u) => u.unitId), currentMap);
-  placementSlots = currentRun.army.map((unit, i) => ({ unitId: unit.unitId, x: formation[i]!.x, z: formation[i]!.z, hp: unit.hp, productionLevel: unit.productionLevel }));
-  onValidatePlacement();
-  placementSlots = [];
+  startSurvivalWorld();
   // `?loot=demo` : les items de demonstration au sol autour de la Baliste (test du butin).
-  const lootBallista = world.entities.find((e) => e.alive && e.team === 'player' && e.unitId === 'ballista');
-  if (demoLoot && lootBallista) Object.keys(EQUIPMENT).forEach((itemId, i, all) => {
+  const ballista = world.entities.find((e) => e.alive && e.team === 'player' && e.unitId === 'ballista');
+  if (demoLoot && ballista) Object.keys(EQUIPMENT).forEach((itemId, i, all) => {
     const a = (i / all.length) * Math.PI * 2 + 0.4;
-    world.dropItem(itemId, lootBallista.x + Math.cos(a) * 4.2, lootBallista.z + Math.sin(a) * 4.2);
+    world.dropItem(itemId, ballista.x + Math.cos(a) * 4.2, ballista.z + Math.sin(a) * 4.2);
   });
   // Vagues : sans cible, les ennemis marchent vers la Baliste par le terrain
   // (sim/systems/movement.ts, marchToGoal) et n'apparaissent que sur des
   // cases reliees a elle.
-  const ballista = world.entities.find((e) => e.alive && e.team === 'player' && e.unitId === 'ballista');
   if (usesHeroRtsRules(currentMap) && ballista) world.assaultGoal = { x: ballista.x, z: ballista.z };
-  // Boutique globale (legacy) : absente de la Survie en temps reel.
-  sellZone.setVisible(false);
 }
 
 /** Apres chaque pas : declenche la vague attendue a son tick exact. */
 function stepSurvivalWaves(): void {
-  if (inTestMode || inPlacementPhase || battleOver || survivalWaveActive || survivalNextWaveTick === null || world.tick < survivalNextWaveTick) return;
+  if (inTestMode || battleOver || survivalWaveActive || survivalNextWaveTick === null || world.tick < survivalNextWaveTick) return;
   survivalNextWaveTick = null;
   survivalWaveActive = true;
   spawnEnemyReinforcements(world.startEnemyReinforcements(computeEnemyWavePlan(currentRun.waveNumber, currentMap)));
@@ -2834,8 +2057,7 @@ function completeSurvivalWave(): void {
 }
 
 /** Batiment possede `index` de la run, cree en jeu (chantier pose en temps
- *  reel) : vue, entite, correspondances. Pas de production de debut de
- *  manche (legacy) : la production passe par les commandes (fiche). */
+ *  reel) : vue, entite, correspondances. */
 function spawnOwnedBuildingRealtime(index: number): Entity {
   const owned = currentRun.buildings[index]!;
   const obstacle = ownedBuildingObstacle(owned);
@@ -2853,7 +2075,6 @@ function spawnOwnedBuildingRealtime(index: number): Entity {
     obstacle,
     owned.hp,
     effectiveBuildingMaxHp(owned.buildingId, level),
-    [],
     effectiveBuildingAttackDamage(owned.buildingId, level),
     owned.constructionProgress !== undefined ? { progress: owned.constructionProgress, buildTime: buildTimeOf(owned.buildingId) } : undefined,
   );
@@ -2871,7 +2092,7 @@ const destroyedOwnedBuildingViews: OwnedBuildingView[] = [];
 /** Temps reel : un batiment possede detruit quitte la run (population,
  *  deblocages, emprise) ; les correspondances suivantes sont decalees. */
 function pruneDestroyedOwnedBuildings(): void {
-  if (inPlacementPhase || inTestMode) return;
+  if (inTestMode) return;
   const dead: number[] = [];
   for (const [entityId, index] of ownedBuildingIndexByEntityId) {
     if (world.getById(entityId)?.alive === false) dead.push(index);
@@ -2958,17 +2179,18 @@ function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
     if (entity.rally) actions.push({ id: 'clearRally', label: 'Retirer le ralliement', enabled: true });
   }
   if (repair) actions.push(repair);
-  // Ameliorations, Forge, Eglise : memes actions que la fiche de preparation.
-  // Batiment producteur : l'amelioration passe par la file (duree, une seule a la fois).
-  const legacy = placementBuildingInfo(owned, playerProgression(), currentRun.gold, realtimeArmyMissingHp());
+  // Amelioration, Forge, Eglise : actions et lignes du batiment possede
+  // (run/entityInfo.ts, ownedBuildingInfo). Batiment producteur :
+  // l'amelioration passe par la file (duree, une seule a la fois).
+  const owned_ = ownedBuildingInfo(owned, playerProgression(), currentRun.gold, realtimeArmyMissingHp());
   const queued = upgradesThroughQueue(owned.buildingId);
   const pending = entity.productionOrders.some((o) => o.kind === 'upgrade');
-  const legacyActions = (legacy.actions ?? []).map((a) => {
+  const ownedActions = (owned_.actions ?? []).map((a) => {
     if (a.id !== 'upgradeBuilding' || !queued) return a;
     const hint = pending ? 'Amélioration déjà en file' : full ? `File pleine (${PRODUCTION_QUEUE_MAX})` : a.hint;
     return { ...a, label: `${a.label} · ${BUILDING_UPGRADE_SECONDS} s`, enabled: a.enabled && !pending && !full, hint };
   });
-  return { ...info, actions: [...actions, ...legacyActions] };
+  return { ...info, actions: [...actions, ...ownedActions] };
 }
 
 /** Batiment allie inspecte en jeu (Baliste comprise), null sinon. */
@@ -3069,7 +2291,7 @@ const productionPayments = new Map<number, number>();
 /** Batiment dont l'amelioration passe par la file de production (duree) :
  *  les producteurs ; les autres s'ameliorent tout de suite. */
 function upgradesThroughQueue(buildingId: string): boolean {
-  return getBuilding(buildingId).production !== undefined || getBuilding(buildingId).recruitmentUnlock !== undefined;
+  return getBuilding(buildingId).recruitmentUnlock !== undefined;
 }
 
 function produceAtInspectedBuilding(unitId: string): void {
@@ -3119,14 +2341,12 @@ const RUBBLE_MODEL = 'kaykit_rock_single_B';
  *  cases et pathfinding sont deja a jour dans la simulation. */
 // --- Stock direct : or (2026-11-02), bois et pierre (2026-11-03) ------------
 
-/** Ajoute au stock de la run : or (monnaie, bilan de manche) ou bois /
- *  pierre. Rien pendant « Tester le scénario ». */
+/** Ajoute au stock de la run : or (monnaie) ou bois / pierre. Rien pendant
+ *  « Tester le scénario ». */
 function creditStock(resource: 'gold' | ResourceKind, amount: number): void {
   if (amount <= 0 || inTestMode) return;
-  if (resource === 'gold') {
-    currentRun.gold = roundGold(currentRun.gold + amount);
-    recordGoldEarned(battleSummary, amount);
-  } else currentRun.resources[resource] += amount;
+  if (resource === 'gold') currentRun.gold = roundGold(currentRun.gold + amount);
+  else currentRun.resources[resource] += amount;
 }
 
 /** Cargo economique (2026-11-03, sim/systems/cargo.ts) : depots au point de
@@ -3137,13 +2357,13 @@ function handleCargoEvents(): void {
   for (const ev of world.cargoEvents) {
     if (ev.type === 'cargoDeposit') {
       creditStock(ev.resource === 'minedGold' ? 'gold' : ev.resource, ev.amount);
-      if (ev.resource === 'minedGold') spawnCoinPopup(screens.shopGoldElement, ev.amount);
+      if (ev.resource === 'minedGold') spawnCoinPopup(economyHud.goldElement, ev.amount);
       if (ev.remaining === 0) waveIndicator.flash(`Dépôt terminé — stock : ${currentRun.resources.wood} bois, ${currentRun.resources.stone} pierre, ${formatGold(currentRun.gold)} or`);
     } else if (ev.type === 'lootGold') {
       creditStock('gold', ev.amount);
       if (!inTestMode) currentRun.resourcePileAmounts[ev.pileId] = 0;
       if (selectedPileId === ev.pileId) selectedPileId = null;
-      spawnCoinPopup(screens.shopGoldElement, ev.amount);
+      spawnCoinPopup(economyHud.goldElement, ev.amount);
       waveIndicator.flash(`+${formatGold(ev.amount)} or`);
     } else if (ev.type === 'pilePickup') {
       if (!inTestMode) currentRun.resourcePileAmounts[ev.pileId] = ev.remaining;
@@ -3210,8 +2430,8 @@ function handleProductionUpgrades(): void {
   }
 }
 
-/** Amelioration, Forge, Eglise depuis la fiche, en temps reel. */
-function realtimeBuildingAction(id: 'upgradeBuilding' | 'healArmy' | 'openForge' | 'openShrineUpgrades'): void {
+/** Amelioration, Forge, Eglise depuis la fiche, en jeu. */
+function realtimeBuildingAction(id: 'upgradeBuilding' | 'healArmy' | 'openForge'): void {
   const inspected = inspectedOwnedBuilding();
   if (!inspected || inspected.entity.construction || pauseMenuOpen || buildingPlacementMode) return;
   const { entity, index, owned } = inspected;
@@ -3235,13 +2455,12 @@ function realtimeBuildingAction(id: 'upgradeBuilding' | 'healArmy' | 'openForge'
     currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
     for (const e of world.entities) if (e.alive && e.team === 'player' && !e.isBuilding) e.hp = e.stats.maxHp;
   } else {
-    const site: RunUpgradeSite = id === 'openForge' ? 'forge' : 'shrine';
-    if (owned.buildingId !== site || screens.isForgeOpen()) return;
-    disarmItem();
+    // Forge : ecran des ameliorations de run, le temps fige tant qu'il est
+    // ouvert (closeForge le relache).
+    if (getBuilding(owned.buildingId).runUpgradeSite !== 'forge' || screens.isForgeOpen()) return;
     forgePausedTimeScale = loop.timeScale;
     loop.timeScale = 0;
-    openRunUpgradeSite = site;
-    screens.showForge(currentRun, metaProgress, site);
+    screens.showForge(currentRun);
   }
   entityInfoSelectionKey = '';
 }
@@ -3275,44 +2494,13 @@ function applyRunBallistaPosition(): void {
   repositionBallista();
 }
 
-/**
- * Ouvre la boutique PAR-DESSUS le placement en cours, sans l'interrompre —
- * la seule facon d'ouvrir la boutique desormais (2026-08-10) : soit
- * automatiquement a chaque debut de placement (voir startPlacement), soit via
- * le bouton "Boutique" au-dessus de "Vendre" pendant le placement. "Continuer"
- * dans la boutique (onContinueAfterShop) se contente donc toujours de la
- * refermer (screens.hideAll()) — plus jamais de relancer startPlacement()
- * depuis ce bouton, qui reinitialiserait les positions deja ajustees par
- * Antoine. Un achat modifie `currentRun.army`/`inventory` ET `placementSlots`
- * tout de suite (voir addUnitToPlacement) : utilisable immediatement pour LA
- * bataille sur le point de commencer, pas seulement la suivante.
- *
- * BASCULE ouvrir/fermer (2026-08-10, demande d'Antoine : "on doit cliquer sur
- * Boutique pour entrer, mais appuyer sur Continuer dans un autre encart pour
- * sortir, je voudrais pouvoir continuer a appuyer sur Boutique pour sortir
- * rapidement") : si la boutique est deja ouverte, ce meme bouton la referme —
- * voir aussi ui/style.css, .sell-zone-container remonte au-dessus de
- * .screen-overlay pour que le bouton reste cliquable une fois la boutique
- * affichee par-dessus.
- */
-function openShopFromPlacement(): void {
-  if (screens.isShopOpen()) {
-    screens.hideAll();
-    return;
-  }
-  screens.showShop(currentRun, metaProgress, lastUnitPurchase !== null);
-}
-
-/** Batiment possede (Forge ou Eglise) donnant acces aux ameliorations de
- *  run de ce site (run/runUpgrades.ts, runUpgradeSite). Un batiment detruit
- *  a deja ete retire de currentRun.buildings (applyBattleOutcome). Plusieurs
+/** Au moins une Forge TERMINEE possedee : condition d'achat a l'ecran de la
+ *  Forge (run/runUpgrades.ts). Un batiment detruit a deja ete retire de
+ *  currentRun.buildings (pruneDestroyedOwnedBuildings). Plusieurs
  *  exemplaires ouvrent les MEMES ameliorations, sur les memes niveaux de run. */
-function hasRunUpgradeSite(site: RunUpgradeSite): boolean {
-  return currentRun.buildings.some((b) => b.buildingId === site && isBuildingBuilt(b));
+function hasForge(): boolean {
+  return currentRun.buildings.some((b) => getBuilding(b.buildingId).runUpgradeSite === 'forge' && isBuildingBuilt(b));
 }
-
-/** Site de l'ecran d'ameliorations actuellement ouvert (Forge ou Eglise). */
-let openRunUpgradeSite: RunUpgradeSite = 'forge';
 
 /** Action de la fiche d'entite (ui/entityInfoPanel.ts). */
 function onEntityInfoAction(id: EntityInfoAction['id'], payload?: string): void {
@@ -3348,97 +2536,38 @@ function onEntityInfoAction(id: EntityInfoAction['id'], payload?: string): void 
     entityInfoSelectionKey = '';
     return;
   }
-  if (!inPlacementPhase && inBattlePhase() && (id === 'upgradeBuilding' || id === 'healArmy' || id === 'openForge' || id === 'openShrineUpgrades')) {
+  if (inBattlePhase() && (id === 'upgradeBuilding' || id === 'healArmy' || id === 'openForge')) {
     realtimeBuildingAction(id);
     return;
   }
-  if (id === 'toggleBallistaMode') {
-    setBallistaFireMode(ballistaFireMode === 'auto' ? 'manual' : 'auto');
-    return;
-  }
-  if (id === 'upgradeBuilding') {
-    upgradeSelectedBuilding();
-    return;
-  }
-  if (id === 'healArmy') {
-    healArmyAtSelectedChurch();
-    return;
-  }
-  const selected = selectedBuildingIndex !== null ? currentRun.buildings[selectedBuildingIndex] : undefined;
-  if (id === 'openForge' && selected?.buildingId === 'forge') openForge('forge');
-  if (id === 'openShrineUpgrades' && selected?.buildingId === 'shrine') openForge('shrine');
+  if (id === 'toggleBallistaMode') setBallistaFireMode(ballistaFireMode === 'auto' ? 'manual' : 'auto');
 }
 
-/** "Soigner l'armée" depuis la fiche d'une Eglise : preparation uniquement,
- *  avec l'efficacite de CETTE Eglise (run/churchHeal.ts). Les PV des
- *  emplacements de preparation suivent ceux de l'armee (memes index). */
-function healArmyAtSelectedChurch(): void {
-  if (!inPlacementPhase || pauseMenuOpen || buildingPlacementMode || selectedBuildingIndex === null) return;
-  const result = healArmyAtChurch(currentRun, selectedBuildingIndex);
-  if (!result) return;
-  currentRun.army.forEach((unit, i) => {
-    const slot = placementSlots[i];
-    if (slot) slot.hp = unit.hp;
-  });
-  spawnCoinPopup(screens.shopGoldElement, -result.cost);
-  refreshPlayerPreview();
-  entityInfoSelectionKey = '';
-}
-
-/** "Ameliorer la mine / la caserne" depuis la fiche : preparation
- *  uniquement, n'ameliore que le batiment selectionne. La fiche est relue
- *  aussitot (niveau, production et prix suivants). */
-function upgradeSelectedBuilding(): void {
-  if (!inPlacementPhase || pauseMenuOpen || buildingPlacementMode || selectedBuildingIndex === null) return;
-  const goldBefore = currentRun.gold;
-  if (!upgradeOwnedBuilding(currentRun, selectedBuildingIndex)) return;
-  spawnCoinPopup(screens.shopGoldElement, -roundGold(goldBefore - currentRun.gold));
-  entityInfoSelectionKey = '';
-}
-
-/** Ouvre la boutique de la Forge : preparation uniquement, jamais en
- *  bataille, pendant la pause ni pendant un placement de bâtiment. Masque
- *  les controles de preparation qui passent au-dessus des overlays
- *  ("Vendre"/"Boutique", "Pret pour la bataille"), comme le menu pause. La
- *  selection de la Forge est conservee : sa fiche revient a la fermeture. */
-function openForge(site: RunUpgradeSite): void {
-  if (!inPlacementPhase || pauseMenuOpen || buildingPlacementMode || !hasRunUpgradeSite(site)) return;
-  disarmItem();
-  sellZone.setVisible(false);
-  placementPanel.hide();
-  openRunUpgradeSite = site;
-  screens.showForge(currentRun, metaProgress, site);
-}
-
-/** "Retour" ou Echap : retour a la preparation, ou au jeu en temps reel
- *  (reprise du temps fige a l'ouverture). */
+/** "Retour" ou Echap : retour au jeu (reprise du temps fige a l'ouverture). */
 function closeForge(): void {
   if (!screens.isForgeOpen()) return;
   screens.hideAll();
   if (forgePausedTimeScale !== null) {
     loop.timeScale = forgePausedTimeScale;
     forgePausedTimeScale = null;
-    return;
   }
-  sellZone.setVisible(true);
-  placementPanel.show();
 }
 
-/** Vitesse du jeu avant l'ouverture de la Forge / de l'Eglise en temps reel
- *  (le jeu est fige tant que l'ecran est ouvert), null sinon. */
+/** Vitesse du jeu avant l'ouverture de la Forge (le jeu est fige tant que
+ *  l'ecran est ouvert), null sinon. */
 let forgePausedTimeScale: number | null = null;
 
 /** Achat d'un niveau a la Forge (Or de la run, voir run/runUpgrades.ts). Une
  *  amelioration d'unite n'eleve que le niveau de production des PROCHAINES
- *  unites : les unites deja possedees gardent leurs PV et leurs stats
- *  (OwnedUnit.productionLevel, jamais retroactif). */
+ *  unites : les unites deja produites gardent leurs PV et leurs stats
+ *  (niveau fige a leur apparition, jamais retroactif). Tant qu'une Forge
+ *  terminee est possedee. 2026-11-04 : la garde `inPlacementPhase` du jeu en
+ *  manches refusait tout achat en Survie (ecran ouvert, boutons sans effet) ;
+ *  retiree avec le placement. */
 function purchaseForgeUpgrade(id: string): void {
-  // Seulement une amelioration du site ouvert (Forge ou Eglise), tant qu'un
-  // batiment de ce site est possede.
-  if (!screens.isForgeOpen() || !inPlacementPhase || runUpgradeSite(id) !== openRunUpgradeSite || !hasRunUpgradeSite(openRunUpgradeSite)) return;
+  if (!screens.isForgeOpen() || !hasForge()) return;
   if (!purchaseRunUpgrade(currentRun, id)) return;
-  refreshPlayerPreview();
-  screens.refreshForge(currentRun, metaProgress);
+  screens.refreshForge(currentRun);
 }
 
 // --- Editeur de maps (chantier en cours — voir CLAUDE.md) ---------------
@@ -3808,9 +2937,8 @@ const editorUnitMeshTeams = new Map<number, Team>();
 /** Anneau de selection de chaque unite selectionnee, seule ou en groupe
  *  (voir EditorState.selectUnits) : l'anneau commun aux unites
  *  (render/unitSelectionRing.ts), a la couleur de son camp, ajoute comme
- *  enfant du mesh de cette unite (meme principe que refreshPlayerPreview en
- *  phase de placement). Distinct de editorSelectionRing, reserve aux decors
- *  et a la Baliste. */
+ *  enfant du mesh de cette unite. Distinct de editorSelectionRing, reserve
+ *  aux decors et a la Baliste. */
 const editorUnitRings = new Map<number, THREE.Mesh>();
 
 const editorObjectsGroup = new THREE.Group();
@@ -4758,7 +3886,6 @@ async function testScenario(): Promise<void> {
 
   mapBeforeTest = currentMap;
   currentMap = testMap;
-  rebuildCurrentTerritoryIndex();
   world.setMap(currentMap);
   syncActiveTerrain();
 
@@ -4796,7 +3923,6 @@ function returnToEditorAfterTest(): void {
   // le test (voir forgetBattleBuildings).
   forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
-  belowAutoHealThreshold.clear();
   mineProductionTimers.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
@@ -4805,20 +3931,14 @@ function returnToEditorAfterTest(): void {
   playerArrowView.clear();
   telegraphView.clear();
   fireballView.clear();
-  iceNovaView.clear();
   healVfxView.clear();
   moveOrderFeedback.clear();
   tauntVfxView.clear();
-  shadowProjectileView.clear();
 
-  // La partie REELLE (menu -> Jouer) ne doit jamais heriter de la map de
-  // test : on revient a la map active AVANT le test, comme si le test
-  // n'avait pas eu lieu. Pas survivalBaseMap : apres une run agrandie, le
-  // plateau visuel resterait a la taille agrandie, et startNewRun (qui ne
-  // reinitialise le plateau que si currentMap !== survivalBaseMap) ne le
-  // reconstruirait jamais.
+  // La partie REELLE (menu -> Mode survie) ne doit jamais heriter de la map
+  // de test : on revient a la map active AVANT le test, comme si le test
+  // n'avait pas eu lieu.
   currentMap = mapBeforeTest;
-  rebuildCurrentTerritoryIndex();
   world.setMap(currentMap);
   syncActiveTerrain();
   playerArrowOrigin = resolveBallistaOrigin(currentMap);
@@ -5901,19 +5021,11 @@ function aimAtPointer(): void {
   playerAimZ = groundHit.z;
 }
 
-/** Vrai uniquement pendant une bataille en cours (ni menu, ni placement, ni
- *  ecran de fin de vague) : c'est la seule phase ou viser/tirer a un sens. */
+/** Vrai uniquement pendant une partie en cours (run de Survie ou « Tester
+ *  le scenario » ; ni menu, ni editeur, ni fin de partie) : la seule phase
+ *  ou viser, tirer, ordonner ou construire a un sens. */
 function inBattlePhase(): boolean {
-  return !inPlacementPhase && !inEditorMode && !battleOver && world.entities.length > 0;
-}
-
-/** Phase de jeu actuelle du point de vue des objets d'inventaire (voir
- *  data/items.ts, usablePhases) — null si aucune des deux ne s'applique
- *  (menu, editeur, ecran de fin de vague...). */
-function currentPhase(): GamePhase | null {
-  if (inPlacementPhase) return 'placement';
-  if (inBattlePhase()) return 'battle';
-  return null;
+  return !inEditorMode && !battleOver && world.entities.length > 0;
 }
 
 /** Les 2 ennemis vivants les plus proches de (cursorX, cursorZ), dans
@@ -6146,58 +5258,47 @@ function currentBallistaStatus(): BallistaStatus {
   return { kind: 'ready' };
 }
 
-/** Fiche d'entite (ui/entityInfoPanel.ts) : visible seulement pendant la
- *  preparation et la bataille, hors editeur, menus, pause, boutique (qui la
- *  recouvre), placement d'un bâtiment et transition de fin de vague
- *  (inBattlePhase est faux des que battleOver). */
+/** Fiche d'entite (ui/entityInfoPanel.ts) : visible seulement pendant une
+ *  partie, hors editeur, menus, pause et fin de partie (inBattlePhase est
+ *  faux des que battleOver). */
 function isEntityInfoContextActive(): boolean {
-  if (inEditorMode || pauseMenuOpen) return false;
-  if (inBattlePhase()) return true;
-  return inPlacementPhase && buildingPlacementMode === null && !screens.isShopOpen() && !screens.isForgeOpen();
+  return !inEditorMode && !pauseMenuOpen && inBattlePhase();
 }
 
 /** Modele de la fiche pour la selection courante, ou null sans selection.
- *  Bataille : lit les entites de simulation (stats deja effectives). Une
+ *  Lit les entites de simulation (stats deja effectives) ; en run, les
+ *  actions du batiment inspecte s'y ajoutent (withRealtimeActions). Une
  *  unite morte a deja ete retiree de battleSelection par sync(). */
 function currentEntityInfo(): EntityInfoViewModel | null {
   const info = currentEntityInfoBase();
-  return info && !inPlacementPhase && !inTestMode && inBattlePhase() ? withRealtimeActions(info) : info;
+  return info && !inTestMode ? withRealtimeActions(info) : info;
 }
 
 function currentEntityInfoBase(): EntityInfoViewModel | null {
-  if (inBattlePhase()) {
-    if (battleInspectedEntityId !== null) {
-      const inspected = world.getById(battleInspectedEntityId);
-      if (!inspected) return null;
-      if (inspected.id === ballistaEntityId) return battleBallistaInfo(inspected, currentBallistaStatus(), playerProgression(), ballistaFireMode);
-      // Productions de la Mine dans cette manche (aucune en « Tester le scénario »).
-      const mineNextIn = inspected.unitId === 'mine' && !inTestMode ? mineProductionIntervalSeconds() - (mineProductionTimers.get(inspected.id) ?? 0) : null;
-      return battleBuildingInfo(inspected, playerProgression(), battleOwnedBuildingLevel(inspected), mineNextIn);
-    }
-    const aliveEntities = (ids: number[]): Entity[] => ids.map((id) => world.getById(id)).filter((e): e is Entity => e !== undefined && e.alive);
-    // Ennemis inspectes (jamais dans battleSelection, donc jamais commandes) :
-    // memes fiches qu'une selection alliee, stats de simulation, niveau
-    // d'unite (Entity.level).
-    const enemies = aliveEntities(battleEnemyInspection.ids);
-    if (enemies.length > 0) {
-      return enemies.length === 1 ? battleUnitInfo(enemies[0]!, world.time) : battleGroupInfo(enemies);
-    }
-    const units = aliveEntities(battleSelection.ids);
-    if (units.length === 0) return null;
-    // Heros seul selectionne : pas de fiche (2026-11-02, demande d'Antoine) ;
-    // ses statistiques sont dans son inventaire (touche I). Dans un groupe,
-    // la fiche du groupe reste.
-    if (units.length === 1 && units[0]!.hero) return null;
-    return units.length === 1 ? battleUnitInfo(units[0]!, world.time) : battleGroupInfo(units);
+  if (!inBattlePhase()) return null;
+  if (battleInspectedEntityId !== null) {
+    const inspected = world.getById(battleInspectedEntityId);
+    if (!inspected) return null;
+    if (inspected.id === ballistaEntityId) return battleBallistaInfo(inspected, currentBallistaStatus(), playerProgression(), ballistaFireMode);
+    // Prochaine production de la Mine (aucune en « Tester le scénario »).
+    const mineNextIn = inspected.unitId === 'mine' && !inTestMode ? mineProductionIntervalSeconds() - (mineProductionTimers.get(inspected.id) ?? 0) : null;
+    return battleBuildingInfo(inspected, playerProgression(), battleOwnedBuildingLevel(inspected), mineNextIn);
   }
-  if (placementBallistaSelected) return placementBallistaInfo(playerProgression());
-  if (selectedBuildingIndex !== null) {
-    const owned = currentRun.buildings[selectedBuildingIndex];
-    return owned ? placementBuildingInfo(owned, playerProgression(), currentRun.gold, armyMissingHp(currentRun)) : null;
+  const aliveEntities = (ids: number[]): Entity[] => ids.map((id) => world.getById(id)).filter((e): e is Entity => e !== undefined && e.alive);
+  // Ennemis inspectes (jamais dans battleSelection, donc jamais commandes) :
+  // memes fiches qu'une selection alliee, stats de simulation, niveau
+  // d'unite (Entity.level).
+  const enemies = aliveEntities(battleEnemyInspection.ids);
+  if (enemies.length > 0) {
+    return enemies.length === 1 ? battleUnitInfo(enemies[0]!, world.time) : battleGroupInfo(enemies);
   }
-  const slots = selectedIndices.map((i) => placementSlots[i]).filter((slot): slot is PlacementSlot => slot !== undefined);
-  if (slots.length === 0) return null;
-  return slots.length === 1 ? placementUnitInfo(slots[0]!, playerProgression(), currentRun.hero.level) : placementGroupInfo(slots, playerProgression());
+  const units = aliveEntities(battleSelection.ids);
+  if (units.length === 0) return null;
+  // Heros seul selectionne : pas de fiche (2026-11-02, demande d'Antoine) ;
+  // ses statistiques sont dans son inventaire (touche I). Dans un groupe,
+  // la fiche du groupe reste.
+  if (units.length === 1 && units[0]!.hero) return null;
+  return units.length === 1 ? battleUnitInfo(units[0]!, world.time) : battleGroupInfo(units);
 }
 
 /** Cadence de la fiche : PV, recharges et minuteries n'ont pas besoin d'etre
@@ -6212,18 +5313,16 @@ function updateEntityInfoPanel(now: number): void {
     entityInfoPanel.update(null);
     return;
   }
-  const key = inBattlePhase()
-    ? `b:${battleSelection.ids.join(',')}:${battleEnemyInspection.ids.join(',')}:${battleInspectedEntityId}`
-    : `p:${selectedIndices.join(',')}:${selectedBuildingIndex}:${placementBallistaSelected}`;
+  const key = `b:${battleSelection.ids.join(',')}:${battleEnemyInspection.ids.join(',')}:${battleInspectedEntityId}`;
   if (key === entityInfoSelectionKey && now - entityInfoLastRefresh < ENTITY_INFO_REFRESH_MS) return;
   entityInfoSelectionKey = key;
   entityInfoLastRefresh = now;
   entityInfoPanel.update(currentEntityInfo());
 }
 
-/** Clic gauche maintenu en bataille, en attente de son relachement :
+/** Clic gauche maintenu en jeu, en attente de son relachement :
  *  sous UNIT_DRAG_THRESHOLD_PX c'est un clic (voir resolveBattleSelectionClick),
- *  au-dela un rectangle de selection (meme SelectionBox que le placement),
+ *  au-dela un rectangle de selection (meme SelectionBox que l'editeur),
  *  jamais les deux. */
 interface CommandDragState {
   startClientX: number;
@@ -6237,10 +5336,8 @@ function cancelCommandDrag(): void {
   commandDrag = null;
 }
 
-/** Double-clic MANUEL en bataille, meme patron que lastUnitClickSlot en
- *  placement (deux clics sur la meme unite en moins de
- *  DOUBLE_CLICK_WINDOW_MS) ; etat separe, les ids d'entites n'ont rien a voir
- *  avec les index de placement. */
+/** Double-clic MANUEL en jeu (deux clics sur la meme unite en moins de
+ *  DOUBLE_CLICK_WINDOW_MS) ; etat separe de celui de l'editeur. */
 let lastBattleUnitClickId: number | null = null;
 let lastBattleUnitClickTime = 0;
 
@@ -6277,7 +5374,7 @@ function resolveBattleSelectionClick(event: MouseEvent): void {
       setBattleEnemyInspection(alreadyAlone ? [] : [enemyUnit.id]);
       return;
     }
-    // Bâtiment allie ou Baliste : meme bascule qu'en preparation.
+    // Bâtiment allie ou Baliste : bascule de l'inspection.
     const building = pickBattleInspectableBuilding(event, picked);
     const next = building !== null && building.id !== battleInspectedEntityId ? building.id : null;
     // Petit tas explore sous le curseur (2026-11-02) : selection (anneau
@@ -6360,8 +5457,7 @@ let battleInspectionRingEntityId: number | null = null;
 
 /** Bâtiment allie vivant sous le curseur : la Mine ou la Caserne pointee,
  *  sinon celui dont l'empreinte au sol contient le point vise. La Baliste
- *  n'est retenue que par son empreinte au sol, jamais par sa silhouette :
- *  meme test qu'en preparation (isBallistaHoveredInPlacement). */
+ *  n'est retenue que par son empreinte au sol, jamais par sa silhouette. */
 function pickBattleInspectableBuilding(event: MouseEvent, picked: Entity | null): Entity | null {
   if (picked !== null && picked.team === 'player' && picked.isBuilding && picked.id !== ballistaEntityId) return picked;
   const point = computeGroundPoint(event);
@@ -6377,9 +5473,9 @@ function pickBattleInspectableBuilding(event: MouseEvent, picked: Entity | null)
 /** A chaque image : abandonne une inspection devenue invalide (entite
  *  disparue apres world.clear(), Mine ou Caserne detruite — la Baliste
  *  detruite reste inspectable, son etat DÉTRUITE etant deja celui du HUD) et
- *  place l'anneau d'inspection, meme taille et meme couleur qu'en
- *  preparation (updateBuildingSelectionRing). L'inspection survit a la
- *  transition de fin de vague, comme la barre de PV qui en depend. */
+ *  place l'anneau d'inspection (meme style que la selection d'objet de
+ *  l'editeur). L'inspection survit a la transition de fin de partie, comme
+ *  la barre de PV qui en depend. */
 function syncBattleInspection(): void {
   if (battleInspectedEntityId !== null) {
     const entity = world.getById(battleInspectedEntityId);
@@ -6884,456 +5980,39 @@ function isTypingInField(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable;
 }
 
-// --- Inventaire (chantier en cours, 2026-08-09) -------------------------
-//
-// Premier objet : le parchemin de soin (voir data/items.ts), utilisable en
-// temps reel PENDANT la bataille — clic sur un emplacement pour "l'armer",
-// puis clic sur une unite du joueur pour la cibler. Distinct du "Soigner" de
-// la boutique (qui restaure une unite entre deux vagues, sans ciblage).
-
-/** Emplacement d'inventaire actuellement arme (pret a etre utilise sur la
- *  prochaine cible cliquee), ou null si aucun. */
-let armedItemIndex: number | null = null;
-
-function disarmItem(): void {
-  armedItemIndex = null;
-  inventoryBar.setArmed(null);
-  healTargetRing.visible = false;
-  iceNovaView.hideTargetPreview();
-}
-
-/** Clic sur un emplacement d'inventaire : ne fait rien si la phase actuelle
- *  n'est pas dans `usablePhases` de l'objet (voir data/items.ts — le soin
- *  s'utilise en bataille ET en placement, un futur sort de bataille pourra
- *  etre plus restrictif) — re-cliquer sur le meme emplacement desarme. */
-function armInventorySlot(index: number): void {
-  const phase = currentPhase();
-  const owned = currentRun.inventory[index];
-  if (!owned || !phase) return;
-  const def = getItem(owned.itemId);
-  if (!def.usablePhases.includes(phase)) return;
-  armedItemIndex = armedItemIndex === index ? null : index;
-  inventoryBar.setArmed(armedItemIndex, armedItemIndex !== null ? owned.itemId : undefined);
-  // Le tir de Baliste est sur Q, independant du clic gauche qui utilise
-  // l'objet : armer un objet n'interrompt plus un tir maintenu.
-  if (armedItemIndex === null) healTargetRing.visible = false;
-}
-
 /** Point du sol (position REELLE du clic, pas alignee sur une case) sous le
- *  curseur, ou null si le rayon ne touche pas le plan — voir
- *  computeHoveredTile pour la variante alignee sur les cases (placement). */
+ *  curseur, ou null si le rayon ne touche pas le plan. */
 function computeGroundPoint(event: MouseEvent): { x: number; z: number } | null {
   setRaycasterFromEvent(event);
   if (!intersectTerrain(raycaster.ray, groundHit)) return null;
   return { x: groundHit.x, z: groundHit.z };
 }
 
-/**
- * Cible de soin resolue depuis un point du sol (2026-08-11, demande
- * d'Antoine : "le soin doit etre plus simple a utiliser, le curseur n'est
- * pas tres clair... en cas de doute il faut soigner l'unite avec le moins
- * d'hp") — remplace l'ancien raycast EXACT sur le mesh d'une unite precise
- * (trop punitif a l'echelle d'une silhouette) par une recherche generreuse
- * dans HEAL_TARGET_RADIUS autour du point vise. Parmi les unites VIVANTES
- * du joueur blessees (hp < maxHp) a portee, renvoie celle la plus blessee
- * EN PROPORTION de ses PV max — meme convention que l'ancien bouton
- * "Soigner" de la boutique (voir CLAUDE.md, chantier economie), pas la plus
- * proche du curseur ni la plus basse en PV absolus (qui favoriserait
- * injustement les unites a faible PV max, ex. l'archer, meme a pleine vie).
- * Null si aucune unite blessee n'est a portee : l'appelant desarme sans
- * effet, comme pour toute cible invalide ailleurs dans le projet.
- */
-function findHealTargetEntity(x: number, z: number): Entity | null {
-  let best: Entity | null = null;
-  let bestRatio = Infinity;
-  for (const e of world.entities) {
-    // !e.isBuilding (2026-08-16) : un batiment gameplay (Mine, Baliste)
-    // n'est jamais soigne par un parchemin — il n'a pas de mecanisme de
-    // reparation dans cette architecture, seulement des PV/une destruction.
-    if (!e.alive || e.team !== 'player' || e.isBuilding || e.hp >= e.stats.maxHp) continue;
-    if (dist(x, z, e.x, e.z) > HEAL_TARGET_RADIUS) continue;
-    const ratio = e.hp / e.stats.maxHp;
-    if (ratio < bestRatio) {
-      bestRatio = ratio;
-      best = e;
-    }
-  }
-  return best;
-}
-
-/** Equivalent de findHealTargetEntity pour la phase de PLACEMENT (des
- *  PlacementSlot, pas des Entity de bataille) — voir
- *  useArmedItemOnPlacementClick. Renvoie un INDEX de placementSlots, pas le
- *  slot lui-meme, pour que l'appelant puisse aussi ecrire dans
- *  currentRun.army au meme index. */
-function findHealTargetSlotIndex(x: number, z: number): number | null {
-  let best: number | null = null;
-  let bestRatio = Infinity;
-  placementSlots.forEach((slot, i) => {
-    if (slot.x === null || slot.z === null) return;
-    const maxHp = playerUnitMaxHp(slot.unitId, slot.productionLevel);
-    if (slot.hp >= maxHp) return;
-    if (dist(x, z, slot.x, slot.z) > HEAL_TARGET_RADIUS) return;
-    const ratio = slot.hp / maxHp;
-    if (ratio < bestRatio) {
-      bestRatio = ratio;
-      best = i;
-    }
-  });
-  return best;
-}
-
-/**
- * Cibles SECONDAIRES du parchemin de soin (2026-08-13, boutique
- * d'amelioration "Parchemin de soin", voir data/healScrollUpgrade.ts) —
- * jusqu'a `count` allies du MEME camp que `primary`, VIVANTS, BLESSES,
- * DIFFERENTS de `primary`, dans `radius` cases de sa position. Tri par
- * DISTANCE a la cible principale (pas au curseur), egalite tranchee par id
- * croissant (tie-break STABLE, jamais aleatoire — demande explicite,
- * point 24). `count <= 0` renvoie toujours un tableau vide sans parcourir
- * `entities`. Si moins de `count` allies blesses sont a portee, renvoie
- * simplement ce qui existe (point 25 : "ne consomme pas, ne reporte pas").
- */
-function findSecondaryHealTargets(primary: Entity, count: number, radius: number, entities: Entity[]): Entity[] {
-  if (count <= 0) return [];
-  // !e.isBuilding (2026-08-16) : meme regle que findHealTargetEntity, un
-  // batiment gameplay n'est jamais soigne, meme comme cible SECONDAIRE.
-  const candidates = entities.filter(
-    (e) =>
-      e.alive && e.team === primary.team && e !== primary && !e.isBuilding && e.hp < e.stats.maxHp && dist(primary.x, primary.z, e.x, e.z) <= radius,
-  );
-  candidates.sort((a, b) => {
-    const da = dist(primary.x, primary.z, a.x, a.z);
-    const db = dist(primary.x, primary.z, b.x, b.z);
-    return da !== db ? da - db : a.id - b.id;
-  });
-  return candidates.slice(0, count);
-}
-
-/** Equivalent de findSecondaryHealTargets pour la phase de PLACEMENT — voir
- *  findHealTargetSlotIndex pour le meme rapport a findHealTargetEntity.
- *  Renvoie des INDEX de placementSlots (tie-break sur l'index lui-meme,
- *  stable comme un id d'entite). `null` si la cible principale n'a pas de
- *  position sur le plateau (ne devrait pas arriver : deja valide par
- *  findHealTargetSlotIndex avant l'appel). */
-function findSecondaryHealSlotIndices(primaryIndex: number, count: number, radius: number): number[] {
-  if (count <= 0) return [];
-  const primary = placementSlots[primaryIndex];
-  if (!primary || primary.x === null || primary.z === null) return [];
-  const px = primary.x;
-  const pz = primary.z;
-
-  const candidates: { index: number; d: number }[] = [];
-  placementSlots.forEach((slot, i) => {
-    if (i === primaryIndex || slot.x === null || slot.z === null) return;
-    const maxHp = playerUnitMaxHp(slot.unitId, slot.productionLevel);
-    if (slot.hp >= maxHp) return;
-    const d = dist(px, pz, slot.x, slot.z);
-    if (d > radius) return;
-    candidates.push({ index: i, d });
-  });
-  candidates.sort((a, b) => (a.d !== b.d ? a.d - b.d : a.index - b.index));
-  return candidates.slice(0, count).map((c) => c.index);
-}
-
-/** Resultat d'une application de soin — voir applyPlayerHeal. */
-interface HealApplication {
-  actualHeal: number;
-  overheal: number;
-}
-
-/**
- * SOURCE UNIQUE d'application d'un soin a une unite JOUEUR (2026-08-15,
- * demande d'Antoine pour le talent "Soins excédentaires", point 41 : "Je
- * veux utiliser le VRAI OVERHEAL... requestedHeal - actualHeal"). Utilisee
- * par les 3 sites qui soignent reellement une unite (clic manuel en
- * bataille, clic manuel en placement, declenchement automatique "Aux petits
- * oignons") — jamais un calcul duplique/approxime par site.
- *
- * Centralise AUSSI le FRANCHISSEMENT du seuil "Aux petits oignons" (voir
- * belowAutoHealThreshold, AUTO_HEAL_TRIGGER_RATIO) : un soin qui fait
- * repasser l'unite STRICTEMENT au-dessus du seuil retire son id du Set,
- * autorisant un futur re-proc — les PV ne remontent JAMAIS ailleurs que par
- * un soin, donc c'est le SEUL endroit ou ce franchissement peut etre
- * detecte. `entityId` optionnel : `null` pendant le PLACEMENT (aucune
- * Entity/aucun combat en cours, la notion de "seuil deja consomme" n'a pas
- * de sens tant qu'aucune bataille n'a commence).
- */
-function applyPlayerHeal(target: { hp: number }, maxHp: number, requestedHeal: number, entityId: number | null): HealApplication {
-  const before = target.hp;
-  const after = Math.min(maxHp, before + requestedHeal);
-  target.hp = after;
-  if (entityId !== null && maxHp > 0 && after / maxHp > AUTO_HEAL_TRIGGER_RATIO) {
-    belowAutoHealThreshold.delete(entityId);
-  }
-  return { actualHeal: after - before, overheal: requestedHeal - (after - before) };
-}
-
-/**
- * Resout un clic de bataille alors qu'un objet est arme : soigne la cible
- * resolue par findHealTargetEntity si c'en est une, sinon desarme sans
- * effet — un clic sans cible valide a portee ANNULE l'armement plutot que
- * de rester en attente indefiniment (meme principe que la deselection de
- * groupe en placement). Retourne true si le clic a ete consomme par
- * l'objet (toujours le cas des qu'un objet est arme).
- *
- * Cibles SECONDAIRES (2026-08-13, boutique d'amelioration "Parchemin de
- * soin") : appliquees UNIQUEMENT ici et dans la version placement
- * ci-dessous (usage MANUEL/deliberer du parchemin) — jamais sur le
- * declenchement automatique du talent "Aux petits oignons" (voir plus bas
- * dans la boucle de jeu), qui reste volontairement mono-cible.
- */
-function useArmedItemOnClick(event: MouseEvent): boolean {
-  if (armedItemIndex === null) return false;
-  const index = armedItemIndex;
-  disarmItem();
-
-  const owned = currentRun.inventory[index];
-  if (!owned) return true;
-  const def = getItem(owned.itemId);
-
-  if (def.effect.type === 'heal') {
-    const point = computeGroundPoint(event);
-    const target = point ? findHealTargetEntity(point.x, point.z) : null;
-    if (!target) return true;
-    const healAmount = effectivePlayerHealAmount(playerProgression().upgrades);
-    const { overheal } = applyPlayerHeal(target, target.stats.maxHp, healAmount, target.id);
-    // Texte en PV AFFICHES (amount est en interne, x10, comme partout ailleurs
-    // — voir data/items.ts, HealEffect.amount) : sans cette division, "+30"
-    // s'afficherait pour un soin de "3 PV", incoherent avec le reste de
-    // l'interface (pips, degats de la fleche du joueur, etc.).
-    combatOverlay.spawnHealText(target.x, target.z, healAmount / HP_PER_PIP);
-    // VFX du parchemin (2026-08-14, voir render/healVfx.ts) — position REELLEMENT
-    // RENDUE (interpolee si l'unite est riggee), meme convention que healTargetRing.
-    {
-      const pos = unitViews.getPosition(target.id) ?? { x: target.x, z: target.z };
-      healVfxView.spawnHeal(pos.x, pos.z);
-    }
-
-    let totalOverheal = overheal;
-    const secondaryCount = healSecondaryTargetCount(healScrollUpgradeLevel(playerProgression().upgrades));
-    if (secondaryCount > 0) {
-      const secondaryAmount = effectivePlayerSecondaryHealAmount(playerProgression().upgrades);
-      const secondaries = findSecondaryHealTargets(target, secondaryCount, HEAL_SCROLL_UPGRADE.secondaryTargetRadius, world.entities);
-      for (const ally of secondaries) {
-        const secondaryResult = applyPlayerHeal(ally, ally.stats.maxHp, secondaryAmount, ally.id);
-        totalOverheal += secondaryResult.overheal;
-        // Feedback DISCRET (point 29 de la demande : "légèrement plus petit")
-        // — meme fabrique, variante CSS plus petite (voir combatOverlay.spawnHealText).
-        combatOverlay.spawnHealText(ally.x, ally.z, secondaryAmount / HP_PER_PIP, true);
-        const allyPos = unitViews.getPosition(ally.id) ?? { x: ally.x, z: ally.z };
-        healVfxView.spawnHeal(allyPos.x, allyPos.z);
-      }
-    }
-    // Talent "Soins excédentaires" (2026-08-15) — voir triggerShadowProjectiles.
-    triggerShadowProjectiles(target.x, target.z, totalOverheal);
-  } else if (def.effect.type === 'ice-nova') {
-    // Impact INSTANTANE sur un point du sol, pas une unite ciblee — aucune
-    // condition sur la presence d'un ennemi dans la zone (contrairement au
-    // soin, qui annule sans consommer si aucune cible n'est trouvee) : tout
-    // clic sur le champ de bataille est une utilisation valide, meme sur une
-    // zone vide (voir CLAUDE.md, section "Test consommation"). Seul un rayon
-    // qui ne touche pas le sol du tout (cas degrade quasi impossible en jeu
-    // reel) annule sans consommer, comme partout ailleurs dans ce fichier.
-    const point = computeGroundPoint(event);
-    if (!point) return true;
-    castIceNova(point.x, point.z, def.effect);
-  }
-
-  currentRun.inventory.splice(index, 1);
-  inventoryBar.refresh(currentRun.inventory);
-  return true;
-}
-
-/**
- * Version placement de useArmedItemOnClick : cible un PlacementSlot (voir
- * findHealTargetSlotIndex) plutot qu'une Entity de bataille. Aucune
- * bataille n'est en cours pour re-synchroniser les PV a la fin, donc cette
- * fonction met a jour placementSlots ET currentRun.army directement — les
- * deux partagent les memes indices tant qu'on est en placement (voir
- * l'invariant documente pres de onBuyFantassin/sellUnit). Cibles
- * secondaires : voir useArmedItemOnClick, meme logique via
- * findSecondaryHealSlotIndices.
- */
-function useArmedItemOnPlacementClick(event: MouseEvent): boolean {
-  if (armedItemIndex === null) return false;
-  const index = armedItemIndex;
-  disarmItem();
-
-  const owned = currentRun.inventory[index];
-  if (!owned) return true;
-  const def = getItem(owned.itemId);
-
-  if (def.effect.type === 'heal') {
-    const point = computeGroundPoint(event);
-    const slotIndex = point ? findHealTargetSlotIndex(point.x, point.z) : null;
-    if (slotIndex === null) return true;
-    const slot = placementSlots[slotIndex]!;
-    const maxHp = playerUnitMaxHp(slot.unitId, slot.productionLevel);
-    const healAmount = effectivePlayerHealAmount(playerProgression().upgrades);
-    // entityId=null : aucune Entity/bataille en cours pendant le placement,
-    // la notion de "seuil Aux petits oignons deja consomme" ne s'applique
-    // pas ici (voir applyPlayerHeal) — de meme, aucun ennemi n'existe encore
-    // pendant le placement (enemyPreview n'est qu'un apercu visuel, pas de
-    // vraies Entity), donc l'overheal n'est PAS remonte vers Soins
-    // excedentaires ici : le declenchement ne se ferait de toute facon
-    // jamais sur aucune cible (voir triggerShadowProjectiles, "si aucun
-    // ennemi n'existe, l'effet est simplement perdu") — pas la peine de
-    // l'appeler pour rien.
-    applyPlayerHeal(slot, maxHp, healAmount, null);
-    currentRun.army[slotIndex]!.hp = slot.hp;
-    // Voir useArmedItemOnClick : texte en PV affiches, pas en interne.
-    combatOverlay.spawnHealText(slot.x ?? 0, slot.z ?? 0, healAmount / HP_PER_PIP);
-    healVfxView.spawnHeal(slot.x ?? 0, slot.z ?? 0);
-
-    const secondaryCount = healSecondaryTargetCount(healScrollUpgradeLevel(playerProgression().upgrades));
-    if (secondaryCount > 0) {
-      const secondaryAmount = effectivePlayerSecondaryHealAmount(playerProgression().upgrades);
-      const secondaryIndices = findSecondaryHealSlotIndices(slotIndex, secondaryCount, HEAL_SCROLL_UPGRADE.secondaryTargetRadius);
-      for (const i of secondaryIndices) {
-        const s = placementSlots[i]!;
-        const sMaxHp = playerUnitMaxHp(s.unitId, s.productionLevel);
-        applyPlayerHeal(s, sMaxHp, secondaryAmount, null);
-        currentRun.army[i]!.hp = s.hp;
-        combatOverlay.spawnHealText(s.x ?? 0, s.z ?? 0, secondaryAmount / HP_PER_PIP, true);
-        healVfxView.spawnHeal(s.x ?? 0, s.z ?? 0);
-      }
-    }
-  }
-
-  currentRun.inventory.splice(index, 1);
-  inventoryBar.refresh(currentRun.inventory);
-  return true;
-}
-
-/** Retrouve, sous le curseur, l'index de slot d'une unite du joueur posee —
- *  utilise a la fois par le clic simple (selection) et par le debut d'un
- *  glisser (vente potentielle), voir les listeners mousedown plus bas. */
-function findHoveredSlot(event: MouseEvent): number | null {
-  setRaycasterFromEvent(event);
-  const unitHit = raycaster.intersectObjects(playerPreview.children, true)[0];
-  return unitHit ? findSlotIndex(unitHit.object) : null;
-}
-
-/** Case (centre) survolee par la souris sur le sol, ou null si le rayon ne
- *  touche pas le plan — meme convention de case (floor(x)+0.5) que le reste
- *  du placement. Partagee par le glisser-deplacer et les clics existants. */
-function computeHoveredTile(event: MouseEvent): { x: number; z: number } | null {
-  setRaycasterFromEvent(event);
-  if (!intersectTerrain(raycaster.ray, groundHit)) return null;
-  return { x: Math.floor(groundHit.x) + 0.5, z: Math.floor(groundHit.z) + 0.5 };
-}
-
-/** Cases occupees par une unite depuis sa case d'ANCRE (la case de FRONT —
- *  meme convention que toute autre unite, portee d'attaque/ciblage/rendu y
- *  compris) : 1x1 pour la grande majorite des unites, plus pour celles qui
- *  declarent un `footprint` (voir data/units.ts — aucune actuellement,
- *  mecanisme conserve generique pour une future unite qui en aurait besoin).
- *  S'etend UNIQUEMENT vers l'arriere du camp joueur
- *  (jamais vers l'avant ni lateralement — `footprint.tilesX` n'est pas
- *  gere ici, aucune unite n'en a encore besoin). Ces fonctions ne servent
- *  qu'a la phase de placement du JOUEUR (`placementSlots`), toujours cote
- *  'player' — la formation ennemie (computeEnemyWavePlacements) est un
- *  calcul de mise en page separe, sans validation d'occupation. */
-function getFootprintTiles(unitId: string, anchorX: number, anchorZ: number): { x: number; z: number }[] {
-  const depth = getUnit(unitId).footprint?.tilesZ ?? 1;
-  if (depth <= 1) return [{ x: anchorX, z: anchorZ }];
-
-  const backStep = -forwardDir('player') * TILE;
-  const tiles: { x: number; z: number }[] = [];
-  for (let i = 0; i < depth; i++) tiles.push({ x: anchorX, z: anchorZ + backStep * i });
-  return tiles;
-}
-
-/** Version de isValidPlacementTile consciente du gabarit d'une unite precise
- *  (voir getFootprintTiles) : valide seulement si TOUTES les cases qu'elle
- *  occuperait le sont — jamais de "moitie" d'unite hors zone ou sur un
- *  obstacle. A utiliser a la place de isValidPlacementTile des qu'on
- *  connait l'id de l'unite deplacee/posee. */
-function isValidPlacementForUnit(unitId: string, anchorX: number, anchorZ: number, excludeIndices: number[]): boolean {
-  return getFootprintTiles(unitId, anchorX, anchorZ).every((t) => isValidPlacementTile(t.x, t.z, excludeIndices));
-}
-
-/** Une case est valide pour recevoir une unite si elle n'est deja prise par
- *  aucun AUTRE slot — y compris l'emprise ETENDUE d'un slot a footprint (un
- *  Cavalier deja pose bloque aussi sa case arriere, voir getFootprintTiles),
- *  pas seulement son ancre (voir excludeIndices — le/les slots qu'on est
- *  justement en train de deplacer ne comptent pas contre eux-memes) — pas
- *  sur un obstacle, et a l'interieur de la zone de placement du joueur.
- *  Partagee par le deplacement simple et le deplacement de groupe. */
-/** Slot pose dont l'empreinte (getFootprintTiles, meme regle d'occupation
- *  que isValidPlacementTile) contient la case (tileX, tileZ), hors
- *  `exclude`. Au plus un en pratique (la validation interdit deux unites
- *  sur une case) ; dans un etat anormal, le plus petit index, toujours le
- *  meme. */
-function findSlotAtTile(tileX: number, tileZ: number, exclude: readonly number[]): number | null {
-  const index = placementSlots.findIndex((s, i) => {
-    if (exclude.includes(i) || s.x === null || s.z === null) return false;
-    return getFootprintTiles(s.unitId, s.x, s.z).some((t) => t.x === tileX && t.z === tileZ);
-  });
-  return index >= 0 ? index : null;
-}
-
-/** Repli de la selection au clic quand le rayon manque le modele d'une
- *  unite : l'unite qui occupe la case sous le curseur. Les unites deja
- *  selectionnees sont exclues (un clic sur leur case deplace le groupe, ce
- *  qui permet de decaler une formation compacte d'une case), sauf l'unite
- *  qui vient d'etre cliquee, pendant la fenetre du double-clic et sans Maj :
- *  un second clic sur sa case complete alors le double-clic. */
-function findFallbackSlot(event: MouseEvent, shift: boolean): number | null {
-  const tile = computeHoveredTile(event);
-  if (!tile) return null;
-  const recentClick = !shift && lastUnitClickSlot !== null && performance.now() - lastUnitClickTime < DOUBLE_CLICK_WINDOW_MS ? lastUnitClickSlot : null;
-  return findSlotAtTile(tile.x, tile.z, selectedIndices.filter((i) => i !== recentClick));
-}
-
-/** `zone` : `territory` (unites en preparation, legacy) exige une case du
- *  territoire du joueur ; `map` (batiments, chantiers, depuis le
- *  2026-11-02) seulement une case existante de la carte. Les contraintes
- *  physiques (occupation, obstacle, eau, arbre) valent dans les deux cas. */
-function isValidPlacementTile(tileX: number, tileZ: number, excludeIndices: number[], excludeBuildingIndex?: number, zone: 'territory' | 'map' = 'territory'): boolean {
-  const occupied = placementSlots.some((s, i) => {
-    if (excludeIndices.includes(i) || s.x === null || s.z === null) return false;
-    return getFootprintTiles(s.unitId, s.x, s.z).some((t) => t.x === tileX && t.z === tileZ);
-  });
-  if (occupied) return false;
-
-  // Une case occupee par un obstacle BLOQUANT (« Obstacles / structures »)
-  // ne peut pas recevoir d'unite : sans ce test, l'unite se retrouverait
-  // plantee dans l'obstacle au placement, puis rejetee au demarrage de la
-  // bataille (resolveObstacleCollisions), ce qui se voit comme un petit
-  // saut. Les DECORS (arbres, rochers, vegetation, structures decoratives…)
-  // sont purement visuels depuis le 2026-10-28 (voir config/constants.ts,
-  // isBlockingMapObstacle) : une unite ou un batiment se pose dessus.
-  // Les batiments possedes (Mine, Caserne, Forge) ET la plateforme Baliste
-  // (2026-08-16, TOUJOURS presente — voir activeBuildingObstacles) sont
-  // fusionnees ici aussi : sans ca, une unite pourrait se retrouver placee
-  // visuellement DANS un batiment gameplay pendant le placement, puis
-  // rejetee au debut de la bataille reelle (meme World.spawnBuilding, voir
-  // onValidatePlacement) — meme desagrement de "petit saut" que pour un
-  // rocher/arbre. `excludeBuildingIndex` (2026-08-17) : voir
-  // activeBuildingObstacles, indispensable pour DEPLACER un bâtiment deja
-  // possede sans qu'il se bloque lui-meme.
-  // Decors : jamais bloquants (isBlockingMapObstacle) ; batiments et Baliste : toujours.
-  const onObstacle = [...currentMap.obstacles.filter(isBlockingMapObstacle), ...activeBuildingObstacles(excludeBuildingIndex)].some((o) => {
+/** Une case (centre en demi-entiers) peut recevoir une pose du joueur
+ *  (batiment, chantier, mur) : pas sur un obstacle bloquant, un batiment
+ *  possede ou la Baliste, pas sur l'eau ni une source debout, et une case
+ *  existante de la carte (plus de limite de territoire depuis le 2026-11-02,
+ *  demande d'Antoine). Les contraintes vis-a-vis des unites vivantes et des
+ *  murs sont dans canPlaceBuildingAt / planRuntimeWall. */
+function isValidPlacementTile(tileX: number, tileZ: number): boolean {
+  // Les DECORS (arbres, rochers, vegetation, structures decoratives…) sont
+  // purement visuels depuis le 2026-10-28 (voir config/constants.ts,
+  // isBlockingMapObstacle) : un batiment se pose dessus. Les batiments
+  // possedes ET la plateforme Baliste (toujours presente, voir
+  // activeBuildingObstacles) bloquent toujours.
+  const onObstacle = [...currentMap.obstacles.filter(isBlockingMapObstacle), ...activeBuildingObstacles()].some((o) => {
     const b = obstacleBounds(o);
     return tileX > b.minX && tileX < b.maxX && tileZ > b.minZ && tileZ < b.maxZ;
   });
   if (onObstacle) return false;
-  // Eau (isWaterSurface) : ni unite, ni batiment, ni mur.
+  // Eau (isWaterSurface) : ni batiment, ni mur.
   if (isWaterTile(tileX, tileZ)) return false;
   // Source debout (arbre, gros gisement de pierre ou d'or, 2026-11-02) : sa
   // case bloque les unites terrestres, donc aussi toute pose (batiment,
-  // chantier, mur, Baliste, unite) — regle unique (config/resourceNodes.ts,
+  // chantier, mur, Baliste) — regle unique (config/resourceNodes.ts,
   // resourceNodeCellKeys). Source epuisee : case de nouveau constructible.
   if (world.resourceCells.has(cellKey(Math.floor(tileX), Math.floor(tileZ)))) return false;
-
-  // Batiments (2026-11-02, demande d'Antoine) : plus de limite de
-  // territoire, seulement une case de la carte (hors carte refuse).
-  if (zone === 'map') return isMapTile(tileX, tileZ);
-  // Zone de placement : la case doit appartenir au joueur dans le territoire
-  // courant (voir currentTerritoryIndex) — plus aucun calcul de bande ici.
-  return territoryOwnerAtPoint(currentTerritoryIndex(), tileX, tileZ) === 'player';
+  return isMapTile(tileX, tileZ);
 }
 
 /** Cases existantes de `currentMap` (resolveMapCells), recalculees quand la
@@ -7417,16 +6096,15 @@ function resetSettlementGround(): void {
 // --- Achat/placement de batiments (2026-08-17, chantier "batiments
 // achetables") -----------------------------------------------------------
 //
-// Cliquer sur un batiment en boutique n'achete plus rien immediatement : ca
-// entre en mode de PLACEMENT (fantome + apercu vert/rouge qui suit le
-// curseur), l'or n'est deduit qu'au clic de CONFIRMATION sur une case
-// valide — annuler (Echap/clic droit) ne coute donc jamais rien, puisque
-// rien n'a encore ete depense. Reutilise entierement l'infrastructure de
-// l'editeur de maps (buildGhost/buildCellPreview, editor/editorScene.ts) et
-// la validation de case DEJA existante (isValidPlacementTile — memes regles
-// exactes que pour poser une unite : dans la zone du joueur, jamais sur un
-// obstacle/batiment/unite deja presente), plutot que de dupliquer une
-// deuxieme logique de validite.
+// Choisir un batiment dans le menu Construire n'achete rien immediatement :
+// ca entre en mode de POSE (fantome + apercu vert/rouge qui suit le
+// curseur), l'or et les ressources ne sont deduits qu'au clic de
+// CONFIRMATION sur une case valide — annuler (Echap/clic droit) ne coute
+// donc jamais rien, puisque rien n'a encore ete depense. Reutilise
+// entierement l'infrastructure de l'editeur de maps (buildGhost/
+// buildCellPreview, editor/editorScene.ts) et la validation de case
+// (isValidPlacementTile), plutot que de dupliquer une deuxieme logique de
+// validite. Un batiment pose ne se deplace plus ensuite.
 
 interface BuildingPlacementMode {
   buildingId: string;
@@ -7435,95 +6113,14 @@ interface BuildingPlacementMode {
    *  lue par canPlaceBuildingAt/l'empreinte de collision (voir
    *  OwnedBuilding.rotationY). */
   rotationY: number;
-  /** Index dans currentRun.buildings du bâtiment EN COURS DE DEPLACEMENT
-   *  (2026-08-17, "il faut pouvoir rebouger ses bâtiments pendant la phase
-   *  de placement") — `null` pour un ACHAT tout neuf (voir
-   *  requestPlaceBuilding), un index reel pour un DEPLACEMENT d'un
-   *  bâtiment deja possede (voir requestMoveBuilding). Distingue les deux
-   *  seulement au moment de CONFIRMER (gratuit + met a jour en place vs
-   *  payant + ajoute une nouvelle entree). */
-  movingIndex: number | null;
 }
 
-/** Mode de placement de batiment actif, ou null. Mutuellement exclusif avec
- *  l'armement d'un objet d'inventaire (voir requestPlaceBuilding, qui
- *  desarme systematiquement) — les deux modes de "clic sur cible" du jeu ne
- *  doivent jamais etre actifs en meme temps. */
+/** Mode de pose de batiment actif, ou null. */
 let buildingPlacementMode: BuildingPlacementMode | null = null;
 
-/** Seuil (px ecran) au-dela duquel un clic maintenu sur un bâtiment DEJA
- *  POSSEDE devient un vrai deplacement plutot qu'une simple selection
- *  (2026-08-18, retour d'Antoine : "le bâtiment disparaît temporairement...
- *  puis réapparaît sous le curseur" — un simple mousedown entrait
- *  auparavant IMMEDIATEMENT en mode deplacement, masquant le mesh AVANT
- *  meme qu'un fantome n'existe, voir requestMoveBuilding plus bas). Meme
- *  valeur/meme patron que UNIT_DRAG_THRESHOLD_PX (glisser-vendre une unite). */
-const BUILDING_DRAG_THRESHOLD_PX = UNIT_DRAG_THRESHOLD_PX;
-
-interface BuildingClickCandidate {
-  index: number;
-  startClientX: number;
-  startClientY: number;
-}
-
-/** Pose au mousedown sur un bâtiment possede — PAS ENCORE un deplacement,
- *  voir BUILDING_DRAG_THRESHOLD_PX. Un simple clic (relache sans depasser le
- *  seuil) ne fait que selectionner (voir selectedBuildingIndex), le
- *  bâtiment reste EXACTEMENT ou il etait tant que le seuil n'est pas
- *  franchi. */
-let buildingClickCandidate: BuildingClickCandidate | null = null;
-
-/** Index (dans currentRun.buildings) du bâtiment mis en surbrillance par un
- *  simple clic sans glisser — voir updateBuildingSelectionRing. Distinct de
- *  buildingPlacementMode.movingIndex : la selection ne deplace jamais rien. */
-let selectedBuildingIndex: number | null = null;
-
-/** Baliste selectionnee en preparation (simple clic sur la tour) : meme
- *  bascule et meme anneau que la selection d'un bâtiment possede, mais elle
- *  ne se deplace jamais pendant la preparation. Exclusive avec
- *  selectedBuildingIndex. */
-let placementBallistaSelected = false;
-
 /** Camp du joueur de la run : proprietaire des bâtiments possedes et de la
- *  Baliste, dont l'anneau de selection prend la couleur (teamColor). */
+ *  Baliste. */
 const RUN_OWNER_TEAM: Team = 'player';
-let buildingSelectionRing: THREE.Mesh | null = null;
-
-/** Reconstruit l'anneau de selection d'un bâtiment (2026-08-18) — un objet
- *  FRAIS a chaque changement de selection plutot qu'un objet persistant
- *  reutilise (geste rare, taille variable selon l'empreinte du bâtiment
- *  selectionne — RingGeometry ne se redimensionne pas sans reconstruire sa
- *  geometrie). Reutilise createEditorSelectionRing (meme style que la
- *  selection d'objet dans l'editeur de maps), ajoute directement a la scene
- *  (pas un enfant du mesh du bâtiment, pour rester independant de
- *  refreshOwnedBuildingViews qui reconstruit ces meshes a chaque changement). */
-function updateBuildingSelectionRing(): void {
-  if (buildingSelectionRing) {
-    renderer.scene.remove(buildingSelectionRing);
-    buildingSelectionRing.geometry.dispose();
-    (buildingSelectionRing.material as THREE.Material).dispose();
-    buildingSelectionRing = null;
-  }
-  if (placementBallistaSelected) {
-    // Meme taille que l'anneau de la Baliste dans l'editeur.
-    buildingSelectionRing = createEditorSelectionRing(BALLISTA_TOWER_FOOTPRINT * 0.7);
-    buildingSelectionRing.position.set(playerArrowOrigin.x, 0.02 + surfaceY(playerArrowOrigin.x, playerArrowOrigin.z), playerArrowOrigin.z);
-  } else {
-    if (selectedBuildingIndex === null) return;
-    const owned = currentRun.buildings[selectedBuildingIndex];
-    if (!owned) {
-      selectedBuildingIndex = null;
-      return;
-    }
-    const { tilesX, tilesZ } = buildingFootprintTiles(owned.buildingId);
-    buildingSelectionRing = createEditorSelectionRing(Math.hypot(tilesX, tilesZ) / 2 + 0.2);
-    buildingSelectionRing.position.set(owned.x, 0.02 + surfaceY(owned.x, owned.z), owned.z);
-  }
-  // Materiau propre a cet anneau (recree a chaque selection) : couleur du
-  // camp proprietaire, jamais l'or reserve aux objets neutres.
-  (buildingSelectionRing.material as THREE.MeshBasicMaterial).color.setHex(teamColor(RUN_OWNER_TEAM));
-  renderer.scene.add(buildingSelectionRing);
-}
 
 /** Derniere position (sol) connue du fantome de placement — memorisee a
  *  chaque appel de updateBuildingPlacementGhost pour pouvoir rafraichir
@@ -7557,85 +6154,37 @@ function buildingFootprintCells(cornerX: number, cornerZ: number, tilesX: number
 }
 
 /** Valide si TOUTES les cases qu'occuperait ce batiment sont valides —
- *  reutilise isValidPlacementTile telle quelle (memes regles qu'une unite :
- *  zone de placement du joueur, aucun obstacle/batiment/unite deja present),
- *  jamais une deuxieme regle de validite dupliquee. `excludeBuildingIndex`
- *  (2026-08-17) : voir activeBuildingObstacles — passe tel quel pendant un
- *  DEPLACEMENT (voir requestMoveBuilding), absent pour un ACHAT (rien a
- *  exclure, le bâtiment n'existe pas encore). */
-function canPlaceBuildingAt(buildingId: string, cornerX: number, cornerZ: number, excludeBuildingIndex?: number): boolean {
+ *  reutilise isValidPlacementTile telle quelle (aucun obstacle/batiment
+ *  deja present, case de la carte), jamais une deuxieme regle de validite
+ *  dupliquee ; en jeu, jamais sur une unite vivante ni contre un mur. */
+function canPlaceBuildingAt(buildingId: string, cornerX: number, cornerZ: number): boolean {
   const { tilesX, tilesZ } = buildingFootprintTiles(buildingId);
   if (gameTerrain().flatLevelOver(cornerX, cornerX + tilesX, cornerZ, cornerZ + tilesZ) === null) return false;
-  // Temps reel : jamais sur une unite vivante (elle serait enfermee).
+  // Jamais sur une unite vivante (elle serait enfermee).
   if (inBattlePhase() && world.entities.some((e) => e.alive && !e.isBuilding && e.x > cornerX - e.stats.radius && e.x < cornerX + tilesX + e.stats.radius && e.z > cornerZ - e.stats.radius && e.z < cornerZ + tilesZ + e.stats.radius)) return false;
   // Ni sur une ligne de mur V2 (meme ecart que la pose d'un mur pres d'un batiment).
   const footprint = { minX: cornerX, maxX: cornerX + tilesX, minZ: cornerZ, maxZ: cornerZ + tilesZ };
   if (inBattlePhase() && world.entities.some((e) => e.alive && e.wall && segmentBoxDistance(e.wall, footprint) < getWallType(e.wall.wallType).halfWidth + getWallType(e.wall.wallType).buildingClearance)) return false;
-  return buildingFootprintCells(cornerX, cornerZ, tilesX, tilesZ).every((c) => isValidPlacementTile(c.x, c.z, [], excludeBuildingIndex, 'map'));
+  return buildingFootprintCells(cornerX, cornerZ, tilesX, tilesZ).every((c) => isValidPlacementTile(c.x, c.z));
 }
 
-/** Clic sur un bouton "Bâtiments" de la boutique : entre en mode de
- *  placement — AUCUN or depense ici (voir confirmBuildingPlacement). Refuse
- *  silencieusement si l'or est insuffisant (garde-fou en plus du bouton deja
- *  desactive cote UI, voir ui/screens.ts refreshShop). */
+/** Choix d'un batiment dans le menu Construire : entre en mode de pose —
+ *  AUCUN or depense ici (voir confirmBuildingPlacement). Refuse
+ *  silencieusement si l'or ou les ressources manquent (garde-fou en plus du
+ *  bouton deja desactive cote UI, voir buildingChoices). */
 function requestPlaceBuilding(buildingId: string): void {
   // Murs V2 (menu Construire) : mode de trace propre, sans grille.
   if (buildingId.startsWith(WALL_CHOICE_PREFIX) || buildingId.startsWith(WALL_GATE_CHOICE_PREFIX)) {
     startWallPlacement(buildingId.slice(buildingId.indexOf(':') + 1), buildingId.startsWith(WALL_GATE_CHOICE_PREFIX));
     return;
   }
-  // Cout EFFECTIF (2026-08-18, Mine/Caserne desormais plus cheres a chaque
-  // amelioration permanente — voir getEffectiveBuildingCost, SOURCE UNIQUE
-  // partagee avec l'affichage boutique ET confirmBuildingPlacement plus bas).
+  // Cout EFFECTIF (voir getEffectiveBuildingCost, SOURCE UNIQUE partagee
+  // avec l'affichage du menu Construire ET confirmBuildingPlacement).
   if (currentRun.gold < getEffectiveBuildingCost(buildingId)) return;
   if (!canAffordBuildingResources(buildingId)) return;
-  disarmItem();
-  buildingPlacementMode = { buildingId, rotationY: 0, movingIndex: null };
+  buildingPlacementMode = { buildingId, rotationY: 0 };
   buildingRotationHint.setText(placementHintText());
   buildingRotationHint.setVisible(true);
-  // Referme la boutique pour degager la vue sur la zone de placement (point
-  // 48 de la demande d'Antoine) — retour a l'etat normal du placement des
-  // qu'on confirme/annule, comme apres n'importe quelle fermeture de
-  // boutique pendant le placement.
-  screens.hideAll();
-}
-
-/** Clic sur un bâtiment DEJA POSSEDE pendant le placement (2026-08-17,
- *  demande explicite d'Antoine : "il faut pouvoir rebouger ses bâtiments
- *  pendant la phase de placement") — reutilise EXACTEMENT le meme mode de
- *  placement qu'un achat (fantome + apercu vert/rouge + rotation
- *  Ctrl+molette), seul `movingIndex` distingue les deux au moment de
- *  confirmer (voir confirmBuildingPlacement : gratuit + deplace en place,
- *  jamais un nouvel achat). Le mesh d'ORIGINE est masque le temps du
- *  deplacement (sinon il resterait visible en double avec le fantome, ET
- *  bloquerait sa propre case via activeBuildingObstacles) — restaure par
- *  cancelBuildingPlacement si annule, remplace par un mesh frais
- *  (refreshOwnedBuildingViews) si confirme.
- *
- * N'est plus appelee directement au mousedown depuis le 2026-08-18 (voir
- * BUILDING_DRAG_THRESHOLD_PX) — uniquement une fois le seuil de glisser
- * REELLEMENT franchi. Ordre CRITIQUE a l'interieur de cette fonction (retour
- * d'Antoine : "clic -> bâtiment disparaît -> petit vide -> la souris bouge
- * -> il réapparaît sous le curseur") : le fantome est pose sur la TRANSFORM
- * ACTUELLE du bâtiment (owned.x/owned.z, deja le centre exact de son
- * empreinte) AVANT de masquer le mesh d'origine — aucune frame ou rien n'est
- * visible. Le mousemove qui a declenche ce seuil continue ensuite d'etre
- * traite par l'autre listener deja existant (voir plus bas, meme evenement
- * 'mousemove', dispatch JS synchrone) : il repositionne aussitot ce meme
- * fantome sous le VRAI curseur, sans le moindre repaint entre les deux. */
-function requestMoveBuilding(index: number): void {
-  const owned = currentRun.buildings[index];
-  if (!owned) return;
-  disarmItem();
-  selectedBuildingIndex = null;
-  placementBallistaSelected = false;
-  updateBuildingSelectionRing();
-  buildingPlacementMode = { buildingId: owned.buildingId, rotationY: owned.rotationY ?? 0, movingIndex: index };
-  buildingRotationHint.setText(placementHintText());
-  buildingRotationHint.setVisible(true);
-  updateBuildingPlacementGhost(owned.x, owned.z);
-  const view = ownedBuildingViews[index];
-  if (view) view.mesh.visible = false;
 }
 
 /** Ctrl+molette pendant un placement de batiment : tourne le fantome par pas
@@ -7650,20 +6199,10 @@ function rotateBuildingPlacement(direction: number): void {
   updateBuildingPlacementGhost(lastBuildingGhostGroundX, lastBuildingGhostGroundZ);
 }
 
-/** Annule un placement de batiment en cours (Echap/clic droit) — pour un
- *  ACHAT, aucun or n'a jamais ete depense, rien a rembourser ; pour un
- *  DEPLACEMENT (2026-08-17, movingIndex non null), le bâtiment n'a jamais
- *  bouge dans `currentRun.buildings` — seul son mesh d'origine, masque par
- *  requestMoveBuilding, doit redevenir visible.
- *  Efface aussi buildingClickCandidate (2026-08-18) : purement defensif,
- *  au cas ou Echap/clic droit survienne pendant qu'un clic est maintenu sur
- *  un bâtiment SANS avoir encore franchi le seuil de glisser. */
+/** Annule une pose de batiment en cours (Echap/clic droit) — aucun or n'a
+ *  jamais ete depense, rien a rembourser. Sans effet si aucune pose n'etait
+ *  en cours. */
 function cancelBuildingPlacement(): void {
-  buildingClickCandidate = null;
-  if (buildingPlacementMode?.movingIndex !== null && buildingPlacementMode?.movingIndex !== undefined) {
-    const view = ownedBuildingViews[buildingPlacementMode.movingIndex];
-    if (view) view.mesh.visible = true;
-  }
   buildingPlacementMode = null;
   buildingPlacementGroup.clear();
   buildingRotationHint.setVisible(false);
@@ -7680,7 +6219,7 @@ function updateBuildingPlacementGhost(x: number, z: number): void {
   const def = getBuilding(mode.buildingId);
   const { tilesX, tilesZ } = buildingFootprintTiles(mode.buildingId);
   const { cornerX, cornerZ } = computeBuildingFootprintCorner(x, z, tilesX, tilesZ);
-  const valid = canPlaceBuildingAt(mode.buildingId, cornerX, cornerZ, mode.movingIndex ?? undefined);
+  const valid = canPlaceBuildingAt(mode.buildingId, cornerX, cornerZ);
   if (def.buildingModel) addBuildingPreview(mode.buildingId, cornerX, cornerZ, mode.rotationY, valid);
 }
 
@@ -7701,23 +6240,10 @@ function placementHintText(): string {
   return 'Ctrl + molette — tourner (45°)';
 }
 
-/** Clic de confirmation pendant un placement de batiment : deduit l'or
- *  SEULEMENT si la case visee est valide (sinon, no-op silencieux — meme
- *  convention qu'un clic de placement d'unite qui echoue). Pour un
- *  DEPLACEMENT (2026-08-17, movingIndex non null) : GRATUIT, met a jour la
- *  position/rotation de l'entree EXISTANTE au lieu d'en ajouter une
- *  nouvelle — le bâtiment est deja possede, on ne fait que le repositionner.
- *
- *  Renvoie desormais un booleen (2026-08-18, "je prefere que ca revienne
- *  automatiquement a sa position d'origine" sur un drop invalide) : `true`
- *  si un achat/deplacement a REELLEMENT ete commis, `false` sinon (case
- *  invalide, or insuffisant...). Le site d'appel au CLIC (achat, mode
- *  "armer puis re-cliquer") ignore cette valeur — laisser le mode ARME en
- *  attente d'un nouvel essai reste le bon comportement pour un clic. Le
- *  nouveau site d'appel au RELACHEMENT d'un glisser (voir plus bas,
- *  mouseup) l'utilise en revanche pour appeler cancelBuildingPlacement()
- *  lui-meme sur `false` — laisser le mode arme en attente d'un TROISIEME
- *  clic n'aurait aucun sens une fois le glisser termine. */
+/** Clic de confirmation pendant une pose de batiment : deduit l'or et les
+ *  ressources SEULEMENT si la case visee est valide (sinon, no-op silencieux,
+ *  le mode reste arme pour un nouvel essai). Renvoie `true` si un chantier a
+ *  REELLEMENT ete pose, `false` sinon (case invalide, or insuffisant...). */
 function confirmBuildingPlacement(event: MouseEvent): boolean {
   if (!buildingPlacementMode) return false;
   setRaycasterFromEvent(event);
@@ -7725,26 +6251,11 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   const def = getBuilding(buildingPlacementMode.buildingId);
   const { tilesX, tilesZ } = buildingFootprintTiles(buildingPlacementMode.buildingId);
   const { cornerX, cornerZ } = computeBuildingFootprintCorner(groundHit.x, groundHit.z, tilesX, tilesZ);
-  const placing = buildingPlacementMode;
-  if (!canPlaceBuildingAt(placing.buildingId, cornerX, cornerZ, placing.movingIndex ?? undefined)) return false;
+  if (!canPlaceBuildingAt(buildingPlacementMode.buildingId, cornerX, cornerZ)) return false;
 
-  if (buildingPlacementMode.movingIndex !== null) {
-    const owned = currentRun.buildings[buildingPlacementMode.movingIndex];
-    if (!owned) {
-      cancelBuildingPlacement();
-      return false;
-    }
-    owned.x = cornerX + tilesX / 2;
-    owned.z = cornerZ + tilesZ / 2;
-    owned.rotationY = buildingPlacementMode.rotationY;
-    cancelBuildingPlacement();
-    refreshOwnedBuildingViews();
-    return true;
-  }
-
-  // Cout EFFECTIF (2026-08-18) — voir requestPlaceBuilding, meme source
-  // unique (getEffectiveBuildingCost) : le prix retire ICI doit toujours
-  // correspondre exactement a celui affiche/verifie en boutique.
+  // Cout EFFECTIF — voir requestPlaceBuilding, meme source unique
+  // (getEffectiveBuildingCost) : le prix retire ICI doit toujours
+  // correspondre exactement a celui affiche/verifie dans le menu Construire.
   const cost = getEffectiveBuildingCost(buildingPlacementMode.buildingId);
   if (currentRun.gold < cost || !canAffordBuildingResources(buildingPlacementMode.buildingId)) {
     cancelBuildingPlacement();
@@ -7759,7 +6270,7 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   const placed = currentRun.placedBuildingCounts[def.id] ?? 0;
   currentRun.placedBuildingCounts[def.id] = placed + 1;
   const modelVariant = def.modelVariants ? placed % def.modelVariants.length : undefined;
-  // CHANTIER (direction Hero RTS) : le Heros le construit en bataille.
+  // CHANTIER (direction Hero RTS) : le Heros le construit.
   currentRun.buildings.push({
     buildingId: def.id,
     x: cornerX + tilesX / 2,
@@ -7769,14 +6280,10 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
     ...(modelVariant !== undefined ? { modelVariant } : {}),
     constructionProgress: 0,
   });
-  spawnCoinPopup(screens.shopGoldElement, -cost);
+  spawnCoinPopup(economyHud.goldElement, -cost);
   cancelBuildingPlacement();
-  if (inPlacementPhase) {
-    refreshOwnedBuildingViews();
-    return true;
-  }
-  // Temps reel : chantier cree tout de suite (attaquable), le Heros vivant
-  // part le construire.
+  // Chantier cree tout de suite (attaquable), le Heros vivant part le
+  // construire.
   const site = spawnOwnedBuildingRealtime(currentRun.buildings.length - 1);
   const hero = world.entities.find((e) => e.hero && e.alive && e.team === 'player');
   if (hero) world.issueCommand({ kind: 'build', entityIds: [hero.id], targetEntityId: site.id });
@@ -7876,7 +6383,6 @@ function wallChoices(): BuildChoice[] {
 
 function startWallPlacement(wallType: string, gate: boolean): void {
   if (!WALL_TYPES[wallType] || !inBattlePhase()) return;
-  disarmItem();
   if (buildingPlacementMode) cancelBuildingPlacement();
   wallPlacement = { wallType, gate, start: null, ghostKey: '' };
   buildingRotationHint.setVisible(true);
@@ -8074,116 +6580,34 @@ function doorAction(): EntityInfoAction | null {
   return door.wantOpen ? { id: 'toggleDoor', payload: 'close', label: 'Fermer la porte', enabled: true, hint: 'Fermée : personne ne passe' } : { id: 'toggleDoor', payload: 'open', label: 'Ouvrir la porte', enabled: true, hint: 'Ouverte : vos unités passent, les ennemis restent bloqués' };
 }
 
-/** Deplacement d'unites sur la grille, pret a etre affiche (apercu) ou
- *  applique (clic, relachement d'un glisser) : les deux passent toujours par
- *  le meme calcul (core/gridGroupMove.ts), l'apercu montre donc exactement
- *  ce que le clic fera. */
+/** Deplacement d'unites sur la grille de l'editeur, pret a etre affiche
+ *  (apercu) ou applique (clic, relachement d'un glisser) : les deux passent
+ *  toujours par le meme calcul (core/gridGroupMove.ts), l'apercu montre donc
+ *  exactement ce que le clic fera. */
 interface UnitMoveProposal {
   members: GridMoveMember[];
   plan: GridGroupMovePlan;
   items: UnitMovePreviewItem[];
 }
 
-/** Plan de deplacement des slots `indices` en preparation, le centre de la
- *  formation venant au point `target`. Regles de la preparation
- *  (isValidPlacementForUnit : zone, obstacles, batiments dont la Baliste,
- *  autres unites), sans compter les cases actuelles du groupe deplace. */
-function placementMoveProposal(indices: readonly number[], target: { x: number; z: number }): UnitMoveProposal | null {
-  const moving = indices.filter((i) => placementSlots[i]?.x !== null && placementSlots[i]?.z !== null);
-  if (moving.length === 0) return null;
-  const members = moving.map((i) => ({ key: i, x: placementSlots[i]!.x!, z: placementSlots[i]!.z! }));
-  const plan = planGridGroupMove(members, target, {
-    isFree: (i, x, z) => isValidPlacementForUnit(placementSlots[i]!.unitId, x, z, moving),
-    footprint: (i, x, z) => getFootprintTiles(placementSlots[i]!.unitId, x, z),
-    searchRadius: GRID_MOVE_SEARCH_RADIUS,
-    tile: TILE,
-  });
-  const items = plan.destinations.map((d) => {
-    const unitId = placementSlots[d.key]!.unitId;
-    return { unitId, team: 'player' as const, x: d.x, z: d.z, valid: d.placed, footprint: getFootprintTiles(unitId, d.x, d.z) };
-  });
-  return { members, plan, items };
-}
-
-/** Glisser d'une unite (ou de son groupe) en preparation : l'unite saisie
- *  arrive sur la case survolee, le reste de la formation suit avec le meme
- *  decalage ; meme calcul que le clic, seul le point vise change. */
-function placementDragProposal(drag: UnitDragState, event: MouseEvent): UnitMoveProposal | null {
-  const tile = computeHoveredTile(event);
-  const grabbed = placementSlots[drag.slotIndex];
-  if (!tile || !grabbed || grabbed.x === null || grabbed.z === null) return null;
-  const group = drag.groupIndices ?? [drag.slotIndex];
-  const placed = group.filter((i) => placementSlots[i]?.x !== null && placementSlots[i]?.z !== null);
-  const cx = placed.reduce((sum, i) => sum + placementSlots[i]!.x!, 0) / placed.length;
-  const cz = placed.reduce((sum, i) => sum + placementSlots[i]!.z!, 0) / placed.length;
-  return placementMoveProposal(group, { x: tile.x + cx - grabbed.x, z: tile.z + cz - grabbed.z });
-}
-
-/** Deplacement propose par le curseur en preparation, ou null si un clic a
- *  cet endroit ne deplacerait rien (aucune selection, curseur sur une unite
- *  ou un batiment qu'un clic selectionnerait, autre geste prioritaire). */
-function placementHoverMoveProposal(event: MouseEvent): UnitMoveProposal | null {
-  if (!inPlacementPhase || buildingPlacementMode || armedItemIndex !== null || groundDrag?.dragging) return null;
-  // Au-dessus de "Vendre", le relachement vendrait : aucun apercu de
-  // deplacement (la zone laisse passer les evenements jusqu'au canvas).
-  if (unitDrag) return unitDrag.dragging && !sellZone.isPointOver(event.clientX, event.clientY) ? placementDragProposal(unitDrag, event) : null;
-  if (selectedIndices.length === 0) return null;
-  if (findHoveredSlot(event) !== null || findHoveredOwnedBuilding(event) !== null || isBallistaHoveredInPlacement(event)) return null;
-  if (findFallbackSlot(event, event.shiftKey) !== null) return null;
-  const point = computeGroundPoint(event);
-  return point ? placementMoveProposal(selectedIndices, point) : null;
-}
-
-/** Applique un plan de preparation valide ; renvoie faux (rien ne bouge)
- *  si une seule unite n'a pas de destination. */
-function applyPlacementMove(proposal: UnitMoveProposal): boolean {
-  if (!proposal.plan.valid) return false;
-  for (const d of proposal.plan.destinations) {
-    placementSlots[d.key]!.x = d.x;
-    placementSlots[d.key]!.z = d.z;
-  }
-  return true;
-}
-
-/** Clic sur le sol de la zone avec une selection : la deplace selon le plan
- *  affiche par l'apercu (meme calcul, meme point). Une unite seule est un
- *  groupe d'un membre. Reussite : la selection est videe et l'apercu
- *  masque. Echec (une unite sans destination) : rien ne bouge et la
- *  selection est conservee, pour corriger la destination aussitot. */
-function handleEmptyTileClick(event: MouseEvent): void {
-  if (selectedIndices.length === 0) return;
-  const proposal = placementHoverMoveProposal(event);
-  if (!proposal || isNoopGridMove(proposal.members, proposal.plan)) return;
-  if (!applyPlacementMove(proposal)) {
-    unitMovePreview.show(proposal.items);
-    return;
-  }
-  clearSelection();
-  unitMovePreview.hide();
-  refreshPlayerPreview();
-}
-
 /** Dernier evenement souris, pour recalculer l'apercu quand l'etat change
  *  sans que la souris bouge (selection, deplacement, annuler, zoom). */
 let movePreviewPointer: MouseEvent | null = null;
 /** L'apercu est recalcule une fois par image, juste APRES le rendu (voir la
- *  boucle) : les modeles reconstruits (refreshPlayerPreview,
- *  refreshEditorObjects) doivent avoir ete rendus avant tout lancer de
- *  rayon. Avant le premier rendu, les os d'un modele anime ont des matrices
- *  nulles ; un rayon lance a ce moment calcule et garde en cache une sphere
- *  englobante de rayon nul, et l'unite ne serait plus jamais cliquable. */
+ *  boucle) : les modeles reconstruits (refreshEditorObjects) doivent avoir
+ *  ete rendus avant tout lancer de rayon. Avant le premier rendu, les os
+ *  d'un modele anime ont des matrices nulles ; un rayon lance a ce moment
+ *  calcule et garde en cache une sphere englobante de rayon nul, et l'unite
+ *  ne serait plus jamais cliquable. */
 let movePreviewDirty = false;
 
-/** Apercu de deplacement sous le curseur (preparation ou editeur) : le meme
- *  calcul que le clic qui suivrait. Masque si un clic n'y deplacerait rien,
- *  si le plan ne change aucune position, pendant un geste camera ou au-dessus
- *  de l'interface. */
+/** Apercu de deplacement sous le curseur (editeur) : le meme calcul que le
+ *  clic qui suivrait. Masque si un clic n'y deplacerait rien, si le plan ne
+ *  change aucune position, pendant un geste camera ou au-dessus de
+ *  l'interface. */
 function updateMovePreview(event: MouseEvent): void {
   let proposal: UnitMoveProposal | null = null;
-  if (event.target === canvas && cameraDrag === null) {
-    if (inEditorMode) proposal = editorHoverMoveProposal(event);
-    else if (inPlacementPhase) proposal = placementHoverMoveProposal(event);
-  }
+  if (event.target === canvas && cameraDrag === null && inEditorMode) proposal = editorHoverMoveProposal(event);
   if (!proposal || isNoopGridMove(proposal.members, proposal.plan)) unitMovePreview.hide();
   else unitMovePreview.show(proposal.items);
 }
@@ -8211,74 +6635,6 @@ function worldToScreen(x: number, z: number): { x: number; y: number } {
     x: rect.left + (v.x * 0.5 + 0.5) * rect.width,
     y: rect.top + (-v.y * 0.5 + 0.5) * rect.height,
   };
-}
-
-/** Resout le rectangle de selection glisse a la souris (voir SelectionBox) en
- *  determinant quelles unites du joueur y tombent, a l'ecran — uniquement
- *  parmi `placementSlots` (2026-08-14, demande d'Antoine, point 21 : "pas
- *  les ennemis, pas le decor, pas les corps morts") : ce tableau ne contient
- *  QUE l'armee du joueur pendant la phase de placement, jamais les ennemis
- *  (previsualises separement dans `enemyPreview`, jamais teste ici) ni le
- *  decor — cette garantie decoule directement de la structure des donnees,
- *  aucun filtre supplementaire necessaire. 0 resultat : deselectionne tout.
- *  1 resultat : selection simple, comme un clic normal. 2+ : selection de
- *  groupe — `setSelection` ne fait plus de distinction de cas, seul le
- *  NOMBRE d'elements change le comportement des appelants (voir isSelected/
- *  handleEmptyTileClick). */
-function selectUnitsInRect(rect: { left: number; top: number; right: number; bottom: number }): void {
-  const indices: number[] = [];
-  placementSlots.forEach((slot, i) => {
-    if (slot.x === null || slot.z === null) return;
-    if (isInScreenRect(worldToScreen(slot.x, slot.z), rect)) indices.push(i);
-  });
-
-  setSelection(indices);
-  refreshPlayerPreview();
-}
-
-/** Vend un LOT d'unites d'un coup (2026-08-14, refonte demandee par Antoine,
- *  points 26/36 : "la vente multiple doit utiliser EXACTEMENT la logique de
- *  revente actuelle unite par unite... crée une fonction UNIQUE sellUnits(),
- *  le clic sur le bouton Vendre ET le drop sur la zone Vendre doivent tous
- *  deux appeler la MEME logique") — remplace l'ancien `sellUnit(slotIndex)`
- *  a un seul element ; tout appelant qui ne vend qu'UNE unite passe desormais
- *  un tableau a un seul element (voir les sites d'appel plus bas). Bareme
- *  PAR UNITE inchange (voir computeSellValue, PARTAGE avec l'affichage du
- *  bouton "Vendre" — jamais un montant approxime "count * valeur unique",
- *  point 26 de la demande). */
-function sellUnits(indices: number[]): void {
-  // Deduplique et ignore tout index deja invalide (defensif) — puis TRIE
-  // DESCENDANT : supprimer du plus grand index au plus petit via
-  // Array.splice ne decale jamais un index pas encore traite, contrairement
-  // a l'ordre croissant (ou chaque suppression decalerait tous les suivants).
-  // Le Heros ne se vend jamais.
-  const unique = Array.from(new Set(indices)).filter((i) => placementSlots[i] !== undefined && placementSlots[i]!.unitId !== HERO_UNIT_ID);
-  if (unique.length === 0) return;
-  const sortedDesc = [...unique].sort((a, b) => b - a);
-
-  const totalValue = computeSellValue(sortedDesc);
-  for (const index of sortedDesc) {
-    currentRun.army.splice(index, 1);
-    placementSlots.splice(index, 1);
-  }
-  currentRun.gold = roundGold(currentRun.gold + totalValue);
-  // Evite un double-remboursement si une unite vendue est justement celle du
-  // dernier achat (voir lastUnitPurchase) — apres une vente, "annuler le
-  // dernier achat" n'a plus de sens fiable, quelle que soit l'unite vendue.
-  lastUnitPurchase = null;
-
-  // Reindexe toute selection RESTANTE (des unites vendues n'en faisaient pas
-  // forcement partie — un glisser peut vendre une seule unite hors groupe
-  // sans toucher a une selection de groupe sans rapport, voir le listener
-  // mouseup plus bas) : retire les index vendus, decale les autres du nombre
-  // d'index vendus strictement inferieurs a eux. Meme principe que l'ancien
-  // reindexage a un seul element, generalise a plusieurs suppressions d'un
-  // coup.
-  const sold = new Set(sortedDesc);
-  selectedIndices = selectedIndices.filter((i) => !sold.has(i)).map((i) => i - sortedDesc.filter((s) => s < i).length);
-
-  refreshPlayerPreview();
-  spawnCoinPopup(sellZone.element, totalValue);
 }
 
 // --- Boucle et systemes de combat --------------------------------------
@@ -8399,52 +6755,6 @@ const loop = new Loop(
       // routes vers BuildingView plutot que UnitViews (qui ne les connait
       // pas — pas d'effet, pas d'erreur, simple id absent de sa propre Map).
       if (event.result === 'hit') playHitFlash(target.id);
-
-      // Talent "Aux petits oignons" (specialisation Soigneur, 2026-08-11 —
-      // seuil refondu le 2026-08-15, demande explicite d'Antoine) : declenche
-      // sur FRANCHISSEMENT du seuil AUTO_HEAL_TRIGGER_RATIO (30% des PV
-      // maximum, toujours calcule en RATIO — jamais une valeur de PV
-      // hardcodee, fonctionne donc identiquement sur un Fantassin ou une
-      // Sentinelle a 500 PV internes). "Franchissement" = l'unite N'ETAIT PAS
-      // deja marquee dans belowAutoHealThreshold avant CE coup — le marquage
-      // a lieu ICI, REGARDLESS du talent/de la disponibilite d'un parchemin
-      // (point 6 de la demande : "le proc est deja consomme pour ce
-      // franchissement", meme si le soin qui suit ne suffit pas a repasser
-      // au-dessus de 30%) : l'unite ne pourra re-proc qu'apres etre repassee
-      // STRICTEMENT au-dessus du seuil (voir applyPlayerHeal, seul endroit ou
-      // ce retour au-dessus peut etre detecte, les PV ne remontant jamais
-      // ailleurs que par un soin). target.alive verifie APRES deathSystem
-      // (deja execute dans ce meme world.step()) : jamais de proc sur un coup
-      // fatal. !target.isBuilding (2026-08-16) : un batiment gameplay
-      // (Mine, Baliste) ne doit jamais consommer un parchemin de soin — ce
-      // talent ne concerne que les vraies unites.
-      if (event.result === 'hit' && target.team === 'player' && target.alive && !target.isBuilding) {
-        const ratio = target.hp / target.stats.maxHp;
-        if (ratio <= AUTO_HEAL_TRIGGER_RATIO && !belowAutoHealThreshold.has(target.id)) {
-          belowAutoHealThreshold.add(target.id);
-          if (isTalentUnlocked(metaProgress, 'aux_petits_oignons')) {
-            const scrollIndex = currentRun.inventory.findIndex((i) => i.itemId === 'heal_scroll_minor');
-            if (scrollIndex !== -1) {
-              // Meme montant EFFECTIF que l'usage manuel (2026-08-13, boutique
-              // d'amelioration "Parchemin de soin") — c'est le MEME parchemin,
-              // le bonus permanent s'applique partout ou il est consomme. Pas
-              // de cibles secondaires ici (declenchement automatique reactif,
-              // volontairement mono-cible — voir useArmedItemOnClick).
-              const healAmount = effectivePlayerHealAmount(playerProgression().upgrades);
-              const { overheal } = applyPlayerHeal(target, target.stats.maxHp, healAmount, target.id);
-              currentRun.inventory.splice(scrollIndex, 1);
-              inventoryBar.refresh(currentRun.inventory);
-              combatOverlay.spawnHealText(target.x, target.z, healAmount / HP_PER_PIP);
-              const pos = unitViews.getPosition(target.id) ?? { x: target.x, z: target.z };
-              healVfxView.spawnHeal(pos.x, pos.z);
-              // Talent "Soins excédentaires" (2026-08-15) — voir
-              // triggerShadowProjectiles ; synergise naturellement avec Aux
-              // petits oignons (point 66 de la demande), aucun code special.
-              triggerShadowProjectiles(target.x, target.z, overheal);
-            }
-          }
-        }
-      }
     }
 
     // Capacites (Charge du Cavalier leger...) — voir sim/systems/abilities.ts.
@@ -8472,52 +6782,24 @@ const loop = new Loop(
         tauntVfxView.spawnTauntWave(event.x, event.z, event.radiusTiles);
         tauntVfxView.spawnShieldGain(event.x, event.z);
       }
-      // Soin de l'Oracle (2026-11-01) : PV deja rendus par la simulation a la
-      // FIN de l'incantation (sim/systems/abilities.ts). Ici : retour visuel
-      // (memes effets que le parchemin) et franchissement du seuil "Aux petits
-      // oignons" (voir applyPlayerHeal). Ne declenche pas "Soins
-      // excédentaires" (PROVISOIRE, fiche B7). Un soin perdu ('heal-lost')
-      // n'affiche rien.
-      if (event.type === 'heal') {
-        const target = world.getById(event.targetId);
-        if (target && target.hp / target.stats.maxHp > AUTO_HEAL_TRIGGER_RATIO) belowAutoHealThreshold.delete(target.id);
-        if (event.healed > 0) {
-          combatOverlay.spawnHealText(event.x, event.z, Math.round(event.healed) / HP_PER_PIP);
-          const pos = unitViews.getPosition(event.targetId) ?? { x: event.x, z: event.z };
-          healVfxView.spawnHeal(pos.x, pos.z);
-        }
+      // Soin de l'Oracle ou du Heros (2026-11-01) : PV deja rendus par la
+      // simulation a la FIN de l'incantation (sim/systems/abilities.ts).
+      // Ici : retour visuel. Un soin perdu ('heal-lost') n'affiche rien.
+      if (event.type === 'heal' && event.healed > 0) {
+        combatOverlay.spawnHealText(event.x, event.z, Math.round(event.healed) / HP_PER_PIP);
+        const pos = unitViews.getPosition(event.targetId) ?? { x: event.x, z: event.z };
+        healVfxView.spawnHeal(pos.x, pos.z);
       }
-    }
-
-    // Projectiles d'ombre (talent "Soins excédentaires", 2026-08-15) — meme
-    // flash blanc que tout autre impact + petit impact violet SOBRE (voir
-    // ShadowProjectileView, "pas de grosse explosion").
-    for (const event of world.shadowProjectileEvents) {
-      playHitFlash(event.targetId);
-      vfxManager.spawn('shadowImpact', { x: event.x, z: event.z });
-    }
-
-    // Zones d'effet persistantes (Blizzard...) — 2026-08-14, demande
-    // d'Antoine : "il faut qu'il y ait un flash blanc de dégâts sur chaque
-    // tick du Blizzard". Meme flash que tout autre impact (playHit),
-    // applique a CHAQUE cible REELLEMENT touchee par CE tick precis (voir
-    // sim/systems/persistentAreaEffects.ts, AreaEffectTickEvent.hitIds) —
-    // jamais a toutes les unites presentes dans la zone au moment de sa
-    // creation. Un tick sans aucune cible dans le rayon ne declenche aucun
-    // flash (hitIds vide).
-    for (const event of world.areaEffectEvents) {
-      for (const id of event.hitIds) playHitFlash(id);
     }
 
     // Production des Mines : chaque Mine TERMINEE et VIVANTE du joueur
     // produit, toutes les mineProductionIntervalSeconds() de SIMULATION
     // (60 s, 2026-11-02), un montant tire dans la tranche de SON niveau
     // (run/mineUpgradeEffects.ts), affiche au-dessus d'elle comme l'or d'un
-    // ennemi abattu. Aucun plafond ni lien avec les vagues (l'ancien quota
-    // par manche venait du jeu en manches). Jamais pendant "Tester le
-    // scenario". Dans le pas FIXE (dt) : la pause arrete le minuteur ; un
-    // chantier n'avance pas le sien (premier versement 60 s apres la fin du
-    // chantier) ; une Mine detruite s'arrete aussitot.
+    // ennemi abattu. Aucun plafond ni lien avec les vagues. Jamais pendant
+    // "Tester le scenario". Dans le pas FIXE (dt) : la pause arrete le
+    // minuteur ; un chantier n'avance pas le sien (premier versement 60 s
+    // apres la fin du chantier) ; une Mine detruite s'arrete aussitot.
     if (inBattlePhase() && !inTestMode) {
       for (const e of world.entities) {
         if (e.team !== 'player' || !e.alive || !e.isBuilding || e.unitId !== 'mine' || e.construction) continue;
@@ -8530,7 +6812,6 @@ const loop = new Loop(
         const amount = rollMineGold(battleOwnedBuildingLevel(e) ?? 0, () => mineGoldRng.next());
         currentRun.gold = roundGold(currentRun.gold + amount);
         combatOverlay.spawnGoldText(e.x, e.z, amount);
-        recordGoldEarned(battleSummary, amount);
       }
     }
 
@@ -8541,10 +6822,6 @@ const loop = new Loop(
       waveIndicator.flash('Renforts ennemis');
     }
 
-    // Production de la manche (Caserne, Camp d'archerie) : le sim pousse un
-    // evenement par unite reellement produite (voir
-    // sim/systems/buildingProduction.ts) — consomme ici pour spawner une
-    // VRAIE Entity (memes stats et ameliorations qu'une unite recrutee).
     handleHeroEvents(world.heroEvents);
     handleCampEvents();
     // Reparation refusee par la simulation (Heros ou batiment perdu entre le
@@ -8554,6 +6831,9 @@ const loop = new Loop(
     }
     handleProductionUpgrades();
     handleDepletedResources();
+    // Unites sorties des files de production (sim/systems/buildingProduction.ts) :
+    // le sim pousse un evenement par unite — consomme ici pour creer une
+    // VRAIE Entity avec les stats effectives.
     for (const event of world.productionSpawnEvents) {
       // Niveau de production lu ICI, au spawn : les unites deja produites
       // gardent le leur (voir rememberPlayerUnitLevel).
@@ -8572,233 +6852,72 @@ const loop = new Loop(
       if (!isPlayer) rememberEnemyUnitLevel(spawned, currentRun.waveNumber);
       else {
         rememberPlayerUnitLevel(spawned, level);
-        // Unite produite du joueur : en Garde des son apparition, comme
-        // le reste de l'armee en debut de bataille.
-        // Point de ralliement du batiment (2026-11-02) : l'unite sort devant
-        // lui puis y marche ; sinon Garde.
+        // Unite produite du joueur : point de ralliement du batiment
+        // (2026-11-02) : l'unite sort devant lui puis y marche ; sinon Garde
+        // des son apparition.
         if (event.rally) world.issueCommand({ kind: 'move', entityIds: [spawned.id], x: event.rally.x, z: event.rally.z });
         else holdPlayerUnitsInGuard([spawned.id]);
       }
     }
 
-    // Or en TEMPS REEL a chaque kill (2026-08-11, demande d'Antoine : "dès
-    // que nous tuons une unité un gold apparait dans notre petite fenêtre à
-    // gold") — remplace l'ancien calcul groupe en fin de bataille (voir
-    // run/runState.ts, awardKillGold/applyBattleOutcome). Detecte les morts
-    // par TRANSITION (rewardedEnemyDeaths) plutot qu'en reagissant a
-    // combatEvents : une mort peut venir de trois sources distinctes (combat
-    // automatique, fleche du joueur, Charge du Cavalier), et cette methode
-    // les couvre toutes uniformement sans risquer de compter deux fois la
-    // meme unite si plusieurs coups la visaient au meme tick.
+    // Ennemis vaincus : detectes par TRANSITION (rewardedEnemyDeaths) plutot
+    // qu'en reagissant a combatEvents : une mort peut venir de plusieurs
+    // sources (combat automatique, Baliste, Charge, Tour), et cette methode
+    // les couvre toutes sans compter deux fois la meme unite. L'or des kills
+    // est physique (2026-11-02) : l'ennemi lache un tas d'or au sol (World,
+    // ENEMY_GOLD_DROPS + talent), a ramasser et deposer.
     for (const e of world.entities) {
       if (e.team === 'enemy' && !e.alive && !rewardedEnemyDeaths.has(e.id)) {
         rewardedEnemyDeaths.add(e.id);
-        // Objet destructible (baril) : ni ennemi vaincu ni deblocage.
+        // Objet destructible (baril) : pas un ennemi vaincu.
         if (e.isBuilding) continue;
-        // Or physique (2026-11-02) : plus de prime versee au stock ; l'ennemi
-        // lache un tas d'or au sol (World, ENEMY_GOLD_DROPS + talent), a
-        // ramasser et deposer.
-        recordEnemyDefeated(battleSummary, e.unitId);
-
-        // Deblocage generique des unites (2026-08-15, demande d'Antoine,
-        // remplace l'ancien deblocage du Mage a la vague 8) : une unite
+        // Deblocage par victoire (2026-08-15, demande d'Antoine) : une unite
         // ennemie vaincue au moins une fois enregistre le FAIT de facon
-        // permanente (voir run/metaProgress.ts, registerEnemyDefeat) — pas
-        // besoin de gagner la vague (point 23 de la demande), juste que
-        // l'unite meure REELLEMENT. Jamais pendant "Tester le scenario"
-        // (inTestMode, sans lien avec une run reelle) — meme convention que
-        // registerWaveReached/le buff de difficulte par vague.
-        if (!inTestMode && registerEnemyDefeat(metaProgress, e.unitId)) {
-          saveMetaProgress(metaProgress);
-          // Toast NON BLOQUANT (point 26 de la demande) — uniquement pour
-          // une unite dont ce fait debloque reellement quelque chose (pas de
-          // "NOUVELLE UNITÉ DÉBLOQUÉE : FANTASSIN" absurde pour une unite
-          // deja 'starter').
-          if (getUnit(e.unitId).playerUnlockMode === 'defeatEnemy') {
-            unitUnlockToast.show(getUnit(e.unitId).name);
-          }
-        }
+        // permanente (voir run/metaProgress.ts, registerEnemyDefeat). Jamais
+        // pendant "Tester le scenario" (inTestMode, sans lien avec une run
+        // reelle). Plus d'annonce « unite debloquee » (2026-11-04) : la
+        // production temps reel n'applique pas encore ce deblocage
+        // (docs/KNOWN_ISSUES.md, en attente de decision).
+        if (!inTestMode && registerEnemyDefeat(metaProgress, e.unitId)) saveMetaProgress(metaProgress);
       }
     }
 
-    // Vague terminee des qu'un camp est elimine. Avec le ciblage verrouille,
-    // les survivants n'ont deja plus personne a combattre a ce moment-la.
-    // countCombatants (2026-08-16, architecture BUILDING) plutot que
-    // countAlive : une Mine/Baliste encore vivante (voir Entity.countsForDefeat)
-    // maintient le camp joueur "en vie" au meme titre qu'une unite — meme
-    // semantique que applyBattleOutcome (run/runState.ts), une seule
-    // definition de "combattant" dans tout le jeu.
+    // Fin de vague et defaite. countCombatants (architecture BUILDING) : une
+    // entite compte pour la survie de sa faction selon Entity.countsForDefeat
+    // (unites ; batiments selon BuildingDef ; jamais les chantiers, les murs,
+    // les barils ni les gardes de camp).
     if (!battleOver && world.entities.length > 0) {
-      const playerAlive = world.countCombatants('player');
       const enemyAlive = world.countCombatants('enemy');
-      // Mini-vagues : aucun ennemi vivant ne suffit pas, tous les groupes
-      // doivent etre apparus. La defaite reste immediate.
-      // Heros (choix d'Antoine) : Heros a terre ET Baliste detruite = defaite.
-      // Baliste detruite = defaite immediate (2026-11-02, coeur de la base) ;
-      // le Heros mort revient tant qu'elle tient.
-      const defeated = playerAlive === 0 || world.isBaseLost('player');
+      // Contrat de defaite (2026-11-02, coeur de la base) : BALISTE DETRUITE
+      // = defaite ; le Heros mort revient tant qu'elle tient. 2026-11-04 :
+      // l'ancien terme « plus aucun combattant joueur » (jeu en manches) a
+      // ete retire — la Baliste compte elle-meme pour la defaite, il etait
+      // redondant tant qu'elle existe. « Tester le scenario » sans Depart
+      // Survie n'a pas de Baliste : pas de defaite possible, seule Echap ou
+      // la fin des ennemis termine le test.
+      const defeated = world.isBaseLost('player');
       // Carte de Survie Hero RTS testee depuis l'editeur (2026-11-03) : pas de
       // vague, les gardes des camps ne comptent pas (countsForDefeat) ; seule
       // la defaite, ou Echap, termine le test.
       const waveCleared = enemyAlive === 0 && world.allEnemyGroupsSpawned() && !(inTestMode && usesHeroRtsRules(currentMap));
       // Survie en temps reel continu (2026-11-01) : une vague repoussee ne
-      // change plus de phase (completeSurvivalWave) ; seule la defaite
+      // change pas de phase (completeSurvivalWave) ; seule la defaite
       // termine la run. « Tester le scenario » garde sa fin immediate.
       if (!inTestMode && !defeated && waveCleared) {
         if (survivalWaveActive) completeSurvivalWave();
       } else if (defeated || waveCleared) {
         battleOver = true;
         loop.timeScale = 0;
-        // Fin de combat (2026-08-13) : n'importe quel tir automatique en
-        // cours doit s'arreter net, meme si Q est reste enfonce.
+        // Fin de partie : n'importe quel tir automatique en cours doit
+        // s'arreter net, meme si Q est reste enfonce.
         fireKeyHeld = false;
         if (inTestMode) {
           // Demande d'Antoine : "Tester le scenario" revient a l'editeur des
-          // que la derniere unite tombe, PAS a l'ecran de fin de vague normal
-          // — raccourci de dev, pas concerne par la sequence ci-dessous.
+          // que la derniere unite tombe — raccourci de dev, pas concerne par
+          // la sequence ci-dessous.
           returnToEditorAfterTest();
         } else {
-          // Sequence de transition (2026-08-09, demande d'Antoine : la
-          // bascule etait instantanee, "trop brusque") : le champ de bataille
-          // reste visible (figé par timeScale=0 ci-dessus) pendant que la
-          // banniere apparait, PUIS le rideau se ferme — c'est seulement au
-          // moment ou l'ecran est plein noir (onBlackout) qu'on fait le
-          // menage qui etait avant instantane et visible. Voir
-          // ui/waveTransition.ts.
-          // currentRun.waveNumber n'a pas encore ete incremente ici (ca
-          // n'arrive que dans applyBattleOutcome, plus bas) : c'est bien le
-          // numero de la vague qu'on vient de jouer.
-          // Heros a terre et Baliste detruite : defaite meme avec des survivants.
-          const heroFell = world.isBaseLost('player');
-          const label = `Vague ${currentRun.waveNumber} — ${playerAlive > 0 && !heroFell ? 'Victoire !' : 'Défaite'}`;
-          waveTransition.play(label, async () => {
-            // Bonus de fin de vague (si victoire) et armee mise a jour (PV
-            // des survivants, morts retires) — LIT world.entities, donc doit
-            // s'executer AVANT de le vider juste apres. L'or des KILLS n'est
-            // plus calcule ici depuis le 2026-08-11 (voir awardKillGold,
-            // deja verse en temps reel pendant la bataille) — goldEarned ne
-            // reflete donc plus que le bonus de vague, gardee de cote pour
-            // l'animation "gain de piece" jouee a l'OUVERTURE de la boutique
-            // (voir plus bas) — pas ici, l'ecran boutique n'existe pas
-            // encore a l'ecran a cet instant (getBoundingClientRect y
-            // renverrait un rectangle vide).
-            // Capture AVANT applyBattleOutcome : cette fonction incremente
-            // waveNumber en cas de victoire, donc c'est le numero de la vague
-            // qu'on vient reellement de jouer, pas la suivante.
-            const waveBeingFought = currentRun.waveNumber;
-            const outcome = applyBattleOutcome(currentRun, world.entities, world.pendingEnemyGroups());
-            lastBattleGoldEarned = outcome.goldEarned;
-            // Bonus de victoire : fait partie de l'or gagne par la manche.
-            recordGoldEarned(battleSummary, outcome.goldEarned);
-
-
-            // Le deblocage du Mage/de la Sentinelle cote JOUEUR ne depend
-            // PLUS d'un numero de vague depuis le 2026-08-15 (voir
-            // data/units.ts, UnitDef.playerUnlockMode) : il a deja eu lieu,
-            // le cas echeant, au moment REEL ou l'unite ennemie est morte
-            // (voir la boucle "or en temps reel a chaque kill" plus haut,
-            // registerEnemyDefeat) — rien a faire ici.
-
-            // Points de talent gagnes CETTE bataille, toutes sources
-            // confondues (voir plus bas) — sert uniquement a piloter le
-            // toast "point de talent disponible" (demande d'Antoine,
-            // 2026-08-10), aucun impact sur le calcul lui-meme.
-            const talentPointsBefore = metaProgress.talentPoints;
-
-            // Record de vague + points de talent par seuil (refonte
-            // 2026-08-10, voir CLAUDE.md et run/metaProgress.ts) : utilise
-            // currentRun.waveNumber APRES l'increment de applyBattleOutcome
-            // (pas waveBeingFought) — sur une VICTOIRE de la vague 4,
-            // waveNumber passe a 5, ce qui est bien > 4 : le point se debloque
-            // seulement une fois la vague 4 REELLEMENT GAGNEE ("après avoir
-            // terminé la vague 4", pas juste atteinte). Sur une defaite,
-            // waveNumber n'a pas bouge, donc pas de point meme si la vague 4
-            // a ete jouee jusqu'au bout. Verifie a CHAQUE bataille reelle, pas
-            // seulement en fin de run.
-            if (registerWaveReached(metaProgress, currentRun.waveNumber)) saveMetaProgress(metaProgress);
-
-            // Bug remonte par Antoine : les survivants restaient rendus a
-            // leur position de fin de combat (unitViews/world.entities)
-            // PENDANT que startPlacement() les faisait deja apparaitre a leur
-            // position de placement (playerPreview) — deux representations
-            // visuelles de la meme unite logique en meme temps. On vide donc
-            // la vue de combat ICI, derriere le rideau noir (invisible),
-            // plutot qu'a onValidatePlacement() (le debut de la PROCHAINE
-            // bataille) comme avant ce correctif.
-            world.clear();
-            forgetBattleBuildings();
-            rewardedEnemyDeaths.clear();
-            belowAutoHealThreshold.clear();
-            pendingArrowSpawns.length = 0;
-            unitViews.clear();
-            combatOverlay.clear();
-            projectiles.clear();
-            playerArrowView.clear();
-            telegraphView.clear();
-            fireballView.clear();
-            iceNovaView.clear();
-            healVfxView.clear();
-            moveOrderFeedback.clear();
-            tauntVfxView.clear();
-            shadowProjectileView.clear();
-            disarmItem();
-
-            // Defaite TOTALE (2026-08-16, corrige apres l'architecture
-            // BUILDING) : `outcome.won` — pas `currentRun.army.length === 0`
-            // comme avant — est la SOURCE UNIQUE de ce qu'est une "run
-            // terminee". `applyBattleOutcome` calcule deja `won` a partir de
-            // `countsForDefeat` (vrai pour une unite ET pour un batiment
-            // comme la Mine/la Baliste, voir World.spawnBuilding) : gagner
-            // exige seulement qu'au moins un COMBATTANT joueur (unite OU
-            // batiment) survive au moment ou le dernier ennemi tombe. Bug
-            // remonte par Antoine : avec l'ancienne condition, une victoire
-            // ou TOUTES les unites etaient mortes mais ou la Mine/la Baliste
-            // tenait encore ("il me reste des batiments") declenchait a tort
-            // l'ecran "Partie terminee" — alors que le joueur peut tres bien
-            // continuer (racheter des unites en boutique au placement
-            // suivant, or/talents/batiments deja acquis intacts). `army`
-            // peut desormais legitimement etre vide sur une VRAIE victoire
-            // (armee entiere sacrifiee, la Baliste du joueur finissant seule
-            // les derniers ennemis) — ce cas retombe normalement dans la
-            // branche "Continuer" plus bas, `startPlacement()` reconstruit
-            // simplement un placement a 0 unite, boutique auto-ouverte.
-            // Sur une VRAIE defaite totale (aucun combattant joueur, unite ou
-            // batiment, ne survit), demande d'Antoine, 2026-08-09 : la run
-            // s'arrete la, retour au menu principal, pas de boutique ni de
-            // vague suivante. C'est aussi la SEULE fin de run qui sauvegarde
-            // la progression permanente (chantier sauvegarde, 2026-08-09) :
-            // un abandon manuel (Echap -> Quitter) n'incremente ni ne
-            // sauvegarde rien, voir quitToMenu.
-            if (!outcome.won) {
-              // Precision d'Antoine (2026-08-10, apres une premiere run
-              // terminee vague 2 sans recevoir de point) : le tout PREMIER
-              // point de talent d'une sauvegarde ne depend d'aucun palier de
-              // vague, il est du des la toute premiere run terminee — voir
-              // run/metaProgress.ts, grantFirstRunPointIfNeeded. Independant
-              // et cumulable avec registerWaveReached ci-dessus.
-              if (grantFirstRunPointIfNeeded(metaProgress)) saveMetaProgress(metaProgress);
-              talentPointToast.show(metaProgress.talentPoints - talentPointsBefore);
-              waveIndicator.setVisible(false);
-              goldHud.setVisible(false);
-              heroHud.setVisible(false); actionProgressBar.setVisible(false);
-              buildMenu.setVisible(false);
-              populationHud.setVisible(false);
-              economyHud.setVisible(false);
-              screens.showGameOver(metaProgress.highestWaveReached, heroFell);
-            } else {
-              // Agrandissement progressif du champ de bataille (2026-08-18,
-              // demande d'Antoine) — voir run/mapExpansion.ts et
-              // applyMapExpansionForCompletedWave : "après validation réelle
-              // de Victory et avant Placement", donc ICI, derriere le rideau
-              // (invisible), APRES world.clear() (deja fait plus haut) mais
-              // AVANT que le joueur ne voie l'ecran de fin de vague/la
-              // boutique. waveBeingFought = la vague REELLEMENT gagnee.
-              await applyMapExpansionForCompletedWave(waveBeingFought);
-              talentPointToast.show(metaProgress.talentPoints - talentPointsBefore);
-              const result: WaveResult = playerAlive > 0 ? 'victoire' : 'defaite';
-              screens.showWaveComplete(waveBeingFought, result, { defeated: defeatedLines(battleSummary), goldEarned: battleSummary.goldEarned });
-            }
-          });
+          endSurvivalRun();
         }
       }
     }
@@ -8828,38 +6947,20 @@ const loop = new Loop(
     const realDt = (now - lastRealTime) / 1000;
     lastRealTime = now;
 
-    // Bug corrige (2026-08-16, remonte par Antoine : "le bon montant de gold
-    // ne s'affiche pas dans mon encart" apres une vente) : cet appel vivait
-    // auparavant dans le callback onStep (pas de simulation FIXE, voir
-    // core/loop.ts) — or `onStep` ne s'execute QUE si `loop.timeScale > 0`
-    // (l'accumulateur n'avance jamais a `timeScale === 0`). La bataille pose
-    // `loop.timeScale = 0` des qu'un camp est elimine et ne le remet a 1 qu'a
-    // la VALIDATION du placement suivant — donc pendant TOUTE la sequence
-    // boutique + phase de placement (exactement le moment ou l'on vend/achete
-    // des unites), goldHud n'etait plus jamais rafraichi : le HUD restait
-    // fige sur sa derniere valeur d'avant la fin de bataille. Deplace ici,
-    // dans le callback de RENDU (tourne a chaque frame, quel que soit
-    // `timeScale` — voir Loop.frame, onRender toujours appele) : lit
-    // `currentRun.gold` INCONDITIONNELLEMENT, comme documente a l'origine
-    // (CLAUDE.md, "mis a jour a chaque frame depuis currentRun.gold, pas sur
-    // evenement") — plus aucun site d'appel a se souvenir d'ajouter apres un
-    // achat/une vente.
-    goldHud.update(currentRun.gold);
+    // HUD lu a chaque frame depuis l'etat (callback de RENDU, qui tourne quel
+    // que soit `timeScale`), jamais sur evenement.
     const hudState = heroHudState();
     heroHud.update(hudState);
     actionProgressBar.update(hudState.action);
-    // Ligne economique : stock utilisable (jamais le sac), population.
-    const economyPop = inPlacementPhase ? runPopulation(currentRun) : populationOfEntities(world.entities);
+    // Ligne economique : stock utilisable (jamais le sac), population des
+    // entites vivantes (unite morte, Maison detruite...).
+    const economyPop = populationOfEntities(world.entities);
     economyHud.update({ wood: currentRun.resources.wood, stone: currentRun.resources.stone, gold: formatGold(currentRun.gold), popUsed: economyPop.used, popMax: economyPop.max });
     // Compte a rebours de la prochaine vague (Survie en temps reel).
     if (survivalNextWaveTick !== null && !inTestMode) refreshWaveIndicator();
     // Relief : surface active du rendu (brouillon de l'editeur ou carte en
     // jeu) avant tout placement vertical de la frame.
     syncActiveTerrain();
-    // Population : armee et batiments de la run en preparation, entites
-    // vivantes de la bataille sinon (unite morte, Caserne, Maison detruite).
-    const population = inPlacementPhase ? runPopulation(currentRun) : populationOfEntities(world.entities);
-    populationHud.update(population.used, population.max);
 
     // Batiments gameplay (Mine, Baliste) EXCLUS des systemes de rendu qui
     // supposent une vraie unite (getUnit(entity.unitId), voir data/units.ts)
@@ -8883,18 +6984,17 @@ const loop = new Loop(
     updateHeroCameraLock();
     pruneDestroyedOwnedBuildings();
 
-    // Selection RTS (prototype) : APRES unitViews.sync pour suivre la position
-    // rendue de ce frame. Hors bataille en cours, aucune selection ne survit
-    // (fin de vague, placement, menu, editeur). Une entite morte ou disparue
-    // apres world.clear() est abandonnee par sync() lui-meme.
-    // Synchronisees aussi pendant la transition de fin de vague : une unite
-    // tuee au dernier pas quitte la selection ou l'inspection, avec son
-    // anneau, au lieu de rester figee jusqu'a la preparation.
+    // Selection RTS : APRES unitViews.sync pour suivre la position rendue de
+    // ce frame. Hors partie en cours, aucune selection ne survit (fin de
+    // partie, menu, editeur). Une entite morte ou disparue apres
+    // world.clear() est abandonnee par sync() lui-meme. Synchronisees aussi
+    // pendant la transition de fin de partie : une unite tuee au dernier pas
+    // quitte la selection ou l'inspection, avec son anneau.
     // Heros permanent : son anneau quand aucune unite n'est selectionnee.
     battleSelection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id), inBattlePhase() && !inTestMode ? playerHero()?.id ?? null : null);
     battleEnemyInspection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id));
-    // L'apercu de deplacement n'existe qu'en preparation et dans l'editeur.
-    if (!inPlacementPhase && !inEditorMode) unitMovePreview.hide();
+    // L'apercu de deplacement n'existe que dans l'editeur.
+    if (!inEditorMode) unitMovePreview.hide();
     else setBattleSelection([]);
     // Survie en temps reel : plus d'encart « AUTO BALISTE — prete »
     // (2026-11-02), la barre d'XP occupe le bas de l'ecran ; reste dans
@@ -8969,14 +7069,7 @@ const loop = new Loop(
     playerArrowView.sync(world.playerArrow.flights, alpha);
     telegraphView.sync(world.entities);
     fireballView.sync(world.blasts, realDt);
-    shadowProjectileView.sync(world.shadowProjectiles, realDt);
-    iceNovaView.sync(world.iceNovaZones, realDt);
-    // Cristaux de glace aux pieds des unites immobilisees (2026-08-14,
-    // demande d'Antoine) — meme resolution de position que combatOverlay
-    // (interpolee si disponible), pour suivre l'unite meme si elle est
-    // bousculee par la separation pendant qu'elle est rootee.
-    iceNovaView.syncFrostIndicators(world.entities, (e) => unitViews.getPosition(e.id) ?? { x: e.x, z: e.z });
-    // VFX du parchemin de soin (2026-08-14) — voir render/healVfx.ts.
+    // VFX de soin (Oracle, Heros) — voir render/healVfx.ts.
     healVfxView.sync(realDt);
     moveOrderFeedback.sync(realDt);
     resourcePileViews.animate(realDt);
@@ -9064,58 +7157,10 @@ const loop = new Loop(
     // Montee de niveau : effet 3D (temps reel, fige en pause).
     levelUpVfx.tick(realDt, loop.timeScale === 0);
     whirlwindVfx.tick(realDt, loop.timeScale === 0);
-    // Barres de PV pendant le placement (demande d'Antoine, 2026-08-09) : le
-    // joueur doit voir l'etat de sante de son armee avant de valider, pas
-    // seulement pendant la bataille. Meme regle qu'en bataille : blesse, ou
-    // selectionne (unites, bâtiments possedes, Baliste).
-    if (inPlacementPhase) {
-      const upgrades = playerProgression().upgrades;
-      const selectedSlots = new Set(selectedIndices);
-      const placedSlots = placementSlots
-        .filter(
-          (s, i): s is PlacementSlot & { x: number; z: number } =>
-            s.x !== null && s.z !== null && (selectedSlots.has(i) || s.hp < playerUnitMaxHp(s.unitId, s.productionLevel)),
-        )
-        .map((s) => ({ unitId: s.unitId, x: s.x, z: s.z, hp: s.hp, maxHp: playerUnitMaxHp(s.unitId, s.productionLevel) }));
-      const shownBuildings: PlacementBuildingHpSubject[] = [];
-      currentRun.buildings.forEach((owned, i) => {
-        // Bâtiment en cours de deplacement : son modele suit le curseur, sa
-        // position enregistree n'est plus la bonne.
-        if (buildingPlacementMode?.movingIndex === i) return;
-        const def = getBuilding(owned.buildingId);
-        const maxHp = effectiveBuildingMaxHp(owned.buildingId, ownedBuildingLevel(owned));
-        if (i !== selectedBuildingIndex && owned.hp >= maxHp) return;
-        shownBuildings.push({ x: owned.x, z: owned.z, hp: owned.hp, maxHp, radius: def.radius, hpBarHeight: def.hpBarHeight });
-      });
-      // La Baliste repart toujours a pleins PV (spawnBallistaBuilding) :
-      // en preparation, sa barre n'apparait que si elle est selectionnee.
-      if (placementBallistaSelected) {
-        const def = getBuilding('ballista');
-        const maxHp = effectiveBallistaMaxHp(upgrades);
-        shownBuildings.push({ x: playerArrowOrigin.x, z: playerArrowOrigin.z, hp: maxHp, maxHp, radius: def.radius, hpBarHeight: def.hpBarHeight });
-      }
-      combatOverlay.syncPlacement(placedSlots, shownBuildings);
-      // Aura de particules du talent "Recyclage" (2026-08-14) — voir
-      // render/recyclageAura.ts. `key` = index REEL dans placementSlots (pas
-      // dans placedSlots, filtre a part) pour rester stable avec le reste du
-      // code de placement, qui aligne deja tout par index.
-      recyclageAuraView.sync(
-        placementSlots
-          .map((slot, key) => ({ slot, key }))
-          .filter(({ slot }) => slot.x !== null && slot.z !== null && isRecyclageEligible(slot))
-          .map(({ slot, key }) => ({ key, x: slot.x!, z: slot.z! })),
-        realDt,
-      );
-    } else {
-      // Hors placement (bataille, menus...) : vide l'ensemble au frame
-      // suivant, sans site de nettoyage separe a maintenir a chaque
-      // transition de phase.
-      recyclageAuraView.sync([], realDt);
-    }
     debugPanel.update(realDt);
 
     const inBattle = inBattlePhase();
-    // Visee permanente pendant la bataille (tir sur Q) : point du sol sous le
+    // Visee permanente pendant la partie (tir sur Q) : point du sol sous le
     // curseur recalcule a chaque frame, la camera ayant pu bouger sans
     // mouvement de souris. Reticule discret pour ne pas gener la selection
     // RTS : plus visible quand la Baliste est prete, presque transparent
@@ -9185,26 +7230,13 @@ let pauseMenuOpen = false;
  *  l'ecran, lu par onCloseSettings ET par le routage Echap ci-dessous. */
 let settingsReturnTo: 'menu' | 'pause' = 'menu';
 
-/** Fonctionne aussi PENDANT LE PLACEMENT (2026-08-10, demande d'Antoine —
- *  Echap ne faisait rien avant la validation du placement, aucune facon
- *  d'abandonner la run sans recharger la page). `sellZone`/`placementPanel`
- *  sont explicitement masques : leur conteneur a un z-index volontairement
- *  SUPERIEUR a .screen-overlay (voir ui/style.css, pour rester cliquable
- *  quand la BOUTIQUE est ouverte par-dessus le placement) — sans ce
- *  masquage explicite, "Vendre"/"Pret pour la bataille" resteraient visibles
- *  et cliquables par-dessus le menu pause. `inventoryBar` n'a pas ce
- *  probleme (z-index plus bas que .screen-overlay, deja correctement
- *  recouverte). loop.timeScale=0 est sans effet reel en placement (aucune
- *  simulation ne tourne), inoffensif. */
+/** Pause (Echap) pendant une partie : fige la simulation et affiche le menu
+ *  Pause. */
 function openPauseMenu(): void {
-  if (inEditorMode || pauseMenuOpen || (!inBattlePhase() && !inPlacementPhase)) return;
+  if (inEditorMode || pauseMenuOpen || !inBattlePhase()) return;
   pauseMenuOpen = true;
   loop.timeScale = 0;
   fireKeyHeld = false;
-  if (inPlacementPhase) {
-    sellZone.setVisible(false);
-    placementPanel.hide();
-  }
   screens.show('pause');
 }
 
@@ -9212,10 +7244,6 @@ function resumeFromPause(): void {
   pauseMenuOpen = false;
   screens.hideAll();
   loop.timeScale = 1;
-  if (inPlacementPhase) {
-    sellZone.setVisible(true);
-    placementPanel.show();
-  }
 }
 
 /** Garde-fou d'idempotence (2026-08-16, demande explicite d'Antoine, point
@@ -9229,11 +7257,11 @@ let quitRunConfirmationInFlight = false;
 /** Bouton "Quitter" du menu Pause (2026-08-16, demande d'Antoine : "une
  *  vraie confirmation avant de quitter une run en cours") — ouvre la
  *  confirmation au lieu d'appeler quitToMenu directement. Le menu Pause
- *  n'etant accessible QUE depuis une bataille/un placement en cours (voir
- *  openPauseMenu), ce bouton represente toujours "quitter une run en
- *  cours" : aucune verification de contexte supplementaire necessaire (le
- *  menu principal/l'arbre de talents/la boutique d'amelioration n'ont pas ce
- *  bouton, voir point 6 de la demande). */
+ *  n'etant accessible QUE depuis une partie en cours (voir openPauseMenu),
+ *  ce bouton represente toujours "quitter une run en cours" : aucune
+ *  verification de contexte supplementaire necessaire (le menu principal,
+ *  l'arbre de talents et la Forge n'ont pas ce bouton, voir point 6 de la
+ *  demande). */
 function requestQuitRun(): void {
   quitRunConfirmationInFlight = false;
   screens.showQuitRunConfirm();
@@ -9258,26 +7286,11 @@ function confirmQuitRun(): void {
   quitToMenu();
 }
 
-function quitToMenu(): void {
-  pauseMenuOpen = false;
-  inPlacementPhase = false;
-  placementPanel.hide();
-  sellZone.setVisible(false);
-  inventoryBar.setVisible(false);
-  disarmItem();
-  cancelBuildingPlacement();
-  fireKeyHeld = false;
-  cancelUnitDrag();
-  cancelGroundDrag();
-  clearSelection();
-  // L'occupation de la run abandonnee ne doit pas survivre au retour menu.
-  placementSlots = [];
-  playerPreview.clear();
-  enemyPreview.clear();
+/** Vide le monde et les vues de la partie en cours (fin de run, abandon). */
+function clearBattleWorld(): void {
   world.clear();
   forgetBattleBuildings();
   rewardedEnemyDeaths.clear();
-  belowAutoHealThreshold.clear();
   mineProductionTimers.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
@@ -9286,178 +7299,62 @@ function quitToMenu(): void {
   playerArrowView.clear();
   telegraphView.clear();
   fireballView.clear();
-  iceNovaView.clear();
   healVfxView.clear();
   moveOrderFeedback.clear();
   tauntVfxView.clear();
-  shadowProjectileView.clear();
+}
+
+/** Masque le HUD de jeu (fin de run, retour au menu). */
+function hideGameHud(): void {
+  waveIndicator.setVisible(false);
+  heroHud.setVisible(false); actionProgressBar.setVisible(false);
+  buildMenu.setVisible(false);
+  economyHud.setVisible(false);
+}
+
+/** Defaite (Baliste detruite) : sequence de transition (2026-08-09, demande
+ *  d'Antoine : la bascule etait instantanee, "trop brusque") — le champ de
+ *  bataille reste visible (fige par timeScale=0) pendant que la banniere
+ *  apparait, PUIS le rideau se ferme ; c'est seulement au moment ou l'ecran
+ *  est plein noir (onBlackout) que le monde est vide et que l'ecran « Partie
+ *  terminee » s'affiche (voir ui/waveTransition.ts). La progression
+ *  permanente est sauvegardee ici : record de vague (registerWaveReached,
+ *  avec la vague en cours, jamais repoussee) et point de la premiere run
+ *  (grantFirstRunPointIfNeeded — precision d'Antoine, 2026-08-10 : le tout
+ *  PREMIER point de talent d'une sauvegarde ne depend d'aucun palier de
+ *  vague). Un abandon manuel (Echap -> Quitter) ne sauvegarde rien, voir
+ *  quitToMenu. */
+function endSurvivalRun(): void {
+  const label = `Vague ${currentRun.waveNumber} — Défaite`;
+  waveTransition.play(label, () => {
+    const talentPointsBefore = metaProgress.talentPoints;
+    if (registerWaveReached(metaProgress, currentRun.waveNumber)) saveMetaProgress(metaProgress);
+    if (grantFirstRunPointIfNeeded(metaProgress)) saveMetaProgress(metaProgress);
+    clearBattleWorld();
+    talentPointToast.show(metaProgress.talentPoints - talentPointsBefore);
+    hideGameHud();
+    screens.showGameOver(metaProgress.highestWaveReached);
+  });
+}
+
+function quitToMenu(): void {
+  pauseMenuOpen = false;
+  cancelBuildingPlacement();
+  fireKeyHeld = false;
+  clearBattleWorld();
   battleOver = false;
   loop.timeScale = 1;
   // La run abandonnee (ou perdue) se termine ici : sans cela, ses batiments
   // (meshes ajoutes a la scene, hors du plateau) restaient visibles dans le
   // menu et l'editeur, et un retour de "Tester le scenario" les
   // reconstruisait depuis currentRun. Une run vierge les remplace ;
-  // resetRunPlacementState retire leurs vues et l'anneau de selection.
+  // resetRunViews retire leurs vues.
   currentRun = createFreshRun();
-  rebuildCurrentTerritoryIndex();
-  resetRunPlacementState();
+  resetRunViews();
   board.gridLines.visible = false;
   board.zones.visible = false;
-  waveIndicator.setVisible(false);
-  goldHud.setVisible(false);
-  heroHud.setVisible(false); actionProgressBar.setVisible(false);
-  buildMenu.setVisible(false);
-  populationHud.setVisible(false);
-  economyHud.setVisible(false);
+  hideGameHud();
   screens.show('menu');
-}
-
-/** Soigne l'unite la plus blessee de l'armee (en proportion de ses PV max) —
- *  pas de selection manuelle pour cette premiere version de la boutique, un
- *  seul bouton "Soigner" suffit tant qu'il n'y a pas d'interface pour choisir
- *  une unite precise. Retourne false si personne n'est blesse (l'appelant ne
- *  doit alors pas debiter d'or — le bouton est normalement deja desactive
- *  dans ce cas, voir Screens.refreshShop, mais ne pas en dependre ici). */
-/** Cherche une case libre pour une nouvelle unite en partant d'une position
- *  preferee et en elargissant case par case (anneaux concentriques) —
- *  necessaire car la position "ideale" (voir addUnitToPlacement) est
- *  calculee comme si toute l'armee etait reformee a neuf, sans savoir que
- *  les unites deja posees n'ont PAS bouge : elle peut tomber exactement sur
- *  une unite existante (bug remonte par Antoine — deux unites ne peuvent
- *  jamais partager une case). isValidPlacementTile verifie contre les
- *  positions REELLES actuelles (placementSlots), pas la formation theorique. */
-function findFreePlacementTile(unitId: string, preferredX: number, preferredZ: number): { x: number; z: number } {
-  if (isValidPlacementForUnit(unitId, preferredX, preferredZ, [])) return { x: preferredX, z: preferredZ };
-
-  for (let radius = 1; radius < 50; radius++) {
-    for (let dx = -radius; dx <= radius; dx++) {
-      for (let dz = -radius; dz <= radius; dz++) {
-        if (Math.max(Math.abs(dx), Math.abs(dz)) !== radius) continue; // anneau exterieur seulement
-        const x = preferredX + dx;
-        const z = preferredZ + dz;
-        if (isValidPlacementForUnit(unitId, x, z, [])) return { x, z };
-      }
-    }
-  }
-  return { x: preferredX, z: preferredZ }; // repli improbable (zone saturee)
-}
-
-/** Ajoute une unite fraichement achetee a LA phase de placement en cours
- *  (demande d'Antoine, 2026-08-09 : achetee en placement, elle doit pouvoir
- *  etre utilisee tout de suite, pas seulement a la prochaine vague — la
- *  bataille en cours n'a pas encore commence, il n'y a pas de raison de la
- *  lui refuser). Position par defaut calculee comme si l'armee entiere etait
- *  reformee (voir computeArmyFormation), mais seule la nouvelle unite est
- *  effectivement ajoutee — les autres, deja potentiellement deplacees a la
- *  main par le joueur, restent intactes, d'ou findFreePlacementTile pour
- *  eviter de tomber pile sur l'une d'elles. */
-function addUnitToPlacement(unitId: string, hp: number, productionLevel: number): void {
-  const unitIds = [...placementSlots.map((s) => s.unitId), unitId];
-  const formation = computeArmyFormation(unitIds, currentMap);
-  const preferred = formation[formation.length - 1]!;
-  const pos = findFreePlacementTile(unitId, preferred.x, preferred.z);
-  placementSlots.push({ unitId, x: pos.x, z: pos.z, hp, productionLevel });
-  refreshPlayerPreview();
-}
-
-/** Achete une unite (Fantassin/Archer/Mage/Sentinelle...) en boutique de
- *  run — partage par tous les handlers onBuy* (voir ScreenHandlers). Ne fait
- *  rien si l'or est insuffisant OU si l'unite est encore verrouillee
- *  (2026-08-15, systeme GENERIQUE — voir data/units.ts, playerUnlockMode et
- *  run/metaProgress.ts, canPlayerRecruitUnit ; garde-fou en plus du bouton
- *  masque cote UI, jamais la seule protection, aucun `if unitId === '...'`
- *  ici). Retient l'achat dans `lastUnitPurchase` pour le bouton "Annuler le
- *  dernier achat" (voir undoLastUnitPurchase). */
-function buyUnit(unitId: string): void {
-  if (!canPlayerRecruitUnit(metaProgress, unitId)) return;
-  // Fantassin / Archer : Caserne / Camp d'archerie requis (bouton deja
-  // desactive avec sa raison, voir Screens.refreshShop ; garde-fou ici).
-  if (!hasRecruitmentBuilding(currentRun, unitId)) return;
-  // Population pleine : refus avant tout debit (bouton deja desactive avec
-  // sa raison, voir Screens.refreshShop ; garde-fou ici aussi).
-  if (!canRecruitWithinPopulation(currentRun, unitId)) return;
-  // Niveau de production courant : fixe une fois pour toutes pour CETTE
-  // unite (stats, PV, cout ; jamais retroactif). Cout et PV en derivent.
-  const productionLevel = currentProductionLevel(currentRun.upgrades, unitId);
-  const cost = effectivePlayerUnitCost(unitId, currentRun.upgrades);
-  if (currentRun.gold < cost) return;
-  // Math.max(0, ...) : filet de securite defensif contre tout bruit de
-  // virgule flottante residuel (2026-08-14, bug remonte par Antoine : "il
-  // est possible de déclencher un résultat négatif") — rend un solde
-  // negatif mathematiquement IMPOSSIBLE ici, pas seulement improbable,
-  // meme si le garde-fou `gold < cost` ci-dessus est deja cense l'empecher
-  // dans le cas normal.
-  currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
-  const hp = playerUnitMaxHp(unitId, productionLevel);
-  currentRun.army.push({ unitId, hp, productionLevel });
-  if (inPlacementPhase) addUnitToPlacement(unitId, hp, productionLevel);
-  lastUnitPurchase = { unitId, cost };
-  screens.refreshShop(currentRun, metaProgress, lastUnitPurchase !== null);
-  spawnCoinPopup(screens.shopGoldElement, -cost);
-}
-
-/** Bouton "×5" (2026-08-13, demande d'Antoine : "plus confortable pour
- *  acheter plusieurs unités") — achete jusqu'a 5 exemplaires DE SUITE, en
- *  reutilisant buyUnit() tel quel (chaque appel verifie deja l'or/le
- *  verrouillage) : s'arrete tout seul des que l'un des 5 echoue, achetant
- *  donc "jusqu'a 5" plutot que "5 ou rien" — plus tolerant qu'un
- *  tout-ou-rien si le joueur n'a l'or que pour 2 ou 3. `lastUnitPurchase`
- *  finit sur le DERNIER des achats reussis (un seul niveau d'annulation,
- *  comme un achat simple — annuler les 5 d'un coup n'est pas demande). */
-function buyUnitFive(unitId: string): void {
-  for (let i = 0; i < 5; i++) buyUnit(unitId);
-}
-
-/** Annule le dernier achat d'unite fait en boutique de run (2026-08-13,
- *  demande d'Antoine : "un bouton retour dans la boutique au cas où une
- *  unité ait été achetée par hasard") — rembourse EXACTEMENT le cout paye
- *  (voir lastUnitPurchase, capture au moment de l'achat : le cout de
- *  production peut augmenter ensuite avec une amelioration de Forge, le
- *  remboursement reste celui du prix reellement paye), retire l'unite de currentRun.army ET
- *  de placementSlots si le placement est en cours (meme invariant que
- *  sellUnits : les deux tableaux restent alignes par index, l'achat etant
- *  TOUJOURS pousse en DERNIERE position des deux cotes). Ne fait rien si
- *  rien n'est a annuler (voir lastUnitPurchase, remis a null a chaque
- *  nouvelle phase de placement et a chaque vente). */
-/** Achete `quantity` exemplaires DE SUITE d'un consommable (Parchemin de
- *  soin/Nova de glace...) en boutique de RUN (2026-08-15, chantier polish/
- *  equilibrage, demande explicite d'Antoine : "ACHAT x5", ATOMIQUE — jamais
- *  un achat partiel silencieux de 2 ou 3 sur 5). Contrairement a
- *  `buyUnitFive` (qui tolere un arret en cours de route, unite par unite),
- *  celui-ci verifie le cout TOTAL (prix EFFECTIF unitaire x quantite,
- *  `effectiveCost` deja calcule AVANT la multiplication — jamais
- *  `baseCost*quantity + bonusUneFois`) ET la capacite d'inventaire pour
- *  TOUTE la quantite d'un coup, AVANT la moindre mutation — refuse purement
- *  et simplement si l'un des deux manque, sans rien acheter du tout.
- *  `effectiveCost` est la MEME fonction que celle utilisee pour l'affichage
- *  du prix (ui/screens.ts, refreshShop) — source de verite unique. */
-function buyConsumable(itemId: string, quantity: number, effectiveCost: () => number): void {
-  const unitPrice = effectiveCost();
-  const totalCost = roundGold(unitPrice * quantity);
-  if (currentRun.gold < totalCost) return;
-  if (!canAddItemsToInventory(currentRun.inventory, itemId, quantity)) return;
-
-  currentRun.gold = Math.max(0, roundGold(currentRun.gold - totalCost));
-  for (let i = 0; i < quantity; i++) currentRun.inventory.push({ itemId });
-  screens.refreshShop(currentRun, metaProgress, lastUnitPurchase !== null);
-  inventoryBar.refresh(currentRun.inventory);
-  spawnCoinPopup(screens.shopGoldElement, -totalCost);
-}
-
-function undoLastUnitPurchase(): void {
-  const purchase = lastUnitPurchase;
-  if (!purchase) return;
-  lastUnitPurchase = null;
-
-  currentRun.army.pop();
-  if (inPlacementPhase) placementSlots.pop();
-  currentRun.gold = roundGold(currentRun.gold + purchase.cost);
-
-  selectedIndices = selectedIndices.filter((i) => i < placementSlots.length);
-
-  refreshPlayerPreview();
-  screens.refreshShop(currentRun, metaProgress, lastUnitPurchase !== null);
-  spawnCoinPopup(screens.shopGoldElement, purchase.cost);
 }
 
 const screens = new Screens({
@@ -9496,24 +7393,6 @@ const screens = new Screens({
     saveMetaProgress(metaProgress);
     screens.refreshTalents(metaProgress);
   },
-  // Bouton de DEBUG "+100 or" (2026-08-17, demande explicite d'Antoine :
-  // "ce bouton sera retiré plus tard") — n'a de sens que pendant une run
-  // (currentRun.gold), jamais sauvegarde de facon permanente (contrairement
-  // au point de talent ci-dessus). A RETIRER (ce handler, le bouton dans
-  // ui/screens.ts, et le style .shop-debug-button) une fois les tests
-  // termines.
-  onDebugAddGold: () => {
-    currentRun.gold = roundGold(currentRun.gold + 100);
-    screens.refreshShop(currentRun, metaProgress, lastUnitPurchase !== null);
-  },
-  // La boutique n'est plus un ecran intermediaire separe : "Continuer" sur
-  // l'annonce de fin de vague mene directement au placement, qui ouvre lui
-  // meme la boutique automatiquement (voir startPlacement).
-  onContinueAfterWave: () => startPlacement(),
-  // Toujours ouverte PAR-DESSUS un placement deja en cours desormais (voir
-  // openShopFromPlacement) : la refermer ne fait jamais plus que revenir a ce
-  // placement, jamais recommencer startPlacement() depuis zero.
-  onContinueAfterShop: () => screens.hideAll(),
   onOpenEditor: () => enterEditor(),
   onOpenWorkshop: () => openCharacterWorkshop(),
   onOpenItemEditor: () => openItemEditor(),
@@ -9522,49 +7401,12 @@ const screens = new Screens({
   onRequestQuitRun: requestQuitRun,
   onCancelQuitRun: cancelQuitRun,
   onConfirmQuitRun: confirmQuitRun,
-  // Cout EN OR EFFECTIF (voir run/unitUpgradeEffects.ts,
-  // effectivePlayerUnitCost : cout du niveau de production courant). `hp`
-  // (PV de depart de l'OwnedUnit) lit de meme le maxHp de ce niveau — sans
-  // ca, une unite tout juste achetee apparaitrait avec plus de PV MAX
-  // (statOverrides) que de PV ACTUELS.
-  // Les 3 handlers partagent desormais buyUnit() (voir plus bas) — extrait
-  // en meme temps que l'ajout de lastUnitPurchase (2026-08-13, "bouton
-  // retour... au cas où une unité ait été achetée par hasard").
-  onBuyFantassin: () => buyUnit('fantassin'),
-  onBuyArcher: () => buyUnit('archer'),
-  onBuyMage: () => buyUnit('mage'),
-  onBuySentinel: () => buyUnit('sentinel'),
-  onBuyOracle: () => buyUnit('oracle'),
-  onBuyPiquier: () => buyUnit('piquier'),
-  onBuyVengeur: () => buyUnit('vengeur'),
-  onBuyFive: buyUnitFive,
-  onUndoLastUnitPurchase: undoLastUnitPurchase,
-  // Consommables (2026-08-15, chantier polish/equilibrage) : x1 ET x5
-  // partagent desormais TOUS LES DEUX buyConsumable (voir plus haut) — plus
-  // aucune logique d'achat dupliquee, prix EFFECTIF (base + bonus
-  // d'amelioration permanente) lu depuis la MEME fonction que celle affichee
-  // par le bouton (ui/screens.ts, refreshShop).
-  onBuyHealScroll: () => buyConsumable('heal_scroll_minor', 1, effectiveHealScrollCost),
-  onBuyIceNova: () => buyConsumable('ice_nova', 1, effectiveIceNovaCost),
-  onBuyItemFive: (itemId) => {
-    const effectiveCost = itemId === 'heal_scroll_minor' ? effectiveHealScrollCost : effectiveIceNovaCost;
-    buyConsumable(itemId, 5, effectiveCost);
-  },
-  // Batiments (2026-08-17) : le clic n'achete rien, il ARME le mode de
-  // placement — voir requestPlaceBuilding, l'or n'est deduit qu'a la
-  // confirmation d'une case valide (confirmBuildingPlacement).
-  onRequestPlaceBuilding: (buildingId) => requestPlaceBuilding(buildingId),
   onRequestResetSave: () => screens.show('resetConfirm'),
   onCancelResetSave: () => screens.show('menu'),
   onConfirmResetSave: () => {
     resetMetaProgress(metaProgress);
     screens.show('menu');
   },
-  onConfirmPlacementWithGold: () => {
-    screens.hideAll();
-    onValidatePlacement();
-  },
-  onCancelPlacementGoldWarning: () => screens.hideAll(),
   // Ecran Parametres (2026-08-12) — voir settingsReturnTo, plus bas, pour le
   // routage Echap/"Retour" selon le contexte d'ouverture.
   onOpenSettingsFromMenu: () => {
@@ -9616,16 +7458,9 @@ const screens = new Screens({
   hover: () => audio.play('ui.hover'),
 });
 
-const placementPanel = new PlacementPanel({
-  onValidate: requestValidatePlacement,
-});
-
-const sellZone = new SellZone({ onOpenShop: () => openShopFromPlacement(), onSellSelection: () => sellUnits(selectedIndices) });
 const selectionBox = new SelectionBox();
-const inventoryBar = new InventoryBar({ onSelectSlot: (i) => armInventorySlot(i) });
 const waveTransition = new WaveTransition();
 const talentPointToast = new TalentPointToast();
-const unitUnlockToast = new UnitUnlockToast();
 
 window.addEventListener('keydown', (event) => {
   // Saisie dans un champ (recherche du catalogue, Taille de l'editeur,
@@ -9637,18 +7472,12 @@ window.addEventListener('keydown', (event) => {
     (event.target as HTMLElement).blur();
   }
 
-  // Raccourcis 1 a 6 : premiere ligne de l'inventaire, meme action qu'un clic
-  // sur l'emplacement (armInventorySlot verifie objet et phase). Seulement
-  // quand l'inventaire est affiche et qu'aucun ecran ne le recouvre ; un
-  // appui maintenu n'agit qu'une fois.
-  const inventorySlot = inventoryShortcutSlot(event.code);
-  if (inventorySlot !== null && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !inEditorMode && inventoryBar.isVisible() && !screens.hasVisibleOverlay()) {
-    if (!event.repeat) inventoryBar.activateSlot(inventorySlot);
-    return;
-  }
-  // Survie : memes touches 1 a 6 pour la barre d'action du Heros (sorts).
-  if (inventorySlot !== null && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !inEditorMode && !screens.hasVisibleOverlay() && inBattlePhase() && !inTestMode) {
-    if (!event.repeat) heroHud.activateSlot(inventorySlot);
+  // Touches 1 a 6 : barre d'action du Heros (sorts), meme action qu'un clic
+  // sur l'emplacement. Seulement en run, sans ecran par-dessus ; un appui
+  // maintenu n'agit qu'une fois.
+  const actionSlot = heroActionShortcutSlot(event.code);
+  if (actionSlot !== null && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !inEditorMode && !screens.hasVisibleOverlay() && inBattlePhase() && !inTestMode) {
+    if (!event.repeat) heroHud.activateSlot(actionSlot);
     return;
   }
 
@@ -9737,11 +7566,11 @@ window.addEventListener('keydown', (event) => {
       // recadree dans la zone visible (frameRunCamera), R garde le simple
       // retour a la camera par defaut.
       // preventDefault : Espace ne doit pas EN PLUS activer le bouton qui a
-      // le focus (ex. « Boutique » apres un clic, qui se rouvrait).
+      // le focus (ex. un bouton de la fiche apres un clic).
+      // KI-24 : le bouton qui garde le focus serait active au relachement
+      // d'Espace, touche de jeu depuis le 2026-11-01 : il perd le focus
+      // d'abord.
       event.preventDefault();
-      // KI-24 : le bouton qui garde le focus (« Lancer quand même »,
-      // « Boutique »...) serait active au relachement d'Espace, touche de jeu
-      // depuis le 2026-11-01 (Heros <-> Baliste) : il perd le focus d'abord.
       if (document.activeElement instanceof HTMLButtonElement) document.activeElement.blur();
       if (inEditorMode || inTestMode) resetEditorCamera();
       // Espace (2026-11-02) : retour au Heros (selection, centrage, suivi).
@@ -9773,8 +7602,6 @@ window.addEventListener('keydown', (event) => {
         }
       } else if (screens.isForgeOpen()) {
         closeForge();
-      } else if (armedItemIndex !== null) {
-        disarmItem();
       } else if (spellTargeting) {
         cancelSpellTargeting();
       } else if (rallyTargeting) {
@@ -9786,13 +7613,9 @@ window.addEventListener('keydown', (event) => {
       } else if (wallPlacement) {
         // Mur V2 : Echap annule le trace en cours, puis quitte le mode.
         cancelWallTraceOrMode();
-      } else if (buildingPlacementMode || buildingClickCandidate) {
-        // Mode placement d'un BATIMENT achete (2026-08-17, point 10 de la
-        // demande : "Escape ou clic droit -> annule le placement, aucun
-        // Gold dépensé"). Couvre aussi buildingClickCandidate (2026-08-18) :
-        // un clic maintenu sur un bâtiment mais PAS ENCORE promu en glisser
-        // (seuil non franchi) — Echap l'annule tout pareil, meme si rien n'a
-        // encore visuellement bouge.
+      } else if (buildingPlacementMode) {
+        // Mode de pose d'un BATIMENT (2026-08-17, point 10 de la demande :
+        // "Escape ou clic droit -> annule le placement, aucun Gold dépensé").
         cancelBuildingPlacement();
       } else if (screens.isQuitRunConfirmOpen()) {
         // Echap dans la confirmation "Quitter" (2026-08-16, point 28 de la
@@ -9896,20 +7719,11 @@ function leftClickReservedForCamera(event: MouseEvent): boolean {
 }
 
 /** Abandonne net tout geste du clic gauche en cours (rectangle de selection
- *  en placement ou en bataille, glisser d'unite) : un autre bouton qui
- *  s'ajoute ne doit jamais laisser le cadre de selection ou le fantome de
- *  vente suivre le curseur en parallele. */
+ *  en jeu ou dans l'editeur) : un autre bouton qui s'ajoute ne doit jamais
+ *  laisser le cadre de selection suivre le curseur en parallele. */
 function cancelLeftPointerGestures(): void {
-  if (groundDrag) {
-    selectionBox.hide();
-    groundDrag = null;
-  }
   cancelCommandDrag();
   cancelEditorPointer();
-  if (unitDrag) {
-    sellZone.hideGhost();
-    unitDrag = null;
-  }
   unitMovePreview.hide();
 }
 
@@ -9942,35 +7756,25 @@ canvas.addEventListener('mousedown', (event) => {
     return;
   }
 
-  // Clic droit = annule le ciblage d'un objet d'inventaire arme (2026-08-14,
-  // demande explicite d'Antoine : "on est obligé de l'utiliser pour retirer
-  // le curseur de visée, il faut pouvoir appuyer sur clic droit pour sortir
-  // de la visée du parchemin") — meme effet que Echap (disarmItem, ne
-  // consomme JAMAIS l'objet).
-  // Trace de mur en cours : le clic droit l'annule (puis quitte le mode).
-  const disarmedItem = armedItemIndex !== null || spellTargeting !== null || wallPlacement !== null;
+  // Clic droit = annule un ciblage en cours (sort du Heros, ralliement) —
+  // meme effet que Echap. Trace de mur en cours : le clic droit l'annule
+  // (puis quitte le mode).
+  const cancelledTargeting = spellTargeting !== null || wallPlacement !== null;
   if (wallPlacement) cancelWallTraceOrMode();
-  if (armedItemIndex !== null) disarmItem();
   if (spellTargeting) cancelSpellTargeting();
   if (rallyTargeting) cancelRallyTargeting();
 
-  // Prototype RTS : en bataille, avec une unite commandee (selection ou Heros),
-  // ce clic droit devient un ordre (attaque ou deplacement) a son relachement
-  // (voir le mouseup plus bas), meme si la souris a un peu bouge. Jamais si
-  // ce clic vient de desarmer un objet, ni si un clic gauche s'y ajoute
-  // ensuite (pan).
+  // RTS : en jeu, avec une unite commandee (selection ou Heros), ce clic
+  // droit devient un ordre (attaque ou deplacement) a son relachement (voir
+  // le mouseup plus bas), meme si la souris a un peu bouge. Jamais si ce
+  // clic vient d'annuler un ciblage, ni si un clic gauche s'y ajoute ensuite
+  // (pan).
   // Heros permanent (2026-11-02) : sans unite selectionnee, le Heros recoit l'ordre.
-  pendingRightClickOrder = !disarmedItem && !buildingPlacementMode && rtsCommandIds().length > 0 && canIssueRtsOrder();
+  pendingRightClickOrder = !cancelledTargeting && !buildingPlacementMode && rtsCommandIds().length > 0 && canIssueRtsOrder();
 
-  // Mode placement d'un BATIMENT achete (2026-08-17, demande explicite
-  // d'Antoine, point 10 : "Escape ou clic droit -> annule le placement,
-  // aucun Gold dépensé") — meme priorite que armedItemIndex ci-dessus.
-  // buildingClickCandidate efface INCONDITIONNELLEMENT (2026-08-18) : un
-  // clic maintenu sur un bâtiment, PAS ENCORE promu en glisser (seuil non
-  // franchi, buildingPlacementMode donc toujours null), ne doit pas non
-  // plus survivre a un clic droit — sinon un mousemove ulterieur sans
-  // rapport pourrait a tort declencher un deplacement.
-  buildingClickCandidate = null;
+  // Mode de pose d'un BATIMENT (2026-08-17, demande explicite d'Antoine,
+  // point 10 : "Escape ou clic droit -> annule le placement, aucun Gold
+  // dépensé").
   if (buildingPlacementMode) cancelBuildingPlacement();
 
   // Editeur de maps (2026-08-16, demande d'Antoine) : clic droit dans le vide
@@ -9998,126 +7802,21 @@ canvas.addEventListener('mousedown', (event) => {
 });
 
 canvas.addEventListener('mousedown', (event) => {
-  // Geste camera (voir plus haut) : le clic gauche qui s'ajoute n'est jamais
-  // une action de placement.
-  if (event.button !== 0 || !inPlacementPhase || inEditorMode || leftClickReservedForCamera(event)) return;
-  // Mode placement d'un BATIMENT achete (2026-08-17, demande explicite
-  // d'Antoine) : ce clic CONFIRME (ou refuse silencieusement, si invalide —
-  // meme convention qu'un clic de placement d'unite raté) l'emplacement
-  // survole, court-circuitant ENTIEREMENT la selection/le glisser d'unite
-  // normaux ci-dessous tant que ce mode est actif.
-  if (buildingPlacementMode) {
-    confirmBuildingPlacement(event);
-    return;
-  }
-  if (useArmedItemOnPlacementClick(event)) return;
-
-  // Clic sur un bâtiment DEJA POSSEDE (2026-08-17, "il faut pouvoir rebouger
-  // ses bâtiments pendant la phase de placement") — court-circuite la
-  // selection d'unite ci-dessous. Verifie APRES useArmedItemOnPlacementClick
-  // (un parchemin arme prime, meme priorite que pour une unite) mais AVANT
-  // findHoveredSlot (unites et bâtiments n'occupent jamais le meme espace,
-  // l'ordre n'a donc pas d'impact pratique, garde juste la lecture logique
-  // "objets d'abord, cibles ensuite").
-  // 2026-08-18 : ne demarre PLUS le deplacement immediatement — pose
-  // seulement un CANDIDAT (voir BUILDING_DRAG_THRESHOLD_PX/requestMoveBuilding) :
-  // un simple clic sans bouger doit laisser le bâtiment EXACTEMENT en place
-  // (retour d'Antoine : "clic -> bâtiment disparaît -> petit vide -> la
-  // souris bouge -> il réapparaît"), seul un vrai glisser (voir le mousemove
-  // dedie plus bas) declenche desormais requestMoveBuilding.
-  const hoveredBuilding = findHoveredOwnedBuilding(event);
-  if (hoveredBuilding !== null) {
-    placementBallistaSelected = false;
-    buildingClickCandidate = { index: hoveredBuilding, startClientX: event.clientX, startClientY: event.clientY };
-    return;
-  }
-  // Clic sur la tour de la Baliste : selection seule, meme bascule qu'un
-  // bâtiment possede. Aucun glisser ni deplacement pendant la preparation.
-  if (isBallistaHoveredInPlacement(event)) {
-    placementBallistaSelected = !placementBallistaSelected;
-    selectedBuildingIndex = null;
-    updateBuildingSelectionRing();
-    if (placementBallistaSelected && selectedIndices.length > 0) {
-      clearSelection();
-      refreshPlayerPreview();
-    }
-    return;
-  }
-  // Clic ailleurs qu'un bâtiment possede : deselectionne l'anneau de
-  // selection actif s'il y en a un (2026-08-18) — ne court-circuite jamais
-  // la suite (selection d'unite normale ci-dessous).
-  if (selectedBuildingIndex !== null || placementBallistaSelected) {
-    selectedBuildingIndex = null;
-    placementBallistaSelected = false;
-    updateBuildingSelectionRing();
-  }
-
-  const hoveredSlot = findHoveredSlot(event);
-  if (hoveredSlot !== null) {
-    // Double-clic MANUEL (2026-08-10) : deux mousedown sur la MEME unite en
-    // moins de DOUBLE_CLICK_WINDOW_MS. Remplace un listener 'dblclick' natif
-    // essaye d'abord (retire) : Antoine a remonte que le premier clic
-    // selectionnait puis le second desselectionnait (toggle simple deux fois
-    // de suite), sans que la selection de groupe n'apparaisse jamais —
-    // signe que l'evenement 'dblclick' du navigateur ne se declenchait pas
-    // de facon fiable par-dessus notre propre logique mousedown/mouseup.
-    // Detection manuelle par horodatage, integree directement ici : le 2e
-    // mousedown court-circuite l'armement du glisser (pas de unitDrag pose),
-    // donc le mouseup qui suit ne fait rien et n'annule plus la selection de
-    // groupe qu'on vient de poser.
-    // Maj + clic : ajout/retrait, jamais un double-clic (meme regle qu'en
-    // bataille).
-    if (registerSlotClick(hoveredSlot, event.shiftKey, performance.now())) {
-      selectSameTypeGroup(hoveredSlot);
-      return;
-    }
-
-    // Ne selectionne pas tout de suite : un glisser (voir le mousemove plus
-    // bas) doit pouvoir prendre le dessus pour vendre l'unite ou la deplacer.
-    // La selection normale se resout au relachement si le curseur n'a pas
-    // assez bouge (voir le mouseup plus bas). Si l'unite survolee fait deja
-    // partie d'un groupe selectionne (2+ elements), le glisser deplacera OU
-    // vendra tout le groupe (voir groupIndices, points 24-27/33-34 de la
-    // demande) plutot que ce seul slot.
-    const groupIndices = selectedIndices.length > 1 && selectedIndices.includes(hoveredSlot) ? selectedIndices : null;
-    unitDrag = { slotIndex: hoveredSlot, groupIndices, startClientX: event.clientX, startClientY: event.clientY, dragging: false, shift: event.shiftKey };
-    return;
-  }
-
-  // Pas sur une unite : meme logique differee que ci-dessus, mais pour le
-  // rectangle de selection multiple (voir GroundDragState) — un simple clic
-  // (sans glisser) reste resolu comme avant (handleEmptyTileClick) au
-  // relachement.
-  groundDrag = {
-    startClientX: event.clientX,
-    startClientY: event.clientY,
-    dragging: false,
-    shift: event.shiftKey,
-    fallbackSlot: findFallbackSlot(event, event.shiftKey),
-  };
-});
-
-canvas.addEventListener('mousedown', (event) => {
   if (event.button !== 0 || inEditorMode || leftClickReservedForCamera(event) || !inBattlePhase()) return;
-  // Temps reel : un mur V2 en cours de pose prend le clic (point A, B, porte).
+  // Un mur V2 en cours de pose prend le clic (point A, B, porte).
   if (wallPlacement) {
     confirmWallPlacement(event);
     return;
   }
-  // Temps reel : un batiment en cours de pose prend le clic (chantier).
+  // Un batiment en cours de pose prend le clic (chantier).
   if (buildingPlacementMode) {
     confirmBuildingPlacement(event);
     return;
   }
-  // Clic gauche en bataille : un objet arme (parchemin, Nova...) CONSOMME
-  // ENTIEREMENT ce clic (2026-08-15, PRIORITE explicite d'Antoine : UI > mode
-  // de ciblage d'un objet > reste) ; sinon selection RTS, resolue au
-  // relachement : clic simple ou rectangle selon le deplacement (voir le
-  // mousemove et le mouseup plus bas). Le tir de Baliste est sur Q.
-  if (armedItemIndex !== null) {
-    useArmedItemOnClick(event);
-    return;
-  }
+  // Clic gauche en jeu : un ciblage en cours (sort, ralliement) prend le
+  // clic ; sinon selection RTS, resolue au relachement : clic simple ou
+  // rectangle selon le deplacement (voir le mousemove et le mouseup plus
+  // bas). Le tir de Baliste est sur Q.
   // Sort de Heros en attente de cible (fiche : Soin).
   if (spellTargeting) {
     useSpellOnClick(event);
@@ -10141,7 +7840,6 @@ canvas.addEventListener('mousedown', (event) => {
 // geste tactile interrompu...) — aucun tir maintenu ne doit survivre.
 window.addEventListener('pointercancel', () => {
   fireKeyHeld = false;
-  buildingClickCandidate = null;
   if (buildingPlacementMode) cancelBuildingPlacement();
 });
 window.addEventListener('blur', () => {
@@ -10150,7 +7848,6 @@ window.addEventListener('blur', () => {
   cameraDrag = null;
   cancelCommandDrag();
   cancelEditorPointer();
-  buildingClickCandidate = null;
   if (buildingPlacementMode) cancelBuildingPlacement();
 });
 
@@ -10176,73 +7873,9 @@ window.addEventListener('mouseup', (event) => {
   }
   // Le pan exige les deux boutons : relacher le gauche y met fin.
   if (event.button === 0 && cameraDrag === 'pan') cameraDrag = null;
-  if (event.button !== 0 || !unitDrag) return;
-
-  const drag = unitDrag;
-  unitDrag = null;
-
-  if (!drag.dragging) {
-    // Pas assez bouge pour compter comme un glisser : clic simple, selection
-    // normale (meme comportement qu'avant l'ajout du glisser-vendre), ou
-    // ajout/retrait avec Maj.
-    if (drag.shift) toggleSlotSelection(drag.slotIndex);
-    else selectSlot(drag.slotIndex);
-    return;
-  }
-
-  unitMovePreview.hide();
-  sellZone.hideGhost();
-  sellZone.setArmed(false);
-
-  // Relache au-dessus de "Vendre" (2026-08-14, points 24-27/33-34 de la
-  // demande) : vend le GROUPE entier si le glisser en deplacait un, sinon la
-  // seule unite saisie — verifie AVANT toute logique de deplacement, pour
-  // les deux cas de glisser (seul et groupe).
-  if (sellZone.isPointOver(event.clientX, event.clientY)) {
-    sellUnits(drag.groupIndices ?? [drag.slotIndex]);
-    return;
-  }
-
-  // Sinon, deplacement selon le plan montre par l'apercu pendant le glisser
-  // (placementDragProposal, meme calcul) ; relache sur l'interface : rien.
-  // Reussite : selection videe, apercu masque. Echec : rien ne bouge, la
-  // selection est conservee.
-  if (event.target !== canvas) return;
-  const proposal = placementDragProposal(drag, event);
-  if (!proposal || !applyPlacementMove(proposal)) return;
-  clearSelection();
-  unitMovePreview.hide();
-  refreshPlayerPreview();
 });
 
-window.addEventListener('mouseup', (event) => {
-  if (event.button !== 0 || !groundDrag) return;
-
-  const drag = groundDrag;
-  groundDrag = null;
-
-  if (!drag.dragging) {
-    // Pas assez bouge pour compter comme un rectangle de selection : clic
-    // simple. Sur la case d'une unite (rayon qui a manque son modele, voir
-    // findFallbackSlot) : meme resolution qu'un clic sur le modele. Sinon,
-    // comportement inchange du sol (deplacement de l'unite/du groupe en
-    // main, voir handleEmptyTileClick) ; Maj + clic dans le vide : rien.
-    if (drag.fallbackSlot !== null) {
-      const index = drag.fallbackSlot;
-      if (registerSlotClick(index, drag.shift, performance.now())) selectSameTypeGroup(index);
-      else if (drag.shift) toggleSlotSelection(index);
-      else selectSlot(index);
-      return;
-    }
-    if (!drag.shift) handleEmptyTileClick(event);
-    return;
-  }
-
-  selectionBox.hide();
-  selectUnitsInRect(selectionBox.toRect(drag.startClientX, drag.startClientY, event.clientX, event.clientY));
-});
-
-// Clic gauche relache en bataille (selection RTS) : clic simple sous
+// Clic gauche relache en jeu (selection RTS) : clic simple sous
 // le seuil, rectangle de selection au-dela — un vrai glisser ne produit
 // jamais de clic. Abandonne si la bataille s'est terminee entre-temps.
 window.addEventListener('mouseup', (event) => {
@@ -10268,54 +7901,6 @@ window.addEventListener('mousemove', (event) => {
 // Derniere position du curseur, lue par aimAtPointer (visee de la Baliste).
 window.addEventListener('mousemove', (event) => {
   lastPointerClient = { x: event.clientX, y: event.clientY };
-});
-
-window.addEventListener('mousemove', (event) => {
-  if (armedItemIndex === null) return;
-  inventoryBar.moveCursorIcon(event.clientX, event.clientY);
-  // Anneau de previsualisation de la cible de soin (2026-08-11) — voir
-  // updateHealTargetPreview, meme geste que le curseur qui suit l'objet
-  // arme juste au-dessus.
-  updateHealTargetPreview(event);
-  // Anneau de previsualisation de la Nova de glace (2026-08-14) — meme
-  // motif, ne fait rien si l'objet arme n'est pas la Nova.
-  updateIceNovaTargetPreview(event);
-});
-
-window.addEventListener('mousemove', (event) => {
-  if (!groundDrag) return;
-
-  if (!groundDrag.dragging) {
-    const dx = event.clientX - groundDrag.startClientX;
-    const dy = event.clientY - groundDrag.startClientY;
-    if (Math.hypot(dx, dy) < UNIT_DRAG_THRESHOLD_PX) return;
-    groundDrag.dragging = true;
-    selectionBox.show();
-  }
-
-  selectionBox.update(groundDrag.startClientX, groundDrag.startClientY, event.clientX, event.clientY);
-});
-
-window.addEventListener('mousemove', (event) => {
-  if (!unitDrag) return;
-
-  if (!unitDrag.dragging) {
-    const dx = event.clientX - unitDrag.startClientX;
-    const dy = event.clientY - unitDrag.startClientY;
-    if (Math.hypot(dx, dy) < UNIT_DRAG_THRESHOLD_PX) return;
-    unitDrag.dragging = true;
-    // Fantome de vente (2026-08-14, points 24-27 de la demande : un glisser
-    // de GROUPE peut desormais aussi etre vendu) — un seul texte-libelle
-    // pour l'unite seule, un decompte pour un groupe.
-    sellZone.showGhost(unitDrag.groupIndices ? `${unitDrag.groupIndices.length} unités` : (placementSlots[unitDrag.slotIndex]?.unitId ?? ''));
-  }
-
-  sellZone.moveGhost(event.clientX, event.clientY);
-  const overSellZone = sellZone.isPointOver(event.clientX, event.clientY);
-  sellZone.setArmed(overSellZone);
-
-  // Apercu de destination (empreintes et silhouettes) : voir
-  // updateMovePreview, masque au-dessus de la zone de vente.
 });
 
 window.addEventListener('mousemove', (event) => {
@@ -10407,28 +7992,9 @@ function updateEditorBallistaMovePreview(event: MouseEvent): void {
   editorGhostGroup.add(editorGhost);
 }
 
-// Seuil de glisser sur un bâtiment DEJA POSSEDE (2026-08-18) : promeut un
-// simple clic maintenu en VRAI deplacement des que le curseur s'est assez
-// eloigne — voir requestMoveBuilding pour la mise en scene (fantome pose
-// AVANT le masquage du mesh original). Enregistre AVANT le listener suivant
-// (fantome qui suit le curseur) : les deux listeners 'mousemove' tournent
-// l'un apres l'autre pour le MEME evenement, de facon synchrone (JS,
-// jamais de repaint entre les deux) — une fois buildingPlacementMode pose
-// ici, le listener suivant le voit deja et repositionne aussitot le
-// fantome sous le VRAI curseur, sans attendre un DEUXIEME mousemove.
-window.addEventListener('mousemove', (event) => {
-  if (!buildingClickCandidate) return;
-  const dx = event.clientX - buildingClickCandidate.startClientX;
-  const dy = event.clientY - buildingClickCandidate.startClientY;
-  if (Math.hypot(dx, dy) < BUILDING_DRAG_THRESHOLD_PX) return;
-  const index = buildingClickCandidate.index;
-  buildingClickCandidate = null;
-  requestMoveBuilding(index);
-});
-
-// Fantome de placement d'un BATIMENT achete (2026-08-17) — meme technique
-// que le fantome de l'editeur juste au-dessus (raycast sur le sol), mais un
-// mode ENTIEREMENT distinct (buildingPlacementMode, jamais inEditorMode).
+// Fantome de pose d'un BATIMENT (2026-08-17) — meme technique que le fantome
+// de l'editeur juste au-dessus (raycast sur le sol), mais un mode
+// ENTIEREMENT distinct (buildingPlacementMode, jamais inEditorMode).
 window.addEventListener('mousemove', (event) => {
   if (!buildingPlacementMode) return;
   setRaycasterFromEvent(event);
@@ -10442,40 +8008,6 @@ window.addEventListener('mousemove', (event) => {
   setRaycasterFromEvent(event);
   if (!intersectTerrain(raycaster.ray, groundHit)) return;
   updateWallPlacementGhost(groundHit.x, groundHit.z);
-});
-
-// Relachement en fin de glisser d'un bâtiment DEJA POSSEDE (2026-08-18) —
-// deux cas distincts, mutuellement exclusifs par construction :
-// (1) buildingClickCandidate encore present : le seuil n'a JAMAIS ete
-//     franchi (simple clic) — bascule la selection (anneau), le bâtiment
-//     n'a jamais bouge d'un pixel, comme demande explicitement.
-// (2) buildingPlacementMode.movingIndex non-null : un vrai glisser vient de
-//     se terminer — commit sur la case survolee si valide (confirmBuildingPlacement,
-//     renvoie desormais un booleen), SINON annule explicitement (retour
-//     automatique a la position d'origine, jamais de bâtiment perdu ni de
-//     Gold perdu — laisser le mode arme en attente d'un TROISIEME clic
-//     n'aurait pas de sens une fois le bouton relache).
-window.addEventListener('mouseup', (event) => {
-  if (event.button !== 0) return;
-
-  if (buildingClickCandidate) {
-    const index = buildingClickCandidate.index;
-    buildingClickCandidate = null;
-    selectedBuildingIndex = selectedBuildingIndex === index ? null : index;
-    updateBuildingSelectionRing();
-    // Une seule famille selectionnee a la fois (unites OU bâtiment OU
-    // Baliste) : selectionner un bâtiment vide la selection d'unites.
-    if (selectedBuildingIndex !== null && selectedIndices.length > 0) {
-      clearSelection();
-      refreshPlayerPreview();
-    }
-    return;
-  }
-
-  if (buildingPlacementMode?.movingIndex !== null && buildingPlacementMode?.movingIndex !== undefined) {
-    const committed = confirmBuildingPlacement(event);
-    if (!committed) cancelBuildingPlacement();
-  }
 });
 
 window.addEventListener('mousemove', (event) => {
