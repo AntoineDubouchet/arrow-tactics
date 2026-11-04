@@ -136,10 +136,9 @@ export const BUILD_CHAIN_RADIUS = 3;
  *  (BuildingDef.dropOff : la Baliste). Ramasser un petit tas prend
  *  PICKUP_SECONDS au contact (rayon + PICKUP_REACH) ; le depot se fait au
  *  contact de l'emprise (BUILD_REACH). PROVISOIRE. */
-/** Depot (2026-11-02, demande d'Antoine) : une unite du sac versee au stock
- *  toutes les DEPOSIT_SECONDS_PER_ITEM s au contact du depot (3 s pour un sac
- *  de 6). PROVISOIRE. */
-export const DEPOSIT_SECONDS_PER_ITEM = 0.5;
+/** Depot (2026-11-04, demande d'Antoine) : INSTANTANE au contact du point de
+ *  collecte (l'ancienne temporisation d'une unite toutes les 0,5 s est
+ *  supprimee). */
 export const PICKUP_SECONDS = 0.6;
 export const PICKUP_REACH = 0.5;
 /** Inventaire RPG du Heros (2026-11-02) : cases du sac (equipements, butin ;

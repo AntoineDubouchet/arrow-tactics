@@ -885,10 +885,9 @@ passe par le **cargo économique**, jamais par l'inventaire RPG, voir
   le dépôt (`DepotTargetRing`) ;
 - **boucle** : clic droit du Héros sur un tas → il y va → ramassage
   (0,6 s) → **sac** (6 unités au plus, bois et pierre confondus) → clic droit
-  sur la **Baliste** → dépôt **unité par unité, 0,5 s chacune** (3 s pour
-  un sac de 6, geste accroupi ; un autre ordre l'interrompt, ce qui est
-  versé reste versé ; annonce « Dépôt terminé — stock : … » à la fin) →
-  stock de la run. Le stock
+  sur la **Baliste** → dépôt **instantané** au contact (depuis le
+  2026-11-04 ; avant : 0,5 s par unité, geste accroupi ; annonce « Dépôt
+  terminé — stock : … ») → stock de la run. Le stock
   n'augmente **qu'au dépôt** ; un tas vidé disparaît et ne revient pas
   (quantités gardées dans la run). Sac plein : le Héros s'arrête et un
   message invite à déposer. Le sac est gardé à la mort et entre les manches ;
@@ -1580,9 +1579,11 @@ le « stock direct » G30 du même jour) :
   **manuel** (clic droit sur un point de collecte qui accepte au moins une
   ressource portée ; « Rien à déposer » à cargo vide ; « Aucune ressource
   acceptée — Scierie : bois » quand il n'accepte rien de ce qu'on porte :
-  rien n'est jamais vidé en silence) ; une unité / 0,5 s ; le stock (HUD)
-  monte à chaque unité ; « Dépôt terminé — stock : … » à la fin ; retour à
-  la tâche en cours s'il y en avait une.
+  rien n'est jamais vidé en silence) ; **instantané** au premier pas au
+  contact (2026-11-04 : plus de temporisation, aucune barre d'action ni
+  geste de dépôt) ; le stock (HUD) monte d'un coup ; « Dépôt terminé —
+  stock : … » ; retour à la tâche en cours s'il y en avait une, qui peut
+  commencer aussitôt.
 - **Cargo mixte** (ex. 4 bois, 3 pierre, 2 or) : un point ne prend que ce
   qu'il accepte, le reste demeure dans le cargo. Dépôt **manuel** : ce
   point seulement (Scierie → les 4 bois, puis Garde). Dépôt

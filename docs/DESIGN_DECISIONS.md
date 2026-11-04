@@ -100,6 +100,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G33 | Points de collecte spécialisés : Scierie = bois, Camp de mineur = pierre + or extrait, Baliste universelle de départ ; inventaire RPG sans ressource (KI-63) | Active (valeurs provisoires ; rôle de la Baliste à revoir) |
 | G31 | Caméra de jeu verrouillée sur le Héros | Retirée (essai d'un jour, retour à la vue RTS libre) |
 | G34 | Éditeur de Survie : camp = objet sémantique authorable avec niveau, Départ Survie explicite, validation | Active (valeurs provisoires) |
+| G35 | Dépôt des ressources instantané au contact du point de collecte | Active |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -1873,7 +1874,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - Villageois 5 or, 8 s, 2,5 PV, 0,2 dégât, vitesse 2,2, population 1,
     charge 5 ; Auberge 15 or + 8 bois, 2 × 2, 20 PV ;
   - dépôt au dépôt allié **le plus proche** (`resourceDepot`), une unité
-    / 0,5 s ; source épuisée : même type à 6 cases au plus, sinon Garde ;
+    / 0,5 s (instantané depuis le 2026-11-04, G35) ; source épuisée : même
+    type à 6 cases au plus, sinon Garde ;
   - **asymétrie provisoire** : l'or n'est jamais porté (monnaie), le bois
     et la pierre le sont ;
   - aucun modèle de paysan : modèle du Piquier en attendant.
@@ -2025,6 +2027,25 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `data/buildings.ts`, `sim/entity.ts`, `sim/world.ts`, `sim/orders.ts`,
   `sim/systems/cargo.ts`, `sim/systems/hero.ts`, `render/toonUnitRig.ts`,
   `run/entityInfo.ts`, `ui/heroInventory.ts`, `ui/style.css`, `main.ts`.
+
+### G35 — Dépôt des ressources instantané
+
+- **Statut** : Active (2026-11-04).
+- **Demande d'Antoine** : supprimer la temporisation du dépôt (1 unité /
+  0,5 s) : à l'arrivée à un point de collecte valide, tout ce qu'il accepte
+  est transféré **immédiatement** (Villageois avec 5 bois à la Scierie →
+  +5 bois d'un coup ; Héros avec 3 pierre + 2 or au Camp de mineur → +5
+  d'un coup). Aucune barre ni attente. Toutes les autres règles restent
+  (acceptation par point, dépôt partiel, cargo mixte, chaînage, retour à la
+  source, dépôt manuel, reroutage).
+- **Choix de la passe** : `DEPOSIT_SECONDS_PER_ITEM` supprimé
+  (`data/hero.ts`) ; `cargoWork` transfère au premier pas au contact, un
+  évènement `cargoDeposit` par ressource avec sa quantité ; le geste
+  `deposit` n'existe plus (`working` sans `'deposit'` ; le rôle d'animation
+  reste défini dans les kits, inutilisé) ; la barre d'action du Héros n'a
+  plus de cas « dépôt ».
+- **Sources** : `sim/systems/cargo.ts`, `data/hero.ts`, `sim/entity.ts`,
+  `main.ts`.
 
 ### G31 — Caméra de jeu verrouillée sur le Héros (essai retiré)
 
@@ -2263,7 +2284,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     travail gardés) ; essai du clip `charge` pour son déplacement ;
     **mana 20 au niveau 1**, **Soin 12 mana**, icône propre au Paladin ;
     barre de progression de l'action au-dessus de l'XP ; **dépôt 0,5 s par
-    unité** (unité par unité, interruptible) ;
+    unité** (unité par unité, interruptible ; instantané depuis le
+    2026-11-04, G35) ;
   - choix : un nouveau sort pendant une incantation compte le mana qui va
     être rendu (sinon le premier sort continuait faute de mana) ; l'échelle
     1,4 du bloc `atelier` reste un réglage d'aperçu (le jeu garde 1,3).

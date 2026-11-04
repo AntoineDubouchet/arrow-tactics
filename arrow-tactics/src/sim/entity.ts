@@ -134,7 +134,7 @@ export interface OnHitEffects {
 /** Etat propre au Heros (Entity.hero). */
 /** Etat d'un Villageois : son geste de travail (rendu : outil et clip). */
 export interface WorkerState {
-  working: 'chop' | 'mine' | 'gather' | 'deposit' | null;
+  working: 'chop' | 'mine' | 'gather' | null;
   workTimer: number;
 }
 
@@ -174,7 +174,7 @@ export interface HeroState {
   respawnTimer: number;
   /** Travail en cours AU CONTACT (rendu : outil et geste), null en chemin ou
    *  sans ordre de travail. `gather` : ramasse un petit tas au sol. */
-  working: 'chop' | 'mine' | 'build' | 'gather' | 'deposit' | null;
+  working: 'chop' | 'mine' | 'build' | 'gather' | null;
   /** Temps accumule vers la prochaine unite recoltee (ou le ramassage). */
   workTimer: number;
   /** Inventaire RPG (sim/inventory.ts, 2026-11-02) : equipements du sac,

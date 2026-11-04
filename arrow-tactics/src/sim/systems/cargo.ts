@@ -1,5 +1,5 @@
 import { getBuilding } from '../../data/buildings';
-import { DEPOSIT_SECONDS_PER_ITEM, HARVEST_INTERVAL, PICKUP_SECONDS } from '../../data/hero';
+import { HARVEST_INTERVAL, PICKUP_SECONDS } from '../../data/hero';
 import { cargoResourceOf, cargoRoom, cargoTotal, CARGO_RESOURCES, HARVEST_NODE_KINDS, type CargoResource } from '../../data/resources';
 import type { CargoState, Entity } from '../entity';
 
@@ -25,8 +25,9 @@ import type { HeroWorkContext } from './hero';
  *    retour a la source (`cargo.returnTo`) ;
  *  - `pickup` d'un tas de bois / pierre : PICKUP_SECONDS, puis autant que
  *    le cargo peut prendre ; le reste attend au sol, depot, retour au tas ;
- *  - `deposit` : une unite toutes les DEPOSIT_SECONDS_PER_ITEM s, seules les
- *    ressources acceptees par CE point, le reste demeure dans le cargo ;
+ *  - `deposit` : transfert INSTANTANE au contact (2026-11-04, plus de
+ *    temporisation par unite), seules les ressources acceptees par CE
+ *    point, le reste demeure dans le cargo ;
  *    depot automatique (`cargo.auto`) : enchaine sur le prochain point qui
  *    accepte ce qui reste, jusqu'a cargo vide ou aucun point ; puis retour
  *    a la tache memorisee, sinon Garde ; depot manuel : ce point seulement ;
@@ -208,20 +209,16 @@ export function cargoWork(e: Entity, goal: { reached: boolean; target: Entity | 
   if (order.type === 'deposit') {
     const site = goal.target!;
     const accepted = dropOffAccepts(site);
-    const pending = (): CargoResource | undefined => CARGO_RESOURCES.find((r) => accepted.includes(r) && c[r] > 0);
-    if (pending()) {
-      w.working = 'deposit';
-      const before = Math.floor(w.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9);
-      w.workTimer += dt;
-      let due = Math.floor(w.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9) - before;
-      while (due-- > 0) {
-        const r = pending();
-        if (!r) break;
-        c[r] -= 1;
-        events.push({ type: 'cargoDeposit', entityId: e.id, resource: r, amount: 1, remaining: cargoTotal(c) });
-      }
+    // Transfert instantane : au premier pas au contact, tout ce que le point
+    // accepte passe au stock (un evenement par ressource), sans geste ni
+    // attente ; le reste demeure dans le cargo.
+    for (const r of CARGO_RESOURCES) {
+      if (!accepted.includes(r) || c[r] <= 0) continue;
+      const amount = c[r];
+      c[r] = 0;
+      events.push({ type: 'cargoDeposit', entityId: e.id, resource: r, amount, remaining: cargoTotal(c) });
     }
-    if (!pending()) {
+    {
       w.working = null;
       w.workTimer = 0;
       // Depot automatique partiel (point specialise, cargo mixte) : enchaine

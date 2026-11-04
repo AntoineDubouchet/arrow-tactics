@@ -251,7 +251,7 @@ import { WorldLabel } from './ui/worldLabel';
 import { DEFAULT_HERO_ID, getHero, heroKit, HEROES, type HeroDef } from './data/heroes';
 import { getSpell } from './data/spells';
 import { INITIAL_EXPLORED_RADIUS } from './data/vision';
-import { REPAIR_FULL_SECONDS, CHEST_OPEN_SECONDS, CONSTRUCTION_START_HP_FRACTION, DEPOSIT_SECONDS_PER_ITEM, HARVEST_INTERVAL, HERO_LEVELS, HERO_UNIT_ID, PICKUP_SECONDS } from './data/hero';
+import { REPAIR_FULL_SECONDS, CHEST_OPEN_SECONDS, CONSTRUCTION_START_HP_FRACTION, HARVEST_INTERVAL, HERO_LEVELS, HERO_UNIT_ID, PICKUP_SECONDS } from './data/hero';
 import { campLayoutOf, expandMapCamps } from './data/campLayout';
 import { CAMP_KINDS, getCampKind } from './data/camps';
 import { campSpecOf } from './run/camps';
@@ -6740,11 +6740,7 @@ function heroActionProgress(hero: Entity): { progress: number; remaining: number
     return { progress: Math.min(1, h.workTimer / total), remaining: total - h.workTimer };
   }
   if (h.working === 'chop' || h.working === 'mine') return { progress: Math.min(1, h.workTimer / HARVEST_INTERVAL), remaining: HARVEST_INTERVAL - h.workTimer };
-  if (h.working === 'deposit') {
-    // Cargo de depart = porte + deja verse (une unite par DEPOSIT_SECONDS_PER_ITEM).
-    const total = ((hero.cargo ? cargoTotal(hero.cargo) : 0) + Math.floor(h.workTimer / DEPOSIT_SECONDS_PER_ITEM + 1e-9)) * DEPOSIT_SECONDS_PER_ITEM;
-    return { progress: Math.min(1, h.workTimer / Math.max(total, 1e-6)), remaining: total - h.workTimer };
-  }
+  // Depot : instantane au contact (2026-11-04), aucune barre.
   if (h.working === 'build' && hero.order.type === 'repair' && h.repairJob) {
     // Reparation : part du budget de PV rendue, au rythme de REPAIR_FULL_SECONDS.
     const target = world.getById(h.repairJob.targetId);
