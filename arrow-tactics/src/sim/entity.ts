@@ -119,11 +119,14 @@ export interface HeroEquipmentBonus {
 export const NO_EQUIPMENT_BONUS: Readonly<HeroEquipmentBonus> = { maxHp: 0, maxMana: 0, manaRegen: 0, damage: 0, attackSpeed: 0, moveSpeed: 0, fireDamage: 0 };
 
 /** Commande de la file de production temps reel (Entity.productionOrders) :
- *  une unite ou l'amelioration du batiment. `id` : attribue par
+ *  une unite, l'amelioration du batiment, ou une recherche (2026-11-05 :
+ *  technologie `techId`, que la simulation ne connait pas — elle ne fait
+ *  que la minuter et la renvoyer terminee). `id` : attribue par
  *  World.queueProduction, sert a l'annulation. */
 export type ProductionOrder =
   | { id: number; kind: 'unit'; unitId: string; remaining: number; total: number }
-  | { id: number; kind: 'upgrade'; remaining: number; total: number };
+  | { id: number; kind: 'upgrade'; remaining: number; total: number }
+  | { id: number; kind: 'research'; techId: string; remaining: number; total: number };
 
 /** Effets « a l'impact » d'une entite (equipement du Heros aujourd'hui),
  *  appliques par combatSystem apres un coup qui touche. */
@@ -395,7 +398,7 @@ export interface Entity {
    *  World.spawn). Pipeline "base -> talents -> achats -> buffs" (voir
    *  `stats` ci-dessus) applique aux capacites : la sim ne sait pas D'OU
    *  vient ce nombre (boutique d'amelioration permanente du joueur, voir
-   *  run/unitUpgradeEffects.ts, 2026-08-13 — le Mage l'utilise pour sa
+   *  run/playerUnitStats.ts, 2026-08-13 — le Mage l'utilise pour sa
    *  Boule de feu), elle l'ajoute juste. */
   abilityDamageBonus: number;
 
@@ -503,8 +506,10 @@ export interface Entity {
   /** File de production TEMPS REEL (2026-11-02, remplace la commande unique
    *  du 2026-11-01) : commandes dans l'ordre des clics, seule la premiere
    *  avance. Une unite terminee rejoint productionQueue ; une amelioration
-   *  terminee emet World.productionUpgradeEvents (le niveau du batiment est
-   *  applique par l'orchestration). Videe a la mort du batiment. */
+   *  ou une recherche terminee emet World.productionUpgradeEvents (le niveau
+   *  ou la technologie est applique par l'orchestration). Tout batiment du
+   *  joueur en a une (Baliste comprise : son amelioration). Videe a la mort
+   *  du batiment. */
   productionOrders: ProductionOrder[];
   /** Vrai tant que la premiere unite terminee attend une place de population
    *  (voir buildingProductionSystem) : affiche par la fiche, jamais lu par

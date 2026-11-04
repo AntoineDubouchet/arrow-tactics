@@ -23,7 +23,7 @@ import {
   SURVIVAL_FIRST_WAVE_DELAY_SECONDS,
   SURVIVAL_NEXT_WAVE_DELAY_SECONDS,
 } from './config/constants';
-import { BUILDING_UPGRADE_SECONDS, PRODUCTION_QUEUE_MAX, producibleUnits, unitProductionSeconds } from './data/production';
+import { PRODUCTION_QUEUE_MAX, producibleUnits, unitProductionSeconds } from './data/production';
 import { teamVision, visionRadiusOf } from './sim/vision';
 import {
   BALLISTA_PLACEMENT_TILES,
@@ -137,7 +137,6 @@ import {
   grantFirstRunPointIfNeeded,
   isTalentUnlocked,
   loadMetaProgress,
-  registerEnemyDefeat,
   registerWaveReached,
   resetMetaProgress,
   resetTalentPoints,
@@ -145,22 +144,28 @@ import {
   unlockTalent,
 } from './run/metaProgress';
 import { computeStartingGoldBonus, computeTalentEconomyHooks } from './run/talentEffects';
-import {
-  computeEnemyUnitUpgradeEffects,
-  currentProductionLevel,
-  effectivePlayerUnitCost,
-  enemyUnitUpgradeLevel,
-  playerUnitMaxHp,
-} from './run/unitUpgradeEffects';
+import { computeEnemyUnitUpgradeEffects, enemyUnitUpgradeLevel } from './run/enemyWaveEffects';
 import { effectiveBallistaMaxHp } from './run/ballistaUpgradeEffects';
 import { mineProductionIntervalSeconds, rollMineGold } from './run/mineUpgradeEffects';
-import { applyOwnedBuildingUpgrade, buildingUpgradeGoldCost, canUpgradeOwnedBuilding, ownedBuildingLevel, upgradeOwnedBuilding } from './run/buildingUpgrades';
-import { harvestPermissionsOf } from './run/harvestPermissions';
+import { buildingLevelOf } from './run/buildingUpgrades';
+import {
+  cancelOrder,
+  completeOrders,
+  isBallistaUpgradePending,
+  isBuildingUpgradePending,
+  isTechnologyPending,
+  queueBallistaUpgradeOrder,
+  queueBuildingUpgradeOrder,
+  queueTechnologyOrder,
+  queueUnitOrder,
+  type OrderLedger,
+} from './run/productionOrders';
+import { getTechnology } from './data/technologies';
 import { FogOfWar, type VisionSource } from './render/fogOfWar';
 import { DepotTargetRing, ResourcePileViews, type DepotRingTarget } from './render/resourcePiles';
 import { randomSeed, Rng } from './core/rng';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp, getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
-import { playerUnitAbilityDamageBonus, playerUnitStatOverrides, playerUnitTauntShieldBonus } from './run/playerUnitStats';
+import { computePlayerUnitStats, playerUnitMaxHp } from './run/playerUnitStats';
 import {
   effectivePlayerArrowCooldown,
   effectivePlayerArrowDamage,
@@ -184,14 +189,12 @@ import {
   computeEnemyWaveComposition,
   createNewRun,
   formatGold,
-  isBuildingBuilt,
   roundGold,
   type OwnedBuilding,
   type RunState,
 } from './run/runState';
-import { displayedUpgradeLevel, purchaseRunUpgrade, type PlayerProgression, type RunUpgradeLevels } from './run/runUpgrades';
-import { churchHealCost, churchHealHpPerGold } from './run/churchHeal';
-import { forwardDir, type Entity, type Team } from './sim/entity';
+import { displayedUpgradeLevel, runUpgradeLevel, type PlayerProgression, type RunUpgradeLevels } from './run/runUpgrades';
+import { type Entity, type Team } from './sim/entity';
 import type { PlayerCommand } from './sim/orders';
 import type { ArrowShotSpec } from './sim/playerArrow';
 import { World } from './sim/world';
@@ -209,7 +212,7 @@ import { HeroInventoryPanel } from './ui/heroInventory';
 import { ItemEditor } from './itemEditor/itemEditorUI';
 import { equippedHandVisuals } from './run/heroEquipment';
 import { createHeroInventory, inventoryItems, type InventoryAction } from './sim/inventory';
-import { canHarvestResource, CARGO_LABELS, cargoResourceOf, cargoTotal, HARVEST_NODE_KINDS, HARVEST_TOOLS, STARTING_HARVEST_TOOLS } from './data/resources';
+import { CARGO_LABELS, cargoResourceOf, cargoTotal, HARVEST_NODE_KINDS } from './data/resources';
 import { EconomyHud } from './ui/economyHud';
 import { ActionProgressBar } from './ui/actionProgress';
 import { EQUIPMENT, type EquipmentSlot } from './data/equipment';
@@ -713,19 +716,9 @@ function playHitFlash(entityId: number): void {
  *  l'editeur est termine : la simulation est figee, la fin se joue. */
 let battleOver = false;
 
-/** Ids d'ennemis deja comptes comme vaincus (voir la boucle de jeu,
- *  deblocage par victoire) — evite de compter deux fois la meme mort si
- *  plusieurs coups visaient la meme unite au meme tick. Videe a chaque
- *  `world.clear()` (voir les sites d'appel) : les ids d'entite ne sont
- *  jamais reutilises (World.nextId ne revient jamais en arriere), donc ce
- *  n'est pas necessaire pour l'exactitude, seulement pour eviter une
- *  croissance non bornee sur une longue session. */
-const rewardedEnemyDeaths = new Set<number>();
-
 /** Production des Mines pendant une run (voir la boucle de jeu) : temps de
  *  simulation ecoule depuis la derniere production de chaque Mine, par id
- *  d'entite. Vide a chaque world.clear() (memes sites que
- *  rewardedEnemyDeaths). */
+ *  d'entite. Vide a chaque world.clear(). */
 const mineProductionTimers = new Map<number, number>();
 /** Tirage du montant de chaque production : RNG a graine, re-semee a chaque
  *  lancement de run depuis la graine du World (deterministe), jamais
@@ -802,7 +795,7 @@ function isTalentActive(id: string): boolean {
  *  unités ennemies doivent être améliorées, même buff que boutique
  *  améliorations, une fois toutes les 3 vagues") — MEMES formules que la
  *  boutique d'amelioration du joueur, mais jamais lues depuis metaProgress
- *  (voir run/unitUpgradeEffects.ts, computeEnemyUnitUpgradeEffects). Vagues
+ *  (voir run/enemyWaveEffects.ts, computeEnemyUnitUpgradeEffects). Vagues
  *  1 a 3 : statOverrides vide (undefined), comportement STRICTEMENT
  *  inchange. Uniquement branchee sur les vagues d'une run REELLE
  *  (spawnEnemyReinforcements, currentRun.waveNumber) — jamais sur
@@ -825,12 +818,21 @@ function rememberEnemyUnitLevel(entity: Entity, waveNumber: number, role: string
   entity.level = unitLevelFromUpgradeLevel(enemyUnitUpgradeLevel(role, waveNumber) ?? 0);
 }
 
-/** Unite du joueur : niveau d'unite d'apres son niveau de production, fige
- *  a sa creation (niveau 1 sans amelioration) ; `explicit` (carte) passe
- *  avant. Jamais pour le Heros (niveau de sa progression). */
-function rememberPlayerUnitLevel(entity: Entity, productionLevel: number, explicit?: number): void {
+/** Unite du joueur : niveau d'unite 1, ou `explicit` (carte). Donnee de
+ *  presentation sans effet (data/unitLevels.ts) : depuis le 2026-11-05 la
+ *  progression (technologies, niveaux de producteurs) est globale a la run
+ *  et retroactive, aucune unite ne porte plus de niveau propre. Jamais pour
+ *  le Heros (niveau de sa progression). */
+function rememberPlayerUnitLevel(entity: Entity, explicit?: number): void {
   if (entity.hero) return;
-  entity.level = resolveUnitLevel(explicit, unitLevelFromUpgradeLevel(productionLevel));
+  entity.level = resolveUnitLevel(explicit);
+}
+
+/** Arguments de World.spawn pour une unite du joueur aux stats effectives
+ *  de la run (run/playerUnitStats.ts). */
+function playerUnitSpawnArgs(unitId: string): [Partial<UnitStats> | undefined, number, number] {
+  const s = computePlayerUnitStats(unitId, playerProgression());
+  return [s.statOverrides, s.abilityDamageBonus, s.tauntShieldBonus];
 }
 
 // --- Economie / progression de run ------------------------------------------
@@ -862,7 +864,7 @@ function applyStartingBaseToRun(): void {
     currentRun.buildings.push({ buildingId: b.buildingId, x: b.x, z: b.z, hp: effectiveBuildingMaxHp(b.buildingId, 0), rotationY: b.rotationY, ...(b.modelVariant !== undefined ? { modelVariant: b.modelVariant } : {}) });
     if (getBuilding(b.buildingId).modelVariants) currentRun.placedBuildingCounts[b.buildingId] = (currentRun.placedBuildingCounts[b.buildingId] ?? 0) + 1;
   }
-  for (const u of layout.units) currentRun.army.push({ unitId: u.unitId, hp: playerUnitMaxHp(u.unitId, 0), productionLevel: 0 });
+  for (const u of layout.units) currentRun.army.push({ unitId: u.unitId, hp: playerUnitMaxHp(u.unitId, playerProgression()) });
 }
 
 /** SOURCE UNIQUE de la progression du joueur pour les statistiques
@@ -883,7 +885,6 @@ function setupTestBattle(): void {
   resetBattleControls();
   world.clear();
   forgetBattleBuildings();
-  rewardedEnemyDeaths.clear();
   mineProductionTimers.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
@@ -898,18 +899,8 @@ function setupTestBattle(): void {
   battleOver = false;
 
   for (const pos of currentMap.playerUnits) {
-    const level = currentProductionLevel(playerProgression().upgrades, pos.unitId);
-    const spawned = pos.unitId === HERO_UNIT_ID ? world.spawnHero('player', pos.x, pos.z, { xp: 0, level: 1, deaths: 0 }) : world.spawn(
-      pos.unitId,
-      'player',
-      pos.x,
-      pos.z,
-      undefined,
-      playerUnitStatOverrides(pos.unitId, level, playerProgression()),
-      playerUnitAbilityDamageBonus(pos.unitId, level),
-      playerUnitTauntShieldBonus(pos.unitId, level),
-    );
-    rememberPlayerUnitLevel(spawned, level, pos.level);
+    const spawned = pos.unitId === HERO_UNIT_ID ? world.spawnHero('player', pos.x, pos.z, { xp: 0, level: 1, deaths: 0 }) : world.spawn(pos.unitId, 'player', pos.x, pos.z, undefined, ...playerUnitSpawnArgs(pos.unitId));
+    rememberPlayerUnitLevel(spawned, pos.level);
   }
   // Survie Hero RTS (2026-11-03) : le Heros apparait a cote du Depart
   // Survie, comme en vraie run (computeArmyFormation : place du camp de
@@ -920,11 +911,7 @@ function setupTestBattle(): void {
     const at = computeArmyFormation([HERO_UNIT_ID], currentMap)[0];
     if (at) world.spawnHero('player', at.x, at.z, { xp: 0, level: 1, deaths: 0 });
   }
-  for (const u of startingBase?.units ?? []) {
-    const level = currentProductionLevel(playerProgression().upgrades, u.unitId);
-    const spawned = world.spawn(u.unitId, 'player', u.x, u.z, undefined, playerUnitStatOverrides(u.unitId, level, playerProgression()), playerUnitAbilityDamageBonus(u.unitId, level), playerUnitTauntShieldBonus(u.unitId, level));
-    rememberPlayerUnitLevel(spawned, level);
-  }
+  for (const u of startingBase?.units ?? []) rememberPlayerUnitLevel(world.spawn(u.unitId, 'player', u.x, u.z, undefined, ...playerUnitSpawnArgs(u.unitId)));
   // Niveau explicite de la carte (MapUnitPlacement.level), sinon 1.
   for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z).level = resolveUnitLevel(pos.level);
   // Batiments gameplay du scenario (editeur, MapDef.buildings) : de VRAIES
@@ -952,8 +939,9 @@ function setupTestBattle(): void {
   campViews.setCamps(currentMap.camps ?? []);
   // Apres les unites, comme en vraie run (voir startSurvivalWorld).
   spawnBallistaBuilding();
-  // Apres la Baliste : son empreinte compte dans le pas d'ouverture.
-  openBattleWithFormationStep();
+  // Unites du joueur en Garde des le depart (2026-11-05 : plus de pas
+  // d'ouverture herite du jeu en manches).
+  holdPlayerUnitsInGuard();
 }
 
 /** Unites du joueur en Garde (commande `stop`, appliquee au prochain pas) :
@@ -963,51 +951,6 @@ function setupTestBattle(): void {
 function holdPlayerUnitsInGuard(entityIds?: readonly number[]): void {
   const ids = entityIds ?? world.entities.filter((e) => e.alive && e.team === 'player' && !e.isBuilding).map((e) => e.id);
   if (ids.length > 0) world.issueCommand({ kind: 'stop', entityIds: ids });
-}
-
-/** Unites ayant recu le pas d'ouverture de la bataille en cours : leur
- *  ordre de deplacement n'affiche pas de retour visuel (ce n'est pas un ordre
- *  du joueur). Vide au premier pas, ou les commandes sont appliquees. */
-const openingStepEntityIds = new Set<number>();
-
-/**
- * Lancement (vraie run ou "Tester le scenario") : toute la formation du
- * joueur avance d'exactement une case vers -z (forwardDir), offsets
- * conserves, puis passe en Garde a l'arrivee (fin normale d'un ordre
- * `move`). Une courte mise en mouvement, jamais une charge : aucune cible
- * ennemie n'est assignee. Tout ou rien, pour ne jamais deformer la
- * formation : si une seule case d'arrivee est invalide (hors terrain,
- * obstacle bloquant — decor, batiment, Baliste — ou unite immobile), tout
- * le groupe reste en place et passe directement en Garde. Un ordre `move`
- * `exact` par unite vers SA case : un ordre de groupe redistribuerait les
- * places, un ordre ordinaire s'arreterait a la tolerance du rayon.
- * Les unites produites ensuite n'en font pas partie.
- * HERITAGE du jeu en manches (pas d'ouverture de la formation vers le camp
- * ennemi) : conserve tel quel pour ne pas changer le lancement visible
- * (Heros et Villageois du camp de depart avancent d'une case au nord) ;
- * candidat au retrait, a decider (docs/KNOWN_ISSUES.md).
- */
-function openBattleWithFormationStep(): void {
-  openingStepEntityIds.clear();
-  const group = world.entities.filter((e) => e.alive && e.team === 'player' && !e.isBuilding);
-  if (group.length === 0) return;
-  const dz = forwardDir('player') * TILE;
-  const groupIds = new Set(group.map((e) => e.id));
-  const cells = new Set(resolveMapCells(currentMap).map((c) => cellKey(c.x, c.z)));
-  const blockers = world.obstacles.map(obstacleBounds);
-  const others = world.entities.filter((e) => e.alive && !e.isBuilding && !groupIds.has(e.id));
-  const canEndAt = (x: number, z: number): boolean =>
-    cells.has(cellKey(Math.floor(x), Math.floor(z))) &&
-    !blockers.some((b) => x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) &&
-    !others.some((e) => Math.floor(e.x) === Math.floor(x) && Math.floor(e.z) === Math.floor(z));
-  if (!group.every((e) => canEndAt(e.x, e.z + dz))) {
-    holdPlayerUnitsInGuard(group.map((e) => e.id));
-    return;
-  }
-  for (const e of group) {
-    openingStepEntityIds.add(e.id);
-    world.issueCommand({ kind: 'move', entityIds: [e.id], x: e.x, z: e.z + dz, exact: true });
-  }
 }
 
 // --- Formation de depart et vagues ------------------------------------------
@@ -1272,7 +1215,6 @@ function startSurvivalWorld(): void {
 
   world.clear();
   forgetBattleBuildings();
-  rewardedEnemyDeaths.clear();
   mineProductionTimers.clear();
   mineGoldRng = new Rng((world.seed ^ 0x9e3779b9) >>> 0);
   pendingArrowSpawns.length = 0;
@@ -1301,17 +1243,8 @@ function startSurvivalWorld(): void {
   const formation = computeArmyFormation(currentRun.army.map((u) => u.unitId), currentMap);
   currentRun.army.forEach((unit, i) => {
     const at = formation[i]!;
-    const spawned = unit.unitId === HERO_UNIT_ID ? world.spawnHero('player', at.x, at.z, currentRun.hero, unit.hp, heroKit(currentRun.hero.heroId)) : world.spawn(
-      unit.unitId,
-      'player',
-      at.x,
-      at.z,
-      unit.hp,
-      playerUnitStatOverrides(unit.unitId, unit.productionLevel, playerProgression()),
-      playerUnitAbilityDamageBonus(unit.unitId, unit.productionLevel),
-      playerUnitTauntShieldBonus(unit.unitId, unit.productionLevel),
-    );
-    rememberPlayerUnitLevel(spawned, unit.productionLevel);
+    const spawned = unit.unitId === HERO_UNIT_ID ? world.spawnHero('player', at.x, at.z, currentRun.hero, unit.hp, heroKit(currentRun.hero.heroId)) : world.spawn(unit.unitId, 'player', at.x, at.z, unit.hp, ...playerUnitSpawnArgs(unit.unitId));
+    rememberPlayerUnitLevel(spawned);
   });
   // Survie en temps reel continu (2026-11-01) : aucune vague au lancement ;
   // la premiere arrive apres un compte a rebours en temps de simulation
@@ -1328,8 +1261,8 @@ function startSurvivalWorld(): void {
   buildingViewsByEntityId.clear();
   refreshOwnedBuildingViews();
   currentRun.buildings.forEach((owned, i) => {
-    // PV max et degats (Tour) du niveau PROPRE au batiment.
-    const level = ownedBuildingLevel(owned);
+    // PV max et degats (Tour) du niveau effectif du batiment.
+    const level = buildingLevelOf(currentRun.upgrades, owned);
     const entity = world.spawnBuilding(
       getBuilding(owned.buildingId),
       'player',
@@ -1361,9 +1294,10 @@ function startSurvivalWorld(): void {
   world.goldDropBonus = Math.round(computeTalentEconomyHooks(metaProgress).bonusGoldPerKill?.() ?? 0);
   campViews.setCamps(currentMap.camps ?? []);
   discoveredCamps.clear();
-  // Apres les batiments et la Baliste : leurs empreintes comptent dans le
-  // pas d'ouverture de la formation.
-  openBattleWithFormationStep();
+  // Demarrage direct (2026-11-05, KI-68 resolue) : monde charge, camp de
+  // depart, Heros et Villageois en Garde, simulation en temps reel. Plus de
+  // pas d'ouverture de formation herite du jeu en manches.
+  holdPlayerUnitsInGuard();
 
   loop.timeScale = 1;
 }
@@ -1400,13 +1334,13 @@ function spawnBallistaBuilding(): void {
  *  (OwnedBuilding.level). */
 const ownedBuildingIndexByEntityId = new Map<number, number>();
 
-/** Niveau propre d'un batiment possede de la partie en cours, ou null
- *  (Baliste, batiment hors run). */
+/** Niveau effectif d'un batiment possede de la partie en cours (exemplaire
+ *  ou type, run/buildingUpgrades.ts), ou null (Baliste, batiment hors run). */
 function battleOwnedBuildingLevel(entity: Entity): number | null {
   if (scenarioBuildingEntityIds.has(entity.id)) return 0;
   const index = ownedBuildingIndexByEntityId.get(entity.id);
   const owned = index !== undefined ? currentRun.buildings[index] : undefined;
-  return owned ? ownedBuildingLevel(owned) : null;
+  return owned ? buildingLevelOf(currentRun.upgrades, owned) : null;
 }
 
 /** Batiments de scenario (MapDef.buildings) de « Tester le scénario » : ids
@@ -1422,14 +1356,13 @@ function clearScenarioBuildingMeshes(): void {
 
 function forgetBattleBuildings(): void {
   ballistaEntityId = null;
-  harvestToolsAnnounced = false;
   levelUpVfx.clear();
   whirlwindVfx.clear();
   cancelWallPlacement();
   clearWallViews();
   buildingViewsByEntityId.clear();
   ownedBuildingIndexByEntityId.clear();
-  productionPayments.clear();
+  orderLedger.clear();
   scenarioBuildingEntityIds.clear();
   ballistaBuildingView.reset();
 }
@@ -1941,19 +1874,6 @@ function resourceRingRadius(source: ResourceNode): number {
   return b ? Math.max(b.maxX - b.minX, b.maxZ - b.minZ) / 2 + 0.3 : 0.9;
 }
 
-/** Point ou le Heros va voir une source qu'il ne peut pas encore exploiter :
- *  au bord de son emprise, du cote du Heros (le pathfinding prend la case
- *  libre la plus proche si ce point est bloque). */
-function resourceApproachPoint(source: ResourceNode, hero: Entity): { x: number; z: number } {
-  const b = source.block;
-  const half = b ? Math.max(b.maxX - b.minX, b.maxZ - b.minZ) / 2 : 0.5;
-  const dx = hero.x - source.x;
-  const dz = hero.z - source.z;
-  const d = Math.hypot(dx, dz);
-  const reach = half + hero.stats.radius + 0.35;
-  return d > 1e-6 ? { x: source.x + (dx / d) * reach, z: source.z + (dz / d) * reach } : { x: source.x, z: source.z + reach };
-}
-
 // --- Camera : suivi du Heros (2026-11-02) ----------------------------------
 
 /** Camera suivant le Heros, et dernier point vise par ce suivi. Actif des le
@@ -2066,7 +1986,7 @@ function spawnOwnedBuildingRealtime(index: number): Entity {
   renderer.scene.add(mesh);
   const view = new BuildingView(mesh, buildingVfxGroup);
   ownedBuildingViews[index] = { mesh, view };
-  const level = ownedBuildingLevel(owned);
+  const level = buildingLevelOf(currentRun.upgrades, owned);
   const entity = world.spawnBuilding(
     getBuilding(owned.buildingId),
     'player',
@@ -2119,11 +2039,6 @@ function inspectedOwnedBuilding(): { entity: Entity; index: number; owned: Owned
   return owned ? { entity, index, owned } : null;
 }
 
-/** PV manquants des unites vivantes du joueur (soin de l'Eglise en jeu). */
-function realtimeArmyMissingHp(): number {
-  return world.entities.filter((e) => e.alive && e.team === 'player' && !e.isBuilding).reduce((sum, e) => sum + Math.max(0, e.stats.maxHp - e.hp), 0);
-}
-
 /** Batiments proposes au Heros (bouton Construire) : cout, disponibilite ;
  *  puis les murs V2 (trace A -> B, porte sur un segment). */
 function buildChoices(): BuildChoice[] {
@@ -2142,36 +2057,52 @@ function buildingChoices(): BuildChoice[] {
     });
 }
 
-/** Actions de la fiche en temps reel : produire, ameliorer, Forge et Eglise
- *  (batiment possede bati). Le Heros n'a plus de fiche : construction par le
- *  bouton Construire, sorts et inventaire dans son HUD (2026-11-02). */
+/** Commandes en file d'un batiment du joueur, pour sa fiche : un clic sur
+ *  une commande l'annule (or et stock rendus). `level` : niveau effectif du
+ *  batiment (libelle de son amelioration). */
+function queuedOrderActions(entity: Entity, level: number): EntityInfoAction[] {
+  return entity.productionOrders.map((order, i) => {
+    const what = order.kind === 'unit' ? getUnit(order.unitId).name : order.kind === 'research' ? getTechnology(order.techId).name : `Amélioration Niv. ${displayedUpgradeLevel(level + 1)}`;
+    const time = i === 0 ? `${Math.ceil(order.remaining)} s` : 'en attente';
+    return { id: 'cancelProduction', payload: String(order.id), label: `${i + 1}. ${what} — ${time} ✕`, enabled: true, hint: 'Clic : annuler (or et stock rendus)' };
+  });
+}
+
+/** Actions de la fiche en temps reel (batiment possede bati, Baliste) :
+ *  produire, commandes en file, ralliement, reparation, amelioration et
+ *  technologies (run/entityInfo.ts, ownedBuildingInfo) — toutes par la file
+ *  temps reel du batiment, rien ne fige le jeu (2026-11-05). Le Heros n'a
+ *  plus de fiche : construction par le bouton Construire, sorts et
+ *  inventaire dans son HUD (2026-11-02). */
 function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
-  const inspected = info.kind === 'building' ? inspectedOwnedBuilding() : null;
   // Reparation (2026-11-02) : tout batiment allie bati et endommage, Baliste
   // comprise (sa fiche est de type 'ballista' : oubliee jusqu'au 2026-11-03).
   const repair = info.kind === 'building' || info.kind === 'ballista' ? repairAction() : null;
   // Porte de palissade : Ouvrir / Fermer (2026-11-02).
   const door = info.kind === 'building' ? doorAction() : null;
+  if (info.kind === 'ballista') {
+    // Baliste (2026-11-05) : son amelioration (deja dans `info`) et sa file.
+    const ballista = ballistaEntityId !== null ? world.getById(ballistaEntityId) : undefined;
+    const queued = ballista ? queuedOrderActions(ballista, runUpgradeLevel(currentRun.upgrades, 'ballista')) : [];
+    return { ...info, actions: [...(info.actions ?? []), ...queued, ...(repair ? [repair] : [])] };
+  }
+  const inspected = info.kind === 'building' ? inspectedOwnedBuilding() : null;
   if (!inspected || inspected.entity.construction) {
     const extra = [...(door ? [door] : []), ...(repair ? [repair] : [])];
     return extra.length > 0 ? { ...info, actions: [...(info.actions ?? []), ...extra] } : info;
   }
   const { entity, owned } = inspected;
-  const level = ownedBuildingLevel(owned);
+  const level = buildingLevelOf(currentRun.upgrades, owned);
   const actions: EntityInfoAction[] = [];
-  // File de production (2026-11-02) : unites et amelioration dans l'ordre des
-  // clics, PRODUCTION_QUEUE_MAX au plus ; un clic sur une commande l'annule.
+  // File de production (2026-11-02) : unites, amelioration et recherches
+  // dans l'ordre des clics, PRODUCTION_QUEUE_MAX au plus.
   const full = entity.productionOrders.length >= PRODUCTION_QUEUE_MAX;
   for (const unitId of producibleUnits(owned.buildingId, level)) {
-    const cost = effectivePlayerUnitCost(unitId, playerProgression().upgrades);
+    const cost = getUnit(unitId).cost;
     const enabled = currentRun.gold >= cost && !full;
     actions.push({ id: 'produceUnit', payload: unitId, label: `Produire : ${getUnit(unitId).name} — ${formatGold(cost)} or · ${unitProductionSeconds(unitId)} s`, enabled, hint: full ? `File pleine (${PRODUCTION_QUEUE_MAX})` : enabled ? undefined : 'Or insuffisant' });
   }
-  entity.productionOrders.forEach((order, i) => {
-    const what = order.kind === 'unit' ? getUnit(order.unitId).name : `Amélioration Niv. ${displayedUpgradeLevel(level + 1)}`;
-    const time = i === 0 ? `${Math.ceil(order.remaining)} s` : 'en attente';
-    actions.push({ id: 'cancelProduction', payload: String(order.id), label: `${i + 1}. ${what} — ${time} ✕`, enabled: true, hint: 'Clic : annuler (or rendu)' });
-  });
+  actions.push(...queuedOrderActions(entity, level));
   // Point de ralliement (2026-11-02) : batiment producteur (toute unite
   // produite par sa file : Caserne, Sanctuaire, Ecurie, Eglise... 2026-11-03).
   if (producibleUnits(owned.buildingId, level).length > 0) {
@@ -2179,18 +2110,14 @@ function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
     if (entity.rally) actions.push({ id: 'clearRally', label: 'Retirer le ralliement', enabled: true });
   }
   if (repair) actions.push(repair);
-  // Amelioration, Forge, Eglise : actions et lignes du batiment possede
-  // (run/entityInfo.ts, ownedBuildingInfo). Batiment producteur :
-  // l'amelioration passe par la file (duree, une seule a la fois).
-  const owned_ = ownedBuildingInfo(owned, playerProgression(), currentRun.gold, realtimeArmyMissingHp());
-  const queued = upgradesThroughQueue(owned.buildingId);
-  const pending = entity.productionOrders.some((o) => o.kind === 'upgrade');
-  const ownedActions = (owned_.actions ?? []).map((a) => {
-    if (a.id !== 'upgradeBuilding' || !queued) return a;
-    const hint = pending ? 'Amélioration déjà en file' : full ? `File pleine (${PRODUCTION_QUEUE_MAX})` : a.hint;
-    return { ...a, label: `${a.label} · ${BUILDING_UPGRADE_SECONDS} s`, enabled: a.enabled && !pending && !full, hint };
+  // Amelioration et technologies du batiment possede (run/entityInfo.ts) :
+  // etat de la file fourni ici (run/productionOrders.ts).
+  const owned_ = ownedBuildingInfo(owned, level, currentRun, {
+    upgradePending: isBuildingUpgradePending(world, entity),
+    queueFull: full,
+    technologyPending: (techId) => isTechnologyPending(world, techId),
   });
-  return { ...info, actions: [...actions, ...ownedActions] };
+  return { ...info, rows: owned_.rows, actions: [...actions, ...(owned_.actions ?? [])] };
 }
 
 /** Batiment allie inspecte en jeu (Baliste comprise), null sinon. */
@@ -2281,48 +2208,26 @@ function useRallyOnClick(event: MouseEvent): void {
   entityInfoSelectionKey = '';
 }
 
-/** Commande de production au batiment inspecte : paye, puis l'unite sort a
+/** Ce que chaque commande en file a coute (id -> or, bois, pierre), rendu a
+ *  l'annulation (run/productionOrders.ts). Une file perdue avec son batiment
+ *  n'est pas remboursee. Vide a chaque world.clear() (forgetBattleBuildings). */
+const orderLedger: OrderLedger = new Map();
+
+/** Commande de production au batiment inspecte : payee, puis l'unite sort a
  *  la fin de sa duree (sim/systems/buildingProduction.ts). */
-/** Or paye pour chaque commande en file (id -> or), rendu a l'annulation.
- *  Une file perdue avec son batiment n'est pas remboursee. Vide a chaque
- *  world.clear() (forgetBattleBuildings). */
-const productionPayments = new Map<number, number>();
-
-/** Batiment dont l'amelioration passe par la file de production (duree) :
- *  les producteurs ; les autres s'ameliorent tout de suite. */
-function upgradesThroughQueue(buildingId: string): boolean {
-  return getBuilding(buildingId).recruitmentUnlock !== undefined;
-}
-
 function produceAtInspectedBuilding(unitId: string): void {
   const inspected = inspectedOwnedBuilding();
   if (!inspected || inspected.entity.construction) return;
-  if (!producibleUnits(inspected.owned.buildingId, ownedBuildingLevel(inspected.owned)).includes(unitId)) return;
-  const cost = effectivePlayerUnitCost(unitId, playerProgression().upgrades);
-  if (currentRun.gold < cost) return;
-  const orderId = world.queueProduction(inspected.entity.id, { kind: 'unit', unitId }, unitProductionSeconds(unitId));
-  if (orderId === null) return;
-  currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
-  productionPayments.set(orderId, cost);
+  if (queueUnitOrder(currentRun, world, orderLedger, inspected.entity, buildingLevelOf(currentRun.upgrades, inspected.owned), unitId) === null) return;
   entityInfoSelectionKey = '';
 }
 
-/** Annule une commande de la file du batiment inspecte : or rendu. */
+/** Annule une commande de la file du batiment inspecte (Baliste comprise) :
+ *  or et stock rendus. */
 function cancelProductionAtInspectedBuilding(orderId: number): void {
-  const inspected = inspectedOwnedBuilding();
-  if (!inspected || !world.cancelProduction(inspected.entity.id, orderId)) return;
-  currentRun.gold = roundGold(currentRun.gold + (productionPayments.get(orderId) ?? 0));
-  productionPayments.delete(orderId);
+  const e = inspectedPlayerBuilding();
+  if (!e || !cancelOrder(currentRun, world, orderLedger, e.id, orderId)) return;
   entityInfoSelectionKey = '';
-}
-
-/** Niveau du batiment possede applique a son entite en jeu (PV max, degats). */
-function applyOwnedLevelToEntity(entity: Entity, owned: OwnedBuilding): void {
-  const level = ownedBuildingLevel(owned);
-  const maxHp = effectiveBuildingMaxHp(owned.buildingId, level);
-  entity.hp += maxHp - entity.stats.maxHp;
-  entity.stats = { ...entity.stats, maxHp };
-  if (entity.buildingAttack) entity.buildingAttack = { ...entity.buildingAttack, damage: effectiveBuildingAttackDamage(owned.buildingId, level) };
 }
 
 /** Souche d'un arbre abattu et gravats d'un gisement vide : decors non
@@ -2385,19 +2290,6 @@ function cargoParts(c: { wood: number; stone: number; minedGold: number }): stri
   return [c.wood > 0 ? `${c.wood} bois` : '', c.stone > 0 ? `${c.stone} pierre` : '', c.minedGold > 0 ? `${c.minedGold} or` : ''].filter(Boolean).join(', ');
 }
 
-/** Outils de la Forge deja annonces pendant cette partie (une seule fois,
- *  meme apres la perte puis la reconstruction d'une Forge). */
-let harvestToolsAnnounced = false;
-
-/** Premiere Forge terminee : « Nouvel outil disponible » (une fois) ; les
- *  outils de depart (hache, pioche) ne sont jamais annonces. */
-function announceHarvestTools(): void {
-  const gained = world.harvestPermissions.tools.filter((t) => !STARTING_HARVEST_TOOLS.includes(t));
-  if (harvestToolsAnnounced || gained.length === 0 || !inBattlePhase()) return;
-  harvestToolsAnnounced = true;
-  waveIndicator.flash(`Nouvel outil disponible : ${gained.map((t) => HARVEST_TOOLS[t].name).join(' et ')} (gisements d’or).`);
-}
-
 function handleDepletedResources(): void {
   for (const depleted of world.resourceDepletedEvents) {
     if (!board.decor?.hide(depleted.x, depleted.z)) {
@@ -2417,51 +2309,43 @@ function handleDepletedResources(): void {
   }
 }
 
-/** Ameliorations terminees dans une file de production (apres chaque pas) :
- *  niveau du batiment possede, deja paye a la mise en file. */
+/** Ameliorations et recherches terminees dans une file (apres chaque pas),
+ *  deja payees a la commande : appliquees par run/productionOrders.ts
+ *  (niveau de l'exemplaire ou du type, Baliste, technologie ; stats des
+ *  unites presentes recalculees), annoncees ici. */
 function handleProductionUpgrades(): void {
-  for (const event of world.productionUpgradeEvents) {
-    productionPayments.delete(event.orderId);
-    const index = ownedBuildingIndexByEntityId.get(event.entityId);
-    const entity = world.getById(event.entityId);
-    if (index === undefined || !entity || !applyOwnedBuildingUpgrade(currentRun, index)) continue;
-    applyOwnedLevelToEntity(entity, currentRun.buildings[index]!);
-    entityInfoSelectionKey = '';
+  if (world.productionUpgradeEvents.length === 0) return;
+  const ownedOf = (entityId: number): OwnedBuilding | undefined => {
+    const index = ownedBuildingIndexByEntityId.get(entityId);
+    return index !== undefined ? currentRun.buildings[index] : undefined;
+  };
+  for (const done of completeOrders(currentRun, playerProgression(), world, orderLedger, world.productionUpgradeEvents, ballistaEntityId, ownedOf)) {
+    if (done.kind === 'research') waveIndicator.flash(`Recherche terminée : ${getTechnology(done.techId).name}`);
+    else if (done.kind === 'ballistaUpgrade') waveIndicator.flash(`Baliste — Niv. ${displayedUpgradeLevel(done.level)}`);
+    else waveIndicator.flash(`${getBuilding(done.buildingId).displayName} — Niv. ${displayedUpgradeLevel(done.level)}${done.scope === 'run' ? ' (tous)' : ''}`);
   }
+  entityInfoSelectionKey = '';
 }
 
-/** Amelioration, Forge, Eglise depuis la fiche, en jeu. */
-function realtimeBuildingAction(id: 'upgradeBuilding' | 'healArmy' | 'openForge'): void {
-  const inspected = inspectedOwnedBuilding();
-  if (!inspected || inspected.entity.construction || pauseMenuOpen || buildingPlacementMode) return;
-  const { entity, index, owned } = inspected;
-  if (id === 'upgradeBuilding' && upgradesThroughQueue(owned.buildingId)) {
-    // Producteur (2026-11-02) : l'amelioration prend sa place dans la file,
-    // payee maintenant, appliquee a sa fin (handleProductionUpgrades).
-    if (entity.productionOrders.some((o) => o.kind === 'upgrade') || !canUpgradeOwnedBuilding(currentRun, index)) return;
-    const cost = buildingUpgradeGoldCost(owned.buildingId, ownedBuildingLevel(owned));
-    const orderId = world.queueProduction(entity.id, { kind: 'upgrade' }, BUILDING_UPGRADE_SECONDS);
-    if (orderId === null) return;
-    currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
-    productionPayments.set(orderId, cost);
-  } else if (id === 'upgradeBuilding') {
-    if (!upgradeOwnedBuilding(currentRun, index)) return;
-    // Niveau applique tout de suite au batiment en jeu (PV max, degats).
-    applyOwnedLevelToEntity(entity, owned);
-  } else if (id === 'healArmy') {
-    const missing = realtimeArmyMissingHp();
-    const cost = churchHealCost(missing, churchHealHpPerGold(owned.buildingId, ownedBuildingLevel(owned)));
-    if (cost <= 0 || currentRun.gold < cost) return;
-    currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
-    for (const e of world.entities) if (e.alive && e.team === 'player' && !e.isBuilding) e.hp = e.stats.maxHp;
-  } else {
-    // Forge : ecran des ameliorations de run, le temps fige tant qu'il est
-    // ouvert (closeForge le relache).
-    if (getBuilding(owned.buildingId).runUpgradeSite !== 'forge' || screens.isForgeOpen()) return;
-    forgePausedTimeScale = loop.timeScale;
-    loop.timeScale = 0;
-    screens.showForge(currentRun);
+/** Amelioration ou recherche depuis la fiche d'un batiment possede, Baliste
+ *  depuis sa fiche : a la file du batiment, payee maintenant, appliquee a
+ *  sa fin (handleProductionUpgrades). Le jeu continue. */
+function realtimeBuildingAction(id: 'upgradeBuilding' | 'research' | 'upgradeBallista', payload?: string): void {
+  if (pauseMenuOpen || buildingPlacementMode) return;
+  if (id === 'upgradeBallista') {
+    const ballista = inspectedPlayerBuilding();
+    if (!ballista || ballista.id !== ballistaEntityId || queueBallistaUpgradeOrder(currentRun, world, orderLedger, ballista) === null) return;
+    entityInfoSelectionKey = '';
+    return;
   }
+  const inspected = inspectedOwnedBuilding();
+  if (!inspected || inspected.entity.construction) return;
+  const { entity, owned } = inspected;
+  const level = buildingLevelOf(currentRun.upgrades, owned);
+  const orderId = id === 'upgradeBuilding'
+    ? queueBuildingUpgradeOrder(currentRun, world, orderLedger, entity, level)
+    : payload ? queueTechnologyOrder(currentRun, world, orderLedger, entity, level, payload) : null;
+  if (orderId === null) return;
   entityInfoSelectionKey = '';
 }
 
@@ -2492,14 +2376,6 @@ function applyRunBallistaPosition(): void {
   playerArrowOrigin = currentRun.ballistaPosition ?? resolveBallistaOrigin(currentMap);
   ballistaObstacleDef = computeBallistaObstacle(playerArrowOrigin);
   repositionBallista();
-}
-
-/** Au moins une Forge TERMINEE possedee : condition d'achat a l'ecran de la
- *  Forge (run/runUpgrades.ts). Un batiment detruit a deja ete retire de
- *  currentRun.buildings (pruneDestroyedOwnedBuildings). Plusieurs
- *  exemplaires ouvrent les MEMES ameliorations, sur les memes niveaux de run. */
-function hasForge(): boolean {
-  return currentRun.buildings.some((b) => getBuilding(b.buildingId).runUpgradeSite === 'forge' && isBuildingBuilt(b));
 }
 
 /** Action de la fiche d'entite (ui/entityInfoPanel.ts). */
@@ -2536,38 +2412,11 @@ function onEntityInfoAction(id: EntityInfoAction['id'], payload?: string): void 
     entityInfoSelectionKey = '';
     return;
   }
-  if (inBattlePhase() && (id === 'upgradeBuilding' || id === 'healArmy' || id === 'openForge')) {
-    realtimeBuildingAction(id);
+  if (inBattlePhase() && (id === 'upgradeBuilding' || id === 'research' || id === 'upgradeBallista')) {
+    realtimeBuildingAction(id, payload);
     return;
   }
   if (id === 'toggleBallistaMode') setBallistaFireMode(ballistaFireMode === 'auto' ? 'manual' : 'auto');
-}
-
-/** "Retour" ou Echap : retour au jeu (reprise du temps fige a l'ouverture). */
-function closeForge(): void {
-  if (!screens.isForgeOpen()) return;
-  screens.hideAll();
-  if (forgePausedTimeScale !== null) {
-    loop.timeScale = forgePausedTimeScale;
-    forgePausedTimeScale = null;
-  }
-}
-
-/** Vitesse du jeu avant l'ouverture de la Forge (le jeu est fige tant que
- *  l'ecran est ouvert), null sinon. */
-let forgePausedTimeScale: number | null = null;
-
-/** Achat d'un niveau a la Forge (Or de la run, voir run/runUpgrades.ts). Une
- *  amelioration d'unite n'eleve que le niveau de production des PROCHAINES
- *  unites : les unites deja produites gardent leurs PV et leurs stats
- *  (niveau fige a leur apparition, jamais retroactif). Tant qu'une Forge
- *  terminee est possedee. 2026-11-04 : la garde `inPlacementPhase` du jeu en
- *  manches refusait tout achat en Survie (ecran ouvert, boutons sans effet) ;
- *  retiree avec le placement. */
-function purchaseForgeUpgrade(id: string): void {
-  if (!screens.isForgeOpen() || !hasForge()) return;
-  if (!purchaseRunUpgrade(currentRun, id)) return;
-  screens.refreshForge(currentRun);
 }
 
 // --- Editeur de maps (chantier en cours — voir CLAUDE.md) ---------------
@@ -3922,7 +3771,6 @@ function returnToEditorAfterTest(): void {
   // Remet aussi le modele de la Baliste a neuf si elle a ete detruite pendant
   // le test (voir forgetBattleBuildings).
   forgetBattleBuildings();
-  rewardedEnemyDeaths.clear();
   mineProductionTimers.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
@@ -5279,10 +5127,14 @@ function currentEntityInfoBase(): EntityInfoViewModel | null {
   if (battleInspectedEntityId !== null) {
     const inspected = world.getById(battleInspectedEntityId);
     if (!inspected) return null;
-    if (inspected.id === ballistaEntityId) return battleBallistaInfo(inspected, currentBallistaStatus(), playerProgression(), ballistaFireMode);
+    if (inspected.id === ballistaEntityId) {
+      // Amelioration de la Baliste depuis sa fiche (vraie run seulement).
+      const upgrade = inTestMode ? null : { gold: currentRun.gold, pending: isBallistaUpgradePending(inspected), queueFull: inspected.productionOrders.length >= PRODUCTION_QUEUE_MAX };
+      return battleBallistaInfo(inspected, currentBallistaStatus(), playerProgression(), ballistaFireMode, upgrade);
+    }
     // Prochaine production de la Mine (aucune en « Tester le scénario »).
     const mineNextIn = inspected.unitId === 'mine' && !inTestMode ? mineProductionIntervalSeconds() - (mineProductionTimers.get(inspected.id) ?? 0) : null;
-    return battleBuildingInfo(inspected, playerProgression(), battleOwnedBuildingLevel(inspected), mineNextIn);
+    return battleBuildingInfo(inspected, battleOwnedBuildingLevel(inspected), mineNextIn);
   }
   const aliveEntities = (ids: number[]): Entity[] => ids.map((id) => world.getById(id)).filter((e): e is Entity => e !== undefined && e.alive);
   // Ennemis inspectes (jamais dans battleSelection, donc jamais commandes) :
@@ -5627,22 +5479,8 @@ function issueRightClickOrder(event: MouseEvent): void {
         // Source visee : selectionnee (anneau jaune), recoltable ou non.
         selectedResourceNodeId = node.id;
         selectedPileId = null;
-        // Source sans l'outil (2026-11-04 : seul le gisement d'or, sans Forge
-        // terminee ; bois et pierre sont libres des le depart) : interaction
-        // reconnue ET deplacement autorise, jamais « clic consomme » — le
-        // Heros va voir la ressource, sans la recolter ; la raison est rappelee.
-        if (!canHarvestResource(world.harvestPermissions, node.resource)) {
-          waveIndicator.flash(`${HARVEST_NODE_KINDS[node.resource].name} : il faut une Forge (${HARVEST_TOOLS[HARVEST_NODE_KINDS[node.resource].tool].name})`);
-          // Heros et Villageois vont au pied de la source.
-          for (const ids of [heroIds, workerIds]) {
-            const first = ids.length > 0 ? world.getById(ids[0]!) : undefined;
-            if (!first) continue;
-            const approach = resourceApproachPoint(node, first);
-            world.issueCommand({ kind: 'move', entityIds: ids, x: approach.x, z: approach.z });
-          }
-          if (others.length > 0) world.issueCommand({ kind: 'move', entityIds: others, x: point.x, z: point.z });
-          return;
-        }
+        // Bois, pierre et or s'exploitent des le depart (2026-11-05, G37) :
+        // aucun outil a debloquer, aucun refus.
       }
       if (command) world.issueCommand(command);
       if (workerCommand) world.issueCommand(workerCommand);
@@ -6643,10 +6481,6 @@ let lastRealTime = performance.now();
 
 const loop = new Loop(
   (dt) => {
-    // Outils de recolte (de depart + Forge terminee) d'apres les batiments
-    // du monde, avant chaque pas (run/harvestPermissions.ts).
-    world.harvestPermissions = harvestPermissionsOf(world.entities, RUN_OWNER_TEAM);
-    announceHarvestTools();
     world.step(dt);
     handleCargoEvents();
     logPathDiagnostics();
@@ -6674,8 +6508,6 @@ const loop = new Loop(
         waveIndicator.flash(result.rejection === 'no-mana' ? `Mana insuffisant pour ${spellName}` : result.rejection === 'channeling' ? 'Tourbillon en cours' : result.rejection === 'cooldown' ? `${spellName} : recharge (${left} s)` : 'Cible invalide : le Héros ou une unité alliée');
       } else if (result.rejection === 'channeling') waveIndicator.flash('Tourbillon en cours : seulement se déplacer');
       if (result.command.kind !== 'move' || result.rejection !== null || !result.destinations) continue;
-      // Pas d'ouverture de la bataille : pas un ordre du joueur, aucun retour.
-      if (result.command.entityIds.length === 1 && openingStepEntityIds.delete(result.command.entityIds[0]!)) continue;
       const owner = result.acceptedEntityIds.map((id) => world.getById(id)).find((e) => e !== undefined);
       if (!owner) continue;
       moveOrderFeedback.spawn(result.command.x, result.command.z, result.destinations, owner.team);
@@ -6835,23 +6667,15 @@ const loop = new Loop(
     // le sim pousse un evenement par unite — consomme ici pour creer une
     // VRAIE Entity avec les stats effectives.
     for (const event of world.productionSpawnEvents) {
-      // Niveau de production lu ICI, au spawn : les unites deja produites
-      // gardent le leur (voir rememberPlayerUnitLevel).
-      const level = currentProductionLevel(playerProgression().upgrades, event.unitId);
+      // Stats effectives de la run au spawn (run/playerUnitStats.ts) ; les
+      // unites deja presentes suivent les memes bonus (retroactif).
       const isPlayer = event.team === 'player';
-      const spawned = world.spawn(
-        event.unitId,
-        event.team,
-        event.x,
-        event.z,
-        undefined,
-        isPlayer ? playerUnitStatOverrides(event.unitId, level, playerProgression()) : enemyStatOverrides(event.unitId, currentRun.waveNumber),
-        isPlayer ? playerUnitAbilityDamageBonus(event.unitId, level) : enemyAbilityDamageBonus(event.unitId, currentRun.waveNumber),
-        isPlayer ? playerUnitTauntShieldBonus(event.unitId, level) : undefined,
-      );
+      const spawned = isPlayer
+        ? world.spawn(event.unitId, event.team, event.x, event.z, undefined, ...playerUnitSpawnArgs(event.unitId))
+        : world.spawn(event.unitId, event.team, event.x, event.z, undefined, enemyStatOverrides(event.unitId, currentRun.waveNumber), enemyAbilityDamageBonus(event.unitId, currentRun.waveNumber));
       if (!isPlayer) rememberEnemyUnitLevel(spawned, currentRun.waveNumber);
       else {
-        rememberPlayerUnitLevel(spawned, level);
+        rememberPlayerUnitLevel(spawned);
         // Unite produite du joueur : point de ralliement du batiment
         // (2026-11-02) : l'unite sort devant lui puis y marche ; sinon Garde
         // des son apparition.
@@ -6860,27 +6684,10 @@ const loop = new Loop(
       }
     }
 
-    // Ennemis vaincus : detectes par TRANSITION (rewardedEnemyDeaths) plutot
-    // qu'en reagissant a combatEvents : une mort peut venir de plusieurs
-    // sources (combat automatique, Baliste, Charge, Tour), et cette methode
-    // les couvre toutes sans compter deux fois la meme unite. L'or des kills
-    // est physique (2026-11-02) : l'ennemi lache un tas d'or au sol (World,
-    // ENEMY_GOLD_DROPS + talent), a ramasser et deposer.
-    for (const e of world.entities) {
-      if (e.team === 'enemy' && !e.alive && !rewardedEnemyDeaths.has(e.id)) {
-        rewardedEnemyDeaths.add(e.id);
-        // Objet destructible (baril) : pas un ennemi vaincu.
-        if (e.isBuilding) continue;
-        // Deblocage par victoire (2026-08-15, demande d'Antoine) : une unite
-        // ennemie vaincue au moins une fois enregistre le FAIT de facon
-        // permanente (voir run/metaProgress.ts, registerEnemyDefeat). Jamais
-        // pendant "Tester le scenario" (inTestMode, sans lien avec une run
-        // reelle). Plus d'annonce « unite debloquee » (2026-11-04) : la
-        // production temps reel n'applique pas encore ce deblocage
-        // (docs/KNOWN_ISSUES.md, en attente de decision).
-        if (!inTestMode && registerEnemyDefeat(metaProgress, e.unitId)) saveMetaProgress(metaProgress);
-      }
-    }
+    // Ennemis vaincus : aucun compteur (2026-11-05, deblocage par victoire
+    // retire). L'or des kills est physique (2026-11-02) : l'ennemi lache un
+    // tas d'or au sol (World, ENEMY_GOLD_DROPS + talent), a ramasser et
+    // deposer.
 
     // Fin de vague et defaite. countCombatants (architecture BUILDING) : une
     // entite compte pour la survie de sa faction selon Entity.countsForDefeat
@@ -7290,7 +7097,6 @@ function confirmQuitRun(): void {
 function clearBattleWorld(): void {
   world.clear();
   forgetBattleBuildings();
-  rewardedEnemyDeaths.clear();
   mineProductionTimers.clear();
   pendingArrowSpawns.length = 0;
   unitViews.clear();
@@ -7367,9 +7173,6 @@ const screens = new Screens({
       screens.refreshTalents(metaProgress);
     }
   },
-  // Forge (ameliorations de la run, en Or) : voir openForge/purchaseForgeUpgrade.
-  onCloseForge: () => closeForge(),
-  onPurchaseRunUpgrade: (id) => purchaseForgeUpgrade(id),
   // Reset des talents (2026-08-11, demande d'Antoine : "rajoute également
   // une option reset point de talent") — rembourse les points depenses
   // (respec), ne touche a rien d'autre. Sauvegarde IMMEDIATE, meme motif
@@ -7600,8 +7403,6 @@ window.addEventListener('keydown', (event) => {
           editorState.select(null);
           refreshEditorObjects();
         }
-      } else if (screens.isForgeOpen()) {
-        closeForge();
       } else if (spellTargeting) {
         cancelSpellTargeting();
       } else if (rallyTargeting) {

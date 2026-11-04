@@ -109,21 +109,6 @@ export interface UnitDef {
   populationCost: number;
   stats: UnitStats;
   visual: UnitVisual;
-  /** Comment cette unite devient disponible pour le JOUEUR (2026-08-15,
-   *  demande d'Antoine — systeme GENERIQUE et data-driven, remplace l'ancien
-   *  deblocage specifique au Mage a la vague 8, voir CLAUDE.md) :
-   *   - absent ou 'starter' : toujours disponible, comme Fantassin/Archer
-   *     (les unites "de depart" du jeu — ne jamais les verrouiller
-   *     retroactivement).
-   *   - 'defeatEnemy' : verrouillee tant que le joueur n'a jamais vaincu au
-   *     moins UN exemplaire ENNEMI de cette unite (voir run/metaProgress.ts,
-   *     defeatedEnemyUnitIds/registerEnemyDefeat/canPlayerRecruitUnit) —
-   *     deblocage PERMANENT des la premiere victoire, meme sur une defaite
-   *     totale de la bataille en cours (voir main.ts). Une future unite
-   *     (Chevalier, Prêtre...) n'a besoin que de cette seule ligne pour
-   *     heriter de la meme regle, jamais un `if unitId === '...'` disperse
-   *     dans plusieurs fichiers. */
-  playerUnlockMode?: 'starter' | 'defeatEnemy';
   /** Capacites speciales de l'unite (voir data/abilities.ts) — absent ou
    *  tableau vide pour une unite qui n'en a aucune (fantassin, archer).
    *  La Charge (data/abilities.ts) n'est portee par aucune unite depuis le
@@ -133,6 +118,9 @@ export interface UnitDef {
    *  (sim/systems/workers.ts), tout credite directement au stock. Absent :
    *  unite de combat. */
   worker?: boolean;
+  /** Le Heros (data/hero.ts) : progression propre (niveau, equipement),
+   *  jamais une unite militaire (voir isMilitaryUnit). */
+  hero?: boolean;
   /** Emprise au placement (voir main.ts, getFootprintTiles/isValidPlacementForUnit)
    *  — absent = 1x1 comme toutes les unites jusqu'ici. Seul `tilesZ` est
    *  actuellement supporte (extension vers l'ARRIERE du camp, jamais vers
@@ -246,12 +234,9 @@ export const UNITS: Record<string, UnitDef> = {
     name: 'Mage',
     cost: 10,
     populationCost: 3,
-    // Deblocage par victoire (2026-08-15) : le joueur doit avoir vaincu au
-    // moins un Mage ENNEMI avant de pouvoir le recruter — voir
-    // UnitDef.playerUnlockMode. Remplace l'ancien deblocage "manche 8
-    // vaincue" (MAGE_UNLOCK_WAVE ne gouverne plus que l'apparition du Mage
-    // dans les rangs ennemis, voir run/runState.ts).
-    playerUnlockMode: 'defeatEnemy',
+    // Produit par le Sanctuaire (data/buildings.ts) ; plus aucun deblocage
+    // par victoire (2026-11-05). MAGE_UNLOCK_WAVE ne gouverne que
+    // l'apparition du Mage dans les rangs ennemis (run/runState.ts).
     stats: {
       // "PV maximum : 5" (echelle affichee) donne par Antoine tel quel ->
       // 50 interne, exactement comme le fantassin. Note honnete : ca ne
@@ -360,11 +345,10 @@ export const UNITS: Record<string, UnitDef> = {
     // 40 -> 20 (2026-11-01, decision de design d'Antoine) ; le reste inchange.
     cost: 20,
     populationCost: 5,
-    // Deblocage par victoire (2026-08-15, meme systeme que le Mage) : le
-    // joueur doit avoir vaincu au moins une Sentinelle ENNEMIE (apparait a
-    // partir de ENEMY_SENTINEL_START_WAVE, voir run/runState.ts) avant de
-    // pouvoir la recruter.
-    playerUnlockMode: 'defeatEnemy',
+    // Unite DORMANTE cote joueur (2026-11-05) : definie, mais produite par
+    // aucun batiment tant que son batiment, son role et son cout ne sont
+    // pas decides (docs/ROADMAP.md). Cote ennemi : a partir de
+    // ENEMY_SENTINEL_START_WAVE (run/runState.ts).
     stats: {
       // "50 HP" affiche -> 500 interne (convention x10 verifiee, pas supposee).
       maxHp: 500,
@@ -561,6 +545,7 @@ UNITS['hero'] = {
   // Vitesse +60 % (2026-11-02, demande d'Antoine) : 2,6 -> 4,16 cases/s.
   stats: { maxHp: 300, damage: 25, attackRange: 1.0, aggroRange: 9, moveSpeed: 4.16, attackCooldown: 1.1, missChance: 0.05, dodgeChance: 0, radius: 0.6, canAttackWhileMoving: false },
   visual: { kit: 'hero', hpBarHeight: 2.0 },
+  hero: true,
 };
 
 /** Cavalerie legere (2026-11-01, Hero RTS) : cheval, lance legere, petit
@@ -654,6 +639,17 @@ export const UNIT_MOVE_SPEED_MULTIPLIER = 1.4;
  *  UNIT_MOVE_SPEED_MULTIPLIER) : a appliquer UNE fois, sur des stats de base. */
 export function withEffectiveMoveSpeed<T extends { moveSpeed: number }>(stats: T): T {
   return { ...stats, moveSpeed: stats.moveSpeed * UNIT_MOVE_SPEED_MULTIPLIER };
+}
+
+/** Unite MILITAIRE du joueur (2026-11-05, Pass 2) : cible des technologies
+ *  globales de la Forge (data/technologies.ts). Toute unite de combat
+ *  recrutable — Piquier, Homme d'armes, Archer, Mage, Oracle, Vengeur,
+ *  Cavalier, Sentinelle si elle est un jour produite — jamais le Heros
+ *  (progression propre), le Villageois (economique) ni une unite neutre.
+ *  Regle derivee des champs de la definition, pas une liste a maintenir. */
+export function isMilitaryUnit(unitId: string): boolean {
+  const def = getUnit(unitId);
+  return !def.hero && !def.worker && !def.neutral;
 }
 
 export function getUnit(id: string): UnitDef {

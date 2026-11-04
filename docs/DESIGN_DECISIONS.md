@@ -69,13 +69,13 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | C1 | Grand arbre de talents abandonné | Remplacée |
 | C2 | Exclusivités dans l'arbre de talents | Remplacée (fondateurs) / Active (talents frères) |
 | C3 | Attribution des points de talent | Active (forme actuelle) / Remplacée (formes antérieures) |
-| C4 | Déblocage d'une unité en battant cet ennemi | Active (enregistrement) / Ouverte (plus aucun consommateur depuis G40 ; Pass 2) |
+| C4 | Déblocage d'une unité en battant cet ennemi | Retirée (2026-11-05, G41) |
 | D1 | Bâtiments gameplay achetés plutôt qu'accordés par un talent | Active |
 | D2 | Bâtiments gameplay et bâtiments décoratifs distincts | Active |
 | D3 | Placement obligatoire de la tour en début de run | Remplacée (Baliste définie par la carte) |
 | D4 | Sauvegarde d'une run en cours | Ouverte |
-| D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Forge et Or, niveau de production des unités) / Remplacée (Runes, améliorations permanentes, amélioration globale de la Mine et de la Caserne, absence de surcoût de production) |
-| D6 | Améliorations de la Mine et de la Caserne propres à chaque bâtiment | Active |
+| D5 | Or monnaie unique, Runes supprimées, améliorations achetées à la Forge | Active (Or monnaie, améliorations propres à la run) / Remplacée par G41 (niveau de production des unités, surcoût de recrutement, écran de la Forge) |
+| D6 | Améliorations de la Mine et de la Caserne propres à chaque bâtiment | Active (Mine, Tour) / Remplacée par G41 pour les producteurs (niveau par type, global à la run) ; Église sans amélioration |
 | D7 | Départ de run, population et bâtiments de recrutement | Active |
 | D8 | Murailles du joueur (Wall V1) | Abandonnée le 2026-11-02, remplacée par G23 |
 | E1 | Manipulation directe pendant le placement | Remplacée (placement retiré, G40) / Active (gestes RTS directs en jeu et dans l'éditeur) |
@@ -102,10 +102,11 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G34 | Éditeur de Survie : camp = objet sémantique authorable avec niveau, Départ Survie explicite, validation | Active (valeurs provisoires) |
 | G35 | Dépôt des ressources instantané au contact du point de collecte | Active |
 | G36 | Vitesse de déplacement ×1,4 pour toutes les unités mobiles (multiplicateur central) | Active (valeur provisoire) |
-| G37 | Bois et pierre récoltables dès le départ ; l'or reste lié à la Forge | Active ; **Ouvert** : l'or |
+| G37 | Bois et pierre récoltables dès le départ ; l'or aussi depuis G41 | Active (tranchée le 2026-11-05 : or libre) |
 | G38 | Départ Survie = petit camp joueur préconstruit (preset dérivé), enceinte arrondie | Active (valeurs provisoires) |
 | G39 | Générateur : gisements avant la mise en forme des forêts, aucun passage d'une case (KI-65) | Active |
 | G40 | Passe de modernisation 1 : retrait du legacy de la boucle en manches (placement, Boutique, parchemins, fin de manche, agrandissement, quota par manche, 4 talents), tests dans le dépôt | Active (2026-11-04) |
+| G41 | Passe de modernisation 2 : Forge = technologies militaires globales, améliorations d'unité = bâtiment producteur (rétroactives), recherches en temps réel par la file, Baliste depuis sa fiche, or libre, plus de pas d'ouverture ni de déblocage par victoire, plus de soin de l'armée | Active (2026-11-05, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -280,23 +281,23 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### B5 — Début de bataille défensif pour le joueur
 
-- **Statut** : Active.
+- **Statut** : Active (Garde dès le départ) / Remplacée (le pas d'ouverture
+  d'une case, retiré le 2026-11-05 par G41, KI-68 close).
 - **Contexte** : au lancement de la bataille, les unités du joueur
   avançaient d'elles-mêmes vers l'ennemi, comme lui.
 - **Décision** (demande d'Antoine) :
   - les ennemis avancent toujours ; les unités du joueur sont en défense :
     elles attendent qu'un ennemi entre dans leur aggro, ou un ordre ;
-  - pour ne pas paraître figée, la formation fait d'abord un pas d'ouverture
-    d'exactement une case vers l'ennemi, offsets conservés, puis passe en
-    Garde. Ce n'est pas une charge : aucune cible ennemie n'est assignée ;
-  - ce pas est tout ou rien : si une seule case d'arrivée est invalide, tout
-    le groupe reste en place et passe directement en Garde, plutôt que de
-    déformer la formation ;
-  - les Fantassins produits ensuite par une Caserne passent directement en
-    Garde, sans ce pas.
-- **Aujourd'hui** : appliqué aux vraies batailles et à « Tester le
-  scénario » (`CURRENT_STATE.md` §2).
-- **Sources** : `main.ts` (`openBattleWithFormationStep`,
+  - (remplacé) pour ne pas paraître figée, la formation faisait d'abord un
+    pas d'ouverture d'exactement une case vers l'ennemi, tout ou rien, puis
+    passait en Garde ;
+  - les unités produites ensuite passent directement en Garde.
+- **Aujourd'hui** : une run Hero RTS démarre directement (menu → Héros →
+  monde chargé → camp de départ → caméra sur le Héros → simulation) ; les
+  unités présentes sont en Garde dès le premier pas, en vraie run comme
+  dans « Tester le scénario » (`CURRENT_STATE.md` §2). Une
+  animation ou une introduction, si elle est voulue, sera conçue à part.
+- **Sources** : `main.ts` (`startSurvivalWorld`, `setupTestBattle`,
   `holdPlayerUnitsInGuard`), `sim/orders.ts`.
 
 ### B6 — Vagues ennemies en mini-groupes
@@ -524,7 +525,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### C4 — Déblocage d'une unité en battant ce type d'ennemi
 
-- **Statut** : Active.
+- **Statut** : Retirée (2026-11-05, G41, décision d'Antoine).
 - **Contexte** : certaines unités devaient se débloquer au fil de la
   progression ; au début, c'était à un numéro de vague précis.
 - **Décision** : une unité marquée comme telle devient recrutable dès que le
@@ -532,18 +533,17 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Raison connue** : la sauvegarde enregistre un fait (« ce type a été
   vaincu ») plutôt qu'une conclusion. Ce fait reste réutilisable plus tard,
   par exemple pour un bestiaire ou des succès.
-- **Aujourd'hui** : l'enregistrement reste (`registerEnemyDefeat`,
-  `defeatedEnemyUnitIds`, `canPlayerRecruitUnit`), mais depuis le retrait
-  de la Boutique (G40, 2026-11-04) **plus aucun code ne le consomme** : le
-  Mage se produit au Sanctuaire sans condition, la Sentinelle n'est
-  produite nulle part, et le toast « Unité débloquée » a été retiré pour
-  ne pas annoncer un déblocage sans effet. À redéfinir en Pass 2 (par quoi
-  faire passer le déblocage : bâtiment, file de production, autre) ;
-  `KNOWN_ISSUES.md` KI-67.
-- **À ne pas faire** : ne pas réafficher un toast de déblocage tant que
-  rien n'en dépend.
+- **Aujourd'hui** : **retiré** — `playerUnlockMode`,
+  `defeatedEnemyUnitIds`, `registerEnemyDefeat`, `canPlayerRecruitUnit`,
+  le toast et la migration `unlockedUnits` n'existent plus. Une unité se
+  produit dès que son bâtiment existe (D7) : le Mage au Sanctuaire ; la
+  Sentinelle reste définie et **dormante** (aucun bâtiment, rôle et coût à
+  décider, `ROADMAP.md` §6 quater). Une ancienne sauvegarde se charge
+  normalement (clés ignorées).
+- **À ne pas faire** : ne pas réintroduire un déblocage par victoire sans
+  nouvelle décision ; ne rien inventer pour la Sentinelle.
 - **Sources** : archive (« Système générique de déblocage d'unités ») ;
-  `data/units.ts` (`playerUnlockMode`), `run/metaProgress.ts`.
+  `data/units.ts`, `run/metaProgress.ts`, G41.
 
 ---
 
@@ -632,10 +632,15 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### D5 — Or monnaie unique, Runes supprimées, améliorations achetées à la Forge
 
-- **Statut** : Active (Or et Forge ; niveau de production des unités).
-  Remplacée : la monnaie Rune, la boutique d'amélioration permanente du menu
-  principal, le talent « Maître de la forge » et la règle « une amélioration
-  n'augmente pas le prix de ce qu'elle améliore » (pour les unités).
+- **Statut** : Active (Or seule monnaie ; améliorations propres à la run,
+  jamais sauvegardées). Remplacée : la monnaie Rune, la boutique
+  d'amélioration permanente du menu principal, le talent « Maître de la
+  forge » ; et, par **G41** (2026-11-05), le niveau de production des
+  unités, le surcoût de recrutement et l'écran de la Forge — la Forge porte
+  désormais des technologies militaires globales, les améliorations
+  d'unité appartiennent au bâtiment producteur, la Baliste à sa fiche. La
+  règle « une amélioration n'augmente pas le prix de ce qu'elle améliore »
+  est **de nouveau active**.
 - **Contexte** : les améliorations de statistiques s'achetaient avec des
   Runes gagnées à chaque victoire, dans une boutique du menu principal, et
   restaient acquises d'une run à l'autre. Elles ne créaient aucun arbitrage
@@ -679,42 +684,32 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   pour survivre — et séparer clairement les rôles : talents pour la
   progression permanente et les règles, Forge pour l'investissement
   économique de la run.
-- **Aujourd'hui** :
+- **Aujourd'hui** (voir G41 pour le modèle complet) :
   - Or de départ 20 (25 avec « Or de départ », voir D7) ; Forge 10,
     Mine 20, Caserne 15, Camp d'archerie 15, Maison 5, Tour 20, Église 35 ;
-  - la Forge propose les améliorations de production des unités (Fantassin,
-    Archer, Mage, Sentinelle) et la Baliste ;
-  - l'Église est le point d'accès aux améliorations du Parchemin de soin, de
-    la Nova de glace et de Soins excédentaires. Ces trois améliorations
-    restent des améliorations **globales de la run** (`RunState.upgrades`,
-    partagées par toutes les Églises), pas des améliorations individuelles
-    de l'Église ; le niveau propre d'une Église ne porte que sur ses PV max
-    et l'efficacité de son soin (PV par or) ;
-  - coût `runUpgradeGoldCost` : 7 / 14 / 28 / 56… pour les unités,
-    1 / 2 / 4 / 8… pour le reste. Ces montants, comme les gains et surcoûts
-    par niveau (`data/unitUpgrades.ts`), sont de l'**équilibrage
-    provisoire**, pas une décision ;
+  - la Forge recherche Armes forgées I et Armures forgées I ; la Baliste
+    s'améliore depuis sa fiche (1 / 2 / 4 / 8… or) ; les unités tirent leurs
+    bonus du niveau de leur producteur et des technologies, à coût de
+    recrutement fixe ;
   - `MetaProgress` ne contient plus que la progression permanente ; les clés
     `upgradeRunes` / `unitUpgrades` des anciennes sauvegardes sont ignorées.
 - **À ne pas faire** :
   - ne pas réintroduire de monnaie permanente qui achèterait des
     améliorations de statistiques hors de la run ;
   - ne pas faire dépendre la puissance des améliorations du nombre de Forges ;
-  - ne pas rendre une amélioration d'unité rétroactive : une unité garde
-    le niveau de sa création ;
-  - ne pas ajouter de surcoût lié au niveau aux bâtiments ni aux parchemins
-    sans nouvelle décision.
-- **Direction (intention, non actée)** : à terme, la Forge ne devrait plus
-  améliorer que les unités ; la place des améliorations de la Baliste et des
-  parchemins reste à décider.
-- **Sources** : `run/runUpgrades.ts`, `data/unitUpgrades.ts`,
-  `run/unitUpgradeEffects.ts`, `run/runState.ts`, `run/metaProgress.ts`
-  (`REMOVED_TALENT_REFUNDS`), `data/buildings.ts`, `main.ts` (`openForge`,
-  `purchaseForgeUpgrade`), `CURRENT_STATE.md` §6, §7 et §14.
+  - ne pas réintroduire un surcoût de recrutement lié à la puissance sans
+    décision explicite (G41).
+- **Sources** : `run/runUpgrades.ts`, `run/runState.ts`,
+  `run/metaProgress.ts` (`REMOVED_TALENT_REFUNDS`), `data/buildings.ts`,
+  `CURRENT_STATE.md` §6, §7 et §14 ; G41.
 
 ### D6 — Améliorations de la Mine et de la Caserne propres à chaque bâtiment
 
-- **Statut** : Active.
+- **Statut** : Active pour la Mine et la Tour (niveau par exemplaire ;
+  l'Église n'a plus d'amélioration) ; **remplacée par G41** (2026-11-05)
+  pour les producteurs
+  (Caserne, Camp d'archerie, Sanctuaire, Écurie) : un seul niveau par type,
+  global à la run, qui améliore leur roster.
 - **Contexte** : la Mine et la Caserne s'amélioraient à la Forge, d'un
   niveau global partagé par tous les exemplaires.
 - **Décision** (demande d'Antoine) :
@@ -729,9 +724,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   fiche et d'amélioration ; la Forge doit tendre vers les améliorations
   d'unités (D5).
 - **Aujourd'hui** : Mine : 3 à 7 or toutes les 60 s de simulation au niveau
-  1 (Survie en temps réel, G11), +2 / +2 par niveau, sans plafond ; Caserne et Camp
-  d'archerie : voir D7. Ces valeurs sont de
-  l'équilibrage, pas une décision.
+  1 (Survie en temps réel, G11), +2 / +2 par niveau, sans plafond, par la
+  file de la Mine (20 s, G41) ; Caserne et Camp d'archerie : voir D7 et
+  G41. Ces valeurs sont de l'équilibrage, pas une décision.
 - **Sources** : `run/buildingUpgrades.ts`, `run/mineUpgradeEffects.ts`,
   `data/buildings.ts`, `CURRENT_STATE.md` §6.
 
@@ -1845,8 +1840,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 ### G25 — Or monnaie, Forge = outils, gisements bloquants
 
 - **Statut** : Active ; valeurs **provisoires** ; **amendée** le
-  2026-11-04 par G37 (la Forge ne débloque plus le bois ni la pierre) et
-  G39 (placement des gisements).
+  2026-11-04 par G37 (la Forge ne débloque plus le bois ni la pierre), G39
+  (placement des gisements), puis le 2026-11-05 par G41 (la Forge ne
+  débloque plus rien : or libre, Forge = technologies).
 - **Demande d'Antoine** (2026-11-03) :
   - **Or = monnaie** : plus un objet du sac ; tas ramassés d'un clic,
     instantanément (remplacé le même jour : le Héros va le ramasser, voir
@@ -2082,23 +2078,24 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### G37 — Bois et pierre récoltables dès le départ
 
-- **Statut** : Active (2026-11-04) ; **Ouvert** : l'or (décision
-  d'Antoine).
+- **Statut** : Active (2026-11-04) ; **tranchée le 2026-11-05** (G41,
+  décision d'Antoine) : l'**or des gisements est libre** lui aussi.
 - **Demande d'Antoine** : la Forge ne débloque plus la coupe du bois ni
   l'extraction de la pierre ; Héros et Villageois ont hache et pioche dès le
   début ; plus de message « il faut une Forge » pour un arbre ou un
   gisement de pierre ; l'or extrait garde sa règle actuelle ; ne pas
   inventer de nouvelle fonction à la Forge.
-- **Choix de la passe** : `STARTING_HARVEST_TOOLS` = hache + pioche de
-  mineur (tout camp, sans bâtiment) ; le gisement d'or demande désormais un
-  outil propre, la **Pioche de prospecteur** (nom **provisoire**), que la
-  Forge terminée donne (`unlocksTools: ['goldPickaxe']`) : c'est le seul
-  moyen de garder « or = Forge » sans toucher à la pierre. La Forge garde
-  ses améliorations de run.
-- **À trancher** : l'or doit-il rester lié à la Forge, devenir libre, ou
-  dépendre d'un autre bâtiment (Camp de mineur) ?
-- **Sources** : `data/resources.ts`, `run/harvestPermissions.ts`,
-  `data/buildings.ts`, `sim/world.ts`, `main.ts`.
+- **Choix de la passe (2026-11-04, remplacé)** : `STARTING_HARVEST_TOOLS` =
+  hache + pioche de mineur ; le gisement d'or demandait une Pioche de
+  prospecteur donnée par la Forge.
+- **Décision (2026-11-05)** : la Forge ne conditionne plus l'exploitation
+  des gisements d'or ; Héros et Villageois les exploitent dès le début avec
+  la pioche ordinaire. `goldPickaxe`, `BuildingDef.unlocksTools`,
+  `run/harvestPermissions.ts`, l'annonce « Nouvel outil » et le message
+  « il faut une Forge » sont retirés. La Forge devient entièrement
+  militaire / technologique (G41).
+- **Sources** : `data/resources.ts`, `data/buildings.ts`, `sim/world.ts`,
+  `main.ts`.
 
 ### G38 — Départ Survie = petit camp joueur préconstruit
 
@@ -2201,8 +2198,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   Niv. 2) ; l'architecture de l'arbre de talents et ses 5 talents ;
   `Entity.rootTimer` (statut générique sans source) ; `countsForDefeat`
   (information) ; le pas d'ouverture `openBattleWithFormationStep` au
-  démarrage (résultat visible inchangé, candidat au retrait, KI-68) ;
-  l'enregistrement du déblocage par victoire (C4, KI-67).
+  démarrage (candidat au retrait, KI-68) et l'enregistrement du déblocage
+  par victoire (C4, KI-67) — tous deux retirés ensuite par G41 (2026-11-05).
 - **Corrigé au passage** (bugs latents révélés par le retrait) : la Forge
   refusait tout achat en Survie (garde de préparation) ; le point de
   ralliement était refusé sur l'Auberge, le Sanctuaire, l'Église et
@@ -2227,6 +2224,103 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `realtimeBuildingAction`), `run/runState.ts`, `run/runUpgrades.ts`,
   `run/metaProgress.ts`, `data/talents.ts`, `data/buildings.ts`,
   `sim/world.ts`, `tests/`.
+
+### G41 — Passe de modernisation 2 : modèle d'améliorations du Hero RTS
+
+- **Statut** : Active (2026-11-05). Toutes les valeurs sont
+  **PROVISOIRES**.
+- **Contexte** : après G40, la Forge restait une boutique d'améliorations
+  par type d'unité (niveaux de production non rétroactifs, surcoût de
+  recrutement, écran modal qui figeait le jeu), le Camp d'archerie n'avait
+  plus de Niv. 2, le Sanctuaire et l'Écurie un Niv. 2 placeholder (+5 PV du
+  bâtiment), l'Église un soin instantané de toute l'armée contre de l'or,
+  l'or des gisements dépendait de la Forge (G37 ouvert), le démarrage
+  gardait un pas d'ouverture (KI-68) et le déblocage par victoire était
+  enregistré sans consommateur (KI-67).
+- **Décisions d'Antoine** :
+  - **Forge = technologies militaires globales** : « Armes forgées I »
+    (+10 % dégâts) et « Armures forgées I » (+10 % PV max) pour toutes les
+    unités militaires, présentes et futures ; jamais le Héros, le
+    Villageois, la Baliste ni les bâtiments ; un seul palier chacune (II /
+    III possibles plus tard, non implémentés) ; coûts 20 or + stock, 30 s ;
+  - **améliorations spécifiques = bâtiment producteur**, un seul niveau par
+    type, global à la run, rétroactif : Camp d'archerie Niv. 2 → Archers
+    +2 PV, +1 dégâts (KI-69 close) ; Sanctuaire Niv. 2 → Mages +3 PV, +2
+    Boule de feu ; Écurie Niv. 2 → Cavaliers +5 PV, +5 % vitesse (dans la
+    chaîne normale des stats, avant le ×1,4 global) ; Caserne Niv. 2 →
+    Homme d'armes, plus la technologie « Entraînement des hommes d’armes »
+    (+3 PV, +1 dégâts, 7 or : l'ancien niveau de Forge, sans surcoût de
+    recrutement) ;
+  - **Héros = progression séparée** (niveau, équipement, futur arbre) ;
+  - **or naturel exploitable dès le départ** (G37 tranchée) ;
+  - **toutes les recherches en temps réel**, par la file de production du
+    bâtiment (commande `research`, mêmes règles que les unités : payée à
+    la commande, annulable, perdue avec le bâtiment sans remboursement) ;
+    une technologie terminée reste acquise ; deux Forges partagent la
+    recherche ; aucun écran ne fige le jeu (écran de la Forge retiré) ;
+    Mine et Tour passent aussi par la file (20 s) ;
+  - **Baliste** : amélioration depuis sa propre fiche, par sa file ; valeurs
+    inchangées ; **plafond Niv. 5** (4 améliorations, `maxLevel` = 4,
+    provisoire ; finalisation du 2026-11-05) : « Niveau maximum atteint »,
+    aucune commande acceptée au-delà ;
+  - **Église** : soin instantané de l'armée retiré (rythme de l'ancien jeu
+    en manches ; Paladin, Oracle et futurs supports) ; son Niv. 2 (+5 PV du
+    bâtiment) retiré lui aussi (finalisation du 2026-11-05) : bâtiment de
+    production seul (Oracle, Vengeur), progression à redéfinir plus tard
+    avec le gameplay soutien ;
+  - **une seule hiérarchie de stats** : base + niveau explicite éventuel
+    + niveau du producteur + technologies = stats finales ; le coût de
+    recrutement ne dépend jamais de la puissance (l'ancien modèle
+    « plus fort et plus cher » est abandonné) ; `Entity.level` reste une
+    donnée sans scaling ;
+  - **démarrage direct** (KI-68 close) et **déblocage par victoire retiré**
+    (KI-67 close, C4) ; la Sentinelle reste dormante.
+- **Retiré** : `openBattleWithFormationStep` ; `playerUnlockMode`,
+  `defeatedEnemyUnitIds`, `registerEnemyDefeat`, `canPlayerRecruitUnit`,
+  migration `unlockedUnits` ; `data/unitUpgrades.ts` (partie joueur),
+  `OwnedUnit.productionLevel`, surcoût de recrutement ; écran de la Forge
+  (`unitUpgradeShop`, CSS, handlers), `purchaseRunUpgrade` ;
+  `run/churchHeal.ts`, `armyHeal`, action `healArmy` ; `goldPickaxe`,
+  `unlocksTools`, `run/harvestPermissions.ts`, annonce et message
+  « il faut une Forge » ; `hpPerLevel` du Sanctuaire et de l'Écurie ;
+  amélioration instantanée des bâtiments.
+- **Ajouté** : `data/technologies.ts`, `data/unitBonus.ts`,
+  `BuildingDef.upgradeScope` / `rosterBonusPerLevel`, `UnitDef.hero`,
+  `isMilitaryUnit` ; `run/technologies.ts`, `run/productionOrders.ts`
+  (source unique des commandes), `run/playerUnitStats.ts` réécrit
+  (`computePlayerUnitStats`), `run/buildingUpgrades.ts` réécrit
+  (portées) ; commande `research` et événements typés dans
+  `sim/systems/buildingProduction.ts`, `World.applyUnitStats` (PV à la
+  même fraction) et `World.applyBuildingStats` ; fiches (`research`,
+  `upgradeBallista`, lignes « Terminé / En recherche », « Niv. 2 |
+  Archers : +2 PV, +1 dégâts », « débloque : Homme d’armes »).
+- **Renommé** : `data/unitUpgrades.ts` → `data/enemyWaveUpgrades.ts`,
+  `run/unitUpgradeEffects.ts` → `run/enemyWaveEffects.ts` (renfort des
+  vagues, inchangé).
+- **Changements de ressenti signalés** : les améliorations deviennent
+  rétroactives (unités présentes incluses) ; plus de surcoût de
+  recrutement ; Mine et Tour s'améliorent en 20 s au lieu d'instantanément
+  ; le soin de l'Église disparaît ; l'or des gisements est disponible dès
+  le départ ; la Forge coûte toujours 10 or / 5 bois / 5 pierre mais n'a
+  d'intérêt qu'avec une armée militaire.
+- **Filet de sécurité** : `tests/sim/technologies.mts` (données, Forge,
+  destruction, deux Forges, producteurs, Caserne, Baliste, file unique,
+  Héros / Villageois exclus), `tests/game/forge-jeu.cjs` réécrit (fiche de
+  la Forge, recherche en jeu sans écran, Archer présent amélioré, Baliste
+  et Camp d'archerie depuis leurs fiches) ; `modernisation.mts`,
+  `depart-camp.mts`, `cargo.mts`, `collecte.mts`, `depart-jeu.cjs`
+  adaptés aux décisions (or libre, Forge sans outil).
+- **À ne pas faire** : ne pas remettre d'amélioration par type d'unité à
+  la Forge ; ne pas créer de niveaux infinis de technologie (I → II → III
+  se déclarent une entrée à la fois) ; ne pas figer la simulation pour une
+  commande ; ne pas lier la puissance au coût de recrutement ; ne rien
+  inventer pour la Sentinelle ni un arbre pour l'Église sans décision.
+- **Sources** : `data/technologies.ts`, `data/unitBonus.ts`,
+  `data/buildings.ts`, `data/units.ts`, `data/resources.ts`,
+  `run/productionOrders.ts`, `run/playerUnitStats.ts`,
+  `run/buildingUpgrades.ts`, `run/technologies.ts`, `run/runUpgrades.ts`,
+  `run/entityInfo.ts`, `sim/world.ts`, `sim/systems/buildingProduction.ts`,
+  `main.ts`, `CURRENT_STATE.md` §2, §4, §6 et §14, `tests/`.
 
 ### G35 — Dépôt des ressources instantané
 

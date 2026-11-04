@@ -411,11 +411,11 @@ export class World {
    *  `abilityDamageBonus` optionnel (defaut 0) : voir Entity.abilityDamageBonus
    *  — meme principe que statOverrides, mais pour le damage d'une CAPACITE
    *  (Boule de feu du Mage...) plutot qu'une UnitStats classique (2026-08-13,
-   *  boutique d'amelioration permanente — voir run/unitUpgradeEffects.ts).
+   *  boutique d'amelioration permanente — voir run/playerUnitStats.ts).
    *  `tauntShieldBonus` optionnel (defaut 0) : voir Entity.tauntShieldBonus —
    *  meme principe, bonus PERMANENT du JOUEUR sur le bouclier gagne par
    *  ennemi provoque (Sentinelle, 2026-08-14 — voir
-   *  run/unitUpgradeEffects.ts), toujours 0 pour un ennemi. */
+   *  run/playerUnitStats.ts), toujours 0 pour un ennemi. */
   spawn(
     unitId: string,
     team: Team,
@@ -977,17 +977,50 @@ export class World {
   }
 
   /** File de production temps reel (2026-11-02) : ajoute en fin de file du
-   *  batiment `entityId` une unite ou son amelioration, `seconds` s de
+   *  batiment `entityId` une unite, son amelioration ou une recherche
+   *  (2026-11-05, `techId` opaque pour la simulation), `seconds` s de
    *  simulation, apres les commandes deja en file. Renvoie l'id de la
    *  commande, ou null si refusee : pas un batiment vivant et bati du joueur,
-   *  ou file pleine (PRODUCTION_QUEUE_MAX). Cout, unites autorisees et
-   *  amelioration unique restent a l'orchestration. */
-  queueProduction(entityId: number, order: { kind: 'unit'; unitId: string } | { kind: 'upgrade' }, seconds: number): number | null {
+   *  ou file pleine (PRODUCTION_QUEUE_MAX). Cout, unites autorisees,
+   *  amelioration ou recherche unique restent a l'orchestration. */
+  queueProduction(entityId: number, order: { kind: 'unit'; unitId: string } | { kind: 'upgrade' } | { kind: 'research'; techId: string }, seconds: number): number | null {
     const e = this.entityById.get(entityId);
     if (!e || !e.alive || !e.isBuilding || e.construction || e.team !== 'player' || e.productionOrders.length >= PRODUCTION_QUEUE_MAX) return null;
     const id = this.nextProductionOrderId++;
-    e.productionOrders.push(order.kind === 'unit' ? { id, kind: 'unit', unitId: order.unitId, remaining: seconds, total: seconds } : { id, kind: 'upgrade', remaining: seconds, total: seconds });
+    if (order.kind === 'unit') e.productionOrders.push({ id, kind: 'unit', unitId: order.unitId, remaining: seconds, total: seconds });
+    else if (order.kind === 'upgrade') e.productionOrders.push({ id, kind: 'upgrade', remaining: seconds, total: seconds });
+    else e.productionOrders.push({ id, kind: 'research', techId: order.techId, remaining: seconds, total: seconds });
     return id;
+  }
+
+  /** Reapplique a une UNITE vivante des stats effectives recalculees par
+   *  l'orchestration (2026-11-05 : technologies et niveaux de producteurs,
+   *  retroactifs) — meme forme que World.spawn (patch par-dessus la base,
+   *  vitesse effective), la simulation ne sait pas D'OU viennent ces
+   *  nombres. PV actuels a la MEME FRACTION du maximum (10 / 20 -> 11 / 22,
+   *  comme l'equipement du Heros), jamais au-dessus du nouveau maximum.
+   *  Jamais pour le Heros (refreshHeroStats) ni un batiment. */
+  applyUnitStats(entity: Entity, statOverrides: Partial<UnitStats> | undefined, abilityDamageBonus = 0, tauntShieldBonus = 0): void {
+    if (entity.hero || entity.isBuilding) return;
+    const def = getUnit(entity.unitId);
+    const prevMaxHp = entity.stats.maxHp;
+    entity.stats = withEffectiveMoveSpeed({ ...def.stats, ...statOverrides });
+    const maxHp = entity.stats.maxHp;
+    if (maxHp !== prevMaxHp) entity.hp = prevMaxHp > 0 ? Math.min(maxHp, Math.round((entity.hp * maxHp) / prevMaxHp)) : maxHp;
+    entity.abilityDamageBonus = abilityDamageBonus;
+    entity.tauntShieldBonus = tauntShieldBonus;
+  }
+
+  /** Reapplique a un BATIMENT vivant ses PV max et, s'il attaque, ses degats
+   *  (niveau du batiment, Baliste amelioree). PV actuels augmentes du MEME
+   *  ECART que le maximum : les PV manquants restent les memes (convention
+   *  des batiments), jamais au-dessus du nouveau maximum. */
+  applyBuildingStats(entity: Entity, maxHp: number, attackDamage?: number): void {
+    if (!entity.isBuilding) return;
+    const delta = maxHp - entity.stats.maxHp;
+    entity.stats = { ...entity.stats, maxHp };
+    entity.hp = Math.min(maxHp, entity.hp + Math.max(0, delta));
+    if (attackDamage !== undefined && entity.buildingAttack) entity.buildingAttack = { ...entity.buildingAttack, damage: attackDamage };
   }
 
   /** Annule la commande `orderId` de la file du batiment `entityId` (la

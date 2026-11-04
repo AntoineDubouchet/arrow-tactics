@@ -194,10 +194,13 @@ forme de nombres finaux : la simulation ne sait jamais *pourquoi* une stat
 diffère de la base.
 
 - Pour une unité du joueur, ces trois paramètres viennent de
-  `run/playerUnitStats.ts` (§10), à chaque site d'apparition : bataille,
-  « Tester le scénario », production de la Caserne et du Camp d'archerie.
+  `run/playerUnitStats.ts` (§10, `computePlayerUnitStats`), à chaque site
+  d'apparition : lancement, « Tester le scénario », production des
+  bâtiments ; et sont **réappliqués** aux unités présentes quand la
+  progression de la run change (`World.applyUnitStats`, PV à la même
+  fraction ; 2026-11-05).
 - Pour un ennemi, `main.ts` les calcule à partir de
-  `computeEnemyUnitUpgradeEffects` (`run/unitUpgradeEffects.ts`).
+  `computeEnemyUnitUpgradeEffects` (`run/enemyWaveEffects.ts`).
 
 Les capacités d'une unité sont lues à chaque tick via
 `getUnit(e.unitId).abilities` (`sim/systems/abilities.ts`). Les bâtiments
@@ -228,10 +231,8 @@ voir §9.
   - un `Root` bloque le mouvement, mais pas l'attaque.
   - un ordre `move` marqué `exact` (`sim/orders.ts`) arrive au point près :
     `followMoveOrder` pose l'unité sur sa destination quand le reste du
-    trajet tient dans un sous-pas. Seul le pas d'ouverture de la bataille
-    l'utilise (`openBattleWithFormationStep`, `main.ts` : un pas d'une case
-    pour tout le camp du joueur si toutes les destinations sont libres,
-    sinon aucun ; puis Garde, comme les unités produites par une Caserne).
+    trajet tient dans un sous-pas. Plus aucun appelant dans `main.ts` depuis
+    le retrait du pas d'ouverture (2026-11-05, G41) ; primitive conservée.
 - **Pathfinding** (`sim/pathfinding.ts`) : grille par case reconstruite à
   chaque appel du système de déplacement, A* en 8 directions sans couper les
   coins, et repli sur la case libre la plus proche si la case visée est
@@ -597,19 +598,21 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - Stocké dans `localStorage` sous une clé versionnée.
   - Chargement défensif : retour aux valeurs par défaut en cas de donnée
     invalide. Les clés inconnues d'une ancienne sauvegarde (`upgradeRunes`,
-    `unitUpgrades`) sont ignorées.
+    `unitUpgrades`, `unlockedUnits`, `defeatedEnemyUnitIds`) sont ignorées.
   - Migrations appliquées à chaque chargement (`migrateToV2`,
-    `stripRemovedTalents`, `mergeLegacyUnlockedUnits`). `stripRemovedTalents`
+    `stripRemovedTalents`). `stripRemovedTalents`
     retire les talents supprimés de l'arbre et rembourse leur coût
     (`REMOVED_TALENT_REFUNDS` : `temps_argent`, `maitre_forge`).
   - Les fonctions de mutation ne sauvegardent jamais elles-mêmes : l'appelant
     appelle `saveMetaProgress`.
 - **Réglages** (`run/userSettings.ts`) : clé `localStorage` séparée, non
   touchée par l'effacement de la sauvegarde.
-- **Améliorations de run** (`run/runUpgrades.ts`) : niveaux, coûts et achat
-  en Or des améliorations de la Forge.
-  - `RunUpgradeLevels` (id d'amélioration → niveau) et
-    `runUpgradeLevel(levels, id)` (0 si absent).
+- **Améliorations de run** (`run/runUpgrades.ts`) : niveaux de toutes les
+  progressions **globales à la run** (2026-11-05, G41) — Baliste
+  (`ballista`), technologies (`data/technologies.ts`) et niveaux des
+  producteurs à portée « run » (id = id du bâtiment).
+  - `RunUpgradeLevels` (id → niveau), `runUpgradeLevel(levels, id)` (0 si
+    absent), `grantRunUpgradeLevel` (niveau + 1, déjà payé).
   - Séparation explicite des deux sources de progression :
 
     ```
@@ -620,60 +623,73 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
     `main.ts` la construit à la demande (`playerProgression()`, jamais
     stockée) ; « Tester le scénario » se joue avec `upgrades = {}`.
-  - Coût : `runUpgradeGoldCost(id, niveau)` = coût de départ × 2^niveau,
-    avec `RUN_UPGRADE_GOLD_COST_BASE` (1) et
-    `RUN_UPGRADE_GOLD_COST_GROWTH` (2), identique pour toutes les
-    améliorations de la Forge. Aucun talent n'intervient.
+  - Baliste : `ballistaUpgradeGoldCost(niveau)` = 1 × 2^niveau
+    (`BALLISTA_UPGRADE_GOLD_COST_BASE` / `_GROWTH`), `canBallistaLevelUp`
+    (`BALLISTA_UPGRADE.maxLevel`, absent = sans plafond). Aucun talent
+    n'intervient.
   - Niveaux affichés : les niveaux internes partent de 0 ;
     `displayedUpgradeLevel` (niveau + 1) est la seule conversion vers
     l'affichage « Niv. N ».
-  - Achat : `canPurchaseRunUpgrade` / `purchaseRunUpgrade(run, id)` (id
-    connu via `isRunUpgradeId`, `maxLevel` éventuel de la définition,
-    débit par `spendGold`, puis niveau + 1 ; tout ou rien).
-  - Les définitions (`data/*Upgrade.ts`, type commun `UpgradeDefBase`) ne
-    portent que les effets et un `maxLevel` facultatif, jamais de prix.
-- **Améliorations par bâtiment** (`run/buildingUpgrades.ts`) : chaque
-  bâtiment améliorable a son niveau (`OwnedBuilding.level`, 0 si absent), hors
-  de `RunState.upgrades`.
+- **Technologies** (`data/technologies.ts`, `run/technologies.ts`) :
+  définitions pures (site, coût or + stock, durée, effets `UnitBonus` sur
+  les unités militaires ou une unité nommée, niveau de site requis) ;
+  `isTechnologyAcquired`, `isTechnologyAvailable`, `canAffordTechnology`,
+  `technologyStatusesAt(site, run, niveau, pending)` (fiche),
+  `technologyUnitBonus(levels, unitId)` (bonus cumulé).
+- **Améliorations de bâtiment** (`run/buildingUpgrades.ts`,
+  `BuildingDef.upgradeScope`) : portée « instance » (`OwnedBuilding.level` :
+  Mine, Tour) ou « run » (`RunState.upgrades[buildingId]` :
+  producteurs) ; `buildingLevelOf(levels, owned)` donne le niveau effectif.
   - Coût `buildingUpgradeGoldCost(buildingId, niveau)` =
     `upgradeGoldCostBase` × 2^niveau ; plafond facultatif
-    `BuildingDef.maxUpgradeLevel` (`isBuildingAtMaxLevel`) ; achat
-    `canUpgradeOwnedBuilding` / `upgradeOwnedBuilding(run, index)` (débit
-    par `spendGold`, tout ou rien).
-  - `main.ts` déclenche l'achat depuis l'action `upgradeBuilding` de la
-    fiche, en temps réel, sur un bâtiment terminé : l'or est débité tout
-    de suite et le niveau appliqué à la fin d'un ordre `upgrade` de la file
-    de production (§9). Les effets se lisent dans
-    `run/mineUpgradeEffects.ts` et `run/buildingUpgradeEffects.ts`.
+    `BuildingDef.maxUpgradeLevel` (`isBuildingAtMaxLevel`) ;
+    `canAffordBuildingUpgrade`, `applyBuildingUpgrade(levels, owned, id)`
+    (niveau + 1 de l'exemplaire ou du type, déjà payé).
+  - Effets : `run/mineUpgradeEffects.ts`, `run/buildingUpgradeEffects.ts`
+    (PV, dégâts), `data/production.ts` (unités débloquées),
+    `BuildingDef.rosterBonusPerLevel` (bonus du roster, via
+    `run/playerUnitStats.ts`).
+- **Commandes de la file** (`run/productionOrders.ts`, 2026-11-05) :
+  SOURCE UNIQUE du paiement, de la mise en file, de l'annulation et de la
+  fin pour les quatre sortes de commandes de `Entity.productionOrders`
+  (unité, amélioration de bâtiment, amélioration de la Baliste, recherche) :
+  `queueUnitOrder`, `queueBuildingUpgradeOrder`, `queueBallistaUpgradeOrder`,
+  `queueTechnologyOrder`, `cancelOrder` (tout rendu), `isBuildingUpgradePending`
+  (exemplaire ou type), `isTechnologyPending`, `completeOrders` (applique
+  niveaux et technologies depuis `World.productionUpgradeEvents`, puis
+  `refreshPlayerUnitStats` si la progression des unités a changé) ;
+  `OrderLedger` (id → or, bois, pierre payés). Pur de tout DOM : les
+  tests sans navigateur l'exercent (`tests/sim/technologies.mts`).
+  `main.ts` ne fait que relayer les actions de fiche
+  (`realtimeBuildingAction`) et les événements (`handleProductionUpgrades`,
+  annonces).
   - `ownedBuildingIndexByEntityId` (`main.ts`) relie chaque entité de
     bâtiment à son `OwnedBuilding`, par l'ordre de spawn.
 - Le bilan de fin de vague (`run/battleSummary.ts`, `showWaveComplete`)
-  a été retiré le 2026-11-04 avec la boucle en manches.
-- **Calcul des effets** (`run/*UpgradeEffects.ts`, `run/talentEffects.ts`) :
-  seuls `run/` et `main.ts` connaissent talents et améliorations. Les
-  modules `*UpgradeEffects.ts` reçoivent les niveaux de la run
-  (`RunUpgradeLevels`) ; les prix de bâtiments
-  (`getEffectiveBuildingCost`) ne dépendent d'aucun niveau, le prix d'une
-  unité dépend de son niveau de production (`effectivePlayerUnitCost`,
-  `playerUnitProductionCost`). L'achat et l'affichage utilisent les mêmes
-  fonctions. `computeEnemyUnitUpgradeEffects` utilise un barème séparé
-  (`ENEMY_WAVE_UPGRADES`) pour le renforcement par vague, indépendant du
-  joueur.
+  a été retiré le 2026-11-04 avec la boucle en manches ; l'écran de la
+  Forge (`unitUpgradeShop`, jeu figé) et `run/churchHeal.ts` le 2026-11-05.
+- **Calcul des effets** (`run/*Effects.ts`, `run/talentEffects.ts`) :
+  seuls `run/` et `main.ts` connaissent talents, technologies et
+  niveaux. Les prix de bâtiments (`getEffectiveBuildingCost`) et d'unités
+  (`UnitDef.cost`) ne dépendent d'aucun niveau. L'achat et l'affichage
+  utilisent les mêmes fonctions. `computeEnemyUnitUpgradeEffects`
+  (`run/enemyWaveEffects.ts`) utilise un barème séparé
+  (`ENEMY_WAVE_UPGRADES`, `data/enemyWaveUpgrades.ts`) pour le
+  renforcement par vague, indépendant du joueur.
 - **Statistiques effectives du joueur** : fonctions pures de la progression,
   source commune du gameplay et de l'interface. Elles combinent talents
-  permanents et améliorations de la run ; aucune de ces formules n'est
+  permanents et progression de la run ; aucune de ces formules n'est
   dupliquée dans `ui/` ni dans `main.ts`.
-  - `run/playerUnitStats.ts` :
-    - `playerUnitStatOverrides(unitId, productionLevel, progression)` :
-      surcharges de stats passées à `World.spawn` (esquive du talent, PV et
-      dégâts du niveau de production) ;
-    - `playerUnitAbilityDamageBonus(unitId, productionLevel)` : bonus de
-      dégâts de capacité (Boule de feu du Mage) ;
-    - `playerUnitTauntShieldBonus(unitId, productionLevel)` : bonus de
-      bouclier par ennemi provoqué (Sentinelle) ;
-    - `productionLevel` est celui de l'unité (`OwnedUnit.productionLevel`,
-      fixé à sa création), jamais le niveau courant de la Forge : une
-      amélioration n'est pas rétroactive.
+  - `run/playerUnitStats.ts` — **une seule hiérarchie** (2026-11-05) :
+    - `computePlayerUnitStats(unitId, progression)` : base + talents
+      (esquive) + bonus du producteur × niveau de run + technologies
+      acquises ; bonus fixes puis pourcentages ; renvoie `statOverrides`
+      (pour `World.spawn` / `World.applyUnitStats`), `abilityDamageBonus`
+      (Boule de feu), `tauntShieldBonus` (0), `maxHp`, `mainAttack`,
+      `bonus` (affichage) ;
+    - `playerUnitRunBonus(levels, unitId)`, `playerUnitMaxHp` ;
+    - la progression est **globale et rétroactive** : aucune unité ne porte
+      plus de niveau propre (`OwnedUnit.productionLevel` retiré).
   - `run/ballistaStats.ts` :
     - `effectivePlayerArrowDamage`, `effectivePlayerArrowCooldown` et
       `totalBallistaAttackSpeedBonus` reçoivent une `PlayerProgression`
@@ -1077,23 +1093,15 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
 
 - Toute l'UI est en DOM par-dessus le canvas, stylée par `ui/style.css`.
 - **`Screens`** (`ui/screens.ts`) : menus, choix du Héros, arbre de
-  talents, écran de la Forge, paramètres, confirmations, fin de run. Il
-  reçoit des callbacks (`ScreenHandlers`) depuis `main.ts` et lit
-  `RunState` / `MetaProgress` pour l'affichage (prix calculés via `run/`).
-  La Boutique de run, l'écran de fin de manche et l'avertissement d'or
-  restant ont été retirés le 2026-11-04 (G40) : 2 333 → 1 173 lignes.
-  - Les améliorations de run de la Forge utilisent l'overlay d'id interne
-    `unitUpgradeShop` (`showForge(run)` / `refreshForge(run)`) : cartes de
-    `RUN_UPGRADE_DEFS` (`run/runUpgrades.ts`, unités + Baliste), Or de la
-    run, niveaux de `RunState.upgrades`, prix `runUpgradeGoldCost`,
-    boutons activés par `canPurchaseRunUpgrade`. `main.ts` l'ouvre depuis
-    la fiche d'une Forge terminée (`realtimeBuildingAction('openForge')`,
-    simulation en pause), réalise l'achat (`purchaseForgeUpgrade`, refusé
-    si l'écran est fermé ou sans Forge, `hasForge()`) et la ferme
-    (`closeForge`, « Retour » ou Échap, prioritaire sur la pause).
-  - Le soin de l'armée à l'Église est calculé et appliqué par
-    `run/churchHeal.ts` (PV manquants via `playerUnitMaxHp`, coût, tout ou
-    rien) ; la fiche l'affiche et `main.ts` le déclenche.
+  talents, paramètres, confirmations, fin de run. Il reçoit des callbacks
+  (`ScreenHandlers`) depuis `main.ts` et lit `MetaProgress` pour
+  l'affichage. La Boutique de run, l'écran de fin de manche et
+  l'avertissement d'or restant ont été retirés le 2026-11-04 (G40) ;
+  l'écran de la Forge (`unitUpgradeShop`, jeu figé) le 2026-11-05 (G41) :
+  les améliorations, technologies et la Baliste se commandent depuis les
+  fiches (`run/entityInfo.ts` : `ownedBuildingInfo(owned, level, run,
+  queue)`, `battleBallistaInfo(…, upgrade)` ; actions `upgradeBuilding`,
+  `research`, `upgradeBallista`, `cancelProduction`), sans rien figer.
 - **HUD et composants** : `economyHud` (or, bois, pierre, population ;
   `goldElement` ancre les popups de pièces), `heroHud`, `waveIndicator`,
   `buildMenu`, `selectionBox`, toasts, `combatOverlay`
@@ -1362,15 +1370,14 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
   refusé sur un arbre épuisé (`applyCommands`). Sélection d'une source
   (arbre ou rocher) : `main.ts` (`selectedResourceNodeId`,
   `resourceNodeAtClick` : feuillage à l'écran puis sol, anneau
-  `DepotTargetRing`) ; clic droit sur une source verrouillée : ordre de
-  déplacement vers `resourceApproachPoint` (`issueRightClickOrder`).
+  `DepotTargetRing`).
 - Sources de ressources (2026-11-02) : `HARVEST_NODE_KINDS`, `canHarvestResource`,
-  `STONE_DEPOSIT_AMOUNT` (`data/resources.ts`) ; droits d'après les bâtiments
-  terminés du monde, avant chaque pas (2026-11-03 : outils `{ tools }` des
-  bâtiments alliés terminés à `unlocksTools`, la Forge ;
-  `harvestPermissionsOf(world.entities, team)`, `run/harvestPermissions.ts`,
-  `main.ts`) ; `HeroWorkContext.canHarvest` (`workGoal` : outil perdu =
-  arrêt, sauf l'unité en cours d'extraction) ; épuisement générique
+  `STONE_DEPOSIT_AMOUNT` (`data/resources.ts`) ; droits :
+  `World.harvestPermissions`, à sa valeur de départ (hache et pioche, or
+  compris) depuis le 2026-11-05 — aucun bâtiment n'en ajoute plus
+  (`run/harvestPermissions.ts` retiré) ; `HeroWorkContext.canHarvest`
+  (`workGoal` : outil absent = arrêt, sauf l'unité en cours d'extraction,
+  règle générique conservée) ; épuisement générique
   `World.depleteResourceNode` (toute source : obstacles recalculés depuis
   les sources debout, cases libérées) →
   `World.resourceDepletedEvents` → `main.ts` (`handleDepletedResources` :
@@ -1468,23 +1475,21 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   (`sim/inventory.ts`) ne connaît plus les ressources (KI-63 close).
   Rendu : `updateCarryBundle(view, cargo)` ; fiche : `dropOffRows`
   (`run/entityInfo.ts`).
-- **Outils** : `data/resources.ts` (`HARVEST_TOOLS` : `axe`, `pickaxe`,
-  `goldPickaxe` ; `STARTING_HARVEST_TOOLS` = hache et pioche, à tout camp
-  dès le départ, 2026-11-04 ; `STARTING_HARVEST_PERMISSIONS`, valeur par
-  défaut de `World.harvestPermissions` ; `HARVEST_NODE_KINDS` : outil,
-  geste, unité, quantité) ; `BuildingDef.unlocksTools` (Forge :
-  `goldPickaxe`) ; `run/harvestPermissions.ts` (outils de départ + ceux des
-  bâtiments terminés alliés, via `sim/relations.ts`, `areAllied`) ; la
-  simulation ne lit que `World.harvestPermissions`. Annonce unique côté
-  `main.ts` (`announceHarvestTools`, outils hors départ seulement).
+- **Outils** : `data/resources.ts` (`HARVEST_TOOLS` : `axe`, `pickaxe` ;
+  `STARTING_HARVEST_TOOLS` = les deux, à tout camp dès le départ, l'or des
+  gisements à la pioche depuis le 2026-11-05 (G37) ;
+  `STARTING_HARVEST_PERMISSIONS`, valeur par défaut de
+  `World.harvestPermissions` ; `HARVEST_NODE_KINDS` : outil, geste, unité,
+  quantité). Plus de `goldPickaxe`, de `BuildingDef.unlocksTools` ni
+  d'annonce d'outil ; la simulation ne lit que `World.harvestPermissions`.
 - **Gisement d'or** : `ObstacleDef.ore: 'gold'` sur un `rock` ; rendu
   `render/rocks.ts` (Rocher E + pépites procédurales, graine = position).
 - **Variantes visuelles** : `BuildingDef.modelVariants`,
   `OwnedBuilding.modelVariant`, `RunState.placedBuildingCounts` ;
   `gameplayBuildingObstacle(…, modelVariant)` choisit le modèle.
-- **Sites d'améliorations de run** : `RunUpgradeSite` = `'forge' | 'shrine'`
-  (= id du bâtiment, `BuildingDef.runUpgradeSite`) ; action de fiche
-  `openShrineUpgrades`.
+- **Technologies et niveaux de producteurs** (2026-11-05, G41) :
+  `TechnologyDef.site` (id du bâtiment), `BuildingDef.upgradeScope` et
+  `rosterBonusPerLevel` ; action de fiche `research` ; voir §10.
 - **Producteurs** : tout bâtiment à `recruitmentUnlock` produit par sa file
   (`data/production.ts`) et reçoit le ralliement ; Sanctuaire, Écurie et
   Auberge n'ajoutent aucun code de production.
@@ -1711,9 +1716,10 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
     erreur ou si sa sortie contient « ECHEC ». Les captures vont dans
     `tests/game/out/` (ignoré par Git).
   - Ce n'est **pas** une couverture complète : les tests fixent des
-    contrats (démarrage, production, talents, Forge, défaite, cargo, camps,
-    murs, générateur) ; une modification d'équilibrage peut légitimement
-    en changer un, à documenter.
+    contrats (démarrage, production, talents, technologies et
+    améliorations — `tests/sim/technologies.mts`, `tests/game/forge-jeu.cjs`
+    —, défaite, cargo, camps, murs, générateur) ; une modification
+    d'équilibrage peut légitimement en changer un, à documenter.
 - Playwright est installé comme dépendance, mais son navigateur ne l'est pas
   forcément sur la machine. Sous Windows, `channel: 'msedge'` permet
   d'utiliser Edge à la place ; c'est ce que font les tests.

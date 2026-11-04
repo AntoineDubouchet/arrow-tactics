@@ -25,7 +25,7 @@ function setup(unit: 'hero' | 'villageois', resource: 'wood' | 'stone' | 'gold',
   const node = nearest(w, resource);
   const at = beside(node);
   const u = unit === 'hero' ? w.spawnHero('player', at.x, at.z, { xp: 0, level: 1, deaths: 0 }) : w.spawn('villageois', 'player', at.x, at.z);
-  w.harvestPermissions = { tools: ['axe', 'pickaxe', 'goldPickaxe'] };
+  w.harvestPermissions = { tools: ['axe', 'pickaxe'] };
   const built: Record<string, any> = {};
   for (const s of sites) {
     const b = w.spawnBuilding(getBuilding(s.id), s.team ?? 'player', at.x + s.dx, at.z + s.dz);

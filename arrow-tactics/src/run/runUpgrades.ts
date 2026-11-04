@@ -1,56 +1,48 @@
 import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
-import { UNIT_UPGRADES, type UpgradeDefBase } from '../data/unitUpgrades';
 import type { MetaProgress } from './metaProgress';
-import { roundGold, spendGold, type RunState } from './runState';
+import { roundGold } from './runState';
 
 /**
- * Niveaux d'amelioration de la RUN en cours : id d'amelioration (memes cles
- * que les definitions de data/ : 'fantassin', 'archer', 'mage', 'sentinel',
- * 'ballista') -> niveau achete. Portes par RunState.upgrades : jamais
- * sauvegardes, ils disparaissent avec la run. Seule source des niveaux lue
- * par les formules d'effet (run/*UpgradeEffects.ts) pendant une run.
- *
- * Les ameliorations de parchemins (soin, Nova de glace, Soins
- * excedentaires), vendues au Sanctuaire, ont ete retirees avec les
- * parchemins de bataille (2026-11-04) : un ancien niveau present dans
- * RunState.upgrades sous ces cles est simplement ignore (aucune formule ne
- * le lit, une run ne survit de toute facon pas a un rechargement).
+ * Niveaux d'amelioration de la RUN en cours (2026-11-05, Pass 2) : SEULE
+ * source des progressions GLOBALES a la run, portee par RunState.upgrades
+ * (id -> niveau, jamais sauvegardee, disparait avec la run). Trois familles
+ * y cohabitent, chacune reconnue par son id :
+ *  - 'ballista' : niveaux repetes de la Baliste (data/ballistaUpgrade.ts) ;
+ *  - technologies (data/technologies.ts : 'forge_weapons', 'forge_armor',
+ *    'barracks_training') : 1 = acquise (un palier II/III serait un niveau
+ *    de plus) ;
+ *  - niveaux des batiments producteurs a portee 'run' (id = id du batiment,
+ *    data/buildings.ts upgradeScope : 'barracks', 'archery', 'shrine',
+ *    'stables') : un seul niveau par type, pour tous les exemplaires.
+ * Toutes s'obtiennent par la file temps reel d'un batiment (run/productionOrders.ts),
+ * payees a la commande, et sont RETROACTIVES sur les unites presentes
+ * (run/playerUnitStats.ts). Mine, Tour et Eglise gardent un niveau propre a
+ * chaque exemplaire (OwnedBuilding.level, run/buildingUpgrades.ts).
  */
 export type RunUpgradeLevels = Record<string, number>;
 
-/** Niveau AFFICHE au joueur (fiches, Forge) : le niveau interne compte les
- *  ameliorations achetees depuis 0, l'affichage commence a 1. */
+/** Niveau AFFICHE au joueur (fiches) : le niveau interne compte les
+ *  ameliorations obtenues depuis 0, l'affichage commence a 1. */
 export function displayedUpgradeLevel(level: number): number {
   return level + 1;
 }
 
-/** Niveau d'une amelioration, 0 si elle n'a jamais ete achetee. */
+/** Niveau d'une amelioration, 0 si elle n'a jamais ete obtenue. */
 export function runUpgradeLevel(levels: Readonly<RunUpgradeLevels>, id: string): number {
   return Object.prototype.hasOwnProperty.call(levels, id) ? (levels[id] ?? 0) : 0;
 }
 
-/** Amelioration de Forge propre a une entite du joueur, par id de
- *  definition (batiment de data/buildings.ts). Absente = entite sans
- *  amelioration de Forge commune : Forge ; Mine et Caserne, dont le niveau
- *  est propre a chaque batiment (run/buildingUpgrades.ts) ; unites, qui
- *  portent chacune leur niveau de production (OwnedUnit.productionLevel). */
-const ENTITY_UPGRADE_IDS: Readonly<Record<string, string>> = {
-  ballista: BALLISTA_UPGRADE.id,
-};
-
-/** Niveau de run de l'amelioration d'une entite du joueur (le meme pour
- *  toutes les entites d'un type), ou null si aucune amelioration de Forge ne
- *  la concerne. */
-export function entityRunUpgradeLevel(levels: Readonly<RunUpgradeLevels>, definitionId: string): number | null {
-  if (!Object.prototype.hasOwnProperty.call(ENTITY_UPGRADE_IDS, definitionId)) return null;
-  const id = ENTITY_UPGRADE_IDS[definitionId];
-  return id === undefined ? null : runUpgradeLevel(levels, id);
+/** Niveau suivant de l'amelioration `id` (deja payee a la commande). */
+export function grantRunUpgradeLevel(levels: RunUpgradeLevels, id: string): number {
+  const next = runUpgradeLevel(levels, id) + 1;
+  levels[id] = next;
+  return next;
 }
 
 /**
  * Sources de la progression du joueur pour les statistiques effectives :
  * - `talents` : progression PERMANENTE (talents debloques) ;
- * - `upgrades` : niveaux d'amelioration de la RUN.
+ * - `upgrades` : niveaux d'amelioration de la RUN (ci-dessus).
  * Construite par main.ts (playerProgression), jamais stockee.
  */
 export interface PlayerProgression {
@@ -58,59 +50,19 @@ export interface PlayerProgression {
   upgrades: RunUpgradeLevels;
 }
 
-// --- Achat d'ameliorations de run en Or (ecran de la Forge) ---------------
-//
-// Ne lit et n'ecrit que RunState.gold et RunState.upgrades. Aucun talent n'en
-// modifie le cout. Ouvert depuis la fiche d'une Forge TERMINEE, en jeu (le
-// temps est fige tant que l'ecran est ouvert) ; plusieurs Forges ouvrent les
-// MEMES ameliorations, sur les memes niveaux de run.
+// --- Baliste ---------------------------------------------------------------
 
-/** Ameliorations achetables, par id (memes cles que RunState.upgrades). */
-const RUN_UPGRADE_DEFS: Readonly<Record<string, UpgradeDefBase>> = {
-  ...UNIT_UPGRADES,
-  [BALLISTA_UPGRADE.id]: BALLISTA_UPGRADE,
-};
+/** Bareme PROVISOIRE du niveau suivant de la Baliste : 1 or au niveau 0 -> 1,
+ *  puis x2 a chaque niveau (1, 2, 4, 8, 16...). Seul endroit a modifier. */
+export const BALLISTA_UPGRADE_GOLD_COST_BASE = 1;
+export const BALLISTA_UPGRADE_GOLD_COST_GROWTH = 2;
 
-/** Vrai si `id` designe une amelioration achetable. */
-export function isRunUpgradeId(id: string): boolean {
-  return Object.prototype.hasOwnProperty.call(RUN_UPGRADE_DEFS, id);
+export function ballistaUpgradeGoldCost(level: number): number {
+  return roundGold(BALLISTA_UPGRADE_GOLD_COST_BASE * BALLISTA_UPGRADE_GOLD_COST_GROWTH ** level);
 }
 
-/** Bareme PROVISOIRE, seul endroit a modifier pour le reequilibrer : cout
- *  du niveau 0 -> 1 (RUN_UPGRADE_GOLD_COST_BASE), puis
- *  x RUN_UPGRADE_GOLD_COST_GROWTH a chaque niveau : 1, 2, 4, 8, 16... Les
- *  niveaux de production d'unite (data/unitUpgrades.ts) partent de
- *  UNIT_UPGRADE_GOLD_COST_BASE : 7, 14, 28, 56... (un niveau regroupe trois
- *  anciens achats, 1 + 2 + 4). Mine et Caserne ont leur propre bareme par
- *  batiment (run/buildingUpgrades.ts). */
-export const RUN_UPGRADE_GOLD_COST_BASE = 1;
-export const UNIT_UPGRADE_GOLD_COST_BASE = 7;
-export const RUN_UPGRADE_GOLD_COST_GROWTH = 2;
-
-/** Cout en Or du niveau suivant de l'amelioration `id`, depuis le niveau
- *  `level` deja atteint. */
-export function runUpgradeGoldCost(id: string, level: number): number {
-  const base = Object.prototype.hasOwnProperty.call(UNIT_UPGRADES, id) ? UNIT_UPGRADE_GOLD_COST_BASE : RUN_UPGRADE_GOLD_COST_BASE;
-  return roundGold(base * RUN_UPGRADE_GOLD_COST_GROWTH ** level);
-}
-
-/** Vrai si l'amelioration `id` peut etre achetee maintenant : id connu,
- *  maximum non atteint, Or suffisant pour le niveau suivant. */
-export function canPurchaseRunUpgrade(run: RunState, id: string): boolean {
-  if (!isRunUpgradeId(id)) return false;
-  const level = runUpgradeLevel(run.upgrades, id);
-  const maxLevel = RUN_UPGRADE_DEFS[id]!.maxLevel;
-  if (maxLevel !== undefined && level >= maxLevel) return false;
-  return run.gold >= runUpgradeGoldCost(id, level);
-}
-
-/** Achete un niveau de l'amelioration `id` avec l'Or de la run : debite le
- *  cout (spendGold) puis augmente le niveau de 1. Tout ou rien : en cas de
- *  refus, ni l'Or ni le niveau ne changent. */
-export function purchaseRunUpgrade(run: RunState, id: string): boolean {
-  if (!canPurchaseRunUpgrade(run, id)) return false;
-  const level = runUpgradeLevel(run.upgrades, id);
-  if (!spendGold(run, runUpgradeGoldCost(id, level))) return false;
-  run.upgrades[id] = level + 1;
-  return true;
+/** Vrai tant que la Baliste n'a pas atteint BALLISTA_UPGRADE.maxLevel
+ *  (aucun plafond aujourd'hui). */
+export function canBallistaLevelUp(level: number): boolean {
+  return BALLISTA_UPGRADE.maxLevel === undefined || level < BALLISTA_UPGRADE.maxLevel;
 }

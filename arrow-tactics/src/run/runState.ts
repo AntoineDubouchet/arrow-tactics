@@ -71,10 +71,9 @@ export interface OwnedUnit {
   unitId: string;
   /** PV actuels (echelle interne x10, comme UnitStats.maxHp). */
   hp: number;
-  /** Niveau de production (voir data/unitUpgrades.ts), FIGE a la creation de
-   *  l'unite : ses stats et son cout en derivent pour toute la run, quelles
-   *  que soient les ameliorations achetees ensuite (jamais retroactives). */
-  productionLevel: number;
+  // Plus de niveau propre a l'unite (2026-11-05) : la progression de la run
+  // (technologies, niveaux de producteurs) est globale et retroactive, voir
+  // run/playerUnitStats.ts.
 }
 
 /**
@@ -214,7 +213,7 @@ export function createNewRun(startingGoldBonus = 0, upgrades: RunUpgradeLevels =
   const hero = getHero(heroId);
   return {
     gold: roundGold(STARTING_GOLD + startingGoldBonus),
-    army: [{ unitId: hero.unitId, hp: getUnit(hero.unitId).stats.maxHp, productionLevel: 0 }, ...Array.from({ length: STARTING_FANTASSIN_COUNT }, () => ({ unitId: 'fantassin', hp: getUnit('fantassin').stats.maxHp, productionLevel: 0 }))],
+    army: [{ unitId: hero.unitId, hp: getUnit(hero.unitId).stats.maxHp }, ...Array.from({ length: STARTING_FANTASSIN_COUNT }, () => ({ unitId: 'fantassin', hp: getUnit('fantassin').stats.maxHp }))],
     buildings: [],
     waveNumber: 1,
     ballistaPosition: null,

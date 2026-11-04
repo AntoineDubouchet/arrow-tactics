@@ -313,9 +313,8 @@ Même avec beaucoup d'unités et de systèmes, le joueur doit pouvoir comprendre
 comportement en place et non comme une règle immuable (fonctionnement
 détaillé dans `CURRENT_STATE.md`) :
 
-- les ennemis avancent ; le camp du joueur fait un court pas d'ouverture
-  puis tient sa position en Garde, et ne s'engage qu'à l'approche d'un
-  ennemi ou sur ordre ;
+- les ennemis avancent ; le camp du joueur tient sa position en Garde dès
+  le départ, et ne s'engage qu'à l'approche d'un ennemi ou sur ordre ;
 - l'aggro choisit une cible ;
 - la portée arrête l'unité ;
 - une unité n'attaque pas en marchant ;
@@ -401,15 +400,19 @@ Aucune de ces questions n'est tranchée.
   2026-11-01 (`DESIGN_DECISIONS.md` G8) : recrutement, vagues.
 - La progression de la Sentinelle ennemie.
 - Les rôles ennemis prioritaires.
-- Le Camp d'archerie Niv. 2 : quel effet lui donner, maintenant que le
-  quota « par manche » n'existe plus (Pass 2) ?
-- Le déblocage du Mage et de la Sentinelle en battant l'ennemi : à
-  conserver, et par quoi le faire passer sans Boutique (Pass 2) ?
+- La Sentinelle du joueur (dormante) : quel bâtiment, quel rôle, quel coût ?
+- L'Église au-delà de la production (progression à définir avec le
+  gameplay soutien) ; les paliers II / III des technologies de la Forge ;
+  le plafond Niv. 5 de la Baliste (provisoire).
 
 **Économie et progression**
 
-- L'équilibre de l'Or entre recrutement, bâtiments et améliorations (Forge,
-  Mine et Caserne ; barème encore provisoire).
+- L'équilibre de l'Or et du stock entre recrutement, bâtiments,
+  améliorations de producteurs et technologies de la Forge (direction
+  officielle depuis le 2026-11-05 : Forge = technologies militaires
+  globales, améliorations spécifiques = bâtiment producteur, Héros =
+  progression séparée, toutes les recherches en temps réel ; barème encore
+  provisoire).
 - La forme d'un arbre de talents « beaucoup plus riche » : choix exclusifs ou
   cumulables, réinitialisation, et comment éviter la dilution en petits bonus.
 - La répartition des récompenses et des déblocages entre talents,

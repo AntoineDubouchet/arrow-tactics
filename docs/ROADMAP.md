@@ -416,21 +416,26 @@ retiré la boucle en manches du code : placement, Boutique, parchemins de
 bataille, fin de manche, agrandissement, quota « par manche », quatre
 talents morts, HUD et vues associés. Reste, à décider ou à construire :
 
-- **Pass 2 (décisions d'Antoine)** :
-  - le **déblocage par victoire** du Mage et de la Sentinelle (C4,
-    KI-67) : par quoi le faire passer, ou le retirer ;
-  - **Camp d'archerie Niv. 2** (KI-69) : lui donner un effet réel ;
-  - le **pas d'ouverture** au démarrage (`openBattleWithFormationStep`,
-    KI-68, B5) : retirer ou réserver à « Tester le scénario » ;
-  - la **Sentinelle** du joueur : aucun bâtiment ne la produit ;
+- **Pass 2 — fait le 2026-11-05** (`DESIGN_DECISIONS.md` G41) : déblocage
+  par victoire retiré, Camp d'archerie Niv. 2 (Archers +2 PV, +1 dégâts),
+  pas d'ouverture retiré, Forge = technologies militaires globales,
+  améliorations rétroactives, Baliste depuis sa fiche, or libre, soin de
+  l'Église retiré.
+- **Après la Pass 2 (décisions d'Antoine)** :
+  - la **Sentinelle** du joueur : dormante ; bâtiment, rôle et coût à
+    décider avant toute production ;
+  - **Église** : progression à redéfinir plus tard avec le gameplay
+    soutien (Oracle, futurs supports) ; aujourd'hui production seule, sans
+    amélioration ;
+  - **plafond de la Baliste** : Niv. 5 provisoire, à confirmer en playtest ;
+  - paliers **II / III** des technologies de Forge (architecture prête :
+    une entrée par palier) et durées / coûts après playtest ;
   - un **arbre de talents du Paladin** (L2) ; l'arbre actuel garde cinq
     talents et son architecture ;
   - `Entity.rootTimer` (immobilisation sans source) et `applyPlayerHeal`
     (soin de zone sans appelant) : réutiliser ou retirer ;
-  - `canPlayerRecruitUnit` et `WAVE_CLEAR_BONUS` (+5 or par vague
-    repoussée, seule trace du gain « de fin de manche ») : confirmer ;
-- améliorations de la **Baliste** et des unités déjà en jeu (appliquées à
-  l'apparition seulement) ;
+  - `WAVE_CLEAR_BONUS` (+5 or par vague repoussée, seule trace du gain
+    « de fin de manche ») : confirmer ;
 - acquisition des **unités** selon la vision (aujourd'hui : portée d'aggro) ;
 - **unités spéciales** capables de traverser les forêts (arbres bloquants
   depuis G11 ; même principe que `canTraverseWater`) ;
@@ -493,8 +498,8 @@ extrait ; G33). À voir aussi :
 - camp de départ (G38, 2026-11-04) : autres presets (départ minimal,
   fortifié, autre faction), choix du preset (éditeur, carte), rotation
   modifiable à la main ;
-- règle de l'or (G37, **Ouvert**) : Forge, libre ou autre bâtiment ; rôle
-  propre de la Forge au-delà des améliorations ;
+- règle de l'or : tranchée (G37 / G41, or libre) ; rôle de la Forge =
+  technologies militaires ;
 - pathfinding sensible au rayon des corps (KI-66).
 
 ## 6 octies. Niveaux, cartes de survie, village — suites

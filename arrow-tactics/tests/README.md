@@ -48,15 +48,20 @@ mots possibles).
 `tests/sim/` : `camp.mts`, `camps-authored.mts`, `cargo.mts`,
 `collecte.mts`, `depart-camp.mts`, `file-prod.mts`, `heros-niveaux.mts`,
 `mana-soin.mts`, `palissade.mts`, `porte-alliee.mts`, `tourbillon.mts`,
-`vitesse.mts`, et `modernisation.mts` (contrats de la passe : file payée
-et ralliement, Forge seul site d'améliorations, talents retirés
-remboursés et actifs appliqués, défaite = Baliste, cargo inchangé).
+`vitesse.mts`, `modernisation.mts` (contrats de la passe 1 : file payée
+et ralliement, talents retirés remboursés et actifs appliqués, défaite =
+Baliste, cargo inchangé ; mis à jour par la passe 2) et
+`technologies.mts` (passe 2, 2026-11-05 : technologies de la Forge,
+niveaux de producteurs rétroactifs, Caserne, Baliste depuis sa fiche,
+file unique, annulation, destruction pendant une recherche, deux Forges,
+Héros et Villageois exclus).
 
 `tests/game/` : `baliste-reparation.cjs`, `camp-boucle.cjs`,
 `cargo-jeu.cjs`, `depart-jeu.cjs`, `editeur-procedural.cjs`,
 `equipement-jeu.cjs`, `inventaire.cjs`, `villageois-jeu.cjs`, et
-`forge-jeu.cjs` (chantier de Forge, écran Forge en jeu, achat Baliste,
-Sanctuaire sans parchemins) et `defaite-jeu.cjs` (Héros mort → la run
-continue ; Baliste détruite → « Partie terminée », retour au menu).
+`forge-jeu.cjs` (passe 2 : chantier de Forge, recherche depuis la fiche
+sans écran modal, simulation en marche, Archer présent amélioré, Baliste et
+Camp d'archerie depuis leurs fiches) et `defaite-jeu.cjs` (Héros mort →
+la run continue ; Baliste détruite → « Partie terminée », retour au menu).
 `lib.cjs` est la bibliothèque commune (lancement, ouverture de la Survie,
 caméra, captures).

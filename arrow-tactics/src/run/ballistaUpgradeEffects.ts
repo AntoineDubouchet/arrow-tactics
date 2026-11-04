@@ -5,7 +5,7 @@ import { runUpgradeLevel, type RunUpgradeLevels } from './runUpgrades';
 
 /**
  * Amelioration permanente de la BALISTE (2026-08-13, voir data/ballistaUpgrade.ts) —
- * meme principe que run/unitUpgradeEffects.ts : ce module sait ce qu'est un
+ * meme principe que run/playerUnitStats.ts : ce module sait ce qu'est un
  * niveau d'amelioration, main.ts ne recoit que des nombres deja calcules.
  * Niveau lu dans RunState.upgrades (cle BALLISTA_UPGRADE.id = 'ballista') — aucun nouveau champ de sauvegarde,
  * reutilise le systeme existant tel quel (demande explicite d'Antoine :

@@ -297,7 +297,7 @@ function tryTriggerAreaBlast(e: Entity, ability: AreaBlastAbility, entities: Ent
     duration: ability.castTime,
     projectileSpeed: ability.projectileSpeed,
     // + e.abilityDamageBonus (2026-08-13, boutique d'amelioration permanente
-    // du JOUEUR — voir run/unitUpgradeEffects.ts) : toujours 0 pour un
+    // du JOUEUR — voir run/playerUnitStats.ts) : toujours 0 pour un
     // ennemi (voir World.spawn), donc sans effet sur son propre Mage.
     damage: ability.damage + e.abilityDamageBonus,
     radiusTiles: ability.radiusTiles,

@@ -5,7 +5,7 @@
 //    monde reel (Baliste, Auberge, 2 Maisons, enceinte, porte ouverte) : le Heros SORT par la porte, rejoint chaque
 //    camp neutre et le pied de CHAQUE gisement en vrai deplacement (aucune teleportation hors du depart), les
 //    Villageois sortent, un ennemi ne passe pas la porte ouverte ; aucun passage d'une case contre un gisement ;
-//  - recolte libre (bois, pierre) sans Forge, or refuse sans Forge et accepte avec ; population ; determinisme.
+//  - recolte libre (bois, pierre, or) sans aucun batiment (2026-11-05, G37) ; population ; determinisme.
 // Usage : node --import ../ts-register.mjs depart-camp.mts (ou npm run test:sim)
 const SRC = new URL('../../src/', import.meta.url).href;
 const { World } = await import(SRC + 'sim/world.ts');
@@ -19,7 +19,6 @@ const { getWallType } = await import(SRC + 'data/walls.ts');
 const { cachedPathGrid } = await import(SRC + 'sim/pathfinding.ts');
 const { terrainObstacles } = await import(SRC + 'sim/geometry.ts');
 const { populationOfEntities } = await import(SRC + 'data/population.ts');
-const { harvestPermissionsOf } = await import(SRC + 'run/harvestPermissions.ts');
 const DT = 1 / 30;
 let failures = 0;
 const check = (label: string, ok: boolean, extra: unknown = '') => { if (!ok) failures++; console.log(`${ok ? 'OK   ' : 'ECHEC'} ${label}${extra !== '' ? ' — ' + JSON.stringify(extra).slice(0, 1200) : ''}`); };
@@ -146,7 +145,7 @@ check('ennemi (Maraudeur) a la porte ouverte : n entre jamais tant qu elle tient
 console.log('PERF generation moyenne', (genMs / SEEDS.length).toFixed(1), 'ms ; rotations', JSON.stringify(summary.map((r) => r.rotation)));
 check('determinisme : meme graine -> meme carte (camp de depart compris)', JSON.stringify(generateSurvivalMap(42)) === JSON.stringify(generateSurvivalMap(42)) && JSON.stringify(generateSurvivalMap(42).startingBase) === JSON.stringify({ preset: 'basic-camp', rotation: generateSurvivalMap(42).startingBase.rotation }));
 
-// ---- 3. Recolte libre (outils de depart) ; or : Forge.
+// ---- 3. Recolte libre (outils de depart) : bois, pierre ET or, sans aucun batiment (2026-11-05, G37).
 {
   const map = generateSurvivalMap(12345);
   const near = (w: any, res: string) => [...w.resourceNodes.values()].filter((n: any) => n.resource === res).sort((a: any, b: any) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))[0];
@@ -157,27 +156,17 @@ check('determinisme : meme graine -> meme carte (camp de depart compris)', JSON.
       const n = near(w, res);
       const at = { x: n.x + (n.block ? n.block.maxX - n.x + 0.6 : 1.2), z: n.z };
       const u = unit === 'hero' ? w.spawnHero('player', at.x, at.z, { xp: 0, level: 1, deaths: 0 }) : w.spawn('villageois', 'player', at.x, at.z);
-      // Immobile tant qu il n a pas d ordre (l ordre par defaut l eloignerait pendant le refus).
       u.order = { type: 'guard' };
-      w.harvestPermissions = harvestPermissionsOf(w.entities, 'player');
+      // Permissions par defaut du monde (STARTING_HARVEST_PERMISSIONS) : aucun batiment n'en ajoute plus.
       w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: n.id });
       w.step(DT);
       const rejection = w.commandResults[0]?.rejection ?? null;
-      for (let i = 0; i < 30 * 5; i++) w.step(DT);
-      let withForge = null;
-      const goldBefore = u.cargo.minedGold;
-      if (res === 'gold') {
-        w.spawnBuilding(getBuilding('forge'), 'player', -20.5, -20.5, { kind: 'building', x: -20.5, z: -20.5, tilesX: 2, tilesZ: 2 });
-        w.harvestPermissions = harvestPermissionsOf(w.entities, 'player');
-        w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: n.id });
-        for (let i = 0; i < 30 * 6; i++) w.step(DT);
-        withForge = u.cargo.minedGold - goldBefore;
-      }
-      out[`${unit}:${res}`] = { goldBefore: res === 'gold' ? goldBefore : undefined, rejection, cargo: { wood: u.cargo.wood, stone: u.cargo.stone, gold: u.cargo.minedGold }, withForge, tools: harvestPermissionsOf(w.entities, 'player').tools };
+      for (let i = 0; i < 30 * 6; i++) w.step(DT);
+      out[`${unit}:${res}`] = { rejection, cargo: { wood: u.cargo.wood, stone: u.cargo.stone, gold: u.cargo.minedGold }, tools: w.harvestPermissions.tools };
     }
   }
-  check('sans Forge : Heros et Villageois coupent du bois et extraient de la pierre (cargo) ; or refuse (« locked ») ; avec une Forge : or extrait',
-    ['hero', 'villageois'].every((u) => out[`${u}:wood`].rejection === null && out[`${u}:wood`].cargo.wood >= 2 && out[`${u}:stone`].rejection === null && out[`${u}:stone`].cargo.stone >= 2 && out[`${u}:gold`].rejection === 'locked' && out[`${u}:gold`].goldBefore === 0 && out[`${u}:gold`].withForge >= 2),
+  check('sans aucun batiment : Heros et Villageois coupent du bois, extraient de la pierre ET de l or (cargo), aucun refus ; outils : hache et pioche seulement',
+    ['hero', 'villageois'].every((u) => out[`${u}:wood`].rejection === null && out[`${u}:wood`].cargo.wood >= 2 && out[`${u}:stone`].rejection === null && out[`${u}:stone`].cargo.stone >= 2 && out[`${u}:gold`].rejection === null && out[`${u}:gold`].cargo.gold >= 2 && JSON.stringify(out[`${u}:gold`].tools) === '["axe","pickaxe"]'),
     out);
 }
 

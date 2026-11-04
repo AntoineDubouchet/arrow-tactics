@@ -38,20 +38,22 @@ export interface ProductionSpawnEvent {
  * maximum ni ne choisissent la meme case (ordre deterministe, celui des
  * entites).
  */
-/** Amelioration d'un batiment terminee dans sa file de production
- *  (World.productionUpgradeEvents) : l'orchestration applique le niveau. */
-export interface ProductionUpgradeEvent {
-  entityId: number;
-  orderId: number;
-}
+/** Amelioration de batiment (`upgrade`) ou recherche (`research`,
+ *  2026-11-05) terminee dans la file d'un batiment
+ *  (World.productionUpgradeEvents) : l'orchestration applique le niveau ou
+ *  la technologie ; la simulation ne sait pas ce qu'ils font. */
+export type ProductionUpgradeEvent =
+  | { kind: 'upgrade'; entityId: number; orderId: number }
+  | { kind: 'research'; entityId: number; orderId: number; techId: string };
 
 /** Production temps reel : avance la PREMIERE commande de chaque file
  *  (Entity.productionOrders, ordre des clics). Une unite terminee rejoint
  *  productionQueue, que buildingProductionSystem fait apparaitre au meme pas
- *  (place de population et case libre requises) ; une amelioration terminee
- *  est renvoyee. Un chantier ne produit pas ; un batiment mort perd sa file. */
+ *  (place de population et case libre requises) ; une amelioration ou une
+ *  recherche terminee est renvoyee. Un chantier ne produit pas ; un batiment
+ *  mort perd sa file (aucun remboursement : regle de l'orchestration). */
 export function tickProductionOrders(entities: Entity[], dt: number): ProductionUpgradeEvent[] {
-  const upgrades: ProductionUpgradeEvent[] = [];
+  const done: ProductionUpgradeEvent[] = [];
   for (const e of entities) {
     const order = e.productionOrders[0];
     if (!order) continue;
@@ -64,9 +66,10 @@ export function tickProductionOrders(entities: Entity[], dt: number): Production
     if (order.remaining > 1e-9) continue;
     e.productionOrders.shift();
     if (order.kind === 'unit') e.productionQueue.push(order.unitId);
-    else upgrades.push({ entityId: e.id, orderId: order.id });
+    else if (order.kind === 'upgrade') done.push({ kind: 'upgrade', entityId: e.id, orderId: order.id });
+    else done.push({ kind: 'research', entityId: e.id, orderId: order.id, techId: order.techId });
   }
-  return upgrades;
+  return done;
 }
 
 export function buildingProductionSystem(entities: Entity[], obstacles: ObstacleDef[]): ProductionSpawnEvent[] {

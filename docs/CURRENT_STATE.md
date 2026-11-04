@@ -26,7 +26,7 @@ contient ni intentions de design ni décisions futures.
 6 sexies. Barils, production, ralliement, réparation
 6 septies. Niveau d'unité, cartes de survie, sol du village
 6 octies. Palissade V2 (murs géométriques)
-6 nonies. Or monnaie, Forge et outils, gisements, Maison A/B, Sanctuaire, Écurie
+6 nonies. Or monnaie, gisements, Maison A/B, Sanctuaire, Écurie
 6 decies. Tourbillon du Paladin (prototype)
 6 undecies. Cargo économique : inventaire RPG ≠ sac de ressources
 6 duodecies. Camp de départ, vitesse ×1,4, bois et pierre libres
@@ -37,7 +37,7 @@ contient ni intentions de design ni décisions futures.
 11. Arène et territoire (agrandissement retiré le 2026-11-04)
 12. Talents
 13. Méta-progression : points de talent
-14. Améliorations de Forge
+14. Technologies et améliorations de run (Forge, producteurs, Baliste)
 15. Sauvegarde : ce qui persiste
 16. Éditeur de maps
 16 bis. Atelier de personnage
@@ -63,8 +63,10 @@ agrandissement, quota de production « par manche ») n'existe plus dans le
 code.
 
 - L'**Or** est la monnaie principale de la run. Il sert à produire des
-  unités dans les bâtiments, construire des bâtiments et acheter des
-  améliorations : à la **Forge**, ou sur la fiche du bâtiment.
+  unités dans les bâtiments, construire des bâtiments et commander des
+  améliorations et des technologies depuis la fiche d'un bâtiment, par sa
+  file temps réel (§14 ; passe de modernisation 2, 2026-11-05,
+  `DESIGN_DECISIONS.md` G41). Aucun écran ne fige plus le jeu pour cela.
 - **Direction Hero RTS** (provisoire, §6 bis) : la run commence dans un
   **petit camp préconstruit** (2026-11-04, §6 duodecies : Baliste, Auberge,
   deux Maisons, deux Villageois, enceinte de Palissade et porte ouverte)
@@ -136,16 +138,16 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `createFreshRun`,
    manuel), bâtiments possédés (camp de départ), camps neutres, murs et
    barils de la carte, butin de démonstration éventuel (`?loot=demo`). La
    caméra reprend son angle par défaut sur le camp, et la première vague
-   est décomptée (§10). Les unités présentes au lancement font encore le
-   pas d'ouverture d'une case (`openBattleWithFormationStep`, voir le
-   point 4) : héritage conservé tel quel le 2026-11-04, à trancher.
+   est décomptée (§10). Les unités présentes au lancement (Héros,
+   Villageois) sont simplement en **Garde** : plus aucun pas d'ouverture
+   depuis le 2026-11-05 (G41, KI-68 close).
 3. **Jeu en temps réel, sans phase**. Le joueur explore, récolte et dépose
    (§6 bis, §6 undecies), pose des chantiers par le menu Construire (§6
    bis), produit des unités dans ses bâtiments (file payée, §6 sexies),
-   améliore un bâtiment depuis sa fiche (§6), ouvre la Forge pour les
-   améliorations de run (§14), soigne l'armée à l'Église, répare, place
-   des points de ralliement. Les écrans Forge, pause et menus figent la
-   simulation ; l'inventaire du Héros ne la fige pas.
+   améliore un bâtiment, recherche une technologie ou améliore la Baliste
+   depuis leur fiche (§6, §14 : même file, même temps réel), répare, place
+   des points de ralliement. Seuls la pause et les menus figent la
+   simulation ; l'inventaire du Héros et les fiches ne la figent pas.
 
    **Sélection des unités**, mêmes gestes que dans l'éditeur :
    - clic gauche pour une sélection simple ;
@@ -167,7 +169,7 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `createFreshRun`,
    - **clic gauche** : sélectionner une unité alliée, Maj + clic pour
      ajouter ou retirer, glisser pour un rectangle de sélection, double-clic
      pour les unités visibles du même type ;
-   - **clic gauche sur une Mine, une Caserne, une Forge ou la Baliste alliée** :
+   - **clic gauche sur un bâtiment allié ou la Baliste** :
      inspection seule (fiche d'entité, ci-dessous), avec un anneau à la
      couleur du camp. Un bâtiment inspecté n'est **jamais commandable** : il
      ne reçoit ni ordre au clic droit ni Stop. L'inspection vide la sélection
@@ -211,15 +213,13 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `createFreshRun`,
    - caméra : Maj + clic droit pour pivoter, clic gauche + clic droit pour
      déplacer, molette pour zoomer (détail dans `EDITOR.md`, §13).
 
-   **Début de bataille** (vraie bataille et « Tester le scénario ») : les
+   **Début de partie** (vraie run et « Tester le scénario ») : les
    ennemis avancent (en Mode survie, seul le premier groupe de la vague est
-   présent, les autres arrivent en renfort, §10) ; les unités du joueur présentes au lancement font un
-   pas d'ouverture d'exactement **une case** vers l'ennemi, formation
-   conservée, puis passent en **Garde** : elles restent sur place et ne
-   réagissent qu'à un ennemi entrant dans leur aggro, ou à un ordre. Le pas
-   est tout ou rien : si une seule case d'arrivée est invalide (hors terrain,
-   obstacle, bâtiment, Baliste, unité immobile), tout le groupe reste en
-   place et passe directement en Garde. Les unités produites ensuite par
+   présent, les autres arrivent en renfort, §10) ; les unités du joueur
+   présentes au lancement sont en **Garde** dès le premier pas : elles
+   restent sur place et ne réagissent qu'à un ennemi entrant dans leur
+   aggro, ou à un ordre (le pas d'ouverture d'une case de l'ancien jeu en
+   manches a été retiré le 2026-11-05, G41). Les unités produites ensuite par
    une Caserne ou un Camp d'archerie passent directement en Garde, sans ce
    pas.
 5. **Vague repoussée** (`completeSurvivalWave`) : quand tous les groupes
@@ -251,8 +251,8 @@ dans l'éditeur.
 
 > Depuis le 2026-11-04, il n'y a plus de préparation : là où cette section
 > distingue encore « en préparation » et « en bataille », lire « en jeu,
-> sur un bâtiment terminé » pour les boutons (améliorer, soigner, Ouvrir la
-> Forge, produire) et « en jeu » pour les états dynamiques.
+> sur un bâtiment terminé » pour les boutons (améliorer, rechercher,
+> produire) et « en jeu » pour les états dynamiques.
 
 - **Sélections prises en charge** :
   - préparation : unité seule, groupe, Mine, Caserne, Forge, Baliste ;
@@ -298,26 +298,35 @@ dans l'éditeur.
     Sanctuaire, Église), PV, unités produites, emprise, puis les boutons de
     la **file de production** (« Produire : Nom — N or · T s », un par
     unité productible, désactivé si l'or manque ou si la file est pleine),
-    les ordres en cours (clic : annuler, or rendu), **« Améliorer — N
-    or »** (Caserne Niv. 1 → 2 ; Sanctuaire et Église), point de
-    ralliement et réparation (§6 sexies). Plus aucune mention « par
-    manche » ni « En attente : N » ;
-  - **Forge** : PV et emprise ; terminée, la fiche porte le bouton
-    **« Ouvrir la Forge »** (§14) ; un chantier n'a pas ce bouton ;
+    les ordres en cours (unités, amélioration, recherche ; clic : annuler,
+    or et stock rendus), la ligne du niveau suivant (« Niv. 2 | débloque :
+    Homme d’armes » à la Caserne, « Niv. 2 | Archers : +2 PV, +1 dégâts »
+    au Camp d'archerie, bonus du Mage au Sanctuaire, du Cavalier à
+    l'Écurie), **« Améliorer Niv. 2 — N or · 20 s »**, point de ralliement
+    et réparation (§6 sexies). La Caserne Niv. 2 liste aussi sa
+    technologie « Entraînement des hommes d’armes » (§14). Plus aucune
+    mention « par manche » ni « En attente : N » ;
+  - **Forge** : PV, emprise et ses **technologies** (§14) : une ligne par
+    technologie avec son état (« Terminé — effet », « En recherche ») ou un
+    bouton **« Rechercher : Armes forgées I — 20 or, 10 bois, 5 pierre ·
+    30 s »** ; un chantier n'a rien de tout cela. Plus d'écran « Ouvrir la
+    Forge » (2026-11-05) ;
   - **Tour** : « Tour — Niv. N », PV, dégâts, portée, cadence (« 1 tir /
     2.5 s ») et emprise. En préparation, aussi l'effet du niveau suivant
     (« +5 PV, +2 dégâts ») et le bouton **« Améliorer — N or »** (§6) ;
-  - **Église** : « Église — Niv. N », PV, soin (« 5 PV par or »), unités
-    produites (Oracle, Vengeur) et emprise ; les PV manquants de l'armée,
-    l'effet du niveau suivant (« +5 PV, +2 PV par or ») et les boutons
-    **« Soigner l'armée — N or »** et **« Améliorer — N or »** (§6). Le
-    bouton « Améliorations de l'Église » (parchemins) n'existe plus (§9) ;
+  - **Église** : « Église », PV, unités produites (Oracle, Vengeur) et
+    emprise ; plus d'amélioration (placeholder retiré le 2026-11-05) ni de
+    soin de l'armée (G41) ; le bouton « Améliorations de l'Église »
+    (parchemins) n'existe plus (§9) ;
   - **Baliste** : PV, dégâts par carreau, portée (« 18 cases »), recharge,
     carreaux par volée. En préparation : PV max / max,
     « Mode : Automatique au début de la bataille » et « Prête pour la
     bataille ». En bataille : PV de l'entité, mode de tir (« Automatique ·
     Cible : Ennemi le plus proche » ou « Manuel · Tir : Q vers le
-    curseur »), bouton **« Passer en manuel » / « Passer en
+    curseur »), ligne « Niv. N+1 | +10 PV, +20 % cadence[, +1 dégâts] » et
+    bouton **« Améliorer Niv. N+1 — N or · 20 s »** (§14, 2026-11-05 ; ses
+    ordres en file s'annulent comme ceux d'un producteur), bouton
+    **« Passer en manuel » / « Passer en
     automatique »** (désactivé si elle est détruite), et état dynamique
     `PRÊTE`, `RECHARGE x.x s`, `EN VOL` ou `DÉTRUITE`, issu de la même
     source que le HUD de la Baliste ;
@@ -417,23 +426,22 @@ bestiaire et l'éditeur.
   toujours au premier pas.
 - **Valeur au kill et à la revente** (`KILL_REWARD`) : Fantassin 1, Archer
   1,5, Mage 5, Sentinelle 20, Oracle 7,5, Piquier 0,75, Vengeur 12,5.
-- Le coût payé en partie est le coût de base **plus le surcoût du niveau
-  de production courant** de l'unité (§14) : Fantassin et Archer +1 or,
-  Mage +3, Sentinelle +10 par niveau ; l'Oracle, le Piquier et le Vengeur
-  n'ont pas de niveau de production (coût fixe). La fiche du bâtiment
-  producteur affiche ce coût (« Produire : Nom — N or · T s ») ; la carte
-  de la Forge, le niveau et les stats de la prochaine recrue (§14).
+- Le coût payé en partie est le **coût de base** de l'unité, fixe : aucune
+  technologie ni aucun niveau ne le change (2026-11-05, G41 ; avant, le
+  niveau de production de la Forge le renchérissait). La fiche du bâtiment
+  producteur l'affiche (« Produire : Nom — N or · T s »).
 
 ## 4. Déblocage des unités
 
-Sources : `data/units.ts` (`playerUnlockMode`), `data/buildings.ts`
-(`recruitmentUnlock`), `data/production.ts` (`producibleUnits`),
-`run/metaProgress.ts` (`canPlayerRecruitUnit`, `registerEnemyDefeat`).
+Sources : `data/buildings.ts` (`recruitmentUnlock`), `data/production.ts`
+(`producibleUnits`).
 
 Depuis le 2026-11-04, une unité du joueur ne s'obtient que par la **file de
 production d'un bâtiment** (§6 sexies) : la seule condition est de
 posséder ce bâtiment, terminé et vivant, au niveau requis
-(`RecruitmentUnlockConfig.minLevels`), et de payer son coût.
+(`RecruitmentUnlockConfig.minLevels`), et de payer son coût. C'est la
+**seule** règle depuis le 2026-11-05 : le déblocage par victoire a été
+retiré (G41).
 
 | Unité | Bâtiment |
 |---|---|
@@ -444,18 +452,15 @@ posséder ce bâtiment, terminé et vivant, au niveau requis
 | Oracle, Vengeur | Église |
 | Cavalier léger | Écurie (§6 nonies) |
 | Villageois | Auberge (§6 nonies) |
-| Sentinelle | Aucun bâtiment ne la produit aujourd'hui |
+| Sentinelle | Aucun bâtiment ne la produit : unité **dormante** (définie, jamais recrutée) tant que son bâtiment, son rôle et son coût ne sont pas décidés (`ROADMAP.md` §6 quater) |
 
-- **Déblocage par victoire** (`defeatEnemy`, Mage et Sentinelle) : la
-  méta-progression enregistre toujours le premier ennemi vaincu de chaque
-  type (`defeatedEnemyUnitIds`, `registerEnemyDefeat`), mais **aucun
-  consommateur** ne lit plus ce déblocage depuis le retrait de la Boutique
-  : le Mage se produit au Sanctuaire sans condition de victoire. Le toast
-  « Unité débloquée » a été retiré pour ne pas annoncer un déblocage sans
-  effet. À redéfinir en Pass 2 (`KNOWN_ISSUES.md` KI-67,
-  `DESIGN_DECISIONS.md` C4).
+- **Déblocage par victoire : retiré** (2026-11-05, G41, décision
+  d'Antoine) : `playerUnlockMode`, `defeatedEnemyUnitIds`,
+  `registerEnemyDefeat` et `canPlayerRecruitUnit` n'existent plus ; une
+  ancienne sauvegarde qui contenait `defeatedEnemyUnitIds` se charge
+  normalement (clé ignorée).
 - `MAGE_UNLOCK_WAVE` (`config/constants.ts`) ne règle que l'**apparition des
-  Mages ennemis**, pas leur déblocage pour le joueur.
+  Mages ennemis**.
 
 ## 5. La Baliste (tour du joueur)
 
@@ -552,7 +557,8 @@ Sources : `data/buildings.ts`, `data/mineUpgrade.ts`, `run/buildingUpgrades.ts`,
 `run/mineUpgradeEffects.ts`, `data/production.ts`,
 `run/buildingUpgradeEffects.ts`, `sim/systems/buildingProduction.ts`,
 `sim/systems/buildingAttack.ts` (tir de la Tour), `render/projectiles.ts`,
-`run/churchHeal.ts` (soin de l'Église), `main.ts`.
+`run/productionOrders.ts` (commandes de la file : unités, améliorations,
+technologies, Baliste), `main.ts`.
 
 Ils s'achètent en Or, bois et pierre par le menu **Construire** du temps
 réel (§6 bis) ; la Boutique et son onglet « Bâtiments » n'existent plus
@@ -590,37 +596,44 @@ est la **Palissade V2**, géométrique et sans grille : voir §6 octies.
 |---|---|---|---|---|---|---|---|
 | Coût en partie | 20 | 15 | 15 | 5 | 10 | 20 | 35 |
 | PV / emprise | 15 / 2×2 | 25 / 3×3 | 25 / 3×3 | 10 / 2×2 | 15 / 2×2 | 15 / 2×2 | 15 / 2×2 |
-| Effet | Produit de l'or (voir ci-dessous) | Produit des Piquiers, et des Hommes d'armes au Niv. 2 (file payée, voir ci-dessous) | Produit des Archers (file payée, voir ci-dessous) | +2 population maximale (§2) | Pioche de prospecteur (§6 nonies) ; accès aux améliorations de production des unités et de la Baliste (§14) ; aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Soigne l'armée contre de l'or ; produit l'Oracle et le Vengeur (§4 ; le Mage : Sanctuaire, §6 nonies) |
+| Effet | Produit de l'or (voir ci-dessous) | Produit des Piquiers, et des Hommes d'armes au Niv. 2 (file payée, voir ci-dessous) ; technologie « Entraînement des hommes d’armes » au Niv. 2 (§14) | Produit des Archers (file payée, voir ci-dessous) ; Niv. 2 : Archers +2 PV, +1 dégâts (§14) | +2 population maximale (§2) | Technologies militaires globales : Armes forgées I, Armures forgées I (§14) ; aucun outil, aucun effet passif | Tire des flèches sur les unités ennemies (voir ci-dessous) | Produit l'Oracle et le Vengeur (§4 ; le Mage : Sanctuaire, §6 nonies) ; plus de soin de l'armée (2026-11-05) |
 
 Le coût d'achat est fixe : il ne dépend d'aucune amélioration (une Mine
 coûte toujours 20, une Caserne toujours 15).
 
-**Amélioration de la Mine, de la Caserne, du Camp d'archerie, de la Tour et
-de l'Église** :
+**Amélioration des bâtiments** (règle du 2026-11-05, G41) :
 
-- chaque Mine, Caserne, Camp d'archerie, Tour et Église a son **propre
-  niveau**
-  (`OwnedBuilding.level`), affiché à partir de « Niv. 1 » ; deux bâtiments
-  du même type peuvent avoir des niveaux différents ;
-- il s'achète depuis la fiche du bâtiment, en jeu, sur un bâtiment terminé
-  (« Améliorer la mine — N or », « Améliorer — N or » pour les autres ;
-  bouton désactivé si l'or manque) ; l'amélioration entre dans la file de
-  production du bâtiment et s'applique au bout de `BUILDING_UPGRADE_SECONDS`
-  (§6 sexies). Il n'agit que sur ce bâtiment ;
+- deux **portées** (`BuildingDef.upgradeScope`, `run/buildingUpgrades.ts`) :
+  - **par exemplaire** (`OwnedBuilding.level`) : Mine, Tour — l'effet
+    porte sur le bâtiment lui-même ; deux Mines peuvent avoir des
+    niveaux différents ; le niveau disparaît avec le bâtiment ;
+  - **par type, global à la run** (`RunState.upgrades[buildingId]`) :
+    Caserne, Camp d'archerie, Sanctuaire, Écurie — un seul niveau pour tous
+    les exemplaires, acquis pour la run (reconstruire ne le perd pas), une
+    seule amélioration en file à la fois pour le type ; l'effet porte sur
+    leur **roster** (§14) ;
+- elle se commande depuis la fiche du bâtiment, en jeu, sur un bâtiment
+  terminé (« Améliorer la mine — N or · 20 s », « Améliorer Niv. 2 — N or
+  · 20 s » pour les autres ; bouton désactivé si l'or manque, si une
+  amélioration est déjà en file ou si la file est pleine) ; **toute**
+  amélioration entre dans la file de production du bâtiment, payée au
+  clic, et s'applique au bout de `BUILDING_UPGRADE_SECONDS` (20 s,
+  provisoire ; §6 sexies) — plus aucune amélioration instantanée (Mine et
+  Tour comprises). Le jeu continue ;
 - prix : base × 2^niveau, la base étant propre au bâtiment
   (`BuildingDef.upgradeGoldCostBase`) : 25 / 50 / 100 / 200… or pour la
-  Mine, 5 / 10 / 20 / 40… pour la Tour, l'Église et le Sanctuaire. La
-  Caserne n'a qu'**une** amélioration, Niv. 1 → Niv. 2 pour 20 or
-  (`BuildingDef.maxUpgradeLevel`), qui ouvre la production de l'Homme
-  d'armes sans ajouter de PV. Le **Camp d'archerie n'est plus améliorable**
-  depuis le 2026-11-04 : son Niv. 2 ne faisait que doubler le quota « par
-  manche », disparu ; « Camp d'archerie Niv. 2 » est à redéfinir en Pass 2
-  (`KNOWN_ISSUES.md` KI-69). Indépendant du prix des améliorations
-  d'unités à la Forge ;
-- un niveau qui augmente les PV max (Tour, Église) augmente aussi les PV actuels du
-  même écart : les PV manquants restent les mêmes ;
-- le niveau suit le bâtiment d'une vague à l'autre, et disparaît avec lui
-  s'il est détruit.
+  Mine, 5 / 10 / 20 / 40… pour la Tour ; Caserne, Camp
+  d'archerie et Écurie 20 or, Sanctuaire 15 or, pour leur **unique**
+  niveau (Niv. 1 → Niv. 2, `BuildingDef.maxUpgradeLevel`) ;
+- effets : Mine (tranche d'or) ; Tour (+5 PV, +2 dégâts) ; Caserne Niv. 2 :
+  production de l'Homme d'armes
+  et accès à sa technologie ; Camp d'archerie Niv. 2 : Archers +2 PV, +1
+  dégâts ; Sanctuaire Niv. 2 : Mages +3 PV, +2 Boule de feu ; Écurie Niv. 2
+  : Cavaliers +5 PV, +5 % vitesse — tous **rétroactifs** (unités présentes
+  et futures, §14). Valeurs provisoires ;
+- un niveau qui augmente les PV max (Tour) augmente aussi les PV
+  actuels du même écart : les PV manquants restent les mêmes ; une file
+  perdue avec son bâtiment n'est pas remboursée.
 
 Production de la Mine (Survie en temps réel, 2026-11-02) :
 
@@ -643,10 +656,12 @@ recrutement (Sanctuaire, Église, Écurie, Auberge) :
 
 - **Une seule règle depuis le 2026-11-04** : la **file de production
   payée** de la fiche du bâtiment (§6 sexies, `World.queueProduction`,
-  `sim/systems/buildingProduction.ts`). Chaque ordre coûte l'or de l'unité
-  (coût de son niveau de production, §14) et dure `data/production.ts`
-  secondes ; au plus `PRODUCTION_QUEUE_MAX` ordres par bâtiment ; une
-  annulation rend l'or. Même règle en jeu et dans « Tester le scénario ».
+  `sim/systems/buildingProduction.ts`, `run/productionOrders.ts`). Chaque
+  ordre coûte l'or de l'unité (coût de base, fixe) et dure
+  `data/production.ts` secondes ; au plus `PRODUCTION_QUEUE_MAX` ordres par
+  bâtiment, améliorations et recherches comprises ; une annulation rend
+  l'or (et le stock d'une recherche). Même règle en jeu et dans « Tester le
+  scénario ».
 - **Retiré** : l'ancien quota gratuit « par manche » (`unitsByLevel`,
   `unitsProducedPerWave`, « 1 Piquier par manche », « En attente : N »)
   n'existe plus, ni dans le code ni dans les fiches (`DESIGN_DECISIONS.md`
@@ -656,12 +671,11 @@ recrutement (Sanctuaire, Église, Écurie, Auberge) :
   (les plus avancées vers le champ de bataille d'abord) ; elle sort dès
   que les deux sont réunies. Les bâtiments se servent dans l'ordre stable
   des entités.
-- **Bonus** : les unités produites reçoivent les mêmes bonus qu'avant :
-  talents, et niveau de production courant **au moment de leur
-  apparition** (§14).
-- **Comportement** : elles passent directement en Garde, sans pas
-  d'ouverture (§2), ou marchent vers le point de ralliement s'il existe
-  (§6 sexies).
+- **Bonus** : les unités produites reçoivent les stats effectives de la
+  run (talents, niveau de leur producteur, technologies, §14) ; les unités
+  déjà présentes les reçoivent aussi quand la run progresse (rétroactif).
+- **Comportement** : elles passent directement en Garde, ou marchent vers
+  le point de ralliement s'il existe (§6 sexies).
 - **Persistance** : ils **ne rejoignent pas** l'armée qui persiste entre les
   vagues.
 - **Modèles** : `blue_barracks` et `blue_archeryrange` (KayKit), ajustés à
@@ -689,23 +703,19 @@ pour rester à la hauteur de la Caserne et de la tour de la Baliste) :
   flèches déjà en vol arrivent normalement.
 - La Tour n'apporte aucune population.
 
-Soin de l'Église (modèle `blue_church`, ajusté à l'emprise 2 × 2) :
+Église (modèle `blue_church`, ajusté à l'emprise 2 × 2) :
 
-- **Action** « Soigner l'armée — N or » sur sa fiche, en jeu, sur une
-  Église terminée (2026-11-04 ; « en préparation uniquement » avant) :
-  rend à toutes les unités vivantes du joueur
-  leurs PV manquants, jusqu'au maximum propre à chacune (niveau de
-  production compris). Jamais les bâtiments, la Baliste ni les ennemis.
-- **Coût** : `ceil(PV manquants de toute l'armée / efficacité)`, avec
-  l'efficacité de **cette** Église à son niveau : 5 PV par or au niveau 1,
-  +2 par niveau (5, 7, 9, 11…) ; elle gagne aussi +5 PV max par niveau
-  (15, 20, 25, 30…). Exemple : 23 PV manquants à 5 PV/or → 5 or.
-- **Tout ou rien** : pas de soin partiel ; bouton désactivé (coût affiché)
-  si l'or manque ; « Armée déjà au maximum », désactivé, si personne n'est
-  blessé (aucun or dépensé). Plusieurs Églises ne cumulent rien : chacune
-  soigne avec sa propre efficacité.
-- **Améliorations** : l'Église n'a plus d'écran d'améliorations (parchemins
-  passés au Sanctuaire le 2026-11-03, puis retirés le 2026-11-04, §9).
+- **Soin de l'armée : retiré** (2026-11-05, G41, décision d'Antoine) : le
+  bouton « Soigner l'armée — N or », le calcul « PV par or » et
+  `run/churchHeal.ts` n'existent plus ; ce soin instantané de toute
+  l'armée contre de l'or appartenait au rythme de l'ancien jeu en manches.
+  Les soins passent par le Paladin, l'Oracle et de futurs supports.
+- **Aucune amélioration** (2026-11-05, décision d'Antoine) : l'ancien
+  Niv. 2 « +5 PV du bâtiment » était un placeholder, retiré ; la
+  progression de l'Église est à redéfinir plus tard avec le gameplay
+  soutien (`ROADMAP.md` §6 quater). L'Église n'a plus d'écran
+  d'améliorations (parchemins passés au Sanctuaire le 2026-11-03, puis
+  retirés le 2026-11-04, §9).
 - **Production** : l'Église produit l'Oracle et le Vengeur (§4) ; le Mage
   est au Sanctuaire.
 - Une Église détruite disparaît de la run comme les autres bâtiments.
@@ -721,7 +731,7 @@ qu'une Forge n'est pas reconstruite.
 
 Sources : `data/hero.ts`, `sim/systems/hero.ts`, `config/resourceNodes.ts`,
 `config/maps/proceduralSurvival.ts`, `run/runState.ts`,
-`run/harvestPermissions.ts`, `render/fogOfWar.ts`, `render/resourcePiles.ts`,
+`render/fogOfWar.ts`, `render/resourcePiles.ts`,
 `ui/heroHud.ts`, `main.ts` (`toggleHeroCamera`, `updateFogOfWar`,
 `ringEnemyWavePlan`). Choix d'Antoine et valeurs provisoires :
 `DESIGN_DECISIONS.md` G4 à G9.
@@ -864,30 +874,20 @@ passe par le **cargo économique**, jamais par l'inventaire RPG, voir
   message invite à déposer. Le sac est gardé à la mort et entre les manches ;
 - **constructions** : elles se paient avec le stock **déposé**, jamais avec
   le sac ;
-- **récolte avancée** (règle du 2026-11-04, §6 duodecies ; avant : Forge
-  pour tout) : couper les arbres (**Hache de bûcheron**) et extraire la
-  pierre (**Pioche de mineur**) sont possibles **dès le départ**, sans
-  bâtiment ; seul le **gisement d'or** demande la **Pioche de
-  prospecteur**, donnée par une **Forge terminée**
-  (`BuildingDef.unlocksTools`). Les règles ci-dessous (chantier, dernier
-  bâtiment détruit, refus) ne concernent donc plus que l'or. La Scierie et le Camp de
-  mineur ne contrôlent plus rien (ce sont des points de collecte, §6
-  undecies). Un chantier ne débloque rien ; il suffit
-  d'un bâtiment terminé ; les droits sont recalculés avant chaque pas d'après les
-  bâtiments du joueur présents dans le monde (Survie générée, carte
-  dessinée, « Tester le scénario »). Dernier bâtiment détruit pendant une
-  récolte : le Héros finit l'unité en cours d'extraction, puis s'arrête ; en
-  chemin, il s'arrête aussitôt ; tout nouvel ordre de récolte est refusé.
+- **récolte** (règle du 2026-11-05, G37 tranchée ; avant : Forge pour
+  l'or) : couper les arbres (**Hache de bûcheron**), extraire la pierre et
+  l'**or des gisements** (**Pioche de mineur**) sont possibles **dès le
+  départ**, sans aucun bâtiment : Héros et Villageois utilisent la pioche
+  ordinaire. Aucun bâtiment ne débloque plus d'outil (`BuildingDef.unlocksTools`
+  et `run/harvestPermissions.ts` n'existent plus ; `World.harvestPermissions`
+  reste le point générique de la simulation, à sa valeur de départ). La
+  Scierie et le Camp de mineur sont des points de collecte (§6 undecies).
   Points de collecte : Baliste (tout), Scierie (bois), Camp de mineur
-  (pierre, or extrait), §6 undecies. La **Mine** (or toutes les 60 s) est
-  inchangée. **Clic droit sur un arbre ou un
-  rocher verrouillé** (2026-11-02, règle d'Antoine : « interaction reconnue +
-  déplacement autorisé », jamais « clic consommé ») : la source est
-  sélectionnée (anneau jaune, étiquette), la raison est rappelée (« Couper
-  les arbres / Exploiter ce gisement : il faut une Forge (outil) »), et le Héros **va au pied de la
-  ressource** (point d'approche de son côté) sans la récolter. Avec le droit
-  de récolte : même sélection, puis déplacement à portée et récolte
-  automatique (hache pour un arbre, pioche pour un gisement). La récolte
+  (pierre, or extrait). La **Mine** (or toutes les 60 s) est inchangée.
+  **Clic droit sur un arbre ou un gisement** : la source est sélectionnée
+  (anneau jaune, étiquette), puis déplacement à portée et récolte
+  automatique (hache pour un arbre, pioche pour un gisement) ; plus aucun
+  message « il faut une Forge ». La récolte
   remplit le sac (1 unité / 1,5 s, piles de 5), jamais le stock ; sac plein :
   seulement ce qui entre, rien n'est perdu (la source garde le reste) ; un
   arbre étant bloquant, sa portée se mesure jusqu'à sa case ;
@@ -1080,13 +1080,12 @@ horizon) derrière la carte ronde ; même rendu dans l'éditeur.
   8 s, Archer 9 s, Mage et Oracle 14 s, Vengeur 16 s, provisoires), près du
   bâtiment, en Garde, si la population le permet. La production automatique
   de début de manche n'est plus utilisée ;
-- **améliorations, Forge, Église** : depuis la fiche du bâtiment bâti, en
-  temps réel. Bâtiment **producteur** (Caserne, Camp d'archerie, Église) :
-  l'amélioration passe par sa file (20 s, provisoire ; une seule à la fois ;
-  payée au clic, appliquée à sa fin). Autres bâtiments (Mine, Tour…) :
-  amélioration immédiate (PV max, dégâts de la Tour). L'écran de la Forge /
-  de l'Église met le jeu en pause tant qu'il est ouvert ; le soin de l'Église
-  rend leurs PV aux unités vivantes ;
+- **améliorations, technologies, Baliste** : depuis la fiche du bâtiment
+  bâti (ou de la Baliste), en temps réel, **toujours par sa file** (20 s
+  pour une amélioration, 30 s pour une technologie de Forge, provisoire ;
+  payée au clic, appliquée à sa fin ; une seule amélioration et une seule
+  recherche d'une technologie donnée à la fois). Aucun écran ne fige plus
+  le jeu (2026-11-05, §14) ;
 - **menu Construire** : un clic gauche sur le terrain le ferme, sans rien
   faire d'autre (2026-11-02) ;
 - **Boutique globale** et **inventaire de parchemins** : supprimés du code
@@ -1360,8 +1359,10 @@ G20) :
   l'instant (aucun multiplicateur). Origine :
   - Héros : copie de sa progression (XP, niveaux 1 à 100), suit ses montées
     de niveau ;
-  - unité du joueur : niveau de production + 1 (améliorations de Forge ;
-    niveau 1 sans amélioration), unités produites en temps réel comprises ;
+  - unité du joueur : 1 (depuis le 2026-11-05, la progression de la run —
+    technologies, niveaux de producteurs — est globale et rétroactive,
+    aucune unité ne porte plus de niveau propre), ou le niveau explicite
+    de la carte ;
   - ennemi de vague : niveau de renfort de vague + 1 (stats du renfort
     calculées comme avant) ;
   - garde de camp : son override (`MapCampDef.guardOverrides[i].level`,
@@ -1404,7 +1405,7 @@ G20) :
   (`Board.terrain`, comme dans l'éditeur) : une pose ne reconstruit que
   les morceaux touchés (25 à 47 ms mesurés, 2 à 4 morceaux ; KI-53).
 
-## 6 nonies. Or monnaie, Forge et outils, gisements, Maison A/B, Sanctuaire, Écurie
+## 6 nonies. Or monnaie, gisements, Maison A/B, Sanctuaire, Écurie
 
 Depuis le 2026-11-03 (valeurs PROVISOIRES) :
 
@@ -1427,16 +1428,12 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   inchangé). Les gros gisements **bloquent** déplacement et construction
   (cellules `terrainResource`, `config/resourceNodes.ts`), y compris dans
   l'éditeur.
-- **Forge = or** (2026-11-04 ; son ancien rôle de déblocage du bois et de
-  la pierre est **retiré**) : une Forge **terminée** donne la **Pioche de
-  prospecteur** (gisements d'or) à tout le camp
-  (`run/harvestPermissions.ts`) ; hache et pioche de mineur sont des
-  outils de départ. Première fois : « Nouvel outil disponible : Pioche de
-  prospecteur (gisements d'or). » (une fois par partie). Sans Forge, sur un
-  gisement d'or : sélection, message « Gisement d'or : il faut une Forge
-  (Pioche de prospecteur) » et déplacement, aucune extraction. Dernière
-  Forge détruite : nouveaux ordres sur l'or refusés, l'unité en cours est
-  finie, puis arrêt. La Forge garde ses améliorations de run.
+- **Forge = technologies militaires** (2026-11-05, G41 ; G37 tranchée) :
+  la Forge ne donne plus aucun outil — l'or des gisements s'extrait dès le
+  départ avec la pioche ordinaire, comme le bois et la pierre (§6 bis). Sa
+  fiche porte les recherches Armes forgées I et Armures forgées I (§14).
+  La Pioche de prospecteur, son annonce et le message « il faut une Forge »
+  n'existent plus.
 - **Scierie et Camp de mineur** : **points de collecte** spécialisés depuis
   le 2026-11-03 (Scierie : bois ; Camp de mineur : pierre et or extrait ;
   §6 undecies). Coûts, emprises, modèles et PV inchangés.
@@ -1450,8 +1447,9 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   battue). Produit le **Mage** (retiré de l'Église). Le bouton
   « Parchemins du Sanctuaire » et ses améliorations de run (soin, Nova de
   glace, Ombre) ont été retirés le 2026-11-04 avec les parchemins (§9) ;
-  son amélioration Niv. 2 (+5 PV) reste, provisoire.
-- **Église** : soin de l'armée, Oracle et Vengeur (inchangés).
+  son Niv. 2 améliore les **Mages** (+3 PV, +2 Boule de feu, 2026-11-05,
+  §14), plus les PV du bâtiment.
+- **Église** : Oracle et Vengeur ; plus de soin de l'armée (2026-11-05, §6).
 - **Écurie** (`blue_stables`, 3 × 3) : producteur standard ; produit le
   **Cavalier léger** (unité `cavalier` existante, 15 or, 12 s) ;
   amélioration Niv. 2 par la file (+5 PV du bâtiment), qui s'intercale
@@ -1688,8 +1686,9 @@ valeurs **provisoires**) :
   et de course jouent 1,4 fois plus vite (pas de glissement des pieds).
   Arrivée, collisions et palissades : comportement identique à avant
   (vérifié : même distance d'arrêt, aucun dépassement).
-- **Bois et pierre libres** : hache et pioche de mineur sont des outils de
-  **départ** ; l'or reste lié à la Forge (Pioche de prospecteur, §6 nonies).
+- **Bois, pierre et or libres** : hache et pioche de mineur sont des outils
+  de **départ** ; l'or des gisements l'est aussi depuis le 2026-11-05 (G37
+  tranchée, §6 bis).
 - **Camp de départ préconstruit** (preset `basic-camp`,
   `config/startingBase.ts`) autour du Départ Survie : **Baliste** au
   centre, **deux Maisons** (A puis B) et l'**Auberge** contre l'enceinte
@@ -1781,8 +1780,8 @@ sont pas concernés (§6 bis, §6 decies).
 ## 10. Vagues ennemies
 
 Sources : `run/runState.ts` (`computeEnemyWaveComposition`),
-`run/unitUpgradeEffects.ts` (`enemyUpgradeLevelForWave`,
-`computeEnemyUnitUpgradeEffects`), `config/constants.ts`
+`run/enemyWaveEffects.ts` (`enemyUpgradeLevelForWave`,
+`computeEnemyUnitUpgradeEffects`), `data/enemyWaveUpgrades.ts`, `config/constants.ts`
 (`MAGE_UNLOCK_WAVE`, `EXTRA_ENEMY_MAGE_*`, `ENEMY_SENTINEL_*`).
 
 Fantassins et Archers :
@@ -1796,11 +1795,12 @@ Fantassins et Archers :
   `1 + floor((v − 10) / 3)` Mages supplémentaires.
 - **Sentinelles** : `1 + floor((v − 10) / 5)` à partir de la vague 10.
 - **Renforcement par vague** : les ennemis reçoivent un niveau d'amélioration
-  égal à `floor(v / 2)`, avec les mêmes formules que les améliorations du
-  joueur.
+  égal à `floor(v / 2)` (+1 PV par niveau, +1 attaque tous les 3 niveaux :
+  l'ancien barème des améliorations d'unités, conservé tel quel et
+  indépendant de la progression du joueur).
   - Ce renforcement s'applique aux Fantassins, Archers et Mages.
   - Il ne s'applique pas à la Sentinelle, qui n'a pas d'entrée dans
-    `UNIT_UPGRADES`.
+    `ENEMY_WAVE_UPGRADES`.
   - La fiche d'un ennemi inspecté affiche ce niveau à partir de 1
     (`floor(v / 2) + 1`), en vraie bataille seulement.
 - **Formation** : mêlée devant, unités à distance derrière, pour chaque
@@ -1906,8 +1906,7 @@ s'ouvre toujours sur l'arène officielle.
   ennemi. Chemins et aire tassée en terre battue, herbes de zone, 59 décors
   composés à la main (32 arbres KayKit, 3 bosquets, 17 rochers, 7 petits).
 - Testée en Mode survie réel sans modifier le dépôt : construction de tous
-  les bâtiments et d'une enceinte avec porte dans le camp, pas d'ouverture
-  des unités conforme (§2), vague 1 gagnée.
+  les bâtiments et d'une enceinte avec porte dans le camp, vague 1 gagnée.
 - **Bloque son adoption** : l'agrandissement de run ne déplace ni le relief
   ni les surfaces (`KNOWN_ISSUES.md` KI-27). Les ennemis apparaissent
   toujours dans la bande nord (§10) : les autres accès de l'île ne servent
@@ -2082,7 +2081,7 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   - `World.setMap` injecte des obstacles synthétiques `terrainWater`
     (`blocksShots: false`, rangées de cases contiguës fusionnées) : trajets
     A*, contournement, collision, ruée de Charge, apparitions (renforts,
-    production, pas d'ouverture) les évitent ;
+    production) les évitent ;
   - destination d'un ordre de déplacement sur l'eau refusée
     (`invalid-destination`) ; une destination de groupe tombée dans l'eau
     est ramenée au point sec le plus proche (`sim/orders.ts`) ;
@@ -2356,63 +2355,83 @@ Autres éléments :
 
 - **Record** : le plus haut numéro de vague atteint est conservé et affiché.
 
-## 14. Améliorations de Forge
+## 14. Technologies et améliorations de run (Forge, producteurs, Baliste)
 
-Sources : `run/runUpgrades.ts` (`RUN_UPGRADE_DEFS`, niveaux, coûts, achat),
-`data/unitUpgrades.ts`, `data/ballistaUpgrade.ts`,
-`run/unitUpgradeEffects.ts`, `run/ballistaUpgradeEffects.ts`,
-`ui/screens.ts` (`showForge`, `refreshForge`), `main.ts` (`openForge`,
-`purchaseForgeUpgrade`, `hasForge`).
+Sources : `data/technologies.ts`, `data/unitBonus.ts`, `data/buildings.ts`
+(`upgradeScope`, `rosterBonusPerLevel`), `data/ballistaUpgrade.ts`,
+`run/runUpgrades.ts` (`RunUpgradeLevels`), `run/technologies.ts`,
+`run/buildingUpgrades.ts`, `run/playerUnitStats.ts`,
+`run/productionOrders.ts`, `run/ballistaUpgradeEffects.ts`,
+`run/entityInfo.ts`, `sim/world.ts` (`applyUnitStats`,
+`applyBuildingStats`), `main.ts` (`realtimeBuildingAction`,
+`handleProductionUpgrades`).
 
-Les améliorations sont **propres à la run** : niveaux stockés dans
-`RunState.upgrades`, remis à `{}` à chaque nouvelle run, jamais
-sauvegardés. Elles s'achètent en Or, **en temps réel**, depuis une Forge
-terminée (`BuildingDef.runUpgradeSite: 'forge'`) : production des unités
-(Homme d'armes, Archer, Mage, Sentinelle) et Baliste. Le bâtiment n'est
-qu'un point d'accès : les niveaux restent ceux de la run, partagés par
-toutes les Forges possédées. La Mine, la Caserne, la Tour, l'Église et le
-Sanctuaire s'améliorent depuis leur fiche (§6). Depuis le 2026-11-04,
-aucun autre bâtiment ne vend d'amélioration de run : les cartes de
-parchemins de l'Église puis du Sanctuaire ont été retirées (§9).
+Modèle du 2026-11-05 (passe de modernisation 2, `DESIGN_DECISIONS.md` G41),
+valeurs **PROVISOIRES** :
 
-- **Accès** : sélectionner une Forge possédée et terminée, puis « Ouvrir
-  la Forge » sur sa fiche. Un chantier de Forge n'a pas ce bouton. L'écran
-  met la simulation en **pause** ; « Retour » ou Échap la reprend. (Avant
-  le 2026-11-04, une garde de préparation refusait tout achat en Survie :
-  l'écran s'ouvrait mais aucun achat ne passait ; corrigé par la passe.)
-- **Overlay** (`screen-unit-upgrade-shop`, titre « Forge ») : Or actuel,
-  une carte par amélioration avec son niveau (affiché à partir de 1), ses
-  effets et le coût du niveau suivant. Bouton désactivé si l'Or ne suffit
-  pas.
-- **Achat** : Or débité, niveau +1, effet immédiat (fiches, unités
-  produites ensuite, Baliste à sa prochaine apparition).
-- **Niveau de production des unités** (`data/unitUpgrades.ts`,
-  `run/unitUpgradeEffects.ts`) :
-  - améliorer une unité à la Forge élève le niveau auquel les **futures**
-    unités de ce type sont produites (files de production, Tester le
-    scénario) ;
-  - chaque unité possédée garde à vie le niveau de sa création
-    (`OwnedUnit.productionLevel`) : ses PV, dégâts, bouclier et coût en
-    dérivent. Une amélioration ne modifie jamais une unité déjà créée, ni
-    ses PV actuels ;
-  - chaque niveau augmente aussi le coût de production des futures
-    recrues (tableau ci-dessous) ; la population ne change pas ;
-  - la carte de la Forge montre le niveau de production, les stats et le
-    coût de la prochaine unité, et le gain du niveau suivant.
-- **Coût** (`runUpgradeGoldCost(id, niveau)`) : `7 × 2^niveau` pour les
-  unités (7 / 14 / 28 / 56…) ; 1 / 2 / 4 / 8 / 16… pour la Baliste. Aucun
-  talent ne modifie ce coût.
-- **Plafond** : aucune amélioration n'a de niveau maximum.
-- **Prix** : l'amélioration de la Baliste n'augmente pas son prix ; celles
-  des unités, si (surcoût de production par niveau).
+- **Direction** : Forge = technologies militaires **globales** ;
+  améliorations propres à une unité = son **bâtiment producteur** ; Héros =
+  progression séparée (niveau, équipement) ; toutes les recherches se
+  déroulent **en temps réel**, par la file du bâtiment, sans écran modal.
+- **État de run** : tout vit dans `RunState.upgrades` (id → niveau, remis à
+  `{}` à chaque nouvelle run, jamais sauvegardé) : `ballista` (niveaux
+  répétés), les technologies (`forge_weapons`, `forge_armor`,
+  `barracks_training` : 1 = acquise ; un palier II/III serait un niveau de
+  plus, non implémenté), les niveaux des producteurs à portée « run »
+  (`barracks`, `archery`, `shrine`, `stables`). Une technologie acquise
+  reste acquise pour la run même si tous ses sites sont détruits ; deux
+  Forges partagent la même recherche (la seconde affiche « Terminé »).
+- **File unique** : une recherche est une commande `research` de la file
+  du bâtiment (`Entity.productionOrders`), comme une unité ou une
+  amélioration, dans l'ordre des clics (Forge : Armes puis Armures ;
+  Sanctuaire : Mage, Niv. 2, Mage…), au plus `PRODUCTION_QUEUE_MAX` ;
+  payée à la commande (or **et** stock), annulable (tout rendu) ; une file
+  perdue avec son bâtiment n'est pas remboursée. Une même technologie ne
+  peut être en recherche qu'une fois à la fois.
+- **Fiche** (pas de gros écran) : une ligne par technologie du site —
+  « Rechercher : Nom — coût · durée » (désactivé : or ou stock insuffisant,
+  file pleine), « En recherche », « Requiert Niv. 2 », « Terminé — effet ».
+- **Technologies** (`data/technologies.ts`) :
 
-| Amélioration | Effet par niveau |
-|---|---|
-| Homme d'armes | +3 PV, +1 attaque ; production +1 or |
-| Archer | +2 PV, +1 attaque ; production +1 or |
-| Mage | +3 PV, +2 Boule de feu ; production +3 or |
-| Sentinelle | +15 PV, +1 bouclier par ennemi provoqué (jamais d'attaque) ; production +10 or |
-| Baliste | +20 % de cadence (additif), +10 PV ; +1 dégât tous les 3 niveaux |
+| Technologie | Site | Coût | Durée | Effet |
+|---|---|---|---|---|
+| Armes forgées I | Forge | 20 or, 10 bois, 5 pierre | 30 s | unités militaires : +10 % dégâts d'attaque |
+| Armures forgées I | Forge | 20 or, 5 bois, 10 pierre | 30 s | unités militaires : +10 % PV max |
+| Entraînement des hommes d’armes | Caserne Niv. 2 | 7 or | 20 s | Hommes d'armes : +3 PV, +1 dégâts (l'ancien niveau de Forge) |
+
+- **Unités militaires** (`isMilitaryUnit`, `data/units.ts`) : toute unité
+  de combat recrutable — Piquier, Homme d'armes, Archer, Mage, Oracle,
+  Vengeur, Cavalier, Sentinelle si elle est un jour produite ; jamais le
+  Héros, le Villageois ni une unité neutre. Règle dérivée de la définition
+  (`hero`, `worker`, `neutral`), pas une liste.
+- **Niveaux de producteurs** (§6) : Camp d'archerie Niv. 2 → Archers +2 PV,
+  +1 dégâts ; Sanctuaire Niv. 2 → Mages +3 PV, +2 Boule de feu ; Écurie
+  Niv. 2 → Cavaliers +5 PV, +5 % vitesse (sur la vitesse de base, avant le
+  ×1,4 global) ; Caserne Niv. 2 → Homme d'armes et sa technologie.
+- **Une seule hiérarchie de stats** (`run/playerUnitStats.ts`,
+  `computePlayerUnitStats`) : base `UnitDef` + talents + bonus du
+  producteur × son niveau + technologies acquises ; bonus fixes d'abord,
+  puis pourcentages cumulés ; l'attaque principale est `damage` ou la
+  Boule de feu (`abilityDamageBonus`). Le coût de recrutement n'en dépend
+  jamais.
+- **Rétroactivité** : à la fin d'une recherche ou d'un niveau de producteur,
+  les unités **présentes** reçoivent leurs nouvelles stats avec les PV
+  actuels à la **même fraction** (10 / 20 → 11 / 22, `World.applyUnitStats`,
+  comme l'équipement du Héros) ; les unités **futures** apparaissent avec.
+  Les bâtiments gardent la convention « même écart » (PV manquants
+  inchangés).
+- **Baliste** : son amélioration se commande depuis **sa propre fiche**
+  (« Améliorer Niv. N+1 — N or · 20 s »), par sa file, plus depuis la
+  Forge ; effets inchangés : +10 PV, +20 % de cadence (additif) par niveau,
+  +1 dégât tous les 3 niveaux ; prix 1 / 2 / 4 / 8 ; **plafond Niv. 5**
+  (`BALLISTA_UPGRADE.maxLevel` = 4, provisoire, 2026-11-05) : la fiche
+  affiche alors « Niveau maximum atteint », sans bouton, et la file refuse
+  toute commande de plus.
+- **Retiré** : l'écran de la Forge (`unitUpgradeShop`, jeu figé), les
+  niveaux de production par unité (`data/unitUpgrades.ts`,
+  `OwnedUnit.productionLevel`, surcoût de recrutement), la Pioche de
+  prospecteur. `Entity.level` des unités du joueur reste 1 (donnée sans
+  effet, §6 septies).
 
 ## 15. Sauvegarde : ce qui persiste
 
@@ -2422,19 +2441,20 @@ Sources : `run/metaProgress.ts`, `run/userSettings.ts`.
 
 - points de talent et talents débloqués ;
 - record de vague ;
-- types d'ennemis déjà vaincus (déblocages) ;
 - paliers de points de talent déjà accordés ;
 - réglages (clé séparée).
 
 **Non persistant** : toute la run en cours (or, bois et pierre, armée,
 XP, niveau, morts et sac du Héros, inventaire, bâtiments, leurs niveaux et
-l'avancement des chantiers, améliorations de Forge, vague, graine et état
-de la carte, tas entamés, exploration du brouillard).
+l'avancement des chantiers, technologies et niveaux de run, vague, graine
+et état de la carte, tas entamés, exploration du brouillard).
 Quitter ou recharger la page la fait perdre.
 
-Une ancienne sauvegarde contenant des Runes (`upgradeRunes`) ou des niveaux
-d'amélioration permanents (`unitUpgrades`) se charge normalement : ces clés
-sont ignorées, puis disparaissent à la sauvegarde suivante.
+Une ancienne sauvegarde contenant des Runes (`upgradeRunes`), des niveaux
+d'amélioration permanents (`unitUpgrades`) ou les déblocages par victoire
+(`defeatedEnemyUnitIds`, `unlockedUnits`, retirés le 2026-11-05) se charge
+normalement : ces clés sont ignorées, puis disparaissent à la sauvegarde
+suivante.
 
 **« Effacer la sauvegarde »** (menu principal) remet toute la
 méta-progression à zéro, après confirmation. Les réglages sont conservés.

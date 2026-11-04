@@ -12,8 +12,8 @@ const { generateSurvivalMap } = await import(SRC + 'config/maps/proceduralSurviv
 const DT = 1 / 30;
 let failures = 0;
 const check = (label: string, ok: boolean, extra: unknown = '') => { if (!ok) failures++; console.log(`${ok ? 'OK   ' : 'ECHEC'} ${label}${extra !== '' ? ' — ' + JSON.stringify(extra).slice(0, 900) : ''}`); };
-// 2026-11-04 : hache et pioche de depart, pioche de prospecteur (Forge) pour l'or.
-const TOOLS = { tools: ['axe', 'pickaxe', 'goldPickaxe'] };
+// 2026-11-05 : hache et pioche de depart, l'or compris (plus de pioche de prospecteur).
+const TOOLS = { tools: ['axe', 'pickaxe'] };
 const map = generateSurvivalMap(12345);
 const nearest = (w: any, resource: string) => [...w.resourceNodes.values()].filter((n: any) => n.resource === resource).sort((a: any, b: any) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))[0];
 const beside = (node: any) => ({ x: node.x + (node.block ? node.block.maxX - node.x + 0.6 : 1.2), z: node.z });
@@ -136,7 +136,7 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
   check('Heros, source epuisee : depot des 3, puis Garde (pas de source voisine)', rh.deposits.wood === 3 && rh.phases[rh.phases.length - 1] === 'guard' && !rh.phases.some((p) => p.startsWith('harvest:') && p !== `harvest:${h.node.id}`), rh);
 }
 
-// 8. Forge detruite pendant la recolte (outil perdu) : unite en cours finie, depot, Garde.
+// 8. Outils retires pendant la recolte (permissions vides, cas generique) : unite en cours finie, depot, Garde.
 {
   const { w, node, u } = setup('villageois', 'wood');
   w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: node.id });
@@ -144,7 +144,7 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
   w.harvestPermissions = { tools: [] };
   let dep = 0;
   for (let i = 0; i < 30 * 30; i++) { w.step(DT); for (const ev of w.cargoEvents) if (ev.type === 'cargoDeposit') dep += ev.amount; }
-  check('outil perdu (Forge detruite) : unite en cours finie (3), depot des 3, Garde', dep === 3 && u.order.type === 'guard' && cargoTotal(u.cargo) === 0, { dep, order: u.order.type });
+  check('outil perdu (permissions vides) : unite en cours finie (3), depot des 3, Garde', dep === 3 && u.order.type === 'guard' && cargoTotal(u.cargo) === 0, { dep, order: u.order.type });
 }
 
 // 9. Aucun point de collecte : cargo garde, recolte arretee pleine, rien perdu.

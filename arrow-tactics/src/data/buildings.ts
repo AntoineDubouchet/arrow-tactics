@@ -1,6 +1,7 @@
 import { HP_PER_PIP } from '../config/constants';
 import type { ResourceKind } from '../config/resourceNodes';
-import type { CargoResource, HarvestTool } from './resources';
+import type { CargoResource } from './resources';
+import type { UnitBonus } from './unitBonus';
 
 /**
  * Architecture générique BUILDING (2026-08-16, demande d'Antoine) — un
@@ -57,15 +58,6 @@ export interface BuildingAttackConfig {
   launchOutset: number;
 }
 
-/** Soin de l'armee contre de l'or (Eglise) — voir run/churchHeal.ts.
- *  Efficacite en PV AFFICHES (points) rendus par piece d'or. */
-export interface ArmyHealConfig {
-  /** PV rendus par or au niveau 1. */
-  hpPerGold: number;
-  /** PV par or ajoutes a chaque niveau d'amelioration du batiment. */
-  hpPerGoldPerLevel: number;
-}
-
 export interface BuildingDef {
   id: string;
   displayName: string;
@@ -119,19 +111,32 @@ export interface BuildingDef {
   /** Population maximale ajoutee tant que le batiment existe (Maison, voir
    *  data/population.ts). Absent = aucun effet sur la population. */
   populationBonus?: number;
-  /** Prix de base de l'amelioration PROPRE a chaque exemplaire (niveau 0 -> 1),
-   *  double a chaque niveau (run/buildingUpgrades.ts). Absent = batiment non
-   *  ameliorable depuis sa fiche. */
+  /** Prix de base de l'amelioration du batiment (niveau 0 -> 1), double a
+   *  chaque niveau (run/buildingUpgrades.ts). Absent = batiment non
+   *  ameliorable depuis sa fiche. Toute amelioration passe par la file
+   *  temps reel du batiment (2026-11-05 : duree BUILDING_UPGRADE_SECONDS,
+   *  payee a la commande, jamais instantanee). */
   upgradeGoldCostBase?: number;
+  /** Portee du niveau (2026-11-05, Pass 2) :
+   *   - 'instance' (defaut) : propre a CHAQUE exemplaire (OwnedBuilding.level :
+   *     Mine, Tour — effet sur le batiment lui-meme) ;
+   *   - 'run' : un seul niveau par TYPE de batiment, global a la run
+   *     (RunState.upgrades[buildingId] : producteurs — Caserne, Camp
+   *     d'archerie, Sanctuaire, Ecurie) ; tous les exemplaires en profitent,
+   *     une seule amelioration en file a la fois pour ce type. */
+  upgradeScope?: 'instance' | 'run';
   /** Niveau INTERNE maximal de cette amelioration (1 = Niv. 2 au plus).
    *  Absent = sans limite. */
   maxUpgradeLevel?: number;
   /** PV max ajoutes par niveau d'amelioration, echelle interne. Absent = 0. */
   hpPerLevel?: number;
+  /** Bonus par niveau donne aux unites de son roster (2026-11-05) : unite ->
+   *  bonus par niveau, cumule lineairement, GLOBAL a la run et RETROACTIF
+   *  (unites presentes et futures, run/playerUnitStats.ts). Camp d'archerie
+   *  Niv. 2 : Archers +2 PV, +1 degats. Absent = aucun. */
+  rosterBonusPerLevel?: Readonly<Record<string, UnitBonus>>;
   /** Attaque automatique (Tour). Absent = batiment passif. */
   attack?: BuildingAttackConfig;
-  /** Soin de toute l'armee contre de l'or, depuis la fiche en jeu (Eglise). */
-  armyHeal?: ArmyHealConfig;
   /** Point de collecte (2026-11-03) : ressources de cargo acceptees par ce
    *  batiment TERMINE et allie (Heros et Villageois y vident leur sac, seul
    *  chemin vers le stock ; sim/systems/cargo.ts, nearestDropOff). Baliste :
@@ -139,11 +144,6 @@ export interface BuildingDef {
    *  pierre et or extrait. Aucune logique par id de batiment : seule cette
    *  liste compte. Absent : pas un point de collecte (Forge). */
   dropOff?: readonly CargoResource[];
-  /** Outils de recolte donnes a tout le camp par ce batiment, une fois
-   *  TERMINE, en plus des outils de depart (hache, pioche). Lu par
-   *  run/harvestPermissions.ts. Aujourd'hui : la Forge (pioche de
-   *  prospecteur, gisements d'or). */
-  unlocksTools?: readonly HarvestTool[];
   /** Description courte du menu Construire. Absent : aucune. */
   description?: string;
   /** Facteur de taille VISUELLE du modele par rapport a son emprise (voir
@@ -167,11 +167,6 @@ export interface BuildingDef {
    *  au hasard. Meme batiment de jeu (cout, PV, population, emprise).
    *  Absent : toujours `buildingModel`. */
   modelVariants?: readonly string[];
-  /** Ameliorations de run accessibles depuis la fiche de ce batiment
-   *  (run/runUpgrades.ts) : la Forge (niveaux de production des unites,
-   *  Baliste). Absent : aucune. Les ameliorations de parchemins du
-   *  Sanctuaire ont ete retirees avec les parchemins (2026-11-04). */
-  runUpgradeSite?: 'forge';
 }
 
 export const BUILDINGS: Record<string, BuildingDef> = {
@@ -265,8 +260,11 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_barracks',
     footprintTilesX: 3,
     footprintTilesZ: 3,
-    // Une seule amelioration : Niv. 1 -> Niv. 2 pour 20 or.
+    // Une seule amelioration : Niv. 1 -> Niv. 2 pour 20 or, globale a la run
+    // (toutes les Casernes). L'ancien bonus de Forge de l'Homme d'armes est
+    // une technologie de la Caserne (data/technologies.ts, barracks_training).
     upgradeGoldCostBase: 20,
+    upgradeScope: 'run',
     maxUpgradeLevel: 1,
     // Piquier = recrue de base, Homme d'armes a la Caserne Niv. 2 (decision
     // d'Antoine, 2026-11-01).
@@ -276,11 +274,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
   // emprise et prix). Modele KayKit `blue_archeryrange`
   // (« Champ de tir à l'arc » de l'editeur), ajuste a l'emprise 3 × 3
   // (3,22 de haut, comme la Caserne).
-  // Amelioration Niv. 2 RETIREE provisoirement (2026-11-04) : son seul effet
-  // etait le quota « 2 Archers par manche », mort avec la production par
-  // manche ; plutot que faire payer 20 or pour rien, le batiment n'est plus
-  // ameliorable. Camp d'archerie Niv. 2 a redefinir en Pass 2
-  // (docs/ROADMAP.md).
+  // Niv. 2 (2026-11-05, Pass 2, decision d'Antoine) : Archers +2 PV, +1
+  // degats (les valeurs de l'ancien niveau de Forge de l'Archer), pour tous
+  // les Archers presents et futurs ; global a la run. PROVISOIRE.
   archery: {
     id: 'archery',
     displayName: 'Camp d’archerie',
@@ -295,11 +291,18 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_archeryrange',
     footprintTilesX: 3,
     footprintTilesZ: 3,
+    upgradeGoldCostBase: 20,
+    upgradeScope: 'run',
+    maxUpgradeLevel: 1,
+    rosterBonusPerLevel: { archer: { hp: 2, attack: 1 } },
     recruitmentUnlock: { unitIds: ['archer'] },
   },
-  // Forge (refonte economique) — batiment allie achetable, sans production,
-  // revenu ni effet passif pour l'instant : ciblable, destructible et
-  // collidable comme la Mine. Plusieurs exemplaires possibles.
+  // Forge : technologies militaires GLOBALES (data/technologies.ts : Armes
+  // forgees, Armures forgees), recherchees depuis sa fiche par sa file temps
+  // reel ; plus d'ecran d'ameliorations par unite ni d'outil de recolte
+  // (2026-11-05, Pass 2 : l'or des gisements s'extrait des le depart). Sans
+  // production ; ciblable, destructible et collidable comme la Mine.
+  // Plusieurs exemplaires possibles : la meme recherche partagee.
   forge: {
     id: 'forge',
     displayName: 'Forge',
@@ -318,14 +321,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_blacksmith',
     footprintTilesX: 2,
     footprintTilesZ: 2,
-    // 2026-11-02 : la premiere Forge terminee donnait la hache et la pioche ;
-    // depuis le 2026-11-04, bois et pierre sont libres des le depart, la
-    // Forge ne donne plus que la pioche de prospecteur (gisements d'or).
-    unlocksTools: ['goldPickaxe'],
-    // Ecran des ameliorations de run (niveaux de production des unites,
-    // Baliste) depuis sa fiche, une fois terminee (run/runUpgrades.ts).
-    runUpgradeSite: 'forge',
-    description: 'Outils : pioche de prospecteur (gisements d’or) ; améliorations',
+    description: 'Technologies militaires : Armes forgées, Armures forgées',
   },
   // Maison : +2 de population maximale tant qu'elle existe (voir
   // data/population.ts). Cout et PV PROVISOIRES, non encore fixes par le
@@ -392,9 +388,14 @@ export const BUILDINGS: Record<string, BuildingDef> = {
       launchOutset: 0.65,
     },
   },
-  // Eglise : soigne toutes les unites du joueur contre de l'or (run/churchHeal.ts)
-  // et produit l'Oracle et le Vengeur. Le Mage est au Sanctuaire depuis le
-  // 2026-11-03. Batiment plus tardif (35 or). Valeurs PROVISOIRES.
+  // Eglise : produit l'Oracle et le Vengeur. Le Mage est au Sanctuaire depuis
+  // le 2026-11-03. Le soin instantane de toute l'armee contre de l'or a ete
+  // retire (2026-11-05, Pass 2 : rythme de l'ancien jeu en manches ; les
+  // soins passent par le Paladin, l'Oracle et de futurs supports). Plus
+  // aucune amelioration (2026-11-05, decision d'Antoine : l'ancien Niv. 2
+  // « +5 PV du batiment » etait un placeholder) : progression a redefinir
+  // plus tard avec le gameplay soutien (docs/ROADMAP.md). Batiment plus
+  // tardif (35 or). Valeurs PROVISOIRES.
   church: {
     id: 'church',
     displayName: 'Église',
@@ -411,17 +412,13 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_church',
     footprintTilesX: 2,
     footprintTilesZ: 2,
-    upgradeGoldCostBase: 5,
-    hpPerLevel: 5 * HP_PER_PIP,
-    armyHeal: { hpPerGold: 5, hpPerGoldPerLevel: 2 },
     recruitmentUnlock: { unitIds: ['oracle', 'vengeur'] },
   },
   // Sanctuaire (2026-11-03) : batiment de magie, producteur standard (file,
-  // point de ralliement, amelioration par la file) ; produit le Mage. Les
-  // ameliorations de parchemins qu'il vendait ont ete retirees avec les
-  // parchemins (2026-11-04) ; son amelioration Niv. 2 (+5 PV) reste,
-  // PROVISOIRE, en attendant un vrai role (docs/ROADMAP.md). Modele KayKit
-  // `blue_shrine`. Valeurs PROVISOIRES.
+  // point de ralliement, amelioration par la file) ; produit le Mage. Niv. 2
+  // (2026-11-05, Pass 2) : Mages +3 PV, +2 degats de Boule de feu (l'ancien
+  // niveau de Forge du Mage), global a la run et retroactif ; plus de PV du
+  // batiment. Modele KayKit `blue_shrine`. Valeurs PROVISOIRES.
   shrine: {
     id: 'shrine',
     displayName: 'Sanctuaire',
@@ -437,8 +434,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintTilesX: 2,
     footprintTilesZ: 2,
     upgradeGoldCostBase: 15,
+    upgradeScope: 'run',
     maxUpgradeLevel: 1,
-    hpPerLevel: 5 * HP_PER_PIP,
+    rosterBonusPerLevel: { mage: { hp: 3, attack: 2 } },
     recruitmentUnlock: { unitIds: ['mage'] },
     description: 'Produit le Mage',
   },
@@ -462,10 +460,11 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     description: 'Produit le Villageois (récolte)',
   },
   // Ecurie (2026-11-03) : producteur standard (comme la Caserne) du Cavalier
-  // leger (unite existante `cavalier`). Amelioration Niv. 2 par la file
-  // (PV du batiment), surtout pour eprouver unite -> amelioration -> unite.
-  // Modele KayKit `blue_stables` (2 x 3 dans l'editeur, ajuste a l'emprise
-  // 3 x 3 des producteurs). Valeurs PROVISOIRES.
+  // leger (unite existante `cavalier`). Niv. 2 (2026-11-05, Pass 2) :
+  // Cavaliers +5 PV, +5 % vitesse (sur la vitesse de base, avant le
+  // multiplicateur global), global a la run et retroactif ; plus de PV du
+  // batiment. Modele KayKit `blue_stables` (2 x 3 dans l'editeur, ajuste a
+  // l'emprise 3 x 3 des producteurs). Valeurs PROVISOIRES.
   stables: {
     id: 'stables',
     displayName: 'Écurie',
@@ -481,13 +480,14 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintTilesX: 3,
     footprintTilesZ: 3,
     upgradeGoldCostBase: 20,
+    upgradeScope: 'run',
     maxUpgradeLevel: 1,
-    hpPerLevel: 5 * HP_PER_PIP,
+    rosterBonusPerLevel: { cavalier: { hp: 5, moveSpeedPercent: 5 } },
     recruitmentUnlock: { unitIds: ['cavalier'] },
     description: 'Produit le Cavalier léger',
   },
-  // Scierie (2026-11-02) : ne controle plus la recolte (la Forge donne les
-  // outils) ; point de collecte du BOIS depuis le 2026-11-03 (jamais la
+  // Scierie (2026-11-02) : ne controle pas la recolte (hache et pioche des
+  // le depart) ; point de collecte du BOIS depuis le 2026-11-03 (jamais la
   // pierre ni l'or). Emprise 3 x 3, modele KayKit de scierie. Valeurs
   // PROVISOIRES.
   sawmill: {
@@ -506,8 +506,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintTilesX: 3,
     footprintTilesZ: 3,
   },
-  // Camp de mineur (2026-11-02) : ne controle plus la recolte (la Forge donne
-  // la pioche) ; point de collecte de la PIERRE et de l'OR EXTRAIT depuis le
+  // Camp de mineur (2026-11-02) : ne controle pas la recolte (hache et pioche
+  // des le depart) ; point de collecte de la PIERRE et de l'OR EXTRAIT depuis le
   // 2026-11-03 (jamais le bois). Distinct de la Mine (or toutes les 60 s).
   // Valeurs PROVISOIRES.
   miner_camp: {
@@ -585,6 +585,23 @@ export function listBuyableBuildingIds(): string[] {
   return Object.values(BUILDINGS)
     .filter((def) => def.cost !== undefined)
     .map((def) => def.id);
+}
+
+/** Portee du niveau d'un batiment ameliorable (voir BuildingDef.upgradeScope). */
+export function buildingUpgradeScope(buildingId: string): 'instance' | 'run' {
+  return getBuilding(buildingId).upgradeScope ?? 'instance';
+}
+
+/** Bonus par niveau donne a l'unite `unitId` par ses batiments producteurs
+ *  (BuildingDef.rosterBonusPerLevel), avec l'id du batiment dont le niveau
+ *  s'applique. Vide pour une unite sans bonus de producteur. */
+export function rosterBonusSourcesOf(unitId: string): { buildingId: string; perLevel: UnitBonus }[] {
+  const out: { buildingId: string; perLevel: UnitBonus }[] = [];
+  for (const def of Object.values(BUILDINGS)) {
+    const perLevel = def.rosterBonusPerLevel?.[unitId];
+    if (perLevel) out.push({ buildingId: def.id, perLevel });
+  }
+  return out;
 }
 
 export function getBuilding(id: string): BuildingDef {

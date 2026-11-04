@@ -65,14 +65,9 @@ export const HEALTH_BAR_SEGMENT_INTERVAL = 10;
 export const HEALTH_BAR_SEGMENT_MIN_PIPS = 20;
 
 /** Vague a partir de laquelle le Mage apparait dans les rangs ENNEMIS (voir
- *  run/runState.ts, computeEnemyWaveComposition). N'a PLUS aucun rapport
- *  avec le deblocage COTE JOUEUR depuis le 2026-08-15 (refonte "vaincre pour
- *  debloquer", voir data/units.ts UnitDef.playerUnlockMode/
- *  run/metaProgress.ts canPlayerRecruitUnit) — auparavant les deux etaient
- *  lies (meme valeur, "le Mage devient achetable une fois la manche 8
- *  vaincue"), desormais le Mage devient achetable des qu'un EXEMPLAIRE
- *  ENNEMI a ete vaincu au moins une fois, independamment du numero de vague
- *  ou cette premiere rencontre a lieu. */
+ *  run/runState.ts, computeEnemyWaveComposition). Aucun rapport avec le
+ *  joueur : son Mage vient du Sanctuaire (data/buildings.ts), sans deblocage
+ *  (le deblocage par victoire a ete retire le 2026-11-05). */
 export const MAGE_UNLOCK_WAVE = 8;
 
 /** Pression magique croissante (2026-08-14, demande d'Antoine — voir

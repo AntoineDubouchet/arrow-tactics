@@ -69,9 +69,6 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-62 | Tourbillon : rotation du modèle entier (5 tours/s), sans clip dédié (arme et jambes figées dans le clip courant) ; VFX procédural provisoire (arcs, cercle de zone) | Limite assumée (prototype) |
 | KI-64 | Villageois : clips Spearman, estoc en guise de coup de hache / pioche ; ramassage et dépôt sur la pose de repos, sans geste de travail dédié | Limite assumée (assets) |
 | KI-66 | Pathfinding : la grille A* ignore le rayon des corps ; un passage d'une case (posé à la main dans l'éditeur : gisement, arbre, baril contre un obstacle ou une falaise) paraît praticable et le Héros y oscille ; le générateur n'en produit plus (G39) | Limite assumée |
-| KI-67 | Déblocage par victoire (Mage, Sentinelle) enregistré mais plus consommé depuis le retrait de la Boutique | Dette (Pass 2, décision d'Antoine) |
-| KI-68 | Pas d'ouverture d'une case au démarrage de la Survie (`openBattleWithFormationStep`), héritage des manches | Dette (décision d'Antoine) |
-| KI-69 | Camp d'archerie Niv. 2 sans effet possible : bâtiment rendu non améliorable, niveau à redéfinir | À faire (Pass 2) |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
@@ -84,7 +81,11 @@ KI-61, Villageois avec son propre modèle, ses outils et son sac depuis le
 2026-11-03, G32 ; KI-63, piles de ressources retirées de l'inventaire RPG le
 2026-11-03, G33 ; KI-65, passages d'une case des cartes générées supprimés le
 2026-11-04, G39 : `camp.mts` et `camp-boucle.cjs` repassent ; KI-10,
-`buyUnitFive` supprimé avec la Boutique le 2026-11-04, G40).
+`buyUnitFive` supprimé avec la Boutique le 2026-11-04, G40 ; KI-67, KI-68
+et KI-69, résolus le 2026-11-05 par G41 : déblocage par victoire retiré,
+démarrage direct sans pas d'ouverture, Camp d'archerie Niv. 2 = Archers
++2 PV, +1 dégâts ; KI-70 et KI-71, tranchés le 2026-11-05 : amélioration
+placeholder de l'Église retirée, plafond Niv. 5 de la Baliste).
 
 Retirées lors de la refonte de l'éditeur, résolues côté code :
 
@@ -279,46 +280,6 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   dans sa période réelle.
 - **Piste** : comparer à une tolérance (`attackTimer > 1e-9`). Cela changerait
   le rythme de combat existant (Fantassin), donc à décider avec Antoine.
-
-### KI-67 — Déblocage par victoire enregistré mais sans consommateur
-
-- **Statut** : Dette (2026-11-04, passe de modernisation 1).
-- **Écart** : `registerEnemyDefeat` / `defeatedEnemyUnitIds` /
-  `canPlayerRecruitUnit` (`run/metaProgress.ts`, `playerUnlockMode:
-  'defeatEnemy'` du Mage et de la Sentinelle) sont toujours alimentés et
-  sauvegardés, mais plus rien ne les lit depuis le retrait de la Boutique :
-  le Mage se produit au Sanctuaire sans condition ; aucun bâtiment ne
-  produit la Sentinelle.
-- **Impact actuel** : aucun en jeu ; le toast « Unité débloquée » a été
-  retiré pour ne pas annoncer un déblocage sans effet.
-- **Piste** : Pass 2, décision d'Antoine (`DESIGN_DECISIONS.md` C4) :
-  brancher le déblocage sur les files de production, ou le retirer.
-
-### KI-68 — Pas d'ouverture au démarrage de la Survie (héritage)
-
-- **Statut** : Dette (2026-11-04).
-- **Écart** : `startSurvivalWorld` appelle encore
-  `openBattleWithFormationStep` (`main.ts`) : les unités présentes au
-  démarrage (deux Villageois) font un pas d'une case « vers l'ennemi » puis
-  passent en Garde, règle du début de bataille en manches
-  (`DESIGN_DECISIONS.md` B5). Conservé pour ne pas changer le résultat
-  visible pendant la passe.
-- **Impact actuel** : un pas des Villageois au lancement, sans conséquence.
-- **Piste** : décision d'Antoine ; retirer l'appel (et sans doute B5 pour
-  la Survie) ou le garder pour « Tester le scénario » seulement.
-
-### KI-69 — Camp d'archerie Niv. 2 à redéfinir
-
-- **Statut** : À faire (Pass 2).
-- **Écart** : l'amélioration du Camp d'archerie ne faisait que porter son
-  quota « par manche » de 1 à 2 Archers ; le quota retiré, le niveau
-  n'aurait eu aucun effet. Le bâtiment a été rendu **non améliorable**
-  (`upgradeGoldCostBase` et `maxUpgradeLevel` retirés) plutôt que de vendre
-  un niveau vide.
-- **Impact actuel** : pas de bouton « Améliorer » sur le Camp d'archerie ;
-  la Caserne garde son Niv. 2 (production de l'Homme d'armes).
-- **Piste** : lui donner un effet réel (PV, vitesse de production, unité
-  supplémentaire…) en Pass 2.
 
 ## B. Éditeur de maps
 
@@ -718,8 +679,8 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 - **Statut** : Dette.
 - **Écart** : `MAGE_UNLOCK_WAVE` (`config/constants.ts`) ne règle que
-  l'**apparition des Mages ennemis**. Le déblocage du Mage pour le joueur
-  passe par `playerUnlockMode: 'defeatEnemy'` (`data/units.ts`).
+  l'**apparition des Mages ennemis**. Le Mage du joueur vient du
+  Sanctuaire, sans déblocage (2026-11-05).
 - **Impact actuel** : risque de confusion à la lecture.
 - **Piste** : renommer la constante pour refléter son rôle réel.
 

@@ -3,6 +3,9 @@ import { findAbility } from '../data/abilities';
 import { getBuilding } from '../data/buildings';
 import { producibleUnits } from '../data/production';
 import { getUnit, unitPluralName, UNITS, type UnitStats } from '../data/units';
+import { describeUnitBonus } from '../data/unitBonus';
+import { BUILDING_UPGRADE_SECONDS } from '../data/production';
+import type { ResourceKind } from '../config/resourceNodes';
 import type { Entity, Team } from '../sim/entity';
 import {
   BALLISTA_STATUS_LABELS,
@@ -14,15 +17,17 @@ import {
   type BallistaStatus,
 } from './ballistaStats';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp } from './buildingUpgradeEffects';
-import { churchHealCost, churchHealHpPerGold } from './churchHeal';
 import { mineGoldRange, mineProductionIntervalSeconds } from './mineUpgradeEffects';
 import { buildingUpgradeGoldCost, isBuildingAtMaxLevel, isUpgradableBuilding } from './buildingUpgrades';
 import { BODY_LAYOUT, EQUIPMENT_SLOTS, EQUIPMENT_TYPES, getEquipment, RARITIES, type EquipmentSlot } from '../data/equipment';
-import { CARGO_LABELS, CARGO_RESOURCES, cargoTotal, HARVEST_TOOLS, type ResourceCargo } from '../data/resources';
+import { CARGO_LABELS, CARGO_RESOURCES, cargoTotal, type ResourceCargo } from '../data/resources';
 import { describeEquipment } from './heroEquipment';
 import { freeSlotCount, type HeroInventory } from '../sim/inventory';
-import { displayedUpgradeLevel, entityRunUpgradeLevel, type PlayerProgression, type RunUpgradeLevels } from './runUpgrades';
-import { playerUnitProductionCost } from './unitUpgradeEffects';
+import { ballistaUpgradeGoldCost, canBallistaLevelUp, displayedUpgradeLevel, runUpgradeLevel, type PlayerProgression } from './runUpgrades';
+import { ballistaNextPurchaseGrantsDamageBonus } from './ballistaUpgradeEffects';
+import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
+import { technologyStatusesAt } from './technologies';
+import type { RunState } from './runState';
 
 /**
  * Fiche d'entite : adaptateur PUR entre l'etat du jeu (entites de
@@ -58,15 +63,18 @@ export interface EntityInfoHp {
 }
 
 /** Action proposee par la fiche (bouton). Donnee pure : main.ts recoit
- *  l'`id` au clic et decide de l'effet ; l'adaptateur ne connait pas le DOM. */
+ *  l'`id` au clic et decide de l'effet ; l'adaptateur ne connait pas le DOM.
+ *  Toutes les commandes (produire, ameliorer, rechercher, Baliste) passent
+ *  par la file temps reel du batiment : rien ne fige le jeu (2026-11-05). */
 export interface EntityInfoAction {
-  /** `upgradeBuilding` : ameliore le batiment inspecte (Mine, Caserne,
-   *  Tour, Eglise...). `toggleBallistaMode` : bascule la Baliste AUTO /
-   *  MANUEL. `healArmy` : soin de l'armee a l'Eglise inspectee ;
-   *  `openForge` : ameliorations de run (Forge). */
-  id: 'openForge' | 'upgradeBuilding' | 'toggleBallistaMode' | 'healArmy' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding' | 'toggleDoor';
+  /** `upgradeBuilding` : amelioration du batiment inspecte a sa file
+   *  (Mine, Caserne, Camp d'archerie, Tour, Sanctuaire, Ecurie).
+   *  `research` : technologie (payload : id) a la file du site inspecte
+   *  (Forge, Caserne). `upgradeBallista` : niveau suivant de la Baliste a sa
+   *  file. `toggleBallistaMode` : bascule la Baliste AUTO / MANUEL. */
+  id: 'upgradeBuilding' | 'research' | 'upgradeBallista' | 'toggleBallistaMode' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding' | 'toggleDoor';
   /** `buildStructure` : batiment a poser ; `produceUnit` : unite a produire
-   *  (fiche d'un batiment). */
+   *  (fiche d'un batiment) ; `research` : technologie. */
   payload?: string;
   label: string;
   enabled: boolean;
@@ -119,16 +127,10 @@ function formatNumber(value: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
-/** Titre suivi du niveau d'amelioration de run (« Fantassin — Niv. 3 ») ;
- *  inchange pour une entite sans amelioration (niveau null). */
+/** Titre suivi du niveau (« Maraudeur — Niv. 1 », « Tour — Niv. 2 ») ;
+ *  inchange pour une entite sans niveau (null). */
 function titleWithLevel(title: string, level: number | null): string {
   return level === null ? title : `${title} — Niv. ${displayedUpgradeLevel(level)}`;
-}
-
-/** Niveau a afficher pour un batiment : seulement dans le camp du joueur
- *  (les ameliorations de la Forge ne concernent que lui). */
-function playerLevel(team: Team, levels: Readonly<RunUpgradeLevels>, definitionId: string): number | null {
-  return team === 'player' ? entityRunUpgradeLevel(levels, definitionId) : null;
 }
 
 /** Valeur interne (PV, degats, bouclier) -> points affiches. */
@@ -244,10 +246,10 @@ function buildUnitInfo(source: UnitInfoSource): UnitInfo {
   rows.push({ label: 'Vitesse', value: `${formatNumber(stats.moveSpeed)} cases/s` });
   if (stats.dodgeChance > 0) rows.push({ label: 'Esquive', value: `${Math.round(stats.dodgeChance * 100)} %` });
   // Seul le camp du joueur a un cout de production et une population (voir
-  // data/population.ts) ; le cout est celui du niveau de CETTE unite.
+  // data/population.ts) ; le cout ne depend plus d'aucun niveau (2026-11-05).
   if (source.team === 'player') {
     rows.push(
-      { label: 'Coût', value: `${formatNumber(playerUnitProductionCost(source.unitId, source.upgradeLevel ?? 0))} or` },
+      { label: 'Coût', value: `${formatNumber(def.cost)} or` },
       { label: 'Population', value: String(def.populationCost) },
     );
   }
@@ -501,21 +503,10 @@ function attackRows(damage: number, rangeTiles: number, cooldownSeconds: number)
   ];
 }
 
-/** Soin de l'armee (Eglise) : efficacite au niveau propre du batiment. */
-function armyHealRows(buildingId: string, level: number): EntityInfoRow[] {
-  return [{ label: 'Soin', value: `${formatNumber(churchHealHpPerGold(buildingId, level))} PV par or` }];
-}
-
 /** Population maximale apportee par le batiment (Maison). */
 function populationBonusRows(buildingId: string): EntityInfoRow[] {
   const bonus = getBuilding(buildingId).populationBonus;
   return bonus ? [{ label: 'Population', value: `+${bonus}` }] : [];
-}
-
-/** Outils de recolte donnes par le batiment (Forge, 2026-11-02). */
-function harvestUnlockRows(buildingId: string): EntityInfoRow[] {
-  const tools = getBuilding(buildingId).unlocksTools ?? [];
-  return tools.length > 0 ? [{ label: 'Outils', value: tools.map((t) => HARVEST_TOOLS[t].name).join(', ') }] : [];
 }
 
 /** Point de collecte (2026-11-03) : ressources de cargo acceptees
@@ -532,13 +523,24 @@ function ownedBuildingRows(buildingId: string, level: number): EntityInfoRow[] {
   const def = getBuilding(buildingId);
   if (def.id === 'mine') return mineRows(level);
   if (def.attack) return attackRows(effectiveBuildingAttackDamage(def.id, level), def.attack.rangeTiles, def.attack.cooldownSeconds);
-  if (def.armyHeal) return [...armyHealRows(def.id, level), ...productionRows(def.id)];
   if (def.recruitmentUnlock) return productionRows(def.id);
-  return [...populationBonusRows(def.id), ...harvestUnlockRows(def.id), ...dropOffRows(def.id)];
+  return [...populationBonusRows(def.id), ...dropOffRows(def.id)];
 }
 
-/** Effet du prochain niveau, en une ligne (Mine, Caserne, Tour, Eglise,
- *  Sanctuaire, Ecurie) : PV, degats, soin, production, unites debloquees. */
+/** Bonus de roster d'un niveau de producteur (« Archers : +2 PV, +1 dégâts »),
+ *  une partie par unite ; vide sans bonus. */
+function rosterBonusParts(buildingId: string): string[] {
+  const perLevel = getBuilding(buildingId).rosterBonusPerLevel ?? {};
+  return Object.entries(perLevel).map(([unitId, bonus]) => {
+    const def = getUnit(unitId);
+    const fireball = findAbility(def.abilities, 'area-blast');
+    return `${unitPluralName(def)} : ${describeUnitBonus(bonus, fireball ? 'Boule de feu' : 'dégâts')}`;
+  });
+}
+
+/** Effet du prochain niveau, en une ligne (Mine, Caserne, Camp d'archerie,
+ *  Tour, Sanctuaire, Ecurie) : PV, degats, production, unites
+ *  debloquees (« débloque : Homme d’armes »), bonus du roster. */
 function nextLevelRow(buildingId: string, level: number): EntityInfoRow {
   const label = `Niv. ${displayedUpgradeLevel(level + 1)}`;
   const def = getBuilding(buildingId);
@@ -550,57 +552,70 @@ function nextLevelRow(buildingId: string, level: number): EntityInfoRow {
   const hpGain = effectiveBuildingMaxHp(buildingId, level + 1) - effectiveBuildingMaxHp(buildingId, level);
   if (hpGain > 0) parts.push(`+${formatPoints(hpGain)} PV`);
   if (def.attack) parts.push(`+${formatPoints(effectiveBuildingAttackDamage(buildingId, level + 1) - effectiveBuildingAttackDamage(buildingId, level))} dégâts`);
-  if (def.armyHeal) parts.push(`+${formatNumber(churchHealHpPerGold(buildingId, level + 1) - churchHealHpPerGold(buildingId, level))} PV par or`);
   // Unites que seul le niveau suivant produit (Caserne Niv. 2 : Homme d'armes).
   const current = new Set(producibleUnits(buildingId, level));
   const unlocked = producibleUnits(buildingId, level + 1).filter((unitId) => !current.has(unitId));
-  if (unlocked.length > 0) parts.push(`produit ${unlocked.map((unitId) => getUnit(unitId).name).join(', ')}`);
-  return { label, value: parts.join(', ') };
+  if (unlocked.length > 0) parts.push(`débloque : ${unlocked.map((unitId) => getUnit(unitId).name).join(', ')}`);
+  parts.push(...rosterBonusParts(buildingId));
+  return { label, value: parts.join(' · ') };
 }
 
 const UPGRADE_LABELS: Readonly<Record<string, string>> = { mine: 'Améliorer la mine' };
 
-/** Bâtiment possede (RunState.buildings) : PV persistants, niveau PROPRE a
- *  ce batiment et actions de sa fiche en jeu (main.ts, withRealtimeActions) :
- *  Mine, Caserne, Tour, Eglise, Sanctuaire et Ecurie s'ameliorent (`gold` :
- *  or disponible, pour activer le bouton), la Forge ouvre les ameliorations
- *  de run, l'Eglise soigne l'armee (`armyMissingHp` : PV manquants des
- *  unites vivantes, interne). */
+/** Cout d'une technologie en une ligne (« 20 or, 10 bois, 5 pierre »). */
+function formatTechnologyCost(goldCost: number, resourceCost: Partial<Record<ResourceKind, number>>): string {
+  return [`${formatNumber(goldCost)} or`, resourceCost.wood ? `${resourceCost.wood} bois` : '', resourceCost.stone ? `${resourceCost.stone} pierre` : ''].filter(Boolean).join(', ');
+}
+
+/** Etat de la file du batiment inspecte, fourni par l'orchestration
+ *  (run/productionOrders.ts) : amelioration deja en file (exemplaire ou
+ *  type), file pleine, technologie en recherche quelque part. */
+export interface BuildingQueueState {
+  upgradePending: boolean;
+  queueFull: boolean;
+  technologyPending: (techId: string) => boolean;
+}
+
+/** Bâtiment possede (RunState.buildings), TERMINE : PV persistants, niveau
+ *  EFFECTIF `level` (exemplaire ou type, run/buildingUpgrades.ts) et
+ *  actions de sa fiche en jeu (main.ts, withRealtimeActions) : amelioration
+ *  (a sa file, BUILDING_UPGRADE_SECONDS) et technologies de ce site
+ *  (data/technologies.ts), avec leur etat : disponible / en recherche /
+ *  terminé. `run` : or, stock et niveaux de la run. */
 export function ownedBuildingInfo(
-  owned: { buildingId: string; hp: number; level?: number; constructionProgress?: number },
-  progress: PlayerProgression,
-  gold: number,
-  armyMissingHp = 0,
+  owned: { buildingId: string; hp: number; constructionProgress?: number },
+  level: number,
+  run: Pick<RunState, 'gold' | 'resources' | 'upgrades'>,
+  queue: BuildingQueueState,
 ): BuildingInfo {
   const def = getBuilding(owned.buildingId);
-  if (owned.constructionProgress !== undefined) return chantierInfo(def.id, owned.hp, effectiveBuildingMaxHp(def.id, owned.level ?? 0), owned.constructionProgress);
+  if (owned.constructionProgress !== undefined) return chantierInfo(def.id, owned.hp, effectiveBuildingMaxHp(def.id, level), owned.constructionProgress);
   const upgradable = isUpgradableBuilding(def.id);
-  const level = owned.level ?? 0;
   const rows = [...ownedBuildingRows(def.id, level), ...footprintRows(def.id)];
   const actions: EntityInfoAction[] = [];
-  if (def.runUpgradeSite === 'forge') actions.push({ id: 'openForge', label: 'Ouvrir la Forge', enabled: true });
-  if (def.armyHeal) {
-    // Soin de toute l'armee : cout total des PV manquants, tout ou rien.
-    rows.push({ label: 'PV manquants (armée)', value: formatPoints(armyMissingHp) });
-    const healCost = churchHealCost(armyMissingHp, churchHealHpPerGold(def.id, level));
-    if (healCost <= 0) actions.push({ id: 'healArmy', label: 'Armée déjà au maximum', enabled: false });
-    else {
-      const enabled = gold >= healCost;
-      actions.push({ id: 'healArmy', label: `Soigner l'armée — ${formatNumber(healCost)} or`, enabled, hint: enabled ? undefined : 'Or insuffisant' });
-    }
-  }
   if (upgradable && isBuildingAtMaxLevel(def.id, level)) rows.push({ label: 'Amélioration', value: 'Niveau maximum' });
   else if (upgradable) {
     rows.push(nextLevelRow(def.id, level));
     const cost = buildingUpgradeGoldCost(def.id, level);
-    const enabled = gold >= cost;
-    actions.push({ id: 'upgradeBuilding', label: `${UPGRADE_LABELS[def.id] ?? 'Améliorer'} — ${formatNumber(cost)} or`, enabled, hint: enabled ? undefined : 'Or insuffisant' });
+    const affordable = run.gold >= cost;
+    const enabled = affordable && !queue.upgradePending && !queue.queueFull;
+    const hint = queue.upgradePending ? 'Amélioration déjà en file' : queue.queueFull ? 'File pleine' : affordable ? undefined : 'Or insuffisant';
+    actions.push({ id: 'upgradeBuilding', label: `${UPGRADE_LABELS[def.id] ?? `Améliorer Niv. ${displayedUpgradeLevel(level + 1)}`} — ${formatNumber(cost)} or · ${BUILDING_UPGRADE_SECONDS} s`, enabled, hint });
   }
-  const title = titleWithLevel(def.displayName, upgradable ? level : playerLevel('player', progress.upgrades, def.id));
+  for (const t of technologyStatusesAt(def.id, run, level, queue.technologyPending)) {
+    if (t.state === 'done') rows.push({ label: t.def.name, value: `Terminé — ${t.def.description}` });
+    else if (t.state === 'pending') rows.push({ label: t.def.name, value: 'En recherche' });
+    else if (t.state === 'locked') rows.push({ label: t.def.name, value: `Requiert Niv. ${displayedUpgradeLevel(t.def.requiresSiteLevel ?? 0)}` });
+    else {
+      const enabled = t.affordable && !queue.queueFull;
+      const hint = queue.queueFull ? 'File pleine' : t.affordable ? t.def.description : `${t.def.description} — or ou stock insuffisant`;
+      actions.push({ id: 'research', payload: t.def.id, label: `Rechercher : ${t.def.name} — ${formatTechnologyCost(t.def.goldCost, t.def.resourceCost)} · ${t.def.seconds} s`, enabled, hint });
+    }
+  }
   return {
     kind: 'building',
     buildingId: def.id,
-    title,
+    title: titleWithLevel(def.displayName, upgradable ? level : null),
     team: 'player',
     hp: hpOf(owned.hp, effectiveBuildingMaxHp(def.id, level)),
     rows,
@@ -628,7 +643,7 @@ function chantierInfo(buildingId: string, hp: number, maxHp: number, progress: n
  *  (verse par main.ts tant que la Mine est vivante), il se deduit de ce
  *  niveau. Les actions (produire, ameliorer, soigner...) sont ajoutees par
  *  main.ts (withRealtimeActions, ownedBuildingInfo). */
-export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, ownedLevel: number | null = null, mineNextIn: number | null = null): BuildingInfo {
+export function battleBuildingInfo(entity: Entity, ownedLevel: number | null = null, mineNextIn: number | null = null): BuildingInfo {
   const def = getBuilding(entity.unitId);
   if (entity.construction) return chantierInfo(def.id, entity.hp, entity.stats.maxHp, entity.construction.progress, entity.team);
   let rows: EntityInfoRow[] = [];
@@ -636,9 +651,8 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
   else if (entity.buildingAttack) {
     const attack = entity.buildingAttack;
     rows = attackRows(attack.damage, attack.rangeTiles, attack.cooldownSeconds);
-  } else if (def.armyHeal) rows = [...armyHealRows(def.id, ownedLevel ?? 0), ...productionRows(def.id)];
-  else if (def.recruitmentUnlock) rows = productionRows(def.id);
-  else rows = [...populationBonusRows(def.id), ...harvestUnlockRows(def.id), ...dropOffRows(def.id)];
+  } else if (def.recruitmentUnlock) rows = productionRows(def.id);
+  else rows = [...populationBonusRows(def.id), ...dropOffRows(def.id)];
   // Unites terminees qui attendent une place de population ou une case
   // libre (voir sim/systems/buildingProduction.ts).
   if (entity.productionQueue.length > 0) {
@@ -646,8 +660,7 @@ export function battleBuildingInfo(entity: Entity, progress: PlayerProgression, 
     rows.push({ label: 'En attente', value: `${entity.productionQueue.length} (${reason})` });
   }
   rows.push(...footprintRows(def.id));
-  const level = isUpgradableBuilding(def.id) ? ownedLevel : playerLevel(entity.team, progress.upgrades, def.id);
-  const title = titleWithLevel(def.displayName, level);
+  const title = titleWithLevel(def.displayName, isUpgradableBuilding(def.id) ? ownedLevel : null);
   return { kind: 'building', buildingId: def.id, title, team: entity.team, hp: hpOf(entity.hp, entity.stats.maxHp), rows, sections: [], status: null };
 }
 
@@ -669,16 +682,45 @@ function ballistaModeRows(mode: BallistaFireMode): EntityInfoRow[] {
   return [{ label: 'Mode', value: 'Manuel' }, { label: 'Tir', value: 'Q vers le curseur' }];
 }
 
+/** Amelioration de la Baliste depuis sa fiche (2026-11-05) : etat fourni
+ *  par l'orchestration (run/productionOrders.ts). Absent : pas d'action
+ *  (« Tester le scénario »). */
+export interface BallistaUpgradeState {
+  gold: number;
+  pending: boolean;
+  queueFull: boolean;
+}
+
+/** Ligne et action du niveau suivant de la Baliste (data/ballistaUpgrade.ts :
+ *  +PV, +cadence a chaque niveau, +1 degat tous les 3) : a sa propre file,
+ *  BUILDING_UPGRADE_SECONDS, prix 1, 2, 4, 8... (run/runUpgrades.ts). */
+function ballistaUpgradeRowsAndActions(level: number, upgrade: BallistaUpgradeState): { rows: EntityInfoRow[]; actions: EntityInfoAction[] } {
+  if (!canBallistaLevelUp(level)) return { rows: [{ label: 'Amélioration', value: 'Niveau maximum atteint' }], actions: [] };
+  const parts = [`+${BALLISTA_UPGRADE.hpBonusPerLevel} PV`, `+${Math.round(BALLISTA_UPGRADE.attackSpeedPerLevel * 100)} % cadence`];
+  if (ballistaNextPurchaseGrantsDamageBonus(level)) parts.push(`+${BALLISTA_UPGRADE.damagePerMilestone} dégâts`);
+  const cost = ballistaUpgradeGoldCost(level);
+  const affordable = upgrade.gold >= cost;
+  const enabled = affordable && !upgrade.pending && !upgrade.queueFull;
+  const hint = upgrade.pending ? 'Amélioration déjà en file' : upgrade.queueFull ? 'File pleine' : affordable ? undefined : 'Or insuffisant';
+  return {
+    rows: [{ label: `Niv. ${displayedUpgradeLevel(level + 1)}`, value: parts.join(', ') }],
+    actions: [{ id: 'upgradeBallista', label: `Améliorer Niv. ${displayedUpgradeLevel(level + 1)} — ${formatNumber(cost)} or · ${BUILDING_UPGRADE_SECONDS} s`, enabled, hint }],
+  };
+}
+
 /** Baliste en jeu : PV de son entite, etat de tir calcule par main.ts
  *  (currentBallistaStatus, meme source que le HUD de la Baliste), mode de
- *  tir et bouton de bascule AUTO / MANUEL. */
-export function battleBallistaInfo(entity: Entity, status: BallistaStatus, progress: PlayerProgression, mode: BallistaFireMode): BallistaInfo {
+ *  tir et bouton de bascule AUTO / MANUEL, niveau et amelioration
+ *  (`upgrade`, en vraie run seulement). */
+export function battleBallistaInfo(entity: Entity, status: BallistaStatus, progress: PlayerProgression, mode: BallistaFireMode, upgrade: BallistaUpgradeState | null = null): BallistaInfo {
+  const level = entity.team === 'player' ? runUpgradeLevel(progress.upgrades, 'ballista') : null;
+  const up = upgrade && level !== null && entity.alive ? ballistaUpgradeRowsAndActions(level, upgrade) : { rows: [], actions: [] };
   return {
     kind: 'ballista',
-    title: titleWithLevel(getBuilding('ballista').displayName, playerLevel(entity.team, progress.upgrades, 'ballista')),
+    title: titleWithLevel(getBuilding('ballista').displayName, level),
     team: entity.team,
     hp: hpOf(entity.alive ? entity.hp : 0, entity.stats.maxHp),
-    rows: [...ballistaModeRows(mode), ...ballistaRows(progress)],
+    rows: [...ballistaModeRows(mode), ...ballistaRows(progress), ...up.rows],
     sections: [],
     status: ballistaStatusInfo(status),
     actions: [
@@ -688,6 +730,7 @@ export function battleBallistaInfo(entity: Entity, status: BallistaStatus, progr
         enabled: entity.alive,
         hint: entity.alive ? undefined : 'Baliste détruite',
       },
+      ...up.actions,
     ],
   };
 }

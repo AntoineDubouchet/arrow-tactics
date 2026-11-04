@@ -15,22 +15,21 @@
  *  le cargo) ou de l'or de butin (monnaie directe au ramassage). */
 export type PileResource = 'wood' | 'stone' | 'gold';
 
-/** Outils de recolte (2026-11-02 ; regle du 2026-11-04) : la hache (bois)
- *  et la pioche (pierre) sont des OUTILS DE DEPART, a tout le camp des le
- *  debut, sans batiment (STARTING_HARVEST_TOOLS) ; la pioche de prospecteur
- *  (gisements d'or) reste debloquee par un batiment TERMINE qui la porte
- *  (BuildingDef.unlocksTools : la Forge). L'or est volontairement laisse a
- *  part, en attendant une decision d'Antoine. Nom PROVISOIRE. */
-export type HarvestTool = 'axe' | 'pickaxe' | 'goldPickaxe';
+/** Outils de recolte (2026-11-02 ; regle du 2026-11-05, G37 tranchee) : la
+ *  hache (bois) et la pioche (pierre ET or des gisements) sont des OUTILS DE
+ *  DEPART, a tout le camp des le debut, sans batiment
+ *  (STARTING_HARVEST_TOOLS). Aucun batiment ne debloque plus d'outil (l'ancienne
+ *  pioche de prospecteur de la Forge a ete retiree) ; World.harvestPermissions
+ *  reste le point generique ou un futur outil se brancherait. */
+export type HarvestTool = 'axe' | 'pickaxe';
 
 export const HARVEST_TOOLS: Readonly<Record<HarvestTool, { name: string }>> = {
   axe: { name: 'Hache de bûcheron' },
   pickaxe: { name: 'Pioche de mineur' },
-  goldPickaxe: { name: 'Pioche de prospecteur' },
 };
 
-/** Outils que tout camp possede des le debut d'une partie (2026-11-04) : bois
- *  et pierre recoltables sans Forge. */
+/** Outils que tout camp possede des le debut d'une partie : bois, pierre et
+ *  or recoltables sans aucun batiment. */
 export const STARTING_HARVEST_TOOLS: readonly HarvestTool[] = ['axe', 'pickaxe'];
 
 /** Ressource d'une source du monde (arbre, gisement). */
@@ -48,8 +47,7 @@ export interface HarvestNodeKind {
   unit: string;
   /** Quantite totale d'une source. */
   amount: number;
-  /** Outil requis (HARVEST_TOOLS : de depart pour le bois et la pierre,
-   *  debloque par la Forge pour l'or). */
+  /** Outil requis (HARVEST_TOOLS, tous de depart). */
   tool: HarvestTool;
   /** Geste au contact (HeroState.working). */
   working: 'chop' | 'mine';
@@ -59,9 +57,9 @@ export const HARVEST_NODE_KINDS: Readonly<Record<HarvestResource, HarvestNodeKin
   wood: { name: 'Arbre', unit: 'bois', amount: 20, tool: 'axe', working: 'chop' },
   stone: { name: 'Gisement de pierre', unit: 'pierre', amount: 40, tool: 'pickaxe', working: 'mine' },
   // Or (2026-11-02) : plus rare que la pierre (25 or) ; transporte comme le
-  // reste (minedGold) depuis le 2026-11-03.
-  // Outil propre (2026-11-04) : seul l'or demande encore la Forge.
-  gold: { name: 'Gisement d’or', unit: 'or', amount: 25, tool: 'goldPickaxe', working: 'mine' },
+  // reste (minedGold) depuis le 2026-11-03. Pioche ordinaire depuis le
+  // 2026-11-05 (plus de Forge requise).
+  gold: { name: 'Gisement d’or', unit: 'or', amount: 25, tool: 'pickaxe', working: 'mine' },
 };
 
 /** Bois total d'un arbre (arbre isole ou bosquet). PROVISOIRE. */

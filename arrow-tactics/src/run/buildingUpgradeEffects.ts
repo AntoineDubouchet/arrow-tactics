@@ -6,7 +6,7 @@ import { getBuilding } from '../data/buildings';
  * cout affiche different du cout reellement retire... utilise une fonction
  * centrale du type getEffectiveBuildingCost(buildingId)") — SOURCE UNIQUE,
  * dispatch generique par id vers le module d'effets dedie de chaque
- * bâtiment (meme patron que run/unitUpgradeEffects.ts, effectivePlayerUnitCost,
+ * bâtiment (meme patron que run/playerUnitStats.ts pour les unites,
  * qui dispatch de la meme facon pour les unites). Utilisee A LA FOIS par
  * l'affichage boutique (ui/screens.ts, refreshShop/describeBuildingShopItem)
  * ET la transaction reelle (main.ts, requestPlaceBuilding/confirmBuildingPlacement) —

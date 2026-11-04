@@ -1,16 +1,21 @@
-import type { UpgradeDefBase } from './unitUpgrades';
-
 /**
- * Amelioration permanente de la BALISTE (2026-08-13, demande d'Antoine) —
+ * Amelioration de la BALISTE pendant la run (2026-08-13, demande d'Antoine) —
  * "la baliste" est l'arme qui tire la fleche du JOUEUR (voir
  * config/constants.ts, les constantes PLAYER_ARROW_..., et render/ballista.ts
- * pour le modele visuel) : ce fichier ne decrit QUE le bonus permanent, pas
- * une nouvelle unite. Meme famille de systeme que data/unitUpgrades.ts (UpgradeDefBase), mais un SHAPE
- * different (cadence de tir en %, pas PV/ATK d'une UnitDef) — pas de sens a
- * le forcer dans UnitUpgradeDef.
+ * pour le modele visuel) : ce fichier ne decrit QUE le bonus par niveau, pas
+ * une nouvelle unite. Depuis le 2026-11-05 (Pass 2), elle se commande depuis
+ * la fiche de la Baliste elle-meme, par sa file temps reel (duree
+ * BUILDING_UPGRADE_SECONDS, payee a la commande), plus depuis la Forge ;
+ * niveau dans RunState.upgrades['ballista'] (run/runUpgrades.ts). Niveaux
+ * repetes jusqu'au plafond `maxLevel` (prix double a chaque niveau : 1, 2,
+ * 4, 8).
  */
-export interface BallistaUpgradeDef extends UpgradeDefBase {
+export interface BallistaUpgradeDef {
   id: 'ballista';
+  /** Niveau INTERNE maximal (4 = « Niv. 5 » affiche) ; absent = illimite.
+   *  Au plafond : fiche « Niveau maximum atteint », aucune commande
+   *  acceptee (run/productionOrders.ts). */
+  maxLevel?: number;
   /** +X (fraction, 0.20 = +20 points de pourcentage) de CADENCE DE TIR par
    *  achat — additif depuis la cadence de BASE (jamais multiplicatif d'un
    *  niveau a l'autre, demande explicite d'Antoine : "pas baseRate × 1.2 ×
@@ -33,6 +38,9 @@ export interface BallistaUpgradeDef extends UpgradeDefBase {
 
 export const BALLISTA_UPGRADE: BallistaUpgradeDef = {
   id: 'ballista',
+  // Plafond PROVISOIRE (2026-11-05, decision d'Antoine) : Niv. 5 au total,
+  // soit 4 ameliorations ; les chiffres par niveau sont inchanges.
+  maxLevel: 4,
   attackSpeedPerLevel: 0.2,
   damageEveryLevels: 3,
   damagePerMilestone: 1,

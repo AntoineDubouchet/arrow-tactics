@@ -1,5 +1,4 @@
 import { getTalent, TALENTS } from '../data/talents';
-import { getUnit } from '../data/units';
 
 const STORAGE_KEY = 'arrow-tactics.meta-progress.v1';
 
@@ -8,8 +7,7 @@ const STORAGE_KEY = 'arrow-tactics.meta-progress.v1';
  *  data/talents.ts) — aucune correspondance sensee n'existe entre un ancien
  *  "rang 2/3 en Pillage" et un futur "choix A du palier 3", donc la
  *  migration ne PORTE PAS ces donnees : elle les efface proprement (voir
- *  migrateToV2) sans toucher au reste (unlockedUnits notamment, qui n'a
- *  jamais eu de rapport avec les talents). */
+ *  migrateToV2). */
 export const TALENT_TREE_VERSION = 2;
 
 /**
@@ -94,24 +92,12 @@ export interface MetaProgress {
    *  un point en retraversant la meme vague dans une run future. */
   claimedWaveRewards: number[];
 
-  // --- Sans rapport avec les talents, NE JAMAIS toucher lors d'une
-  // migration/reset de la progression de talents ci-dessus.
-  /** Ids d'unites ENNEMIES deja vaincues au moins UNE FOIS, toutes runs
-   *  confondues (2026-08-15, refonte "vaincre pour débloquer" — remplace
-   *  l'ancien `unlockedUnits`/deblocage specifique au Mage a la vague 8).
-   *  Stocke le FAIT PERMANENT (jamais retire, meme apres un "Effacer la
-   *  sauvegarde" complet suivi d'une nouvelle victoire) — demande explicite
-   *  d'Antoine, point 21 : "je préfère stocker le fait réel... on peut plus
-   *  tard utiliser cette donnée pour bestiaire/succès/statistiques". Le
-   *  DEBLOCAGE cote joueur est TOUJOURS DERIVE de ce fait (voir
-   *  canPlayerRecruitUnit), jamais stocke separement. */
-  defeatedEnemyUnitIds: string[];
-
   // Les ameliorations ne font PAS partie de la progression permanente : elles
-  // s'achetent en Or a la Forge et vivent dans RunState.upgrades (voir
-  // run/runUpgrades.ts). Les anciennes cles `upgradeRunes`/`unitUpgrades`
-  // d'une sauvegarde sont ignorees au chargement et disparaissent a la
-  // sauvegarde suivante.
+  // s'obtiennent pendant la run et vivent dans RunState.upgrades (voir
+  // run/runUpgrades.ts). Les anciennes cles `upgradeRunes`/`unitUpgrades`,
+  // `unlockedUnits` et `defeatedEnemyUnitIds` (deblocage par victoire,
+  // retire le 2026-11-05) d'une sauvegarde sont ignorees au chargement et
+  // disparaissent a la sauvegarde suivante.
 }
 
 export const DEFAULT_META_PROGRESS: MetaProgress = {
@@ -121,7 +107,6 @@ export const DEFAULT_META_PROGRESS: MetaProgress = {
   firstRunPointGranted: false,
   highestWaveReached: 0,
   claimedWaveRewards: [],
-  defeatedEnemyUnitIds: [],
 };
 
 function cloneDefault(): MetaProgress {
@@ -129,23 +114,7 @@ function cloneDefault(): MetaProgress {
     ...DEFAULT_META_PROGRESS,
     unlockedTalents: [],
     claimedWaveRewards: [],
-    defeatedEnemyUnitIds: [],
   };
-}
-
-/** Fusionne l'ancien champ `unlockedUnits` (retire le 2026-08-15, ne servait
- *  qu'au deblocage du Mage/Cavalier) dans `defeatedEnemyUnitIds` — une
- *  sauvegarde ou le Mage etait deja "unlockedUnits" sous l'ancien systeme
- *  (base sur la vague, pas sur une victoire) doit continuer a le montrer
- *  disponible plutot que de faire regresser un joueur qui l'avait deja
- *  gagne. Deduplique par securite (`Set`). Appelee a la fois par la
- *  migration (tres vieilles sauvegardes) et par le chargement normal (une
- *  sauvegarde DEJA en V2, ecrite AVANT cette refonte, peut tres bien avoir
- *  `unlockedUnits: ["mage"]`). */
-function mergeLegacyUnlockedUnits(obj: Record<string, unknown>, defeatedEnemyUnitIds: string[]): string[] {
-  const raw = obj['unlockedUnits'];
-  const legacy = Array.isArray(raw) && raw.every((u) => typeof u === 'string') ? (raw as string[]) : [];
-  return Array.from(new Set([...defeatedEnemyUnitIds, ...legacy]));
 }
 
 /**
@@ -159,10 +128,7 @@ function mergeLegacyUnlockedUnits(obj: Record<string, unknown>, defeatedEnemyUni
  *    numero de version explicite).
  * Dans les DEUX cas : la progression de talents proprement dite est
  * remise a zero (aucune correspondance sensee vers le nouveau systeme,
- * voir le commentaire sur TALENT_TREE_VERSION) — mais l'ancien
- * `unlockedUnits` (Cavalier leger/Mage, sans rapport avec les talents) est
- * fusionne dans `defeatedEnemyUnitIds` si present (voir
- * mergeLegacyUnlockedUnits).
+ * voir le commentaire sur TALENT_TREE_VERSION).
  */
 /**
  * Talents RETIRES du jeu jouable, avec leur ancien cout (2026-08-17 : "Le
@@ -214,10 +180,8 @@ export function stripRemovedTalents(unlockedTalents: string[], talentPoints: num
   return { unlockedTalents: filtered, talentPoints: talentPoints + refund };
 }
 
-function migrateToV2(obj: Record<string, unknown>): MetaProgress {
-  const fresh = cloneDefault();
-  fresh.defeatedEnemyUnitIds = mergeLegacyUnlockedUnits(obj, []);
-  return fresh;
+function migrateToV2(): MetaProgress {
+  return cloneDefault();
 }
 
 export function loadMetaProgress(): MetaProgress {
@@ -228,7 +192,7 @@ export function loadMetaProgress(): MetaProgress {
     if (typeof parsed !== 'object' || parsed === null) return cloneDefault();
     const obj = parsed as Record<string, unknown>;
 
-    if (obj['talentTreeVersion'] !== TALENT_TREE_VERSION) return migrateToV2(obj);
+    if (obj['talentTreeVersion'] !== TALENT_TREE_VERSION) return migrateToV2();
 
     const num = (key: string, fallback: number) =>
       typeof obj[key] === 'number' && Number.isFinite(obj[key] as number) ? (obj[key] as number) : fallback;
@@ -253,10 +217,6 @@ export function loadMetaProgress(): MetaProgress {
       firstRunPointGranted: obj['firstRunPointGranted'] === true,
       highestWaveReached: num('highestWaveReached', 0),
       claimedWaveRewards: numArray('claimedWaveRewards'),
-      // Fusionne l'ancien `unlockedUnits` (2026-08-15, voir mergeLegacyUnlockedUnits) :
-      // une sauvegarde V2 ecrite AVANT cette refonte peut deja contenir
-      // "mage" sous l'ancienne cle — ne jamais faire regresser ce joueur.
-      defeatedEnemyUnitIds: mergeLegacyUnlockedUnits(obj, strArray('defeatedEnemyUnitIds')),
     };
   } catch {
     return cloneDefault();
@@ -317,7 +277,7 @@ export function unlockTalent(progress: MetaProgress, id: string): boolean {
  * confortable") — un vrai respec, pas une perte : `talentPoints` remonte
  * exactement de la somme des couts des talents retires, aucun point n'est
  * gagne ni perdu au passage. Ne touche a RIEN d'autre (highestWaveReached,
- * claimedWaveRewards, defeatedEnemyUnitIds, firstRunPointGranted) — distinct du
+ * claimedWaveRewards, firstRunPointGranted) — distinct du
  * "Effacer la sauvegarde" du menu principal (resetMetaProgress), qui reste
  * un reset TOTAL et volontaire.
  */
@@ -381,42 +341,6 @@ export function grantFirstRunPointIfNeeded(progress: MetaProgress): boolean {
   return true;
 }
 
-/** Sans rapport avec les talents (voir MetaProgress.defeatedEnemyUnitIds). */
-export function hasDefeatedEnemyUnit(progress: MetaProgress, unitId: string): boolean {
-  return progress.defeatedEnemyUnitIds.includes(unitId);
-}
-
-/** Enregistre qu'une unite ENNEMIE de type `unitId` vient d'etre vaincue
- *  (2026-08-15, systeme generique de deblocage — voir data/units.ts,
- *  UnitDef.playerUnlockMode) — stocke le FAIT PERMANENT, jamais retire.
- *  Retourne true SEULEMENT la toute premiere fois (jamais de doublon) : sert
- *  a savoir s'il faut sauvegarder et afficher le toast "nouvelle unite
- *  débloquée" (voir main.ts). Independant de `playerUnlockMode` — le fait
- *  "cette unite a ete vaincue" est enregistre pour N'IMPORTE QUELLE unite
- *  (meme une unite 'starter'), reutilisable plus tard pour un bestiaire/des
- *  succes, meme si seul `playerUnlockMode: 'defeatEnemy'` en tire un
- *  deblocage concret aujourd'hui. */
-export function registerEnemyDefeat(progress: MetaProgress, unitId: string): boolean {
-  if (progress.defeatedEnemyUnitIds.includes(unitId)) return false;
-  progress.defeatedEnemyUnitIds.push(unitId);
-  return true;
-}
-
-/** Fonction GENERIQUE demandee explicitement par Antoine (point 24 :
- *  "canPlayerRecruitUnit(unitId)") : une unite 'starter' (ou sans
- *  playerUnlockMode, valeur par defaut) est toujours recrutable, une unite
- *  'defeatEnemy' seulement si elle a deja ete vaincue au moins une fois
- *  (voir registerEnemyDefeat). SANS CONSOMMATEUR depuis le retrait de la
- *  Boutique de run (2026-11-04) : la production temps reel
- *  (data/production.ts, producibleUnits) ne l'applique pas. Regle en attente
- *  de decision (docs/KNOWN_ISSUES.md, P2) : l'appliquer a la production ou
- *  retirer le deblocage par victoire. */
-export function canPlayerRecruitUnit(progress: MetaProgress, unitId: string): boolean {
-  const mode = getUnit(unitId).playerUnlockMode ?? 'starter';
-  if (mode === 'starter') return true;
-  return hasDefeatedEnemyUnit(progress, unitId);
-}
-
 export function resetMetaProgress(progress: MetaProgress): void {
   const fresh = cloneDefault();
   progress.talentTreeVersion = fresh.talentTreeVersion;
@@ -425,8 +349,5 @@ export function resetMetaProgress(progress: MetaProgress): void {
   progress.firstRunPointGranted = fresh.firstRunPointGranted;
   progress.highestWaveReached = fresh.highestWaveReached;
   progress.claimedWaveRewards = fresh.claimedWaveRewards;
-  // "Effacer la sauvegarde" doit effacer ces deblocages (point 27 de la
-  // demande) — meme reset total que le reste de cette fonction.
-  progress.defeatedEnemyUnitIds = fresh.defeatedEnemyUnitIds;
   saveMetaProgress(progress);
 }

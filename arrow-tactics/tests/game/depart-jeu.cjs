@@ -1,7 +1,7 @@
 // Tests EN JEU du camp de depart (2026-11-04), run reelle graine 12345 : Baliste, Auberge, 2 Maisons (A, B), 2
 // Villageois, enceinte de Palissade V2 et porte OUVERTE ; population 2 / 9 ; stock de depart inchange ; camera sur le
 // Heros ; production d'un Villageois a l'Auberge (fiche) ; Heros et Villageois sortent par la porte ; recolte libre
-// (bois, pierre) sans Forge ; clic droit sur un gisement d'or : refus « il faut une Forge » ; ennemi bloque par la porte
+// (bois, pierre) sans Forge ; clic droit sur un gisement d'or : recolte directe, sans Forge (2026-11-05) ; ennemi bloque par la porte
 // ouverte ; Baliste detruite = defaite. Captures. Usage : npm run test:game (ou VITE_BASE=http://localhost:5174/ node tests/game/depart-jeu.cjs)
 const L = require('./lib.cjs');
 const OUT = require('./lib.cjs').OUT;
@@ -83,15 +83,17 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   for (let i = 0; i < 80; i++) { await L.wait(p, 300); got = await p.evaluate((vid) => { const v = window.__world.getById(vid); const h = window.__hero(); return { wood: v.cargo.wood, stone: h.cargo.stone, vTool: window.__uv?.views?.get(vid)?.userData?.toonTool ?? null }; }, harvest.vid); if (got.wood >= 1 && got.stone >= 1) break; }
   check('sans Forge : outils de depart (hache, pioche) ; Villageois coupe du bois, Heros extrait de la pierre', harvest.forges === 0 && J(harvest.tools) === J(['axe', 'pickaxe']) && got.wood >= 1 && got.stone >= 1, { harvest, got });
 
-  // Clic droit sur un gisement d'or (Heros selectionne) : refus explicite.
+  // Clic droit sur un gisement d'or (Heros selectionne) : recolte directe, sans Forge ni message (2026-11-05, G37).
   // Heros pose a 3 cases du gisement (vue degagee : le plus proche du camp peut etre masque par des arbres).
-  const gold = await p.evaluate(() => { const w = window.__world; const h = window.__hero(); const g = [...w.resourceNodes.values()].filter((n) => n.resource === 'gold').sort((a, b) => Math.hypot(a.x - h.x, a.z - h.z) - Math.hypot(b.x - h.x, b.z - h.z))[0]; w.issueCommand({ kind: 'stop', entityIds: [h.id] }); h.x = h.prevX = g.x + 3; h.z = h.prevZ = g.z; return { x: g.x, z: g.z }; });
+  const gold = await p.evaluate(() => { const w = window.__world; const h = window.__hero(); const g = [...w.resourceNodes.values()].filter((n) => n.resource === 'gold').sort((a, b) => Math.hypot(a.x - h.x, a.z - h.z) - Math.hypot(b.x - h.x, b.z - h.z))[0]; w.issueCommand({ kind: 'stop', entityIds: [h.id] }); h.x = h.prevX = g.x + 3; h.z = h.prevZ = g.z; return { x: g.x, z: g.z, id: g.id }; });
   await p.keyboard.press('Space'); await L.wait(p, 300);
   await L.setView(p, { targetX: gold.x, targetZ: gold.z, viewHeight: 12, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 500);
   const gs = await p.evaluate((g) => window.__toScreen(g.x, g.z, window.__S.surfaceY(g.x, g.z) + 0.6), gold);
+  const noticesBefore = await p.evaluate(() => document.querySelector('.wave-indicator-notice')?.textContent ?? '');
   await p.mouse.move(gs.x, gs.y); await L.wait(p, 100); await p.mouse.click(gs.x, gs.y, { button: 'right' }); await L.wait(p, 300);
-  const goldMsg = await p.evaluate(() => document.querySelector('.wave-indicator-notice')?.textContent ?? '');
-  check('clic droit sur un gisement d or sans Forge : « Gisement d’or : il faut une Forge (Pioche de prospecteur) »', /Gisement d’or : il faut une Forge \(Pioche de prospecteur\)/.test(goldMsg), goldMsg);
+  let mined = null;
+  for (let i = 0; i < 40; i++) { await L.wait(p, 300); mined = await p.evaluate((g) => { const h = window.__hero(); return { order: h.order.type, gold: h.cargo.minedGold, reste: window.__world.resourceNodeAmounts.get(g.id), forges: window.__world.entities.filter((x) => x.alive && x.unitId === 'forge').length, msg: document.querySelector('.wave-indicator-notice')?.textContent ?? '' }; }, gold); if (mined.gold >= 1) break; }
+  check('clic droit sur un gisement d or sans Forge : le Heros l extrait (ordre de recolte, or dans le cargo, gisement decompte), aucun message « il faut une Forge »', mined.forges === 0 && mined.gold >= 1 && mined.reste === 25 - mined.gold && !/Forge|prospecteur/.test(mined.msg) && !/Forge|prospecteur/.test(noticesBefore), mined);
 
   // Ennemi devant la porte ouverte : n'entre pas.
   const foe = await p.evaluate((e) => { const w = window.__world; const L = window.__layout; const f = w.spawn('maraudeur', 'enemy', e.x, e.z); f.order = { type: 'move', x: L.origin.x, z: L.origin.z + 2 }; return f.id; }, exitPt);

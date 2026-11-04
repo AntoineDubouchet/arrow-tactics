@@ -1,22 +1,7 @@
-import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
 import { getTalent, listDependents, listFounderTalents, TALENTS } from '../data/talents';
 import { computeTalentTreeLayout, type TalentNodeLayout, type TalentTreeLayoutNode } from './talentTreeLayout';
-import { getUnit } from '../data/units';
-import { getUnitUpgradeDef, listUpgradableUnitIds } from '../data/unitUpgrades';
 import { canUnlockTalent, isTalentUnlocked, type MetaProgress } from '../run/metaProgress';
-import { formatGold, type RunState } from '../run/runState';
-import { currentProductionLevel, unitProductionSummary, type UnitProductionSummary } from '../run/unitUpgradeEffects';
-import {
-  ballistaAttackSpeedBonus,
-  ballistaDamageBonusDisplay,
-  ballistaHpBonusDisplay,
-  ballistaNextPurchaseGrantsDamageBonus,
-  ballistaRemainingUntilDamageBonus,
-  ballistaUpgradeLevel,
-} from '../run/ballistaUpgradeEffects';
-import { canPurchaseRunUpgrade, displayedUpgradeLevel, runUpgradeGoldCost } from '../run/runUpgrades';
 import type { AudioSettings } from '../run/userSettings';
-import { createCoinIcon } from './pixelIcon';
 
 export type ScreenName =
   | 'menu'
@@ -26,8 +11,7 @@ export type ScreenName =
   | 'gameOver'
   | 'resetConfirm'
   | 'resetTalentsConfirm'
-  | 'settings'
-  | 'unitUpgradeShop';
+  | 'settings';
 
 /** Un curseur de volume construit par `Screens.sliderControl` — `row` est
  *  l'element a inserer dans le panneau, `input`/`valueLabel` sont retenus a
@@ -37,36 +21,6 @@ interface SliderControl {
   row: HTMLElement;
   input: HTMLInputElement;
   valueLabel: HTMLElement;
-}
-
-/** Refs vers les elements dynamiques d'UNE carte de la boutique
- *  d'amelioration permanente (voir buildUnitUpgradeCard/refreshForge) —
- *  meme motif que talentNodes, cle par unitId. */
-interface UnitUpgradeCardRefs {
-  button: HTMLButtonElement;
-  levelEl: HTMLElement;
-  /** Stats de la PROCHAINE unite produite (niveau courant). */
-  nextUnitEl: HTMLElement;
-  /** Cout de production de la prochaine unite. */
-  goldCostEl: HTMLElement;
-  /** Ce qu'apporte le niveau suivant, cout de production compris. */
-  nextUpgradeEl: HTMLElement;
-  costEl: HTMLElement;
-}
-
-/** Refs de la carte "Baliste" (2026-08-13) — voir buildBallistaUpgradeCard/
- *  refreshForge. Forme dediee : cadence en %, pas de "PV". */
-interface BallistaUpgradeCardRefs {
-  button: HTMLButtonElement;
-  levelEl: HTMLElement;
-  attackSpeedEl: HTMLElement;
-  damageEl: HTMLElement;
-  /** PV bonus de la TOUR (2026-08-16, "+10 PV par niveau") — voir
-   *  run/ballistaUpgradeEffects.ts, ballistaHpBonusDisplay. */
-  hpBonusEl: HTMLElement;
-  nextUpgradeEl: HTMLElement;
-  remainingDamageEl: HTMLElement;
-  costEl: HTMLElement;
 }
 
 export interface ScreenHandlers {
@@ -114,13 +68,6 @@ export interface ScreenHandlers {
    *  librement et independamment, pas d'exclusivite entre eux (voir
    *  CLAUDE.md, refonte 2026-08-10). */
   onUnlockTalent: (id: string) => void;
-  /** Ecran de la FORGE : ameliorations de la run, payees en Or, ouvert
-   *  depuis la fiche d'une Forge en jeu (voir main.ts, le temps est fige).
-   *  `onPurchaseRunUpgrade` verifie et realise l'achat (run/runUpgrades.ts,
-   *  purchaseRunUpgrade) ; Screens ne fait que relayer le clic et
-   *  rafraichir. */
-  onCloseForge: () => void;
-  onPurchaseRunUpgrade: (upgradeId: string) => void;
   /** Bouton "Effacer la sauvegarde" du menu principal (demande d'Antoine,
    *  2026-08-10) : ouvre l'ecran de confirmation, ne supprime rien lui-meme —
    *  voir onConfirmResetSave/onCancelResetSave pour l'action reelle. */
@@ -234,14 +181,6 @@ export class Screens {
   private readonly talentTooltip: HTMLElement;
   private readonly talentTooltipName: HTMLElement;
   private readonly talentTooltipDesc: HTMLElement;
-  /** Ecran de la FORGE (ameliorations de la run, en Or ; id interne
-   *  historique `unitUpgradeShop`) — voir data/unitUpgrades.ts. */
-  private readonly unitUpgradeShop: HTMLElement;
-  private readonly forgeGoldAmount: HTMLElement;
-  private readonly unitUpgradeCards = new Map<string, UnitUpgradeCardRefs>();
-  /** Carte "Baliste" (2026-08-13) — shape different des unites (voir
-   *  BallistaUpgradeCardRefs), donc pas dans `unitUpgradeCards`. */
-  private readonly ballistaUpgradeCard: BallistaUpgradeCardRefs;
   private readonly pause: HTMLElement;
   /** Confirmation "Quitter" pendant une run (2026-08-16, demande d'Antoine)
    *  — voir showQuitRunConfirm/isQuitRunConfirmOpen. `quitRunCancelButton`
@@ -336,34 +275,9 @@ export class Screens {
       this.button('Retour', handlers.onCloseTalents),
     ]);
 
-    // Ecran de la Forge (ameliorations de la run, 2026-08-13) — ouvert
-    // depuis la fiche d'une Forge en jeu. Une carte GENERIQUE par unite
-    // ameliorable (listUpgradableUnitIds, voir data/unitUpgrades.ts) :
-    // ajouter une nouvelle unite ameliorable plus tard n'exige aucun
-    // changement ici, juste une nouvelle entree dans UNIT_UPGRADES (point 7
-    // de la demande : "ne hardcode pas toute l'UI autour de seulement trois
-    // unites").
-    const forgeGold = document.createElement('p');
-    forgeGold.className = 'screen-text shop-gold';
-    this.forgeGoldAmount = document.createElement('span');
-    forgeGold.append('Or : ', this.forgeGoldAmount, createCoinIcon(16));
-
-    const cardsContainer = document.createElement('div');
-    cardsContainer.className = 'upgrade-cards';
-    for (const unitId of listUpgradableUnitIds()) cardsContainer.append(this.buildUnitUpgradeCard(unitId, handlers));
-    // Baliste (2026-08-13) — shape different des unites (voir
-    // buildBallistaUpgradeCard), donc construite a part.
-    const ballistaCard = this.buildBallistaUpgradeCard(handlers);
-    this.ballistaUpgradeCard = ballistaCard.refs;
-    cardsContainer.append(ballistaCard.card);
-
-    this.unitUpgradeShop = this.overlay('unit-upgrade-shop', [
-      this.title('Forge'),
-      forgeGold,
-      cardsContainer,
-      this.button('Retour', handlers.onCloseForge),
-    ]);
-
+    // L'ecran de la Forge (ameliorations de run, jeu fige) a ete retire le
+    // 2026-11-05 : technologies et ameliorations se commandent depuis les
+    // fiches des batiments, en temps reel (run/entityInfo.ts).
     this.pause = this.overlay('pause', [
       this.title('Pause'),
       this.button('Continuer', handlers.onResume),
@@ -507,7 +421,6 @@ export class Screens {
     this.resetConfirm.classList.remove('screen-overlay--visible');
     this.resetTalentsConfirm.classList.remove('screen-overlay--visible');
     this.settings.classList.remove('screen-overlay--visible');
-    this.unitUpgradeShop.classList.remove('screen-overlay--visible');
   }
 
   /** Baliste detruite (2026-11-02, coeur de la base) : la run s'arrete net —
@@ -554,15 +467,9 @@ export class Screens {
     // boxes DOM mesurees apres coup — rien ici ne peut plus les perimer.
   }
 
-  /** Vrai si un ecran (Forge, pause, Game Over...) recouvre le jeu. */
+  /** Vrai si un ecran (pause, Game Over...) recouvre le jeu. */
   hasVisibleOverlay(): boolean {
     return document.querySelector('.screen-overlay.screen-overlay--visible') !== null;
-  }
-
-  /** Vrai si l'ecran de la Forge est affiche (voir main.ts : Echap le ferme
-   *  en priorite, la fiche d'entite est masquee dessous). */
-  isForgeOpen(): boolean {
-    return this.unitUpgradeShop.classList.contains('screen-overlay--visible');
   }
 
   /** Vrai si l'ecran Parametres est actuellement affiche — utilise par
@@ -587,179 +494,6 @@ export class Screens {
    *  actif en arriere-plan pendant que cette confirmation est ouverte). */
   isQuitRunConfirmOpen(): boolean {
     return this.quitRunConfirm.classList.contains('screen-overlay--visible');
-  }
-
-  /** Affiche l'ecran de la Forge a jour — toujours appeler ceci plutot que
-   *  show('unitUpgradeShop') directement (meme motif que showTalents). */
-  showForge(run: RunState): void {
-    this.refreshForge(run);
-    this.show('unitUpgradeShop');
-  }
-
-  /** Remet a jour l'Or et chaque carte — appelee a l'ouverture ET apres
-   *  chaque achat (voir main.ts, onPurchaseRunUpgrade). Niveaux : ceux de la
-   *  RUN (run.upgrades) ; prix : bareme en Or (runUpgradeGoldCost) ; achat
-   *  possible : canPurchaseRunUpgrade. */
-  refreshForge(run: RunState): void {
-    const levels = run.upgrades;
-    this.forgeGoldAmount.textContent = formatGold(run.gold);
-    // Niveau de production : stats de la PROCHAINE unite produite et gain du
-    // niveau suivant (voir data/unitUpgrades.ts) ; les unites deja
-    // recrutees gardent le leur (rappel sur la carte).
-    for (const [unitId, refs] of this.unitUpgradeCards) {
-      if (!getUnitUpgradeDef(unitId)) continue;
-      const level = currentProductionLevel(levels, unitId);
-      const current = unitProductionSummary(unitId, level);
-      const next = unitProductionSummary(unitId, level + 1);
-
-      refs.levelEl.textContent = `Niveau de production : ${displayedUpgradeLevel(level)}`;
-      refs.nextUnitEl.textContent = `Prochaine unité : ${formatUnitStats(current)}`;
-      refs.goldCostEl.textContent = `Coût de production : ${formatGold(current.cost)}`;
-      refs.nextUpgradeEl.textContent = `Niv. ${displayedUpgradeLevel(level + 1)} : ${formatUnitGains(current, next)}`;
-      refs.costEl.textContent = formatGold(runUpgradeGoldCost(unitId, level));
-      refs.button.disabled = !canPurchaseRunUpgrade(run, unitId);
-    }
-
-    // Baliste (2026-08-13, etendue le 2026-08-16 avec le bonus de PV de la
-    // tour) — voir run/ballistaUpgradeEffects.ts.
-    {
-      const level = ballistaUpgradeLevel(levels);
-      const attackSpeedPct = Math.round(ballistaAttackSpeedBonus(level) * 100);
-      const damageBonus = ballistaDamageBonusDisplay(level);
-      const hpBonus = ballistaHpBonusDisplay(level);
-      const nextCost = runUpgradeGoldCost(BALLISTA_UPGRADE.id, level);
-      const remaining = ballistaRemainingUntilDamageBonus(level);
-      const grantsDamage = ballistaNextPurchaseGrantsDamageBonus(level);
-      const refs = this.ballistaUpgradeCard;
-
-      refs.levelEl.textContent = `Niveau : ${displayedUpgradeLevel(level)}`;
-      refs.hpBonusEl.textContent = `PV bonus : +${hpBonus}`;
-      refs.attackSpeedEl.textContent = `Vitesse d’attaque : +${attackSpeedPct} %`;
-      refs.damageEl.textContent = `Dégâts bonus : +${damageBonus}`;
-      // +10 PV et +20% de cadence a CHAQUE achat (jamais un palier) ; +1
-      // degat UNIQUEMENT si le PROCHAIN achat tombe sur un multiple de 3
-      // (meme convention que les cartes d'unite, point 16 de la demande —
-      // "je veux que le joueur voie clairement le palier important").
-      refs.nextUpgradeEl.textContent = grantsDamage
-        ? 'Prochaine amélioration : +10 PV, +20 % vitesse d’attaque, +1 DÉGÂT'
-        : 'Prochaine amélioration : +10 PV, +20 % vitesse d’attaque';
-      refs.remainingDamageEl.textContent =
-        remaining === 1
-          ? 'Prochain bonus de dégâts : dans 1 amélioration'
-          : `Prochain bonus de dégâts : dans ${remaining} améliorations`;
-      refs.costEl.textContent = formatGold(nextCost);
-      refs.button.disabled = !canPurchaseRunUpgrade(run, BALLISTA_UPGRADE.id);
-    }
-  }
-
-  /** Construit une carte GENERIQUE de la boutique d'amelioration pour UNE
-   *  unite (voir refreshForge pour le remplissage des valeurs) —
-   *  aucun id d'unite code en dur au-dela du nom/de l'icone du bouton
-   *  d'achat, point 7 de la demande. */
-  private buildUnitUpgradeCard(unitId: string, handlers: ScreenHandlers): HTMLElement {
-    const def = getUnit(unitId);
-    const card = document.createElement('div');
-    card.className = 'upgrade-card';
-
-    const nameEl = document.createElement('h3');
-    nameEl.className = 'upgrade-card-name';
-    nameEl.textContent = def.name;
-
-    const levelEl = document.createElement('p');
-    levelEl.className = 'upgrade-card-line';
-    const nextUnitEl = document.createElement('p');
-    nextUnitEl.className = 'upgrade-card-line';
-    const goldCostGroup = document.createElement('p');
-    goldCostGroup.className = 'upgrade-card-line';
-    const goldCostEl = document.createElement('span');
-    goldCostGroup.append(goldCostEl, ' ', createCoinIcon(12));
-    const nextUpgradeEl = document.createElement('p');
-    nextUpgradeEl.className = 'upgrade-card-line upgrade-card-next';
-    const noteEl = document.createElement('p');
-    noteEl.className = 'upgrade-card-line upgrade-card-dim';
-    noteEl.textContent = 'Les unités déjà recrutées gardent leur niveau.';
-
-    const buyRow = document.createElement('div');
-    buyRow.className = 'upgrade-card-buy-row';
-    const costEl = document.createElement('span');
-    const costGroup = document.createElement('span');
-    costGroup.className = 'shop-item-price-group';
-    costGroup.append(costEl, createCoinIcon(14));
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'screen-button upgrade-card-button';
-    button.textContent = 'Améliorer';
-    button.addEventListener('mouseenter', () => this.uiSound.hover());
-    button.addEventListener('click', () => {
-      this.uiSound.click();
-      handlers.onPurchaseRunUpgrade(unitId);
-    });
-    buyRow.append(costGroup, button);
-
-    card.append(nameEl, levelEl, nextUnitEl, goldCostGroup, nextUpgradeEl, noteEl, buyRow);
-
-    this.unitUpgradeCards.set(unitId, {
-      button,
-      levelEl,
-      nextUnitEl,
-      goldCostEl,
-      nextUpgradeEl,
-      costEl,
-    });
-
-    return card;
-  }
-
-  /** Carte "Baliste" (2026-08-13, boutique d'amelioration) — cadence de tir
-   *  en %, pas de PV : shape different de buildUnitUpgradeCard, construite
-   *  a part. */
-  private buildBallistaUpgradeCard(handlers: ScreenHandlers): { card: HTMLElement; refs: BallistaUpgradeCardRefs } {
-    const card = document.createElement('div');
-    card.className = 'upgrade-card';
-
-    const nameEl = document.createElement('h3');
-    nameEl.className = 'upgrade-card-name';
-    nameEl.textContent = 'Baliste';
-
-    const levelEl = document.createElement('p');
-    levelEl.className = 'upgrade-card-line';
-    const attackSpeedEl = document.createElement('p');
-    attackSpeedEl.className = 'upgrade-card-line';
-    const damageEl = document.createElement('p');
-    damageEl.className = 'upgrade-card-line';
-    // PV bonus de la tour (2026-08-16, demande explicite d'Antoine) — meme
-    // ligne "upgrade-card-line" que les 3 autres, juste au-dessus (ordre
-    // "PV bonus / Vitesse d'attaque / Dégâts bonus" demande point 15).
-    const hpBonusEl = document.createElement('p');
-    hpBonusEl.className = 'upgrade-card-line';
-    const nextUpgradeEl = document.createElement('p');
-    nextUpgradeEl.className = 'upgrade-card-line upgrade-card-next';
-    const remainingDamageEl = document.createElement('p');
-    remainingDamageEl.className = 'upgrade-card-line upgrade-card-dim';
-
-    const buyRow = document.createElement('div');
-    buyRow.className = 'upgrade-card-buy-row';
-    const costEl = document.createElement('span');
-    const costGroup = document.createElement('span');
-    costGroup.className = 'shop-item-price-group';
-    costGroup.append(costEl, createCoinIcon(14));
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'screen-button upgrade-card-button';
-    button.textContent = 'Améliorer';
-    button.addEventListener('mouseenter', () => this.uiSound.hover());
-    button.addEventListener('click', () => {
-      this.uiSound.click();
-      handlers.onPurchaseRunUpgrade(BALLISTA_UPGRADE.id);
-    });
-    buyRow.append(costGroup, button);
-
-    card.append(nameEl, levelEl, hpBonusEl, attackSpeedEl, damageEl, nextUpgradeEl, remainingDamageEl, buyRow);
-
-    return {
-      card,
-      refs: { button, levelEl, attackSpeedEl, damageEl, hpBonusEl, nextUpgradeEl, remainingDamageEl, costEl },
-    };
   }
 
   /** Onglet (Parametres) — classes historiques `.shop-tab*`, partagees par
@@ -798,8 +532,6 @@ export class Screens {
         return this.resetTalentsConfirm;
       case 'settings':
         return this.settings;
-      case 'unitUpgradeShop':
-        return this.unitUpgradeShop;
     }
   }
 
@@ -1149,25 +881,4 @@ export class Screens {
     return b;
   }
 
-}
-
-/** Stats d'une unite produite, sur une ligne (« 8 PV · Attaque 2 · Pop. 1 »). */
-function formatUnitStats(summary: UnitProductionSummary): string {
-  const parts = [`${formatGold(summary.hp)} PV`];
-  if (summary.attack > 0) parts.push(`${summary.attackLabel} ${formatGold(summary.attack)}`);
-  if (summary.tauntShield !== null) parts.push(`Bouclier ${formatGold(summary.tauntShield)} / ennemi`);
-  parts.push(`Pop. ${summary.population}`);
-  return parts.join(' · ');
-}
-
-/** Gain d'un niveau de production au suivant (« +3 PV, +1 Attaque, coût +1 »). */
-function formatUnitGains(from: UnitProductionSummary, to: UnitProductionSummary): string {
-  const gains: string[] = [];
-  if (to.hp > from.hp) gains.push(`+${formatGold(to.hp - from.hp)} PV`);
-  if (to.attack > from.attack) gains.push(`+${formatGold(to.attack - from.attack)} ${from.attackLabel}`);
-  if (to.tauntShield !== null && from.tauntShield !== null && to.tauntShield > from.tauntShield) {
-    gains.push(`+${formatGold(to.tauntShield - from.tauntShield)} Bouclier / ennemi`);
-  }
-  gains.push(`coût +${formatGold(to.cost - from.cost)}`);
-  return gains.join(', ');
 }
