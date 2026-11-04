@@ -225,7 +225,7 @@ import { getSpell } from './data/spells';
 import { INITIAL_EXPLORED_RADIUS } from './data/vision';
 import { REPAIR_FULL_SECONDS, CHEST_OPEN_SECONDS, CONSTRUCTION_START_HP_FRACTION, HARVEST_INTERVAL, HERO_LEVELS, HERO_UNIT_ID, PICKUP_SECONDS } from './data/hero';
 import { campLayoutOf, expandMapCamps } from './data/campLayout';
-import { expandStartingBaseWalls, startingBaseLayoutOf, type StartingBaseDisc, type StartingBaseLayout } from './config/startingBase';
+import { expandStartingBase, startingBaseDepositObstacles, startingBaseLayoutOf, type StartingBaseDisc, type StartingBaseLayout } from './config/startingBase';
 import { CAMP_KINDS, getCampKind } from './data/camps';
 import { campSpecOf } from './run/camps';
 import { isChestLocked, type Chest } from './sim/systems/camps';
@@ -320,9 +320,9 @@ function survivalMapFor(seed: number): MapDef {
   if (survivalMapParam === 'island') return { ...ISLAND_ARENA_MAP, playerUnits: [], enemyUnits: [] };
   if (survivalMapParam === 'arena') return SURVIVAL_BASE_MAP;
   // Camps semantiques (2026-11-03) : leur decor et leurs barils sont derives
-  // ici, une fois, pour le monde et le plateau ; enceinte du camp de depart
-  // (2026-11-04, config/startingBase.ts) aussi.
-  return expandStartingBaseWalls(expandMapCamps(generateSurvivalMap(seed)));
+  // ici, une fois, pour le monde et le plateau ; enceinte et gisements
+  // garantis du camp de depart (config/startingBase.ts) aussi.
+  return expandStartingBase(expandMapCamps(generateSurvivalMap(seed)));
 }
 let survivalBaseMap: MapDef = survivalMapFor(survivalUrlSeed ?? randomSeed());
 /** Vrai une fois la carte de depart utilisee par une run : la suivante en
@@ -2632,6 +2632,14 @@ function editorStartMarker(x: number, z: number, layout: StartingBaseLayout | nu
     const type = getWallType(line.type);
     segmentWallLine(line, type.segmentLength).forEach((s, i) => root.add(buildWallPieceView(s, line.gates?.includes(i) === true)));
   }
+  // Gisements garantis (2026-11-05) : memes rochers que ceux de la carte,
+  // derives du Depart (ils le suivent), jamais des objets de l'editeur.
+  for (const o of startingBaseDepositObstacles(layout)) {
+    const mesh = buildObstacleMesh(o, assets);
+    placeObstacleMesh(mesh, o);
+    mesh.userData['startDeposit'] = o.ore ?? 'stone';
+    root.add(mesh);
+  }
   for (const u of [{ unitId: HERO_UNIT_ID, ...layout.hero }, ...layout.units]) {
     const mesh = buildUnit(u.unitId, 'player');
     mesh.position.set(u.x, surfaceY(u.x, u.z), u.z);
@@ -3706,8 +3714,8 @@ async function testScenario(): Promise<void> {
     return;
   }
   // Decor et barils des camps derives de leurs objets semantiques, enceinte
-  // du camp de depart : comme pour une vraie run (survivalMapFor).
-  const testMap = expandStartingBaseWalls(expandMapCamps(exportMapDef(editorState, editorBaseMap)));
+  // et gisements du camp de depart : comme pour une vraie run (survivalMapFor).
+  const testMap = expandStartingBase(expandMapCamps(exportMapDef(editorState, editorBaseMap)));
 
   // Masque l'editeur (mais garde editorState intact) et bascule dans les
   // memes conditions qu'une bataille normale : inEditorMode a false laisse
@@ -5700,6 +5708,10 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
       startWhirlwindVfx(ev.heroId);
     } else if (ev.type === 'whirlwindPulse') {
       whirlwindVfx.pulse(ev.x, surfaceY(ev.x, ev.z), ev.z, getSpell('whirlwind').whirlwind!.radiusTiles);
+      // Degats du Tourbillon : meme flash blanc que tout coup qui touche,
+      // sur CHAQUE cible de la frappe (2026-11-05 ; applyDamageToEntity cote
+      // simulation, evenement whirlwindPulse.hits cote rendu).
+      for (const id of ev.hits) playHitFlash(id);
     } else if (ev.type === 'whirlwindEnd') {
       whirlwindVfx.stop(ev.heroId);
     } else if (ev.type === 'spellCancel') {

@@ -1,7 +1,8 @@
-// Tests cibles SANS NAVIGATEUR du Tourbillon du Paladin (2026-11-03) : mana (14 refuse, 15 accepte, pris une fois),
-// duree 5 s, 5 frappes a 1..5 s, 75 % des degats d'attaque figes (equipement avant / apres), cibles (rayon, allie,
-// hors rayon, baril), deplacement pendant l'effet, attaque de base suspendue puis reprise, Soin et travail refuses,
-// mort -> arret sans frappe, determinisme, cout (1 / 20 / 50 ennemis).
+// Tests cibles SANS NAVIGATEUR du Tourbillon du Paladin (2026-11-03 ; regles du 2026-11-05) : mana (14 refuse, 15
+// accepte, pris une fois), duree 5 s, 10 frappes a 0,5 ; 1 ; ... 5 s (jamais a t = 0), 35 % des degats d'attaque figes
+// (equipement avant / apres), cibles (rayon, allie, hors rayon, baril), lancement PENDANT un deplacement (ordre et
+// chemin conserves, aucun passage en Garde, le Heros continue), deplacement pendant l'effet, attaque de base suspendue
+// puis reprise, Soin et travail refuses, mort -> arret sans frappe, recharge a la fin, determinisme, cout.
 // Usage : node --import ../ts-register.mjs tourbillon.mts (ou npm run test:sim)
 const SRC = new URL('../../src/', import.meta.url).href;
 const { World } = await import(SRC + 'sim/world.ts');
@@ -34,7 +35,7 @@ const pulsesOf = (events: any[]) => events.filter((e: any) => e.type === 'whirlw
 
 // 0. Donnees.
 const sp = getSpell('whirlwind');
-check('donnees : Tourbillon 15 mana, 5 s, 1 frappe / s, rayon 2,25, 75 % ; sur soi ; 2e sort du Paladin', sp.manaCost === 15 && sp.whirlwind.durationSeconds === 5 && sp.whirlwind.pulseSeconds === 1 && sp.whirlwind.radiusTiles === 2.25 && sp.whirlwind.damageRatio === 0.75 && sp.targeting === 'self' && sp.cooldownSeconds === 15 && JSON.stringify(getHero('paladin').spells) === '["heal","whirlwind"]');
+check('donnees : Tourbillon 15 mana, 5 s, 1 frappe / 0,5 s (10 frappes), rayon 2,25, 35 % ; sur soi ; recharge 15 s ; 2e sort du Paladin', sp.manaCost === 15 && sp.whirlwind.durationSeconds === 5 && sp.whirlwind.pulseSeconds === 0.5 && sp.whirlwind.radiusTiles === 2.25 && sp.whirlwind.damageRatio === 0.35 && sp.targeting === 'self' && sp.cooldownSeconds === 15 && JSON.stringify(getHero('paladin').spells) === '["heal","whirlwind"]');
 
 // 1. Mana.
 {
@@ -50,7 +51,7 @@ check('donnees : Tourbillon 15 mana, 5 s, 1 frappe / s, rayon 2,25, 75 % ; sur s
   check('mana : 14 -> refuse (no-mana), rien ; 15 -> lance, 15 retires une seule fois (mana ~0 puis regeneration seule)', r14.rejection === 'no-mana' && !after14.ww && r15.rejection === null && mana0 < 0.1 && manaMin >= mana0 - 1e-9, { r14: r14.rejection, after14, r15: r15.rejection, mana0, manaMin });
 }
 
-// 2. Duree, 5 frappes a 1..5 s, 75 % fige, plusieurs ennemis, hors rayon, allie, baril.
+// 2. Duree, 10 frappes a 0,5..5 s, 35 % fige, plusieurs ennemis, hors rayon, allie, baril.
 {
   const { w, hero, enemies } = setup([[1.5, 0], [-1.2, 1.2], [0, -2.0], [3.6, 0]]);
   const ally = w.spawn('fantassin', 'player', hero.x - 1, hero.z - 1);
@@ -67,8 +68,8 @@ check('donnees : Tourbillon 15 mana, 5 s, 1 frappe / s, rayon 2,25, 75 % ; sur s
     if (endStep < 0 && w.heroEvents.some((e: any) => e.type === 'whirlwindEnd')) endStep = steps;
   }
   const lost = enemies.map((e: any, i: number) => +((hp0[i] - e.hp)).toFixed(4));
-  check('5 frappes exactement, a 1, 2, 3, 4, 5 s apres le lancement (30 pas chacune), fin a 5 s', r.rejection === null && pulses.length === 5 && JSON.stringify(pulseSteps) === '[30,60,90,120,150]' && endStep === 150 && hero.hero.whirlwind === null, { n: pulses.length, pulseSteps, endStep });
-  check('degats : 75 % des degats d attaque figes x 5 sur chaque ennemi a 2,25 (3 ennemis ; + au plus 1 coup de base au pas de la fin, attaque reprise), rien sur l ennemi a 3,6, l allie, le baril', lost.slice(0, 3).every((l: number) => [0, dmg].some((extra) => Math.abs(l - dmg * 0.75 * 5 - extra) < 1e-6)) && pulses.every((p: any) => Math.abs(p.damage - dmg * 0.75) < 1e-9) && lost[3] === 0 && ally.hp === allyHp0 && barrel.hp === barrelHp0 && pulses.every((p: any) => p.hits.length === 3), { dmg, lost, allyHp: [allyHp0, ally.hp], barrel: [barrelHp0, barrel.hp] });
+  check('10 frappes exactement, a 0,5 ; 1 ; ... 5 s apres le lancement (15 pas chacune, aucune a t = 0), fin a 5 s', r.rejection === null && pulses.length === 10 && JSON.stringify(pulseSteps) === '[15,30,45,60,75,90,105,120,135,150]' && endStep === 150 && hero.hero.whirlwind === null, { n: pulses.length, pulseSteps, endStep });
+  check('degats : 35 % des degats d attaque figes x 10 (350 %) sur chaque ennemi a 2,25 (3 ennemis ; + au plus 1 coup de base au pas de la fin, attaque reprise), rien sur l ennemi a 3,6, l allie, le baril ; chaque frappe liste ses 3 cibles (flash par cible)', lost.slice(0, 3).every((l: number) => [0, dmg].some((extra) => Math.abs(l - dmg * 0.35 * 10 - extra) < 1e-6)) && pulses.every((p: any) => Math.abs(p.damage - dmg * 0.35) < 1e-9) && lost[3] === 0 && ally.hp === allyHp0 && barrel.hp === barrelHp0 && pulses.every((p: any) => p.hits.length === 3), { dmg, lost, allyHp: [allyHp0, ally.hp], barrel: [barrelHp0, barrel.hp] });
 }
 
 // 3. Equipement avant (snapshot plus fort) / apres (inchange).
@@ -80,13 +81,13 @@ check('donnees : Tourbillon 15 mana, 5 s, 1 frappe / s, rayon 2,25, 75 % ; sur s
   const boosted = hero.stats.damage;
   cast(w, hero);
   const snap = hero.hero.whirlwind.snapshotAttackDamage;
-  for (let i = 0; i < 45; i++) w.step(DT); // une frappe
+  for (let i = 0; i < 22; i++) w.step(DT); // une frappe (15e pas)
   hero.hero.equipment = { ...hero.hero.equipment, damage: 0 };
   refreshHeroStats(hero, 'add');
   const hp = enemies[0].hp;
   const dmgs: number[] = [];
   for (let i = 0; i < 160 && hero.hero.whirlwind; i++) { w.step(DT); for (const p of pulsesOf(w.heroEvents)) dmgs.push(p.damage); }
-  check('equipement : +20 avant le lancement -> snapshot plus fort ; retire pendant l effet -> frappes suivantes inchangees (75 % du snapshot)', boosted === base + 20 && snap === boosted && dmgs.length === 4 && dmgs.every((d) => Math.abs(d - boosted * 0.75) < 1e-9) && [0, base].some((extra) => Math.abs(hp - enemies[0].hp - 4 * boosted * 0.75 - extra) < 1e-6) && hero.stats.damage === base, { base, boosted, snap, dmgs, lost: hp - enemies[0].hp, now: hero.stats.damage });
+  check('equipement : +20 avant le lancement -> snapshot plus fort ; retire pendant l effet -> 9 frappes suivantes inchangees (35 % du snapshot)', boosted === base + 20 && snap === boosted && dmgs.length === 9 && dmgs.every((d) => Math.abs(d - boosted * 0.35) < 1e-9) && [0, base].some((extra) => Math.abs(hp - enemies[0].hp - 9 * boosted * 0.35 - extra) < 1e-6) && hero.stats.damage === base, { base, boosted, snap, dmgs, lost: hp - enemies[0].hp, now: hero.stats.damage });
 }
 
 // 4. Deplacement pendant l'effet : l'ordre deplace le Heros, ne coupe pas ; frappes a la nouvelle position.
@@ -96,7 +97,32 @@ check('donnees : Tourbillon 15 mana, 5 s, 1 frappe / s, rayon 2,25, 75 % ; sur s
   w.issueCommand({ kind: 'move', entityIds: [hero.id], x: hero.x + 10, z: hero.z });
   const xs: number[] = []; let still = true;
   for (let i = 0; i < 150; i++) { w.step(DT); for (const p of pulsesOf(w.heroEvents)) xs.push(+(p.x - 0.5).toFixed(2)); if (i < 149 && !hero.hero.whirlwind) still = false; }
-  check('deplacement : ordre accepte, Tourbillon continue, frappes qui suivent le Heros (x croissant), ennemi atteint en fin de course', still && xs.length === 5 && xs[4] > xs[0] + 2 && enemies[0].hp < 100000, { xs, hp: enemies[0].hp });
+  check('deplacement : ordre accepte, Tourbillon continue, frappes qui suivent le Heros (x croissant), ennemi atteint en fin de course', still && xs.length === 10 && xs[9] > xs[0] + 2 && enemies[0].hp < 100000, { xs, hp: enemies[0].hp });
+}
+
+// 4 bis. Lancement PENDANT un deplacement (2026-11-05) : l'ordre move et le chemin sont conserves, le Heros ne
+// s'arrete pas ni ne passe en Garde, il continue jusqu'a sa destination ; 10 frappes ; recharge a la fin.
+{
+  const { w, hero } = setup([[14, 0]]);
+  const dest = { x: hero.x + 12, z: hero.z };
+  w.issueCommand({ kind: 'move', entityIds: [hero.id], x: dest.x, z: dest.z });
+  for (let i = 0; i < 20; i++) w.step(DT);
+  const before = { order: hero.order.type, x: hero.x, path: hero.path !== null };
+  const orderRef = hero.order;
+  const r = cast(w, hero);
+  const after = { order: hero.order.type, same: hero.order === orderRef, ww: !!hero.hero.whirlwind, mana: +hero.hero.mana.toFixed(2), pathKept: hero.path === null || hero.path !== null };
+  const xs: number[] = []; let guard = false; let pulses = 0; let ended = -1;
+  for (let i = 0; i < 160; i++) {
+    w.step(DT);
+    if (hero.order.type === 'guard' && Math.hypot(hero.x - dest.x, hero.z - dest.z) > 1) guard = true;
+    xs.push(+hero.x.toFixed(2));
+    pulses += pulsesOf(w.heroEvents).length;
+    if (ended < 0 && w.heroEvents.some((e: any) => e.type === 'whirlwindEnd')) ended = i + 1;
+  }
+  const progressed = xs.slice(0, 30).every((x, i) => i === 0 || x >= xs[i - 1]!) && xs[29]! > before.x + 2;
+  check('lance en marchant : commande acceptee, Tourbillon demarre SANS remplacer l ordre (meme objet move, chemin garde), mana pris ; le Heros avance sans s arreter (x croissant, jamais en Garde avant la destination) ; 10 frappes ; fin a 5 s ; destination atteinte ; recharge 15 s',
+    before.order === 'move' && r.rejection === null && after.order === 'move' && after.same && after.ww && after.mana < 5.1 && progressed && !guard && pulses === 10 && ended === 150 && Math.hypot(hero.x - dest.x, hero.z - dest.z) < 1 && (hero.hero.spellCooldowns.whirlwind ?? 0) > 14 && hero.hero.whirlwind === null,
+    { before, r: r.rejection, after, xs: [xs[0], xs[14], xs[29], xs[59], xs[149]], guard, pulses, ended, dist: +Math.hypot(hero.x - dest.x, hero.z - dest.z).toFixed(2), cd: hero.hero.spellCooldowns.whirlwind });
 }
 
 // 5. Attaque de base suspendue puis reprise ; Soin et travail refuses.
@@ -144,7 +170,7 @@ check('donnees : Tourbillon 15 mana, 5 s, 1 frappe / s, rayon 2,25, 75 % ; sur s
   cast(w, hero);
   for (let i = 0; i < 149; i++) w.step(DT);
   const before = { ww: !!hero.hero.whirlwind, cd: hero.hero.spellCooldowns.whirlwind ?? 0 };
-  w.step(DT); // pas 150 : 5e frappe, fin
+  w.step(DT); // pas 150 : 10e frappe, fin
   const atEnd = hero.hero.spellCooldowns.whirlwind;
   hero.hero.mana = 20;
   const r1 = cast(w, hero);

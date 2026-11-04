@@ -10,9 +10,15 @@ import { surfaceY } from './terrainSurface';
  * - segment : rangee de pieux tailles en pointe (hauteurs legerement
  *   variees, deterministes), deux traverses cote interieur, un poteau plus
  *   massif a chaque extremite ;
- * - porte : deux poteaux plus hauts, un linteau, deux battants de planches
- *   (noeuds `palisade_door_left` / `palisade_door_right`, pivots sur les
- *   gonds : animes par BuildingView.setDoorOpenness).
+ * - porte (refaite le 2026-11-05, demande d'Antoine) : deux montants un peu
+ *   plus hauts, DESSUS OUVERT (ni linteau ni arche), deux vrais vantaux
+ *   gauche / droite de pieux pointus plus courts, deux traverses et une
+ *   echarpe cote interieur, chacun construit dans son propre sens (aucune
+ *   face miroir, volumes reels corrects de l'interieur, de l'exterieur et de
+ *   cote) ; noeuds `palisade_door_left` / `palisade_door_right`, pivots
+ *   sur les gonds, animes par BuildingView.setDoorOpenness. Meme famille
+ *   visuelle que les segments voisins : une ouverture fonctionnelle dans la
+ *   palissade.
  *
  * Un segment = un seul mesh (geometrie fusionnee, couleurs par sommet) : un
  * appel de dessin par segment, une porte = trois. Les pieux suivent le
@@ -29,7 +35,10 @@ const STAKE_SPACING = 0.17;
 const STAKE_HEIGHT = 1.05;
 const POST_RADIUS = 0.13;
 const POST_HEIGHT = 1.3;
-const GATE_POST_HEIGHT = 1.6;
+const GATE_POST_HEIGHT = 1.42;
+/** Vantail : pieux un peu plus fins et plus courts que ceux du mur. */
+const LEAF_STAKE_RADIUS = 0.07;
+const LEAF_STAKE_HEIGHT = 0.95;
 const WOOD = new THREE.Color(0x9a6a3a);
 const WOOD_DARK = new THREE.Color(0x6e4826);
 const WOOD_TIP = new THREE.Color(0xc89a62);
@@ -141,48 +150,52 @@ export function buildPalisadeSegment(s: WallSegment): THREE.Group {
   return group;
 }
 
-/** Battant de porte : planches verticales, deux traverses et une echarpe,
- *  pivot sur le gond (x = 0), s'etend vers +X sur `width`. */
-function buildDoorLeaf(width: number, height: number, name: string): THREE.Group {
+/** Vantail de porte : rangee de pieux pointus (volumes reels, corrects des
+ *  deux cotes), deux traverses et une echarpe cote interieur (-Z local,
+ *  comme les traverses des segments) ; pivot sur le gond (x = 0), s'etend
+ *  dans le sens `dir` (+1 : vers +X, vantail gauche ; -1 : vers -X, vantail
+ *  droit) sur `width` — deux vrais vantaux, aucune face miroir. */
+function buildDoorLeaf(width: number, name: string, dir: 1 | -1): THREE.Group {
   const out = new MergedGeometry();
-  const planks = Math.max(2, Math.round(width / 0.2));
-  const plankW = width / planks;
-  for (let i = 0; i < planks; i++) {
-    const x = plankW * (i + 0.5);
-    const tint = WOOD.clone().lerp(WOOD_DARK, 0.15 + 0.2 * ((i * 7) % 3) / 3);
-    out.add(new THREE.BoxGeometry(plankW * 0.92, height, 0.07), m4.compose(new THREE.Vector3(x, height / 2, 0), q.identity(), new THREE.Vector3(1, 1, 1)), tint);
+  const count = Math.max(2, Math.round(width / STAKE_SPACING));
+  const step = width / count;
+  for (let i = 0; i < count; i++) {
+    const x = dir * (step * (i + 0.5));
+    const h = LEAF_STAKE_HEIGHT * (0.94 + 0.1 * ((i * 5) % 4) / 4);
+    const tint = WOOD.clone().lerp(WOOD_DARK, 0.1 + 0.25 * ((i * 7) % 3) / 3);
+    addStake(out, x, 0, 0, LEAF_STAKE_RADIUS, h, tint, WOOD_TIP);
   }
-  for (const y of [0.25, height - 0.25]) addRail(out, 0.02, y, width - 0.02, y, -0.06, 0.08, WOOD_DARK);
-  addRail(out, 0.05, 0.3, width - 0.05, height - 0.3, -0.07, 0.07, WOOD_DARK);
+  const inner = -LEAF_STAKE_RADIUS - 0.03;
+  for (const y of [0.28, 0.64]) addRail(out, dir * 0.03, y, dir * (width - 0.03), y, inner, 0.065, WOOD_DARK);
+  addRail(out, dir * 0.06, 0.22, dir * (width - 0.06), 0.72, inner - 0.005, 0.055, WOOD_DARK);
   const mesh = new THREE.Mesh(out.build(), woodMaterial());
   mesh.castShadow = true;
+  mesh.receiveShadow = true;
   const leaf = new THREE.Group();
   leaf.name = name;
   leaf.add(mesh);
   return leaf;
 }
 
-/** Porte de palissade occupant le segment A -> B : poteaux, linteau, deux
- *  battants (fermes ; BuildingView.setDoorOpenness les ouvre vers +Z local). */
+/** Porte de palissade occupant le segment A -> B : deux montants, dessus
+ *  ouvert, deux vantaux (fermes ; BuildingView.setDoorOpenness les fait
+ *  pivoter sur leur gond, chacun dans son sens). */
 export function buildPalisadeGate(s: WallSegment): THREE.Group {
   const { group, length, groundAt } = segmentFrame(s);
   const half = length / 2;
   const frame = new MergedGeometry();
   addPost(frame, -half, groundAt(0), s.ax, s.az, GATE_POST_HEIGHT);
   addPost(frame, half, groundAt(1), s.bx, s.bz, GATE_POST_HEIGHT);
-  const top = Math.max(groundAt(0), groundAt(1)) + GATE_POST_HEIGHT - 0.12;
-  addRail(frame, -half, top, half, top, 0, 0.12, WOOD_POST);
   const frameMesh = new THREE.Mesh(frame.build(), woodMaterial());
   frameMesh.castShadow = true;
+  frameMesh.receiveShadow = true;
   group.add(frameMesh);
   const ground = Math.min(groundAt(0), groundAt(1));
-  const leafWidth = Math.max(0.2, half - POST_RADIUS - 0.02);
-  const leafHeight = Math.max(0.6, top - ground - 0.2);
-  const left = buildDoorLeaf(leafWidth, leafHeight, 'palisade_door_left');
-  left.position.set(-half + POST_RADIUS, ground + 0.04, 0);
-  const right = buildDoorLeaf(leafWidth, leafHeight, 'palisade_door_right');
-  right.position.set(half - POST_RADIUS, ground + 0.04, 0);
-  right.rotation.y = Math.PI;
+  const leafWidth = Math.max(0.2, half - POST_RADIUS - 0.03);
+  const left = buildDoorLeaf(leafWidth, 'palisade_door_left', 1);
+  left.position.set(-half + POST_RADIUS + 0.01, ground - 0.03, 0);
+  const right = buildDoorLeaf(leafWidth, 'palisade_door_right', -1);
+  right.position.set(half - POST_RADIUS - 0.01, ground - 0.03, 0);
   group.add(left, right);
   return group;
 }

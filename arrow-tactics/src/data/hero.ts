@@ -140,7 +140,19 @@ export const BUILD_CHAIN_RADIUS = 3;
  *  collecte (l'ancienne temporisation d'une unite toutes les 0,5 s est
  *  supprimee). */
 export const PICKUP_SECONDS = 0.6;
+/** Portee de contact d'un tas : ramassage d'un tas de bois / pierre (ordre,
+ *  PICKUP_SECONDS) et, pour l'or de butin, ramassage AUTOMATIQUE du Heros au
+ *  contact (2026-11-05, sans ordre ni geste). */
 export const PICKUP_REACH = 0.5;
+
+/** Villageois autonome (2026-11-05, decision d'Antoine, sim/systems/workers.ts) :
+ *  inactif (Garde, aucune boucle de cargo) plus de WORKER_IDLE_SECONDS, il
+ *  choisit seul une source a recolter, de la ressource la moins travaillee
+ *  par les autres Villageois ; apres un echec (aucune source, source
+ *  injoignable sans rien recolter), nouvel essai apres
+ *  WORKER_AUTO_RETRY_SECONDS seulement. PROVISOIRE. */
+export const WORKER_IDLE_SECONDS = 1;
+export const WORKER_AUTO_RETRY_SECONDS = 5;
 /** Inventaire RPG du Heros (2026-11-02) : cases du sac (equipements, butin ;
  *  jamais une ressource economique, qui va dans le cargo). PROVISOIRE. */
 export const HERO_INVENTORY_SLOTS = 20;

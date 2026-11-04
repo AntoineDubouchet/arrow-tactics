@@ -1,3 +1,4 @@
+import type { ObstacleDef } from './constants';
 import type { MapDef, WallLineDef } from './mapDef';
 
 /**
@@ -25,6 +26,18 @@ import type { MapDef, WallLineDef } from './mapDef';
  * de mur. `sides` multiple de 4 : un quart de tour ramene le polygone sur
  * lui-meme, seule la porte tourne. Zone reservee = disque de `radius` +
  * STARTING_BASE_MARGIN, identique pour toute rotation.
+ *
+ * GISEMENTS GARANTIS (2026-11-05, decision d'Antoine) : le preset place dans
+ * l'enceinte au moins un gisement de pierre et un gisement d'or (`deposits`),
+ * vers la peripherie interieure, hors batiments, Baliste, porte, places
+ * d'apparition et axe de la porte, a plus d'une case de l'enceinte (aucun
+ * passage d'une case, KI-65). Ce sont des gisements ORDINAIRES (obstacles
+ * `rock` 2 x 2, pierre ou `ore: 'gold'`) : memes quantites, meme cargo, meme
+ * epuisement et memes gravats que ceux de la carte. Derives du preset comme
+ * le reste (une seule source de verite) : ajoutes a la carte a sa consommation
+ * (expandStartingBase : run, « Tester le scénario »), jamais ecrits dans une
+ * MapDef ni sauvegardes ; l'editeur les montre dans son apercu et les deplace
+ * avec le Depart.
  */
 export interface StartingBasePreset {
   id: string;
@@ -38,6 +51,9 @@ export interface StartingBasePreset {
   units: readonly { unitId: string; dx: number; dz: number }[];
   /** Apparition du Heros, relative. */
   hero: { dx: number; dz: number };
+  /** Gisements garantis dans l'enceinte : centre relatif de l'emprise 2 x 2
+   *  (demi-cases impaires : l'emprise tombe sur des cases entieres). */
+  deposits: readonly { resource: 'stone' | 'gold'; dx: number; dz: number }[];
 }
 
 /** Marge (cases) autour de l'enceinte reservee au camp de depart : ni camp,
@@ -65,6 +81,14 @@ export const STARTING_BASE_PRESETS: Readonly<Record<string, StartingBasePreset>>
       { unitId: 'villageois', dx: 2.5, dz: 3.5 },
     ],
     hero: { dx: 0, dz: 3 },
+    // Pierre au nord-est (derriere l'Auberge, cote oppose a la porte), or
+    // au sud-ouest (cour, a l'ecart de l'axe de la porte et des places
+    // d'apparition) ; coins a ~8,5 cases du centre pour ~1,6 case libre
+    // devant l'enceinte (apotheme 10,14). PROVISOIRE.
+    deposits: [
+      { resource: 'stone', dx: 4.5, dz: -5.5 },
+      { resource: 'gold', dx: -4.5, dz: 5.5 },
+    ],
   },
 };
 
@@ -101,6 +125,8 @@ export interface StartingBaseLayout {
   walls: WallLineDef[];
   units: { unitId: string; x: number; z: number }[];
   hero: { x: number; z: number };
+  /** Gisements garantis (centre monde de l'emprise 2 x 2). */
+  deposits: { resource: 'stone' | 'gold'; x: number; z: number }[];
   /** Boite englobante de l'enceinte (sans marge). */
   bounds: StartingBaseRect;
   /** Zone reservee : enceinte + STARTING_BASE_MARGIN. */
@@ -173,6 +199,7 @@ export function startingBaseLayoutAt(origin: { x: number; z: number }, presetId:
     }),
     units: p.units.map((u) => ({ unitId: u.unitId, ...at(u.dx, u.dz) })),
     hero: at(p.hero.dx, p.hero.dz),
+    deposits: p.deposits.map((d) => ({ resource: d.resource, ...at(d.dx, d.dz) })),
     bounds: { minX: origin.x - r, maxX: origin.x + r, minZ: origin.z - r, maxZ: origin.z + r },
     reserved: startingBaseReservedAt(origin, presetId),
   };
@@ -235,13 +262,22 @@ export function startingBaseLayoutOf(map: Pick<MapDef, 'ballista' | 'survivalRul
   return startingBaseLayoutAt(map.ballista, preset, map.startingBase?.rotation ?? 0);
 }
 
+/** Gisements garantis d'un camp derive, sous forme d'obstacles ordinaires
+ *  de carte (`rock` 2 x 2, `ore: 'gold'` pour l'or ; coin = centre - 1) :
+ *  memes sources que les gisements generes (config/resourceNodes.ts). */
+export function startingBaseDepositObstacles(layout: StartingBaseLayout): ObstacleDef[] {
+  return layout.deposits.map((d) => ({ kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: Math.round(d.x - 1), cornerZ: Math.round(d.z - 1), ...(d.resource === 'gold' ? { ore: 'gold' as const } : {}) }));
+}
+
 /** Carte prete pour le jeu : l'enceinte du camp de depart est ajoutee aux
- *  murs concrets (World / spawnMapWalls), une fois, a la consommation ; les
- *  batiments et les unites de depart sont crees par l'orchestration (run :
- *  batiments possedes et armee ; « Tester le scénario » : batiments de
- *  scenario). La carte d'origine n'est pas modifiee. */
-export function expandStartingBaseWalls(map: MapDef): MapDef {
+ *  murs concrets (World / spawnMapWalls) et ses gisements garantis aux
+ *  obstacles (sources de ressources, plateau), une fois, a la consommation ;
+ *  les batiments et les unites de depart sont crees par l'orchestration
+ *  (run : batiments possedes et armee ; « Tester le scénario » : batiments
+ *  de scenario). La carte d'origine n'est pas modifiee ; rien n'est
+ *  sauvegarde (aucun doublon au rechargement d'une carte). */
+export function expandStartingBase(map: MapDef): MapDef {
   const layout = startingBaseLayoutOf(map);
   if (!layout) return map;
-  return { ...map, walls: [...(map.walls ?? []), ...layout.walls] };
+  return { ...map, obstacles: [...map.obstacles, ...startingBaseDepositObstacles(layout)], walls: [...(map.walls ?? []), ...layout.walls] };
 }

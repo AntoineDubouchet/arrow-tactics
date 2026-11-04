@@ -94,7 +94,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G26 | Maison A/B, Sanctuaire, Écurie | Active (valeurs provisoires) |
 | G27 | Éditeur : maps authored, procédurales et hybrides | Direction active (génération faite ; mode définitif Ouvert) |
 | G28 | Auberge et Villageois : première unité économique | Active (valeurs provisoires ; transport rétabli par G32, modèle dédié) |
-| G29 | Tourbillon du Paladin (prototype) | Active (valeurs et VFX provisoires) |
+| G29 | Tourbillon du Paladin (prototype) | Active (valeurs et VFX provisoires) / Amendée par G42 (10 frappes de 35 %, lancé sans interrompre le déplacement, flash par cible) |
 | G30 | Stock direct : bois et pierre comme l'or | Remplacée le jour même (G32) |
 | G32 | Cargo économique : inventaire RPG ≠ sac de ressources ; or de gisement = cargo, or de butin = monnaie | Active (valeurs provisoires ; amendée par G33) |
 | G33 | Points de collecte spécialisés : Scierie = bois, Camp de mineur = pierre + or extrait, Baliste universelle de départ ; inventaire RPG sans ressource (KI-63) | Active (valeurs provisoires ; rôle de la Baliste à revoir) |
@@ -107,6 +107,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G39 | Générateur : gisements avant la mise en forme des forêts, aucun passage d'une case (KI-65) | Active |
 | G40 | Passe de modernisation 1 : retrait du legacy de la boucle en manches (placement, Boutique, parchemins, fin de manche, agrandissement, quota par manche, 4 talents), tests dans le dépôt | Active (2026-11-04) |
 | G41 | Passe de modernisation 2 : Forge = technologies militaires globales, améliorations d'unité = bâtiment producteur (rétroactives), recherches en temps réel par la file, Baliste depuis sa fiche, or libre, plus de pas d'ouverture ni de déblocage par victoire, plus de soin de l'armée | Active (2026-11-05, valeurs provisoires) |
+| G42 | Passe gameplay : Villageois autonomes (idle > 1 s, ressource la moins travaillée), Tourbillon compatible avec le déplacement (10 tics / 5 s, 35 %, flash par tic), or de butin ramassé au contact du Héros, Porte de palissade refaite (sans arche, deux vrais vantaux), pierre + or garantis dans le camp de départ | Active (2026-11-05, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -1921,10 +1922,11 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     (`'cooldown'`) ;
   - rotation à 5 tours/s et effet circulaire (arcs de taille, cercle de
     zone), demande d'Antoine du 2026-11-03 (« pas assez visuel ») ;
-  - la commande de lancement remplace l'ordre en cours : le Héros
-    s'arrête, puis un clic droit le fait bouger sans couper l'effet ;
+  - (remplacé par G42) la commande de lancement remplaçait l'ordre en
+    cours : le Héros s'arrêtait ; depuis le 2026-11-05 l'ordre et le
+    chemin sont conservés ;
   - à la fin, l'attaque de base peut reprendre dans le même pas que la
-    5e frappe ;
+    dernière frappe ;
   - ramassage, coffres et dépôt sont aussi refusés pendant l'effet (même
     règle que le travail).
 - **Sources** : `data/spells.ts`, `sim/systems/hero.ts`,
@@ -2430,6 +2432,94 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `editor/mapSerializer.ts`, `main.ts`, `ui/style.css`.
 
 ---
+
+### G42 — Passe gameplay du 2026-11-05 : Villageois autonomes, Tourbillon, or au contact, porte, gisements du camp
+
+- **Statut** : Active (2026-11-05). Valeurs **PROVISOIRES**.
+- **Décisions d'Antoine** (2026-11-05) :
+  - **Villageois idle > 1 s → travail autonome**, priorité à la ressource
+    **la moins travaillée** par les autres Villageois (bois, pierre, or ;
+    comptés en récolte, dépôt ou retour vers cette ressource ; jamais le
+    Héros ni un Villageois libre) ; égalités : source valide la plus
+    proche, puis identifiant ; déterministe, sans `Math.random` ; aucun
+    rééquilibrage une fois affecté (il garde son cycle) ; tout ordre du
+    joueur reste prioritaire, autonomie 1 s après sa fin ; sans source :
+    inactif, nouvel essai périodique seulement ;
+  - **Tourbillon compatible avec le déplacement** : lancé sans
+    interrompre l'ordre en cours (ordre et chemin conservés, aucun
+    `move` recréé), tout le reste inchangé (5 s, mobile, mort = fin,
+    recharge 15 s à la fin, snapshot, rayon 2,25, cibles, blocages des
+    autres actions) ; **10 tics / 5 s** (toutes les 0,5 s, aucun à t = 0),
+    **35 %** des dégâts d'attaque figés par tic (350 % sur la durée ;
+    avant : 5 × 75 %) ; **flash blanc normal sur chaque cible à chaque
+    tic** (pipeline de dégâts normal, pas de hack de rendu) ; VFX conservé
+    (pulse au rythme des tics) ;
+  - **or de butin : ramassage automatique du Héros au contact** (corps +
+    rayon de collecte), monnaie créditée aussitôt, pile supprimée ; plus
+    de geste de 0,6 s, ni barre, ni ordre obligatoire (un clic droit sur
+    la pile n'y envoie que le Héros) ; seul le Héros (les Villageois ne
+    détournent pas leur boucle) ; l'or **extrait** d'un gisement reste du
+    cargo (`minedGold` → dépôt) ;
+  - **Porte de palissade refaite** : nouveau visuel simple, bois brut,
+    pieux verticaux, traverses et écharpe, **sans arche ni poutre haute**
+    (dessus ouvert entre deux montants), **deux vrais vantaux** gauche /
+    droite, aucune face miroir ; règles de jeu intactes (collision,
+    ouverture, fermeture, passage allié, blocage ennemi, construction,
+    réparation, PV, largeur) ; animation et pivots conservés ;
+  - **camp de départ : pierre + or garantis dans l'enceinte**, accessibles
+    tout de suite, vers la périphérie intérieure, hors bâtiments / Baliste
+    / porte / places d'apparition / axe de la porte, sans se chevaucher ni
+    gêner la circulation ni la construction ; dérivés du preset
+    `basic-camp` (même source de vérité que la Baliste, l'Auberge, les
+    Maisons, les Villageois et la Palissade), **jamais écrits dans les
+    maps** (aucun doublon à l'export, au rechargement, en « Tester le
+    scénario ») ; même chose en run, en test et dans l'aperçu de
+    l'éditeur, où ils suivent le Départ ; gisements ordinaires (quantité,
+    cargo, épuisement, gravats, cases libérées).
+- **Choix de la passe** :
+  - `WorkerState.idleSeconds / autoRetryIn / autoNodeId / autoWorked` ;
+    `WORKER_IDLE_SECONDS` = 1, `WORKER_AUTO_RETRY_SECONDS` = 5 ; une source
+    choisie qui n'a rien donné est évitée à l'essai suivant (seule
+    protection contre une source injoignable, sans pathfinding
+    spéculatif) ; un Stop du joueur compte comme un ordre terminé ;
+  - `HeroState.pendingWhirlwind` posé par `applyCommands`, démarré par
+    `heroWhirlwindSystem` au même pas (après les frappes du pas : la
+    première frappe tombe exactement 0,5 s après le lancement) ;
+  - or au contact dans `heroWorkSystem` (avant tout travail), portée
+    `rayon + PICKUP_REACH` (0,5) ; `cargoWork` ne ramasse plus l'or ;
+  - porte : `GATE_POST_HEIGHT` 1,42, vantaux de pieux (rayon 0,07,
+    hauteur 0,95) ; le vantail droit s'étend vers −X dans son repère au
+    lieu d'être tourné de π ;
+  - gisements du camp : `preset.deposits` (pierre à (4,5 ; −5,5), or à
+    (−4,5 ; 5,5) en local, coins à ≈ 8,5 cases du centre, ≈ 1,6 case libre
+    devant l'enceinte, aucun passage d'une case), `expandStartingBase`
+    remplace `expandStartingBaseWalls` ; l'éditeur compte leurs cases dans
+    la validation du Départ.
+- **Changements de ressenti signalés** : les Villageois de départ se
+  mettent au travail seuls (bois d'abord s'il est le plus proche, puis
+  pierre et or) ; le Tourbillon frappe plus souvent et moins fort (total
+  350 % au lieu de 375 %) et ne stoppe plus le Héros ; l'or se ramasse en
+  passant ; deux gisements de plus près de la Baliste au départ (25 or et
+  40 pierre en plus, à portée immédiate).
+- **Filet de sécurité** : `tests/sim/villageois-autonomie.mts`,
+  `tests/sim/or-butin.mts`, `tests/sim/tourbillon.mts` (mis à jour : 10
+  tics, lancement en marchant), `tests/sim/depart-camp.mts` (gisements
+  garantis, 12 graines), `tests/sim/cargo.mts` (fenêtres d'observation
+  sous 1 s) ; en jeu : `tests/game/porte-jeu.cjs` (structure, captures),
+  `tests/game/tourbillon-jeu.cjs` (flash par cible, déplacement conservé),
+  `tests/game/depart-jeu.cjs` et `tests/game/editeur-procedural.cjs`
+  (gisements du camp, aperçu, déplacement du Départ, sauvegarde).
+- **À ne pas faire** : ne pas faire changer de ressource un Villageois en
+  cours de cycle ; ne pas recréer d'ordre `move` au lancement du
+  Tourbillon ; ne pas faire ramasser l'or de butin par les Villageois ; ne
+  pas écrire les gisements du camp dans une `MapDef` ; ne pas remettre de
+  linteau à la porte.
+- **Sources** : `sim/systems/workers.ts`, `sim/systems/hero.ts`,
+  `sim/systems/cargo.ts`, `sim/orders.ts`, `sim/entity.ts`,
+  `data/spells.ts`, `data/hero.ts`, `render/palisade.ts`,
+  `config/startingBase.ts`, `editor/editorState.ts`, `main.ts`,
+  `CURRENT_STATE.md` §6 bis, §6 nonies, §6 decies, §6 octies, §6
+  duodecies, `ARCHITECTURE.md` §13 decies, §13 sedecies.
 
 ## H. Outils internes
 

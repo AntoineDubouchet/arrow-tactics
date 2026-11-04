@@ -206,6 +206,19 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       h.repairJob = { repairId: e.order.repairId, targetId: e.order.targetEntityId, budgetHp: e.order.budgetHp, restoredHp: 0 };
     }
     if (!e.alive) continue;
+    // Or de butin au sol (2026-11-05, decision d'Antoine) : ramasse
+    // AUTOMATIQUEMENT au contact du corps du Heros (rayon + PICKUP_REACH),
+    // sans ordre, sans geste ni duree, sans arret : monnaie directe
+    // (evenement lootGold). Un ordre `pickup` sur ce tas ne sert qu'a y
+    // marcher et s'acheve ici. Jamais le Villageois (sim/systems/cargo.ts).
+    for (const pile of work.piles) {
+      if (pile.resource !== 'gold' || pile.amount <= 0) continue;
+      if (Math.hypot(pile.x - e.x, pile.z - e.z) > e.stats.radius + PICKUP_REACH) continue;
+      const amount = pile.amount;
+      pile.amount = 0;
+      cargoEvents.push({ type: 'lootGold', entityId: e.id, pileId: pile.id, amount });
+      if (e.order.type === 'pickup' && e.order.pileId === pile.id) e.order = { type: 'guard' };
+    }
     const goal = workGoal(e, work, byId);
     // Recolte, tas, depot : cargo economique partage avec le Villageois
     // (sim/systems/cargo.ts, 2026-11-03) ; il gere lui-meme la perte de sa
@@ -335,17 +348,6 @@ function startSpell(e: Entity, order: Extract<UnitOrder, { type: 'cast' }>, byId
     return;
   }
   h.mana -= spell.manaCost;
-  if (spell.whirlwind) {
-    // Tourbillon (2026-11-03) : mana pris une fois, jamais rendu ; degats
-    // d'attaque finaux (niveau, equipement) figes maintenant ; le Heros
-    // repasse en Garde et peut recevoir des ordres de deplacement.
-    const w = spell.whirlwind;
-    h.whirlwind = { spellId: spell.id, elapsed: 0, pulses: 0, snapshotAttackDamage: e.stats.damage, durationSeconds: w.durationSeconds, pulseSeconds: w.pulseSeconds, radiusTiles: w.radiusTiles, damageRatio: w.damageRatio, cooldownSeconds: spell.cooldownSeconds ?? 0 };
-    e.pendingAttack = null;
-    e.order = { type: 'guard' };
-    events.push({ type: 'spellStart', heroId: e.id, spellId: spell.id, targetId: e.id });
-    return;
-  }
   h.spellCast = { spellId: spell.id, targetId: target.id, manaSpent: spell.manaCost, order };
   e.cast = {
     targetX: target.x,
@@ -362,14 +364,23 @@ function startSpell(e: Entity, order: Extract<UnitOrder, { type: 'cast' }>, byId
 
 /**
  * Tourbillon (2026-11-03), avant le travail du Heros, apres le deplacement :
- * le temps avance dans le pas fixe ; frappe n a `n * pulseSeconds` (1, 2, 3,
- * 4, 5 s : exactement 5 frappes), a la position du Heros ; fin apres la
- * derniere. Chaque frappe touche une fois chaque hostile vivant (ni allie, ni
- * objet destructible, ni batiment non ciblable) dont le corps est a
- * `radiusTiles`, pour `snapshotAttackDamage * damageRatio`, par
- * applyDamageToEntity. Heros mort : fin immediate, aucune frappe.
+ * le temps avance dans le pas fixe ; frappe n a `n * pulseSeconds` (0,5 ;
+ * 1 ; ... 5 s : exactement 10 frappes depuis le 2026-11-05, jamais a t = 0),
+ * a la position du Heros ; fin apres la derniere. Chaque frappe touche une
+ * fois chaque hostile vivant (ni allie, ni objet destructible, ni batiment
+ * non ciblable) dont le corps est a `radiusTiles`, pour
+ * `snapshotAttackDamage * damageRatio`, par applyDamageToEntity (meme
+ * pipeline de degats que tout coup : l'orchestration en tire le meme flash
+ * blanc, par cible touchee). Heros mort : fin immediate, aucune frappe.
  * Fin (terminee ou mort) : la recharge du sort commence (2026-11-03) ; les
  * recharges de chaque Heros avancent ici, vivant ou a terre.
+ *
+ * Lancement (2026-11-05) : demande par sim/orders.ts (Entity.hero
+ * .pendingWhirlwind) et demarre ICI, apres les frappes du pas, SANS toucher a
+ * l'ordre en cours : un Heros en deplacement continue vers sa destination
+ * avec son chemin ; mana pris une fois, jamais rendu ; degats d'attaque
+ * finaux (niveau, equipement) figes au lancement ; l'attaque de base en
+ * cours est abandonnee. Heros a terre : demande oubliee.
  */
 export function heroWhirlwindSystem(entities: Entity[], dt: number, events: HeroEvent[]): void {
   for (const e of entities) {
@@ -381,7 +392,10 @@ export function heroWhirlwindSystem(entities: Entity[], dt: number, events: Hero
       else h.spellCooldowns[id] = left;
     }
     const w = h.whirlwind;
-    if (!w) continue;
+    if (!w) {
+      startPendingWhirlwind(e, events);
+      continue;
+    }
     if (!e.alive) {
       h.whirlwind = null;
       if (w.cooldownSeconds > 0) h.spellCooldowns[w.spellId] = w.cooldownSeconds;
@@ -409,7 +423,32 @@ export function heroWhirlwindSystem(entities: Entity[], dt: number, events: Hero
       if (w.cooldownSeconds > 0) h.spellCooldowns[w.spellId] = w.cooldownSeconds;
       events.push({ type: 'whirlwindEnd', heroId: e.id, reason: 'done' });
     }
+    // Une demande recue pendant l'effet a ete refusee par les commandes
+    // (channeling) ; par securite, rien ne demarre a ce pas.
+    h.pendingWhirlwind = null;
   }
+}
+
+/** Demarre le Tourbillon demande pendant ce pas (voir heroWhirlwindSystem) :
+ *  mana verifie au moment du lancement (sinon spellCancel `no-mana`, rien
+ *  ne part), compte a rebours a 0 (premiere frappe a pulseSeconds). */
+function startPendingWhirlwind(e: Entity, events: HeroEvent[]): void {
+  const h = e.hero!;
+  const spellId = h.pendingWhirlwind;
+  if (spellId === null) return;
+  h.pendingWhirlwind = null;
+  if (!e.alive) return;
+  const spell = h.spells.find((s) => s.id === spellId);
+  const w = spell?.whirlwind;
+  if (!spell || !w) return;
+  if (h.mana < spell.manaCost) {
+    events.push({ type: 'spellCancel', heroId: e.id, spellId: spell.id, reason: 'no-mana', refunded: 0 });
+    return;
+  }
+  h.mana -= spell.manaCost;
+  h.whirlwind = { spellId: spell.id, elapsed: 0, pulses: 0, snapshotAttackDamage: e.stats.damage, durationSeconds: w.durationSeconds, pulseSeconds: w.pulseSeconds, radiusTiles: w.radiusTiles, damageRatio: w.damageRatio, cooldownSeconds: spell.cooldownSeconds ?? 0 };
+  e.pendingAttack = null;
+  events.push({ type: 'spellStart', heroId: e.id, spellId: spell.id, targetId: e.id });
 }
 
 /** Annule l'incantation en cours : aucun effet, mana retenu rendu. */

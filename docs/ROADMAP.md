@@ -462,7 +462,8 @@ Wall V1 supprimé et Palissade V2 construite le 2026-11-02
   palissade → pierre ;
 - porte : ouverture automatique pour les alliés, verrouillage, passage
   réservé à un camp ; vagues qui cherchent une porte ouverte ou un détour
-  (KI-55) ;
+  (KI-55) ; visuel refait le 2026-11-05 (G42 : sans arche, deux vrais
+  vantaux), à juger en jeu ;
 - éditeur : retirer une porte, déplacer une extrémité (KI-56) ;
 - visuel définitif (asset acheté ou modélisé) ; traverses qui suivent le
   relief (KI-57) ; instancing si les murs se comptent par centaines
@@ -530,7 +531,11 @@ Construit le 2026-11-02 (`DESIGN_DECISIONS.md` G17 à G20). Parking :
 Inventaire unique, or physique et Héros permanent construits le 2026-11-02
 (`DESIGN_DECISIONS.md` G15). À faire :
 
-- tas d'or : fusion / disparition / aimant si accumulation (KI-47) ;
+- tas d'or : fusion / disparition / aimant si accumulation (KI-47 ;
+  ramassage au contact du Héros depuis le 2026-11-05, G42) ;
+- Villageois autonomes (G42) : affiner après playtest (rayon de recherche,
+  pondération par distance, dépôt prioritaire, extension au ramassage des
+  tas de bois / pierre, sources épuisées) ;
 - contrôle Héros + armée, groupes (une unité sélectionnée reçoit les ordres : voulu) ;
 - consommables dans l'inventaire (cases déjà génériques) ;
 - vitesse caméra : autres déplacements au clavier s'ils sont ajoutés.

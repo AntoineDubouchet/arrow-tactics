@@ -496,7 +496,7 @@ export class World {
       neutralProgressZ: z,
       neutralStuckTimer: 0,
       hero: null,
-      worker: def.worker ? { working: null, workTimer: 0 } : null,
+      worker: def.worker ? { working: null, workTimer: 0, idleSeconds: 0, autoRetryIn: 0, autoNodeId: null, autoWorked: false } : null,
       // Cargo economique : Villageois des sa creation ; Heros dans spawnHero.
       cargo: def.worker ? { ...createCargo(CARGO_CAPACITY.villageois), returnTo: null, auto: false } : null,
       construction: null,
@@ -822,6 +822,7 @@ export class World {
       spells: kit.spells,
       spellCast: null,
       whirlwind: null,
+      pendingWhirlwind: null,
       spellCooldowns: {},
       baseMaxMana: kit.maxMana,
       baseManaRegen: kit.manaRegen,

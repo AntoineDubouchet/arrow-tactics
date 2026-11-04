@@ -518,9 +518,11 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 - **Statut** : limite assumée (2026-11-02).
 - **Constat** : chaque ennemi abattu laisse un tas d'or ; un tas non
   ramassé reste jusqu'à la fin de la run (`World.resourcePiles` grandit
-  d'une entrée par mort, parcourue chaque frame par le rendu). Sans effet
-  mesurable aux volumes actuels ; à revoir (fusion des tas proches,
-  disparition, aimant) si les vagues grossissent.
+  d'une entrée par mort, parcourue chaque frame par le rendu). Depuis le
+  2026-11-05 (G42) le Héros les ramasse au contact en passant, ce qui
+  réduit l'accumulation sans la supprimer. Sans effet mesurable aux
+  volumes actuels ; à revoir (fusion des tas proches, disparition, aimant)
+  si les vagues grossissent.
 
 ### KI-51 — Baril dans l'éditeur
 

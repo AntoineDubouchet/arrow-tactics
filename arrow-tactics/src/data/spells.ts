@@ -13,10 +13,12 @@ export type SpellTargeting = 'self-or-ally' | 'self';
 
 /** Tourbillon (2026-11-03) : effet canalise SUR le Heros, sans incantation ;
  *  une frappe de zone toutes les `pulseSeconds` pendant `durationSeconds`
- *  (premiere a `pulseSeconds`, derniere a la fin : 5 frappes pour 5 s / 1 s),
- *  `damageRatio` des degats d'attaque du Heros FIGES au lancement, sur les
- *  hostiles a `radiusTiles` (bord du corps). Le Heros peut se deplacer ; ni
- *  attaque de base, ni autre sort, ni travail pendant l'effet. */
+ *  (premiere a `pulseSeconds`, jamais a t = 0, derniere a la fin : 10
+ *  frappes pour 5 s / 0,5 s depuis le 2026-11-05), `damageRatio` des degats
+ *  d'attaque du Heros FIGES au lancement, sur les hostiles a `radiusTiles`
+ *  (bord du corps). Lance SANS interrompre l'ordre en cours : un Heros en
+ *  deplacement continue vers sa destination (2026-11-05) ; ni attaque de
+ *  base, ni autre sort, ni travail pendant l'effet. */
 export interface WhirlwindEffect {
   durationSeconds: number;
   pulseSeconds: number;
@@ -69,11 +71,12 @@ export const SPELLS = {
     icon: 'paladin_heal',
   },
   // Tourbillon (2026-11-03, demande d'Antoine) : prototype ; recharge de 15 s
-  // a partir de la fin de l'effet. Valeurs PROVISOIRES.
+  // a partir de la fin de l'effet. 2026-11-05 : 10 frappes de 35 % (350 %
+  // sur 5 s, contre 5 x 75 % avant). Valeurs PROVISOIRES.
   whirlwind: {
     id: 'whirlwind',
     name: 'Tourbillon',
-    description: 'Tournoie 5 s : une frappe par seconde sur les ennemis à 2,25 cases (75 % des dégâts d’attaque figés au lancement). Déplacement possible ; ni attaque ni autre sort pendant l’effet.',
+    description: 'Tournoie 5 s sans s’arrêter : une frappe toutes les 0,5 s sur les ennemis à 2,25 cases (35 % des dégâts d’attaque figés au lancement). Déplacement libre ; ni attaque ni autre sort pendant l’effet.',
     manaCost: 15,
     castSeconds: 0,
     healAmount: 0,
@@ -81,7 +84,7 @@ export const SPELLS = {
     endRangeMarginTiles: 0,
     targeting: 'self',
     icon: 'paladin_whirlwind',
-    whirlwind: { durationSeconds: 5, pulseSeconds: 1, radiusTiles: 2.25, damageRatio: 0.75 },
+    whirlwind: { durationSeconds: 5, pulseSeconds: 0.5, radiusTiles: 2.25, damageRatio: 0.35 },
     cooldownSeconds: 15,
   },
 } as const satisfies Record<string, SpellDef>;

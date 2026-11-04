@@ -105,22 +105,24 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
 }
 
 // 6. Villageois : Stop pendant la recolte ; ordre manuel pendant le trajet de depot (boucle annulee, cargo garde).
+// 2026-11-05 : un Villageois inactif redevient autonome apres 1 s (villageois-autonomie.mts) : les fenetres
+// d'observation restent sous 1 s apres la fin de l'ordre manuel.
 {
   const { w, node, u } = setup('villageois', 'wood');
   w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: node.id });
   for (let i = 0; i < 30 * 4; i++) w.step(DT);
   w.issueCommand({ kind: 'stop', entityIds: [u.id] });
   let after = 0;
-  for (let i = 0; i < 30 * 3; i++) { w.step(DT); if (u.order.type === 'harvest') after++; }
+  for (let i = 0; i < 25; i++) { w.step(DT); if (u.order.type === 'harvest') after++; }
   const kept = cargo(u);
-  check('Stop pendant la recolte : plus de recolte, cargo garde (2 bois)', after === 0 && u.worker.working === null && kept.wood === 2, { after, kept });
+  check('Stop pendant la recolte : plus de recolte (0,8 s observees, avant l autonomie), cargo garde (2 bois)', after === 0 && u.worker.working === null && kept.wood === 2, { after, kept });
   w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: node.id });
   for (let i = 0; i < 30 * 30 && u.order.type !== 'deposit'; i++) w.step(DT);
   const onWay = u.order.type === 'deposit';
   w.issueCommand({ kind: 'move', entityIds: [u.id], x: u.x + 2, z: u.z + 2 });
   let seen: string[] = [];
-  for (let i = 0; i < 30 * 6; i++) { w.step(DT); if (seen[seen.length - 1] !== u.order.type) seen.push(u.order.type); }
-  check('ordre manuel pendant le trajet de depot : boucle annulee (ni depot ni retour), cargo garde (5)', onWay && !seen.includes('deposit') && !seen.includes('harvest') && cargoTotal(u.cargo) === 5 && u.cargo.returnTo === null, { onWay, seen, cargo: cargo(u) });
+  for (let i = 0; i < 30; i++) { w.step(DT); if (seen[seen.length - 1] !== u.order.type) seen.push(u.order.type); }
+  check('ordre manuel pendant le trajet de depot : boucle annulee (ni depot ni retour pendant la seconde observee), cargo garde (5)', onWay && !seen.includes('deposit') && !seen.includes('harvest') && cargoTotal(u.cargo) === 5 && u.cargo.returnTo === null, { onWay, seen, cargo: cargo(u) });
 }
 
 // 7. Source epuisee (Villageois) : depot du cargo puis source voisine ; Heros : depot puis Garde.

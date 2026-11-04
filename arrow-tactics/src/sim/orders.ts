@@ -249,7 +249,7 @@ export function finishOrder(entity: Entity, events: OrderEndEvent[], outcome: Or
  * comportement serait suivi vers la mauvaise destination, et la premiere
  * mesure de progres comparerait une distance perimee.
  */
-function resetNavigation(entity: Entity): void {
+export function resetNavigation(entity: Entity): void {
   entity.targetId = null;
   entity.path = null;
   entity.pathGoalTileX = null;
@@ -462,6 +462,16 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
         accepted.splice(0, accepted.length, ...casters);
         if (accepted.length === 0) {
           result.rejection = channeling ? 'channeling' : coolingDown ? 'cooldown' : lacksMana ? 'no-mana' : 'invalid-target';
+          continue;
+        }
+        // Tourbillon (2026-11-05) : lance SANS remplacer l'ordre en cours
+        // (deplacement conserve, chemin conserve) ; heroWhirlwindSystem le
+        // demarre a ce pas. Rien d'autre ne change pour ces Heros.
+        if (accepted.every((e) => e.hero!.spells.find((s) => s.id === command.spellId)!.whirlwind)) {
+          for (const e of accepted) {
+            e.hero!.pendingWhirlwind = command.spellId;
+            result.acceptedEntityIds.push(e.id);
+          }
           continue;
         }
         order = { type: 'cast', spellId: command.spellId, targetEntityId: command.targetEntityId };

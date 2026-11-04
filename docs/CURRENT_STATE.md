@@ -1219,9 +1219,11 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
   cases), puis cases libres ; sac plein : ramassage **partiel**, le reste
   reste au sol ; un équipement exige une case libre ; rien ne disparaît ;
 - **or** : depuis le 2026-11-03, l'or est une **monnaie** (§6 nonies) : un
-  tas d'or au sol se ramasse **d'un clic droit, instantanément**, sans
-  déplacement, sans sac ni dépôt. (Avant : or physique porté puis déposé à
-  la Baliste.) Ennemis : tas à leur mort
+  tas d'or au sol est **ramassé automatiquement par le Héros au contact**
+  (2026-11-05, G42 : corps + 0,5 case ; aucun ordre, aucun geste, aucun
+  arrêt, aucune barre ; un clic droit sur le tas ne sert qu'à y marcher),
+  crédité aussitôt, sans sac ni dépôt ; jamais par un Villageois. (Avant :
+  geste de ramassage de 0,6 s sur ordre.) Ennemis : tas à leur mort
   (`ENEMY_GOLD_DROPS`, RNG du monde ; plus de prime versée au stock ; talent
   « Butin de guerre » : +1 par tas). Camp nettoyé : 8 / 15 or en tas de 5
   près du feu. **Exceptions** (versées au stock) : Mine (infrastructure,
@@ -1412,9 +1414,10 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
 - **Or = monnaie** : `RunState.gold`, jamais un objet du sac (le sac ne
   contient que bois et pierre ; aucune case d'or). Affiché sous la grille de
   l'inventaire (« 🪙 N », même valeur que le HUD). Tas d'or au sol (ennemis,
-  camps nettoyés, barils) : depuis le 2026-11-03 (fin de journée), **le
-  Héros va le ramasser** comme un tas de bois (geste de ramassage), puis
-  l'or est crédité (avant : crédit immédiat au clic, sans déplacement).
+  camps nettoyés, barils) : depuis le 2026-11-05 (G42), **ramassé
+  automatiquement par le Héros au contact**, sans geste ni arrêt ; un clic
+  droit dessus ne fait que l'y envoyer (avant : geste de ramassage de
+  0,6 s ; avant encore : crédit immédiat au clic, sans déplacement).
   Mine inchangée (versement toutes les
   60 s). Toutes les dépenses lisent le même or.
 - **Gisement d'or** : gros rocher (« Rocher E ») veiné d'or, 2 × 2,
@@ -1469,11 +1472,23 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   la fin du travail ; l'estoc du set sert de coup de hache / de pioche ;
   ramassage d'un tas et dépôt sur la pose de repos (aucun geste dédié,
   KI-64). Se sélectionne et se commande comme une unité. **Clic droit**
-  sur un arbre, un gisement de pierre ou d'or : récolte (même permission
-  que le Héros : bois et pierre dès le départ, or avec une Forge
-  terminée) ; deux Villageois sont présents dès le départ (camp de départ,
-  §6 duodecies) ; sur un tas de bois / pierre :
-  ramassage ; sur un point de collecte qui accepte ce qu'il porte : dépôt.
+  sur un arbre, un gisement de pierre ou d'or : récolte (bois, pierre et or
+  dès le départ, comme le Héros) ; deux Villageois sont présents dès le
+  départ (camp de départ, §6 duodecies) ; sur un tas de bois / pierre :
+  ramassage (jamais un tas d'or, réservé au Héros) ; sur un point de
+  collecte qui accepte ce qu'il porte : dépôt.
+  **Autonomie** (2026-11-05, G42, `sim/systems/workers.ts`) : un Villageois
+  réellement inactif — en Garde, sans ordre du joueur, sans boucle de cargo
+  — pendant plus de **1 s** se choisit seul une source : la ressource
+  (bois, pierre, or) la **moins travaillée** par les autres Villageois
+  (comptés en récolte, en dépôt ou en retour vers une source de cette
+  ressource ; jamais le Héros ni un Villageois libre) ; à égalité, la
+  source valide la plus proche, puis l'identifiant le plus bas (aucun
+  hasard). Il garde ensuite son cycle sans rééquilibrage ; tout ordre du
+  joueur reste prioritaire, et il redevient autonome 1 s après la fin d'un
+  ordre manuel (un Stop compris). Sans source valide, ou si la source
+  choisie n'a rien donné (injoignable) : il reste inactif et réessaie
+  5 s plus tard, en évitant cette source.
   Cargo de **5** (§6 undecies) : plein → dépôt automatique au point de
   collecte le plus proche (Scierie pour le bois, Camp de mineur pour la
   pierre et l'or, Baliste sinon) → retour à la source. Source
@@ -1490,21 +1505,28 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G29) :
 - **15 mana**, retirés une fois au lancement, jamais rendus ; refus si le
   mana est insuffisant.
 - **Recharge de 15 s** (demande d'Antoine) qui commence quand l'effet
-  **s'arrête** (5e frappe ou mort du Héros), jamais au lancement ; elle
+  **s'arrête** (10e frappe ou mort du Héros), jamais au lancement ; elle
   court aussi pendant la résurrection. Case grisée avec les secondes
   restantes au centre, infobulle « Recharge : N s ».
-- **5 s**, **5 frappes** à 1, 2, 3, 4 et 5 s après le lancement (pas fixe de
-  la simulation), puis fin. Chaque frappe touche **une fois** chaque
-  hostile vivant dont le corps est à **2,25 cases** (ni le Héros, ni les
-  alliés, ni les barils, ni un bâtiment non ciblable), pour **75 % des
-  dégâts d'attaque finaux figés au lancement** (niveau et équipement ; un
-  changement d'équipement pendant l'effet ne change rien), par
-  `applyDamageToEntity` (morts et XP comme d'habitude).
-- Pendant l'effet : le Héros **peut se déplacer** (un clic droit ne coupe
-  pas l'effet, qui suit le Héros) ; **pas** d'attaque de base, de Soin,
-  d'autre sort, de récolte, de construction, de réparation, de ramassage
-  (« Tourbillon en cours »). À la fin : contrôles normaux (l'attaque de
-  base peut reprendre dès le pas de la dernière frappe).
+- **5 s**, **10 frappes** toutes les **0,5 s** (0,5 ; 1 ; … ; 5 s après le
+  lancement, pas fixe de la simulation, jamais à t = 0 ; 2026-11-05, G42 ;
+  avant : 5 frappes à 1 s), puis fin. Chaque frappe touche **une fois**
+  chaque hostile vivant dont le corps est à **2,25 cases** (ni le Héros,
+  ni les alliés, ni les barils, ni un bâtiment non ciblable), pour **35 %
+  des dégâts d'attaque finaux figés au lancement** (350 % sur la durée ;
+  niveau et équipement ; un changement d'équipement pendant l'effet ne
+  change rien), par `applyDamageToEntity` (morts et XP comme d'habitude) ;
+  chaque cible touchée reçoit à chaque frappe le **même flash blanc** que
+  pour tout coup (par cible, pipeline de dégâts normal).
+- **Lancé sans interrompre le déplacement** (2026-11-05) : un Héros en
+  marche garde son ordre et son chemin, continue vers sa destination et ne
+  passe jamais en Garde ; le sort est demandé par la commande et démarré
+  par la simulation au même pas, sans toucher à l'ordre. Pendant l'effet :
+  déplacement libre (un clic droit ne coupe pas l'effet, qui suit le
+  Héros) ; **pas** d'attaque de base, de Soin, d'autre sort, de récolte,
+  de construction, de réparation, de ramassage (« Tourbillon en cours »).
+  À la fin : contrôles normaux (l'attaque de base peut reprendre dès le
+  pas de la dernière frappe).
 - **Mort** du Héros : arrêt immédiat, aucune frappe ensuite, aucun effet
   visuel pendant la résurrection.
 - Rendu : le modèle tourne sur lui-même à **5 tours/s** (2,5 avant ;
@@ -1513,8 +1535,9 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G29) :
   circulaire** : deux arcs de taille lumineux (lame et traînée) à hauteur
   d'arme qui tournent avec le modèle, cercle de la zone de frappe
   (2,25 cases) au sol qui palpite ; anneau de poussière, traits de vent,
-  onde brève à chaque frappe (`render/whirlwindVfx.ts`, provisoire). Ligne « Tourbillon » sous la barre de mana et barre d'action
-  globale (temps restant).
+  onde brève à chaque frappe, soit toutes les 0,5 s (`render/whirlwindVfx.ts`,
+  provisoire, inchangé). Ligne « Tourbillon » sous la barre de mana et
+  barre d'action globale (temps restant).
 
 ## 6 undecies. Cargo économique : inventaire RPG ≠ sac de ressources
 
@@ -1530,8 +1553,9 @@ le « stock direct » G30 du même jour) :
 - **Or de gisement ≠ or de butin.** L'or **extrait d'un gisement** est une
   ressource transportée (`minedGold`) : il ne devient de la monnaie qu'au
   dépôt. L'or de **butin** (monstres, coffres, barils, récompenses) reste une
-  monnaie créditée dès qu'il est récupéré : le Héros va le ramasser (geste
-  0,6 s), puis « +N or » ; il ne passe jamais dans le cargo.
+  monnaie créditée dès que le Héros le **touche** (2026-11-05 : ramassage
+  automatique au contact, sans geste ni arrêt ; « +N or ») ; il ne passe
+  jamais dans le cargo, et un Villageois ne le ramasse jamais.
 - **Récolte** (arbre : hache ; gisement de pierre ou d'or : pioche, Forge
   terminée) : chaque unité (1 / 1,5 s) entre dans le cargo, le **stock et le
   HUD ne bougent pas**. Cargo plein → **dépôt automatique** au point de
@@ -1656,8 +1680,14 @@ sur grille) est supprimé ; ses anciens murs ne sont jamais convertis.
   de la porte pour 100 % des PV).
 - **Rendu** (`render/palisade.ts`, procédural) : pieux taillés en pointe
   (hauteurs légèrement variées), deux traverses côté intérieur, poteau plus
-  massif à chaque extrémité (partagé aux jonctions) ; porte à deux battants
-  de planches, linteau. Un mesh par segment (trois par porte).
+  massif à chaque extrémité (partagé aux jonctions) ; **porte refaite le
+  2026-11-05** (G42) : deux montants un peu plus hauts, **dessus ouvert**
+  (plus de linteau ni d'arche), deux **vrais vantaux** gauche / droite de
+  pieux pointus plus courts avec deux traverses et une écharpe côté
+  intérieur, chacun construit dans son sens (aucune face miroir : volumes
+  réels corrects de l'intérieur, de l'extérieur et de côté), même famille
+  visuelle que les segments voisins ; pivot sur les gonds, animation
+  d'ouverture conservée. Un mesh par segment (trois par porte).
 - **Carte** : `MapDef.walls` enregistre chaque ligne de façon géométrique
   (famille, A, B, camp, rangs des portes) ; la segmentation est
   reconstruite au chargement. Posées bâties (portes fermées) en Survie et
@@ -1697,7 +1727,15 @@ valeurs **provisoires**) :
   enceinte **arrondie** de **Palissade V2** : dodécagone de rayon 10,5
   cases (diamètre 21, environ 330 cases dedans, 25 pièces) avec une
   **porte ouverte** de 2,4 cases au milieu d'un côté ; le milieu du camp
-  reste libre pour les constructions suivantes. Tout est terminé, à pleins PV et **gratuit** (stock
+  reste libre pour les constructions suivantes. **Gisements garantis**
+  (2026-11-05, G42) : un **gisement de pierre** (nord-est, derrière
+  l'Auberge) et un **gisement d'or** (sud-ouest, dans la cour) dans
+  l'enceinte, vers la périphérie, hors bâtiments, Baliste, porte, places
+  d'apparition et axe de la porte, à plus d'une case des murs ; gisements
+  ordinaires (quantités, cargo, épuisement, gravats identiques à ceux de la
+  carte), dérivés du preset comme le reste et ajoutés à la carte à sa
+  consommation (jamais écrits dans une `MapDef`) ; l'éditeur les affiche
+  et les déplace avec le Départ. Tout est terminé, à pleins PV et **gratuit** (stock
   de départ inchangé). Les bâtiments sont des bâtiments possédés ordinaires
   (fiche, amélioration, réparation, destruction) : l'Auberge produit des
   Villageois, les Maisons donnent leur population (Pop. 2 / 9) et la
@@ -2463,9 +2501,11 @@ méta-progression à zéro, après confirmation. Les réglages sont conservés.
 
 Accessible depuis le menu principal ; le détail d'usage est dans
 `EDITOR.md`. **2026-11-04, suite** (G38) : le **Départ Survie** porte le
-camp de départ (preset `basic-camp`) : camp dérivé affiché dans l'éditeur,
-emprise complète validée (eau, relief, arbres, gisements, objets, camps
-neutres), porte orientée automatiquement, aperçu de l'emprise au
+camp de départ (preset `basic-camp`) : camp dérivé affiché dans l'éditeur
+(gisements garantis compris depuis le 2026-11-05 : deux rochers qui
+suivent le Départ, jamais sauvegardés), emprise complète validée (eau,
+relief, arbres, gisements, objets, camps neutres), porte orientée
+automatiquement, aperçu de l'emprise au
 déplacement, clic sur une pièce du camp = Départ sélectionné ; « Tester le
 scénario » crée le même camp qu'en run. **2026-11-04** (`EDITOR.md` §1 bis, `DESIGN_DECISIONS.md`
 G34) : l'éditeur est un vrai outil de création de cartes de Survie

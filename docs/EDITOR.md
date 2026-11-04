@@ -135,7 +135,10 @@ L'éditeur n'a jamais de brouillard de guerre : toute la carte est visible
   réservée** du camp (disque : enceinte + 2 cases, rayon 12,5, vert /
   rouge) et l'enceinte. Le
   camp dérivé est **affiché** sous le marqueur (bâtiments, palissade, porte,
-  Héros, Villageois) avec le contour bleu de son emprise ; un clic sur
+  Héros, Villageois et, depuis le 2026-11-05, les **deux gisements
+  garantis** — pierre et or — qui suivent le Départ et ne sont jamais
+  enregistrés dans la carte : des rochers dérivés, pas des objets de
+  l'éditeur) avec le contour bleu de son emprise ; un clic sur
   n'importe laquelle de ses pièces sélectionne le Départ. Départ déjà
   sélectionné, un clic sur le camp (hors Baliste) le déplace à cet endroit,
   même de deux cases. La porte s'ouvre

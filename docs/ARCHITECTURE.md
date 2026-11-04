@@ -1430,7 +1430,7 @@ restent comme décors (« Obstacles / structures »).
 | `sim/geometry.ts` | `targetDistance` (portée jusqu'à la ligne d'une pièce de mur, ciblage / combat / Tour / engagement), `bodyPathNearWall`, capsule dans `findBlockingObstacle`. |
 | `sim/systems/movement.ts` | collision capsule ; `findPathFrom` (départ A* hors d'une case bloquée, du bon côté) ; `wallApproachPoint` (poursuite d'une pièce de mur : point du mur le plus proche, de son côté, loin des jonctions). |
 | `sim/systems/hero.ts` | portée de chantier jusqu'à la capsule ; enchaînement sur le segment suivant de la même ligne (A → B). |
-| `render/palisade.ts` | rendu procédural (un mesh fusionné par segment, porte : cadre + deux battants `*_door_left/right`, animés par `BuildingView.setDoorOpenness`), aperçu teinté (`tintWallGhost`). |
+| `render/palisade.ts` | rendu procédural (un mesh fusionné par segment, porte refaite le 2026-11-05 : deux montants sans linteau + deux vrais vantaux `*_door_left/right` construits chacun dans son sens, animés par `BuildingView.setDoorOpenness`), aperçu teinté (`tintWallGhost`). |
 | `main.ts` | menu Construire (`wallChoices`), mode de pose (`wallPlacement`, `runtimeWallContext`, aperçu, paiement sur le stock), vues (`wallViews`), `spawnMapWalls`, fiche « Ouvrir / Fermer » (`doorAction`, action `toggleDoor`) ; éditeur : outils `place-wall` / `place-wall-gate`, groupe `editorWallsGroup`. |
 | `editor/editorState.ts` | `walls` (historique : `objectsSnapshot`), `wallPieces`, `wallPlacementContext`, `planWallTo`, `wallClick`, `placeGateAt`, sélection `wall`. Même `core/wallLine.ts` que le jeu. |
 | `run/buildingRepair.ts` | coût de réparation d'une pièce de mur au prorata de sa longueur. |
@@ -1510,15 +1510,20 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
 - Données : `data/spells.ts` (`SpellDef.whirlwind`, `WhirlwindEffect`,
   `targeting: 'self'`), `data/heroes.ts` (Paladin : `['heal', 'whirlwind']`).
 - Simulation : `HeroState.whirlwind` (`WhirlwindState` : temps, frappes,
-  dégâts figés). `startSpell` (`sim/systems/hero.ts`) le démarre au lieu
-  d'une incantation ; `heroWhirlwindSystem` (après `movementSystem`, avant
-  `heroWorkSystem`) avance le temps et frappe par `applyDamageToEntity` ;
+  dégâts figés). Lancement (2026-11-05) : `applyCommands` (`sim/orders.ts`)
+  ne remplace PAS l'ordre du Héros pour un sort `whirlwind` : il pose
+  `HeroState.pendingWhirlwind`, que `heroWhirlwindSystem` (après
+  `movementSystem`, avant `heroWorkSystem`) démarre au même pas (mana,
+  snapshot, `spellStart`), après avoir avancé les effets en cours ; le
+  déplacement et le chemin continuent. Frappes toutes les
+  `pulseSeconds` (0,5 s, 10 par effet) par `applyDamageToEntity` ;
   `combatSystem` saute un Héros en Tourbillon ; `applyCommands` refuse
   `cast` et le travail (`'channeling'`), et un sort en recharge
   (`'cooldown'`). Recharge : `SpellDef.cooldownSeconds`,
   `HeroState.spellCooldowns` (posée à la fin de l'effet, décomptée dans
   `heroWhirlwindSystem` pour tout Héros, vivant ou à terre). Événements `spellStart`,
-  `whirlwindPulse`, `whirlwindEnd`.
+  `whirlwindPulse` (`hits` : cibles touchées, d'où le flash blanc par
+  cible dans `main.ts`, `playHitFlash`), `whirlwindEnd`.
 - Rendu : `render/whirlwindVfx.ts` (`WhirlwindEffect`, implémentation
   procédurale remplaçable, comme `LevelUpEffect`) ; rotation visuelle dans
   `UnitViews` (`whirlwindSpin`, ajoutée à `rotation.y`, jamais à
@@ -1590,9 +1595,15 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   `startingBaseRotationFor(origin, preset, isOpen)` (porte vers le côté le
   plus dégagé) ; zone réservée en **disque** (`StartingBaseDisc`,
   `startingBaseReservedAt`, `reservedCells`, `reservedContainsCell`,
-  `reservedOverlapsDisc`), `bounds` = boîte englobante ;
-  `expandStartingBaseWalls(map)` (enceinte ajoutée à
-  `MapDef.walls` à la consommation, comme `expandMapCamps`).
+  `reservedOverlapsDisc`), `bounds` = boîte englobante ; gisements
+  garantis (2026-11-05 : `preset.deposits` → `layout.deposits`,
+  `startingBaseDepositObstacles(layout)` = obstacles `rock` 2 × 2 ordinaires,
+  `ore: 'gold'` pour l'or) ;
+  `expandStartingBase(map)` (enceinte ajoutée à `MapDef.walls` et gisements
+  à `MapDef.obstacles` à la consommation, comme `expandMapCamps` ; rien
+  n'est sérialisé). Éditeur : `editorStartMarker` (`main.ts`) affiche les
+  deux rochers (`userData.startDeposit`) ; `startPlacementIssue` compte
+  leurs cases comme occupées.
   `WallLineDef.openGates` → `World.spawnWallLine(…, { openGates })`
   (`spawnMapWalls`). Consommateurs : `survivalMapFor` (murs) ;
   `applyStartingBaseToRun` (`main.ts` : bâtiments → `RunState.buildings`
@@ -1619,6 +1630,24 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   rampe ni bord), recherche fine puis repli, arbres retirés jusqu'à 2 cases
   au-delà de la clairière, écart entre camps mesuré de centre à centre ;
   `MapDef.startingBase` écrit avec la rotation choisie.
+
+## 13 sedecies. Passe gameplay du 2026-11-05 (Villageois autonomes, or au contact)
+
+- **Villageois autonomes** : `sim/systems/workers.ts` (`workerSystem`,
+  `chooseWork`) ; état dans `WorkerState` (`idleSeconds`, `autoRetryIn`,
+  `autoNodeId`, `autoWorked`) ; constantes `WORKER_IDLE_SECONDS` (1) et
+  `WORKER_AUTO_RETRY_SECONDS` (5) dans `data/hero.ts`. Inactif = ordre
+  `guard`, aucun geste, `cargo.returnTo` nul. Choix : ressource la moins
+  travaillée (recolte / dépôt / tas dont la boucle revient à une source),
+  puis source valide la plus proche, puis id ; ordre `harvest` posé
+  directement avec `resetNavigation` (exportée de `sim/orders.ts`). Aucun
+  pathfinding spéculatif : un échec (rien récolté) écarte la source au
+  prochain essai, après `WORKER_AUTO_RETRY_SECONDS`.
+- **Or de butin au contact** : `heroWorkSystem` (`sim/systems/hero.ts`),
+  avant `workGoal` : tout tas `gold` à `rayon + PICKUP_REACH` est vidé,
+  événement `lootGold` (`World.cargoEvents`, crédité par `main.ts`
+  `handleCargoEvents`), un ordre `pickup` sur ce tas s'achève ; `cargoWork`
+  ne ramasse plus l'or (un Villageois qui y est envoyé repasse en Garde).
 
 ## 14. Audio
 

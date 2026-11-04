@@ -16,7 +16,8 @@ import type { HeroWorkContext } from './hero';
  * Camp de mineur pour la pierre et l'or extrait ; aucune regle par id de
  * batiment ici). Le stock de la run ne monte qu'au depot (evenement
  * `cargoDeposit`). L'or de butin au sol (monstres, coffres, barils) n'y
- * passe jamais : monnaie directe au ramassage (evenement `lootGold`).
+ * passe jamais : monnaie directe, ramasse par le Heros au contact
+ * (sim/systems/hero.ts, evenement `lootGold`), jamais par un Villageois.
  *
  * Boucle (meme regle pour les deux unites) :
  *  - `harvest` au contact : une unite toutes les HARVEST_INTERVAL s dans le
@@ -236,13 +237,10 @@ export function cargoWork(e: Entity, goal: { reached: boolean; target: Entity | 
   if (order.type === 'pickup') {
     const pile = work.piles[order.pileId]!;
     if (pile.resource === 'gold') {
-      // Or de butin : monnaie directe, jamais dans le cargo (geste de ramassage).
-      w.working = 'gather';
-      w.workTimer += dt;
-      if (w.workTimer < PICKUP_SECONDS) return true;
-      const amount = pile.amount;
-      pile.amount = 0;
-      events.push({ type: 'lootGold', entityId: e.id, pileId: pile.id, amount });
+      // Or de butin (2026-11-05) : ramasse par le Heros au CONTACT, sans
+      // geste (sim/systems/hero.ts, avant ce travail) ; un Villageois ne le
+      // ramasse jamais (sa boucle economique n'est pas detournee) : l'ordre
+      // s'acheve ici, tas intact.
       e.order = { type: 'guard' };
       w.working = null;
       w.workTimer = 0;

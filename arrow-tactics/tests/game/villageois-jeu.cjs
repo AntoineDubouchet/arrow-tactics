@@ -20,6 +20,10 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
       if (!fl.__patched) { W.prototype.flash = function (m) { window.__flashes.push(m); return fl.call(this, m); }; W.prototype.flash.__patched = true; }
     }
     for (const e of window.__world.entities) if (e.team === 'enemy') e.stats.damage = 0;
+    // Villageois du camp (autonomes depuis le 2026-11-05, G42) tenus inactifs : seul le Villageois du test travaille.
+    const vils = window.__world.entities.filter((e) => e.worker).map((e) => e.id);
+    window.__world.issueCommand({ kind: 'stop', entityIds: vils });
+    for (const e of window.__world.entities) if (e.worker) { e.worker.autoRetryIn = 1e9; e.cargo.wood = e.cargo.stone = e.cargo.minedGold = 0; }
   });
   await p.evaluate(() => window.arrowEconomy.set({ gold: 500, wood: 100, stone: 100 }));
   const base = await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'ballista'); return { x: Math.floor(b.x), z: Math.floor(b.z) }; });
@@ -57,7 +61,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   // 2. Selection du Villageois (clic) ; arbre le plus proche.
   const tree = await p.evaluate((v) => { const w = window.__world; return [...w.resourceNodes.values()].filter((n) => n.resource === 'wood' && !w.depletedResourceNodes.has(n.id)).sort((a, b) => Math.hypot(a.x - v.x, a.z - v.z) - Math.hypot(b.x - v.x, b.z - v.z))[0]; }, vil);
   // Le Villageois est pose a 4 cases de l'arbre, cote camp, pour un trajet court.
-  await p.evaluate(([id, t]) => { const e = window.__world.getById(id); const d = Math.hypot(t.x, t.z) || 1; e.x = e.prevX = t.x - (t.x / d) * 4; e.z = e.prevZ = t.z - (t.z / d) * 4; e.order = { type: 'guard' }; }, [vil.id, tree]);
+  await p.evaluate(([id, t]) => { const e = window.__world.getById(id); const d = Math.hypot(t.x, t.z) || 1; e.x = e.prevX = t.x - (t.x / d) * 4; e.z = e.prevZ = t.z - (t.z / d) * 4; e.order = { type: 'guard' }; e.worker.autoRetryIn = 1e9; }, [vil.id, tree]);
   const vp = await p.evaluate((id) => { const e = window.__world.getById(id); return { x: e.x, z: e.z }; }, vil.id);
   await setView((vp.x + tree.x) / 2, (vp.z + tree.z) / 2, 12); await L.wait(p, 500);
   const vs = await p.evaluate(([x, z]) => window.__toScreen(x, z, window.__S.surfaceY(x, z) + 0.6), [vp.x, vp.z]);
@@ -68,9 +72,14 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
 
   // 3. Sans Forge (aucune sur la carte) : clic droit sur l'arbre -> recolte directe, aucun message Forge.
   const ttop = await p.evaluate((t) => window.__toScreen(t.x, t.z, window.__S.surfaceY(t.x, t.z) + 1.6), tree);
-  await p.mouse.click(ttop.x, ttop.y, { button: 'right' }); await L.wait(p, 4000);
+  // Tous les Villageois (celui du test compris, autonome depuis sa sortie, G42) arretes et tenus inactifs : seul
+  // l'ordre manuel qui suit doit entamer l'arbre.
+  await p.evaluate((id) => { const w = window.__world; const vils = w.entities.filter((e) => e.worker && e.alive && e.id !== id); w.issueCommand({ kind: 'stop', entityIds: vils.map((e) => e.id) }); for (const e of vils) { e.worker.autoRetryIn = 1e9; e.cargo.wood = e.cargo.stone = e.cargo.minedGold = 0; } }, vil.id); await L.wait(p, 300);
+  const treeBefore = await p.evaluate((t) => window.__world.resourceNodeAmounts.get(t.id), tree);
+  await p.mouse.click(ttop.x, ttop.y, { button: 'right' });
+  await L.wait(p, 4000);
   const noForge = await p.evaluate(([id, t]) => { const w = window.__world; const e = w.getById(id); return { forges: w.entities.filter((b) => b.unitId === 'forge').length, order: e.order.type, d: Math.hypot(e.x - t.x, e.z - t.z), working: e.worker.working, wood: e.cargo.wood, reste: w.resourceNodeAmounts.get(t.id), msg: window.__flashes.filter((m) => /Forge/.test(m)) }; }, [vil.id, tree]);
-  check('sans Forge : clic droit -> recolte directe (ordre de recolte, coupe au pied de l arbre, bois dans le cargo, arbre decompte), aucun message Forge', noForge.forges === 0 && noForge.order === 'harvest' && noForge.msg.length === 0 && noForge.d < 3 && noForge.working === 'chop' && noForge.wood >= 1 && noForge.reste === 20 - noForge.wood, noForge);
+  check('sans Forge : clic droit -> recolte directe (ordre de recolte, coupe au pied de l arbre, bois dans le cargo, arbre decompte), aucun message Forge', noForge.forges === 0 && noForge.order === 'harvest' && noForge.msg.length === 0 && noForge.d < 3 && noForge.working === 'chop' && noForge.wood >= 1 && noForge.reste === treeBefore - noForge.wood, { ...noForge, treeBefore });
 
   // 4. Toujours sans Forge : boucle complete, depot a la Baliste (+5 bois au stock), retour a l'arbre.
   const wood0 = (await p.evaluate(() => window.arrowEconomy.stock())).wood;

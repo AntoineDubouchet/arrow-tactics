@@ -29,13 +29,15 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
       houses: b('house').map((e) => e.footprintObstacle?.buildingModel), houseBuilt: b('house').every((e) => e.construction === null),
       villagers: w.entities.filter((e) => e.alive && e.unitId === 'villageois').length,
       walls: walls.length, gates: walls.filter((e) => e.wall.door).map((e) => e.wall.door.open),
+      // Gisements garantis du camp (2026-11-05) : sources dans l'enceinte.
+      deposits: [...w.resourceNodes.values()].filter((n) => Math.hypot(n.x - L.origin.x, n.z - L.origin.z) < 10).map((n) => n.resource).sort(),
       hero: { x: +h.x.toFixed(2), z: +h.z.toFixed(2), inside: h.x > L.bounds.minX && h.x < L.bounds.maxX && h.z > L.bounds.minZ && h.z < L.bounds.maxZ },
       pop: document.querySelector('.economy-hud-item--pop')?.textContent ?? '', stock: window.arrowEconomy.stock(),
       cam: { dx: +(v.targetX - h.x).toFixed(2), dz: +(v.targetZ - h.z).toFixed(2) },
     };
   });
   check('run reelle : 1 Baliste, 1 Auberge, 2 Maisons terminees (A puis B), 2 Villageois, enceinte arrondie de 25 pieces dont 1 porte OUVERTE ; Heros dans le camp ; Pop. 2 / 9 ; stock de depart inchange (0 bois, 0 pierre, 20 or) ; camera centree sur le Heros',
-    camp.layout && camp.ballista === 1 && camp.tavern === 1 && J(camp.houses) === J(['blue_home_A', 'blue_home_B']) && camp.houseBuilt && camp.villagers === 2 && camp.walls === 25 && J(camp.gates) === '[true]' && camp.hero.inside && /2\s*\/\s*9/.test(camp.pop) && camp.stock.wood === 0 && camp.stock.stone === 0 && camp.stock.gold === 20 && Math.hypot(camp.cam.dx, camp.cam.dz) < 1.5, camp);
+    camp.layout && J(camp.deposits) === J(['gold', 'stone']) && camp.ballista === 1 && camp.tavern === 1 && J(camp.houses) === J(['blue_home_A', 'blue_home_B']) && camp.houseBuilt && camp.villagers === 2 && camp.walls === 25 && J(camp.gates) === '[true]' && camp.hero.inside && /2\s*\/\s*9/.test(camp.pop) && camp.stock.wood === 0 && camp.stock.stone === 0 && camp.stock.gold === 20 && Math.hypot(camp.cam.dx, camp.cam.dz) < 1.5, camp);
   const o = camp.layout.origin;
   await L.wait(p, 800);
   await L.setView(p, { targetX: o.x, targetZ: o.z, viewHeight: 32, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 900);

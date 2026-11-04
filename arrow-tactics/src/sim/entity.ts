@@ -139,6 +139,17 @@ export interface OnHitEffects {
 export interface WorkerState {
   working: 'chop' | 'mine' | 'gather' | null;
   workTimer: number;
+  /** Autonomie (2026-11-05, sim/systems/workers.ts) : secondes
+   *  d'inactivite reelle (Garde, aucune boucle de cargo) ; au-dela de
+   *  WORKER_IDLE_SECONDS le Villageois se choisit un travail. */
+  idleSeconds: number;
+  /** Delai avant le prochain essai apres un echec (aucune source, source
+   *  injoignable) : WORKER_AUTO_RETRY_SECONDS, 0 sinon. */
+  autoRetryIn: number;
+  /** Source choisie seul (null : travail manuel ou aucun) et si elle a
+   *  reellement donne une unite (sinon : source evitee a l'essai suivant). */
+  autoNodeId: number | null;
+  autoWorked: boolean;
 }
 
 /** Cargo economique (data/resources.ts ResourceCargo) et boucle de travail :
@@ -202,6 +213,10 @@ export interface HeroState {
   /** Tourbillon en cours (2026-11-03, sim/systems/hero.ts) : temps ecoule,
    *  frappes deja donnees, degats d'attaque figes au lancement. null sinon. */
   whirlwind: WhirlwindState | null;
+  /** Tourbillon demande pendant ce pas (sim/orders.ts, commande `cast`) :
+   *  lance par heroWhirlwindSystem SANS toucher a l'ordre en cours (le
+   *  deplacement continue, 2026-11-05). null sinon. */
+  pendingWhirlwind: string | null;
   /** Temps de recharge restant par sort (s de simulation, 2026-11-03) ;
    *  absent ou retire = sort disponible. Court aussi pendant la mort. */
   spellCooldowns: Record<string, number>;

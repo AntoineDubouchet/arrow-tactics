@@ -18,6 +18,10 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
     window.__hero = () => window.__world.entities.find((e) => e.hero);
     window.arrowEconomy.set({ gold: 200, wood: 100, stone: 100 });
     for (const e of window.__world.entities) if (e.team === 'enemy') e.stats.damage = 0;
+    // Villageois du camp (autonomes depuis le 2026-11-05) tenus inactifs : le stock ne doit bouger que par le test.
+    const vils = window.__world.entities.filter((e) => e.worker).map((e) => e.id);
+    window.__world.issueCommand({ kind: 'stop', entityIds: vils });
+    for (const e of window.__world.entities) if (e.worker) { e.worker.autoRetryIn = 1e9; e.cargo.wood = e.cargo.stone = e.cargo.minedGold = 0; }
   });
   const at = (x, z, y) => p.evaluate(([x, z, y]) => window.__toScreen(x, z, y), [x, z, y]);
   const stock = () => p.evaluate(() => window.arrowEconomy.stock());

@@ -54,14 +54,22 @@ Baliste, cargo inchangé ; mis à jour par la passe 2) et
 `technologies.mts` (passe 2, 2026-11-05 : technologies de la Forge,
 niveaux de producteurs rétroactifs, Caserne, Baliste depuis sa fiche,
 file unique, annulation, destruction pendant une recherche, deux Forges,
-Héros et Villageois exclus).
+Héros et Villageois exclus), `villageois-autonomie.mts` (G42 : travail
+autonome après 1 s, ressource la moins travaillée, ordre manuel
+prioritaire, aucune source, source épuisée, cycle, déterminisme) et
+`or-butin.mts` (G42 : or de butin ramassé au contact du Héros, jamais par
+un Villageois, or extrait = cargo).
 
 `tests/game/` : `baliste-reparation.cjs`, `camp-boucle.cjs`,
 `cargo-jeu.cjs`, `depart-jeu.cjs`, `editeur-procedural.cjs`,
 `equipement-jeu.cjs`, `inventaire.cjs`, `villageois-jeu.cjs`, et
 `forge-jeu.cjs` (passe 2 : chantier de Forge, recherche depuis la fiche
 sans écran modal, simulation en marche, Archer présent amélioré, Baliste et
-Camp d'archerie depuis leurs fiches) et `defaite-jeu.cjs` (Héros mort →
-la run continue ; Baliste détruite → « Partie terminée », retour au menu).
+Camp d'archerie depuis leurs fiches), `defaite-jeu.cjs` (Héros mort →
+la run continue ; Baliste détruite → « Partie terminée », retour au menu),
+`porte-jeu.cjs` (G42 : structure de la porte refaite, ouverture /
+fermeture, captures extérieur / intérieur / ouverte / trois-quarts) et
+`tourbillon-jeu.cjs` (G42 : flash de dégâts par cible à chaque tic,
+lancement pendant un déplacement).
 `lib.cjs` est la bibliothèque commune (lancement, ouverture de la Survie,
 caméra, captures).
