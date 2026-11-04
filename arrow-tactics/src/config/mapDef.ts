@@ -55,6 +55,9 @@ export interface WallLineDef {
   bz: number;
   team?: 'player' | 'enemy';
   gates?: number[];
+  /** Portes posees OUVERTES (2026-11-04 : enceinte du camp de depart,
+   *  config/startingBase.ts). Absent = fermees. */
+  openGates?: boolean;
 }
 
 /** Batiments du Wall V1 (muraille case par case, porte, demi-segment,
@@ -166,6 +169,13 @@ export interface MapDef {
    *  poses sur la case de (x, z). OPTIONNEL : futurs camps, ruines,
    *  batiments, editeur. */
   destructibles?: { kind: string; x: number; z: number }[];
+  /** Camp de depart (2026-11-04, config/startingBase.ts) : preset
+   *  (STARTING_BASE_PRESETS, `none` = aucun) et rotation (quarts de tour)
+   *  du petit camp joueur preconstruit autour du Depart Survie (`ballista`).
+   *  Seule cette donnee est ecrite : batiments, enceinte, porte et unites de
+   *  depart en sont DERIVES. OPTIONNEL : absent sur une carte de Survie =
+   *  preset par defaut, rotation 0. */
+  startingBase?: { preset: string; rotation?: number };
   /** Carte produite par un generateur (config/maps/proceduralSurvival.ts) :
    *  sa graine. Origine seulement : les regles de jeu se lisent dans
    *  `survivalRules`, jamais ici. */

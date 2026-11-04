@@ -2,7 +2,7 @@ import { HP_PER_PIP, PLAYER_ARROW_RANGE } from '../config/constants';
 import { findAbility } from '../data/abilities';
 import { getBuilding, unitsProducedPerWave } from '../data/buildings';
 import { HERO_UNIT_ID, heroStatsForLevel } from '../data/hero';
-import { getUnit, unitPluralName, UNITS, type UnitStats } from '../data/units';
+import { getUnit, unitPluralName, UNITS, withEffectiveMoveSpeed, type UnitStats } from '../data/units';
 import type { Entity, Team } from '../sim/entity';
 import {
   BALLISTA_STATUS_LABELS,
@@ -317,7 +317,8 @@ export function placementUnitInfo(slot: PlacementUnitSource, progress: PlayerPro
     unitId: slot.unitId,
     team: 'player',
     hp: slot.hp,
-    stats: hero ? { ...stats, ...heroStatsForLevel(heroLevel) } : stats,
+    // Vitesse effective (x1,4), comme l'entite en jeu.
+    stats: withEffectiveMoveSpeed(hero ? { ...stats, ...heroStatsForLevel(heroLevel) } : stats),
     abilityDamageBonus: playerUnitAbilityDamageBonus(slot.unitId, slot.productionLevel),
     tauntShieldBonus: playerUnitTauntShieldBonus(slot.unitId, slot.productionLevel),
     battle: null,

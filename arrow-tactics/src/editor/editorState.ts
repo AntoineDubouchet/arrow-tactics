@@ -50,6 +50,7 @@ import {
 import { buildingFootprintTiles } from '../data/buildings';
 import { getWallType } from '../data/walls';
 import { campFacingFrom } from '../data/campLayout';
+import { DEFAULT_STARTING_BASE_PRESET, reservedCells, reservedOverlapsDisc, startingBaseLayoutAt, startingBaseRotationFor, STARTING_BASE_PRESETS, type StartingBaseLayout } from '../config/startingBase';
 import { getCampKind } from '../data/camps';
 import { planWallLine, segmentBoxDistance, segmentWallLine, wallLineCells, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint, type WallSegment } from '../core/wallLine';
 import { resourceNodeCellKeys, resourceOfObstacle, type ResourcePileDef } from '../config/resourceNodes';
@@ -282,7 +283,7 @@ export function campKindOfTemplate(template: EditorFeatureTemplate): string | nu
  *  dans la couronne (abords « manifestement inaccessibles » sinon). Le
  *  generateur garde ses propres distances (anneau, 20 cases entre camps). */
 export const CAMP_MIN_SPACING = 10;
-export const CAMP_START_CLEARANCE = 14;
+export const CAMP_START_CLEARANCE = 17;
 export const CAMP_RING_OPEN_MIN = 12;
 
 /** Validation legere d'une carte de Survie (editeur, 2026-11-03) : les
@@ -338,6 +339,10 @@ export class EditorState {
    *  de la Survie Hero RTS et origine (graine du generateur). */
   readonly survivalRules: MapDef['survivalRules'];
   readonly generator: MapDef['generator'];
+  /** Camp de depart (2026-11-04, config/startingBase.ts) : preset et
+   *  rotation, recalculee a chaque pose ou deplacement du Depart Survie (porte
+   *  vers le cote le plus degage). Absent : preset par defaut, rotation 0. */
+  startingBase: { preset: string; rotation: number } | undefined;
   /** Taille du brouillon en cours d'edition (en cases) — independante de la
    *  taille du plateau reellement en jeu tant que la carte n'est pas
    *  sauvegardee/testee (voir main.ts, rebuildEditorBoard). Modifiable via
@@ -413,6 +418,7 @@ export class EditorState {
     ];
     this.survivalRules = source.survivalRules;
     this.generator = source.generator ? { ...source.generator } : undefined;
+    this.startingBase = source.startingBase ? { preset: source.startingBase.preset, rotation: source.startingBase.rotation ?? 0 } : undefined;
     this.width = source.width;
     this.height = source.height;
     this.cellMap = buildCellIndex(resolveMapCells(source));
@@ -533,11 +539,68 @@ export class EditorState {
    *  cases existantes, plates, hors eau, sans obstacle bloquant (gisements
    *  compris), batiment ni unite (canPlaceBallistaAt) ; aucun camp a moins de
    *  CAMP_START_CLEARANCE cases. */
-  startPlacementIssue(x: number, z: number): string | null {
+  startPlacementIssue(x: number, z: number, rotation?: number): string | null {
     if (!this.canPlaceBallistaAt(x, z)) return 'emplacement invalide (cases manquantes, eau, relief, obstacle, gisement, bâtiment ou unité sous l’emprise 3 × 3)';
     const camp = this.features.find((f) => f.kind === 'camp' && Math.hypot(f.camp.x - x, f.camp.z - z) < CAMP_START_CLEARANCE);
     if (camp) return `camp trop proche (moins de ${CAMP_START_CLEARANCE} cases)`;
+    // Camp de depart (2026-11-04) : toute son emprise (enceinte + marge).
+    const layout = this.startingBaseLayoutFor(x, z, rotation);
+    if (layout) {
+      const level = this.elevationAt(Math.floor(x), Math.floor(z)).level;
+      const sources = resourceNodeCellKeys(this.obstacles);
+      const walls = this.wallPieces();
+      // Cases que le camp occupe (Maisons, Auberge, palissade) : une unite
+      // n'y est refusee que la ; ailleurs dans l'emprise, elle reste libre.
+      const occupied = new Set<string>();
+      for (const b of layout.buildings) {
+        const r = buildingBoundsAt(b.buildingId, b.x, b.z);
+        for (let cx = Math.floor(r.minX); cx < Math.ceil(r.maxX); cx++) for (let cz = Math.floor(r.minZ); cz < Math.ceil(r.maxZ); cz++) occupied.add(cellKey(cx, cz));
+      }
+      for (const line of layout.walls) for (const seg of segmentWallLine(line, getWallType(line.type).segmentLength)) for (const w of wallLineCells(seg)) occupied.add(cellKey(w.x, w.z));
+      for (const c of reservedCells(layout.reserved)) {
+        if (!this.hasCellAt(c.x, c.z)) return 'camp de départ hors de la carte';
+        if (this.isWaterCell(c.x, c.z)) return 'eau dans l’emprise du camp de départ';
+        const e = this.elevationAt(c.x, c.z);
+        if (e.slope || e.level !== level) return 'relief dans l’emprise du camp de départ';
+        if (sources.has(cellKey(c.x, c.z))) return 'arbre ou gisement dans l’emprise du camp de départ';
+        const cell = { minX: c.x, maxX: c.x + 1, minZ: c.z, maxZ: c.z + 1 };
+        if (this.obstacles.some((o) => isBlockingMapObstacle(o) && boundsOverlap(cell, obstacleBounds(o)))) return 'obstacle dans l’emprise du camp de départ';
+        if (this.buildings.some((b) => boundsOverlap(cell, buildingBoundsAt(b.buildingId, b.x, b.z)))) return 'bâtiment dans l’emprise du camp de départ';
+        if (walls.some((p) => wallLineCells(p.segment).some((w) => w.x === c.x && w.z === c.z))) return 'palissade dans l’emprise du camp de départ';
+      }
+      if (this.units.some((u) => occupied.has(cellKey(Math.floor(u.x), Math.floor(u.z))))) return 'unité sous un bâtiment ou la palissade du camp de départ';
+      if (this.features.some((f) => f.kind === 'camp' && reservedOverlapsDisc(layout.reserved, f.camp.x, f.camp.z, CAMP_CLEAR_RADIUS))) return 'camp neutre dans l’emprise du camp de départ';
+    }
     return null;
+  }
+
+  /** Preset du camp de depart de cette carte (carte de Survie Hero RTS),
+   *  ou null. */
+  private startingPreset(): string | null {
+    if (this.survivalRules !== 'hero-rts') return null;
+    const preset = this.startingBase?.preset ?? DEFAULT_STARTING_BASE_PRESET;
+    return preset !== 'none' && STARTING_BASE_PRESETS[preset] ? preset : null;
+  }
+
+  /** Case ouverte pour orienter la porte du camp de depart : dans la
+   *  carte, hors eau, sans source ni objet bloquant. */
+  private isOpenForStart(x: number, z: number, sources: ReadonlySet<string>): boolean {
+    return this.hasCellAt(x, z) && !this.isWaterCell(x, z) && !sources.has(cellKey(x, z)) && !this.isCellOccupied(x, z);
+  }
+
+  /** Camp de depart derive si le Depart Survie etait centre en (x, z) :
+   *  rotation donnee, sinon porte vers le cote le plus degage ; null sans
+   *  preset. Apercu, validation, pose. */
+  startingBaseLayoutFor(x: number, z: number, rotation?: number): StartingBaseLayout | null {
+    const preset = this.startingPreset();
+    if (!preset) return null;
+    const sources = resourceNodeCellKeys(this.obstacles);
+    return startingBaseLayoutAt({ x, z }, preset, rotation ?? startingBaseRotationFor({ x, z }, preset, (cx, cz) => this.isOpenForStart(cx, cz, sources)));
+  }
+
+  /** Camp de depart du Depart Survie actuel (pose), ou null. */
+  get startingBaseLayout(): StartingBaseLayout | null {
+    return this.ballistaExplicit ? this.startingBaseLayoutFor(this.ballista.x, this.ballista.z, this.startingBase?.rotation ?? 0) : null;
   }
 
   /** Cases (coordonnees entieres) dont le centre est dans la couronne
@@ -591,6 +654,9 @@ export class EditorState {
       });
       if (blocker) return resourceOfObstacle(blocker) === 'wood' ? 'arbre' : resourceOfObstacle(blocker) ? 'gros gisement' : 'obstacle';
     }
+    // Emprise du camp de depart (2026-11-04) : jamais sous un camp neutre.
+    const base = this.startingBaseLayout;
+    if (base && reservedOverlapsDisc(base.reserved, x, z, r)) return 'emprise du camp de départ';
     const other = this.features.find((f) => f.kind === 'camp' && f.id !== ignoreId && Math.hypot(f.camp.x - x, f.camp.z - z) < CAMP_MIN_SPACING);
     if (other) return `autre camp trop proche (moins de ${CAMP_MIN_SPACING} cases)`;
     if (this.ballistaExplicit && Math.hypot(this.ballista.x - x, this.ballista.z - z) < CAMP_START_CLEARANCE) return `Départ Survie trop proche (moins de ${CAMP_START_CLEARANCE} cases)`;
@@ -648,7 +714,7 @@ export class EditorState {
     const warnings: string[] = [];
     if (!this.ballistaExplicit) errors.push('Aucun Départ Survie : posez-le (groupe Survie du catalogue).');
     else {
-      const issue = this.startPlacementIssue(this.ballista.x, this.ballista.z);
+      const issue = this.startPlacementIssue(this.ballista.x, this.ballista.z, this.startingBase?.rotation ?? 0);
       if (issue) errors.push(`Départ Survie invalide : ${issue}.`);
     }
     const camps = this.features.filter((f): f is Extract<EditorFeature, { kind: 'camp' }> => f.kind === 'camp');
@@ -658,7 +724,7 @@ export class EditorState {
     }
     if (camps.length === 0) warnings.push('Aucun camp.');
     if (!this.obstacles.some((o) => resourceOfObstacle(o) !== null) && !this.features.some((f) => f.kind === 'pile')) warnings.push('Aucune ressource (arbre, gisement ou tas).');
-    if (this.walls.length === 0) warnings.push('Aucune palissade.');
+    if (this.walls.length === 0 && !this.startingBaseLayout?.walls.length) warnings.push('Aucune palissade.');
     return { errors, warnings };
   }
 
@@ -675,18 +741,24 @@ export class EditorState {
    *  identique. */
   moveBallista(x: number, z: number): boolean {
     const target = snapBallistaOrigin(x, z);
-    if (target.x === this.ballista.x && target.z === this.ballista.z) return false;
+    if (target.x === this.ballista.x && target.z === this.ballista.z && this.ballistaExplicit) return false;
     if (!this.canMoveBallistaTo(target.x, target.z)) return false;
+    // Camp de depart (2026-11-04) : porte vers le cote le plus degage de la
+    // nouvelle position (meme calcul que l'apercu et la validation).
+    const layout = this.startingBaseLayoutFor(target.x, target.z);
+    if (layout) this.startingBase = { preset: layout.preset, rotation: layout.rotation };
     this.ballista = target;
     this.ballistaExplicit = true;
     return true;
   }
 
-  /** Ecrit directement position et statut explicite — annuler/retablir
-   *  (voir main.ts), sans validation : on revient a un etat deja valide. */
-  setBallista(position: { x: number; z: number }, explicit: boolean): void {
+  /** Ecrit directement position, statut explicite et camp de depart —
+   *  annuler/retablir (voir main.ts), sans validation : on revient a un etat
+   *  deja valide. */
+  setBallista(position: { x: number; z: number }, explicit: boolean, startingBase?: { preset: string; rotation: number }): void {
     this.ballista = { x: position.x, z: position.z };
     this.ballistaExplicit = explicit;
+    this.startingBase = startingBase ? { ...startingBase } : undefined;
   }
 
   /** Cellules RÉELLEMENT présentes — nouveau tableau à chaque appel (le

@@ -2,6 +2,7 @@ import { Rng } from '../../core/rng';
 import type { ObstacleDef } from '../constants';
 import type { SurfaceCellDef } from '../groundSurfaces';
 import { CAMP_CLEAR_RADIUS, type MapCampDef, type MapDef, type TerrainCellDef } from '../mapDef';
+import { DEFAULT_STARTING_BASE_PRESET, reservedContainsCell, startingBaseReservedAt, startingBaseRotationFor } from '../startingBase';
 import type { ResourcePileDef } from '../resourceNodes';
 import type { SlopeDirection, SlopeShape, TerrainElevationCellDef } from '../terrainElevation';
 import type { TerritoryCell } from '../territory';
@@ -280,10 +281,14 @@ function shapeForests(n: NavCells & { seed: number; trees: Set<string>; forestAr
         const [east, , south] = neighbors(g, a);
         for (const [b, perp] of [[east, size], [south, 1]] as const) {
           if (!free(b) || g.rampUp[b]! >= 0 || !stepAllowed(g, a, b)) continue;
-          // Cotes du passage entre a et b (perpendiculaires au pas).
-          const wall = (i: number) => !free(i) || g.hill[i] !== g.hill[a];
+          // Cotes du passage entre a et b (perpendiculaires au pas). Un mur
+          // est toute case ou l'on ne peut pas poser le pied depuis le
+          // passage : arbre, eau, bord, autre niveau, et (2026-11-04, KI-65)
+          // flanc d'une rampe, qui laissait un passage d'une case contre un
+          // arbre (la grille A* ne connait pas le rayon des corps).
+          const wall = (i: number, from: number) => !free(i) || g.hill[i] !== g.hill[from] || !stepAllowed(g, from, i);
           const sides = [a - perp, b - perp, a + perp, b + perp];
-          if (!(wall(sides[0]!) || wall(sides[1]!)) || !(wall(sides[2]!) || wall(sides[3]!))) continue;
+          if (!(wall(sides[0]!, a) || wall(sides[1]!, b)) || !(wall(sides[2]!, a) || wall(sides[3]!, b))) continue;
           if (!clear[a] && !clear[b] && forest[a] && forest[b]) {
             g.tree[a] = 1;
             g.tree[b] = 1;
@@ -491,10 +496,21 @@ export function generateSurvivalMap(seed: number): MapDef {
   const forestArea = new Set<string>();
   const keepClear = new Set<string>();
   const isTrail = (x: number, z: number) => Math.abs(fbm(seed + 97, x / 13, z / 13) - 0.5) < 0.03 || Math.abs(fbm(seed + 113, x / 17, z / 17) - 0.5) < 0.022;
+  // Camp de depart (2026-11-04, config/startingBase.ts) : son emprise
+  // complete (disque : enceinte + marge, meme pour toute rotation) reste
+  // degagee : ni arbre, ni gisement, ni tas, ni decor (la plaine centrale la
+  // couvre presque).
+  const startOrigin = { x: 0.5, z: 0.5 };
+  const startZone = startingBaseReservedAt(startOrigin, DEFAULT_STARTING_BASE_PRESET);
+  const inStartZone = (x: number, z: number) => reservedContainsCell(startZone, x, z);
   for (const c of cells) {
     const d = centerDistance(c.x, c.z);
     if (d <= CLEAR_RADIUS || blockedForDecor(c.x, c.z)) continue;
     const k = key(c.x, c.z);
+    if (inStartZone(c.x, c.z)) {
+      keepClear.add(k);
+      continue;
+    }
     const wild = Math.min(1, (d - CLEAR_RADIUS) / 28);
     const forest = fbm(seed + 31, c.x / 9, c.z / 9);
     const inForest = forest > 0.66 - 0.16 * wild;
@@ -507,6 +523,62 @@ export function generateSurvivalMap(seed: number): MapDef {
     if (hash2(seed + 41, c.x, c.z) < p) trees.add(k);
   }
   shapeForests({ seed, inMap, water, hill, ramps, rampSlopes, trees, forestArea, keepClear });
+  // Gros gisements 2 x 2 (2026-11-02 : BLOQUANTS, comme les arbres).
+  // KI-65 (corrige le 2026-11-04) : la grille A* ne connait pas le rayon des
+  // corps. Un gisement pose avec une case libre autour pouvait laisser, contre
+  // un arbre, un passage d'une case (trop etroit pour le Heros, rayon 0,6)
+  // qu'A* croyait praticable : le Heros oscillait sans jamais passer. Desormais
+  // les gisements sont places AVANT la mise en forme finale des forets, qui
+  // les voit comme des obstacles fixes (seconde passe de shapeForests :
+  // goulets elargis en retirant des arbres, poches reliees) :
+  //  - une case libre tout autour (gardee degagee : on atteint toujours le
+  //    gisement) ;
+  //  - deux cases sans eau, relief, rampe, bord de carte ni autre gisement
+  //    (ce qu'un retrait d'arbre ne peut pas elargir) ;
+  //  - jamais sur un sentier, un couloir, les abords d'une rampe
+  //    (keepClear) ni dans la zone du camp de depart.
+  // Un candidat refuse est deplace localement (spirale deterministe jusqu'a
+  // 4 cases) avant d'etre abandonne : meme densite. Pierre (26), puis or (6,
+  // plus loin du camp ; GOLD_DEPOSIT_AMOUNT). Valeurs PROVISOIRES.
+  const depositCells = new Set<string>();
+  const hardFree = (k: string) => inMap.has(k) && !water.has(k) && !ramps.has(k) && !hill.has(k) && !depositCells.has(k);
+  const depositFits = (x: number, z: number, dMin: number, dMax: number): boolean => {
+    const d = Math.hypot(x + 1, z + 1);
+    if (d < dMin || d > dMax || inSpawnRing(d)) return false;
+    const own = [key(x, z), key(x + 1, z), key(x, z + 1), key(x + 1, z + 1)];
+    if (own.some((k) => keepClear.has(k)) || [[x, z], [x + 1, z + 1]].some(([cx, cz]) => inStartZone(cx!, cz!))) return false;
+    for (let dz = -2; dz <= 3; dz++) {
+      for (let dx = -2; dx <= 3; dx++) {
+        const k = key(x + dx, z + dz);
+        if (!hardFree(k)) return false;
+        if (dx >= -1 && dx <= 2 && dz >= -1 && dz <= 2 && trees.has(k)) return false;
+      }
+    }
+    return true;
+  };
+  const NEAR_OFFSETS: [number, number][] = [];
+  for (let r = 1; r <= 4; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) if (Math.max(Math.abs(dx), Math.abs(dz)) === r) NEAR_OFFSETS.push([dx, dz]);
+  const rockDefs: ObstacleDef[] = [];
+  const placeDeposit = (dMin: number, dMax: number, ore?: 'gold'): boolean => {
+    const a = rng.next() * Math.PI * 2;
+    const d = dMin + rng.next() * (dMax - dMin);
+    const x0 = Math.round(Math.cos(a) * d), z0 = Math.round(Math.sin(a) * d);
+    const spot = [[0, 0] as [number, number], ...NEAR_OFFSETS].map(([dx, dz]) => ({ x: x0 + dx, z: z0 + dz })).find((p) => depositFits(p.x, p.z, dMin, dMax));
+    if (!spot) return false;
+    const { x, z } = spot;
+    rockDefs.push({ kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: x, cornerZ: z, ...(ore ? { ore } : {}) });
+    for (const k of [key(x, z), key(x + 1, z), key(x, z + 1), key(x + 1, z + 1)]) depositCells.add(k);
+    // Anneau d'une case : jamais comble par la passe suivante.
+    for (let dz = -1; dz <= 2; dz++) for (let dx = -1; dx <= 2; dx++) if (!depositCells.has(key(x + dx, z + dz))) keepClear.add(key(x + dx, z + dz));
+    return true;
+  };
+  let rocks = 0;
+  for (let attempt = 0; attempt < 800 && rocks < 26; attempt++) if (placeDeposit(CLEAR_RADIUS + 5, MAP_RADIUS - 3)) rocks++;
+  let golds = 0;
+  for (let attempt = 0; attempt < 800 && golds < 6; attempt++) if (placeDeposit(CLEAR_RADIUS + 14, MAP_RADIUS - 4, 'gold')) golds++;
+  // Seconde passe : gisements = obstacles fixes (comme l'eau : jamais
+  // retires, jamais traverses par un couloir).
+  shapeForests({ seed, inMap, water: new Set([...water, ...depositCells]), hill, ramps, rampSlopes, trees, forestArea, keepClear });
   for (const c of cells) {
     if (!trees.has(key(c.x, c.z))) continue;
     const a = hash2(seed + 43, c.x, c.z) * Math.PI * 2;
@@ -523,32 +595,15 @@ export function generateSurvivalMap(seed: number): MapDef {
     });
     occupied.add(key(c.x, c.z));
   }
-  // Cases praticables reliees au camp (tas de ressources).
-  const reached = reachableCells({ inMap, water, hill, ramps, rampSlopes, trees });
-  // Gros gisements 2 x 2 (2026-11-02 : BLOQUANTS, comme les arbres) : jamais
-  // dans un goulet — leurs 12 cases voisines doivent etre libres (on peut
-  // toujours en faire le tour, aucune zone n'est coupee). Pierre (26), puis
-  // or (6, plus loin du camp ; GOLD_DEPOSIT_AMOUNT). Valeurs PROVISOIRES.
-  const freeForDeposit = (k: string) => inMap.has(k) && !water.has(k) && !ramps.has(k) && !hill.has(k) && !occupied.has(k);
-  const placeDeposit = (dMin: number, dMax: number, ore?: 'gold'): boolean => {
-    const a = rng.next() * Math.PI * 2;
-    const d = dMin + rng.next() * (dMax - dMin);
-    const x = Math.round(Math.cos(a) * d), z = Math.round(Math.sin(a) * d);
-    if (inSpawnRing(d)) return false;
-    const around: string[] = [];
-    for (let dz = -1; dz <= 2; dz++) for (let dx = -1; dx <= 2; dx++) around.push(key(x + dx, z + dz));
-    if (!around.every(freeForDeposit)) return false;
-    obstacles.push({ kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: x, cornerZ: z, ...(ore ? { ore } : {}) });
-    for (const k of [key(x, z), key(x + 1, z), key(x, z + 1), key(x + 1, z + 1)]) occupied.add(k);
-    return true;
-  };
-  let rocks = 0;
-  for (let attempt = 0; attempt < 500 && rocks < 26; attempt++) if (placeDeposit(CLEAR_RADIUS + 5, MAP_RADIUS - 3)) rocks++;
-  let golds = 0;
-  for (let attempt = 0; attempt < 400 && golds < 6; attempt++) if (placeDeposit(CLEAR_RADIUS + 14, MAP_RADIUS - 4, 'gold')) golds++;
+  obstacles.push(...rockDefs);
+  for (const k of depositCells) occupied.add(k);
+  // Cases praticables reliees au camp, calculees sur la carte telle qu'elle
+  // sera jouee (2026-11-04 : arbres ET gisements bloquants ; avant : avant
+  // les gisements) : tas de ressources, abords des camps neutres.
+  const reached = reachableCells({ inMap, water, hill, ramps, rampSlopes, trees: new Set([...trees, ...depositCells]) });
   for (const c of cells) {
     const d = centerDistance(c.x, c.z);
-    if (d <= 3 || blockedForDecor(c.x, c.z) || occupied.has(key(c.x, c.z))) continue;
+    if (d <= 3 || blockedForDecor(c.x, c.z) || occupied.has(key(c.x, c.z)) || inStartZone(c.x, c.z)) continue;
     if (hash2(seed + 71, c.x, c.z) >= 0.035) continue;
     const prop = PROPS[Math.floor(hash2(seed + 73, c.x, c.z) * PROPS.length)]!;
     obstacles.push({ kind: 'prop', tilesX: 1, tilesZ: 1, propModel: prop.model, scale: prop.scale, x: c.x + 0.3 + hash2(seed + 79, c.x, c.z) * 0.4, z: c.z + 0.3 + hash2(seed + 83, c.x, c.z) * 0.4 });
@@ -568,7 +623,7 @@ export function generateSurvivalMap(seed: number): MapDef {
       const d = dMin + rng.next() * (dMax - dMin);
       const x = Math.floor(Math.cos(a) * d), z = Math.floor(Math.sin(a) * d);
       const k = key(x, z);
-      if (!reached.has(k) || ramps.has(k) || hill.has(k) || occupied.has(k) || pileCells.has(k)) continue;
+      if (!reached.has(k) || ramps.has(k) || hill.has(k) || occupied.has(k) || pileCells.has(k) || inStartZone(x, z)) continue;
       const far = d > 24;
       const amount = minAmount !== undefined ? minAmount + Math.floor(rng.next() * 2) : (far ? 2 : 1) + Math.floor(rng.next() * 3);
       resourcePiles.push({ x: x + 0.3 + rng.next() * 0.4, z: z + 0.3 + rng.next() * 0.4, resource, amount });
@@ -591,6 +646,13 @@ export function generateSurvivalMap(seed: number): MapDef {
   // pas ecrits ici, ils se derivent du camp (data/campLayout.ts).
   const camps = placeCamps(seed, { inMap, water, hill, ramps, rampClear, trees, occupied, pileCells, reached }, obstacles, resourcePiles);
 
+  // ---- Camp de depart : porte tournee vers le cote le plus degage (cases
+  // dans la carte, sans eau, relief, arbre ni gisement), apres tout le reste.
+  const startRotation = startingBaseRotationFor(startOrigin, DEFAULT_STARTING_BASE_PRESET, (x, z) => {
+    const k = key(x, z);
+    return inMap.has(k) && !water.has(k) && !hill.has(k) && !ramps.has(k) && !occupied.has(k) && !trees.has(k);
+  });
+
   // ---- Territoire du joueur : disque central.
   const territory: TerritoryCell[] = cells.filter((c) => centerDistance(c.x, c.z) <= TERRITORY_RADIUS).map((c) => ({ x: c.x, z: c.z, team: 'player' }));
 
@@ -603,7 +665,8 @@ export function generateSurvivalMap(seed: number): MapDef {
     obstacles,
     playerUnits: [],
     enemyUnits: [],
-    ballista: { x: 0.5, z: 0.5 },
+    ballista: { ...startOrigin },
+    startingBase: { preset: DEFAULT_STARTING_BASE_PRESET, rotation: startRotation },
     territory,
     elevationCells,
     surfaceCells,
@@ -671,15 +734,25 @@ function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: 
     }
     return out;
   };
-  for (const site of CAMP_SITES) {
+  /** Meilleure clairiere de l'anneau [dMin ; dMax]. `strict` (2026-11-04,
+   *  KI-65) : abords sans eau, colline, rampe ni bord de carte a 2,5 cases
+   *  de la clairiere (un baril du camp, bloquant, n'y laisse jamais un
+   *  passage d'une case contre une falaise) ; sans site strict, recherche plus
+   *  fine (`dirs` directions, pas de `step` cases) sur l'anneau elargi vers
+   *  l'exterieur seulement (jamais dans la zone exploree au depart, jamais a
+   *  moins de 4 cases du bord), puis la regle d'avant sert de repli (meme
+   *  nombre de camps). */
+  const search = (site: (typeof CAMP_SITES)[number], dMin: number, dMax: number, strict: boolean, dirs = 48, step = 1.5): { cx: number; cz: number } | null => {
     let best: { cx: number; cz: number } | null = null;
     let bestScore = Infinity;
     const turn = hash2(seed + 131, 0, 0) * Math.PI * 2;
-    for (let i = 0; i < 48; i++) {
-      const a = turn + (i / 48) * Math.PI * 2;
-      for (let d = site.dMin; d <= site.dMax; d += 1.5) {
+    for (let i = 0; i < dirs; i++) {
+      const a = turn + (i / dirs) * Math.PI * 2;
+      for (let d = dMin; d <= dMax; d += step) {
         const cx = Math.round(Math.cos(a) * d), cz = Math.round(Math.sin(a) * d);
-        if (camps.some((c) => Math.hypot(c.x - cx, c.z - cz) < CAMP_SPACING)) continue;
+        // Centres de case des deux cotes (2026-11-04 : la comparaison coin / centre
+        // laissait deux camps a 19,6 cases).
+        if (camps.some((c) => Math.hypot(c.x - (cx + 0.5), c.z - (cz + 0.5)) < CAMP_SPACING)) continue;
         let treesIn = 0;
         let ok = true;
         for (const k of disc(cx, cz, -1, CAMP_RADIUS)) {
@@ -690,6 +763,10 @@ function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: 
           if (g.trees.has(k)) treesIn++;
         }
         if (!ok || treesIn > 4) continue;
+        // Abords (2026-11-04, KI-65) : ni eau, ni colline, ni rampe a moins de
+        // 2,5 cases de la clairiere ; un baril du camp (bloquant) y laisserait
+        // un passage d'une case contre une falaise.
+        if (strict && disc(cx, cz, CAMP_RADIUS, CAMP_RADIUS + 2.5).some((k) => !g.inMap.has(k) || g.water.has(k) || g.hill.has(k) || g.ramps.has(k) || g.rampClear.has(k))) continue;
         let open = 0;
         let ringTrees = 0;
         for (const k of disc(cx, cz, CAMP_RADIUS, CAMP_RADIUS + 2)) {
@@ -704,17 +781,22 @@ function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: 
         }
       }
     }
+    return best;
+  };
+  for (const site of CAMP_SITES) {
+    const best = search(site, site.dMin, site.dMax, true) ?? search(site, site.dMin, Math.min(site.dMax + 3, MAP_RADIUS - CAMP_RADIUS - 5), true, 96, 0.75) ?? search(site, site.dMin, site.dMax, false);
     if (!best) continue;
     const { cx, cz } = best;
-    const cell = new Set(disc(cx, cz, -1, CAMP_RADIUS));
     const C = { x: cx + 0.5, z: cz + 0.5 };
     // Clairiere : arbres retires, petits decors aleatoires retires.
     for (let i = obstacles.length - 1; i >= 0; i--) {
       const o = obstacles[i]!;
       const ox = o.x ?? 0, oz = o.z ?? 0;
-      if ((o.kind === 'tree' && cell.has(key(Math.floor(ox), Math.floor(oz)))) || (o.kind === 'prop' && Math.hypot(ox - C.x, oz - C.z) <= CAMP_RADIUS + 1)) obstacles.splice(i, 1);
+      // Arbres retires jusqu'a 2 cases au-dela de la clairiere (2026-11-04,
+      // KI-65) : jamais un passage d'une case entre un baril et un arbre.
+      if ((o.kind === 'tree' && Math.hypot(Math.floor(ox) + 0.5 - C.x, Math.floor(oz) + 0.5 - C.z) <= CAMP_RADIUS + 2) || (o.kind === 'prop' && Math.hypot(ox - C.x, oz - C.z) <= CAMP_RADIUS + 1)) obstacles.splice(i, 1);
     }
-    for (const k of cell) g.trees.delete(k);
+    for (const k of disc(cx, cz, -1, CAMP_RADIUS + 2)) g.trees.delete(k);
     // Dos du camp vers l'exterieur de la carte (on arrive par l'avant, cote
     // Baliste) : meme repere que le decor derive (data/campLayout.ts).
     camps.push({

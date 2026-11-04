@@ -14,6 +14,7 @@ import {
 } from '../config/constants';
 import { clamp, dist, lerp } from '../core/math';
 import { forwardDir, type Entity } from '../sim/entity';
+import { UNIT_MOVE_SPEED_MULTIPLIER } from '../data/units';
 import type { RiggedActions } from './riggedGltf';
 import type { ProceduralAttackAnimator } from './proceduralAttackAnimator';
 import { updateCarryBundle } from './resourcePiles';
@@ -594,7 +595,8 @@ export class UnitViews {
     const rightLeg = view.userData.rightLeg as THREE.Object3D | undefined;
     if (!leftLeg || !rightLeg) return;
 
-    const phase = isMoving ? (this.walkPhase.get(entityId) ?? 0) + realDt * WALK_CYCLE_SPEED : 0;
+    // Cycle accelere comme la vitesse de deplacement (x1,4, data/units.ts).
+    const phase = isMoving ? (this.walkPhase.get(entityId) ?? 0) + realDt * WALK_CYCLE_SPEED * UNIT_MOVE_SPEED_MULTIPLIER : 0;
     this.walkPhase.set(entityId, phase);
 
     const swing = Math.sin(phase) * WALK_SWING_AMPLITUDE;
@@ -819,6 +821,11 @@ export class UnitViews {
 
   private createView(entity: Entity): THREE.Group {
     const view = buildUnit(entity.unitId, entity.team);
+    // Clip de marche / course accelere comme la vitesse de deplacement
+    // (x1,4, data/units.ts) : les pieds ne glissent pas. Generique (tous les
+    // kits rigges exposent `walk`) ; attaque, travail, sort, chute intacts.
+    const walk = (view.userData['riggedActions'] as RiggedActions | undefined)?.['walk'];
+    if (walk) walk.timeScale *= UNIT_MOVE_SPEED_MULTIPLIER;
     // Permet de retrouver l'entite depuis un raycast (voir main.ts, ciblage
     // d'objet d'inventaire en temps reel pendant la bataille) — meme motif
     // que findSlotIndex/findEditorObstacleId ailleurs dans le projet.

@@ -642,6 +642,24 @@ export function unitPluralName(def: UnitDef): string {
   return def.pluralName ?? (/[sx]$/.test(def.name) ? def.name : `${def.name}s`);
 }
 
+/** Vitesse de deplacement (2026-11-04, demande d'Antoine) : TOUTES les
+ *  unites mobiles (Heros, Villageois, armee, neutres, gardes des camps,
+ *  vagues) vont 40 % plus vite, proportions relatives conservees.
+ *  Multiplicateur UNIQUE, applique a la vitesse FINALE quand la simulation
+ *  resout les stats d'une entite (World.spawn : base + ameliorations ;
+ *  refreshHeroStats : niveau + equipement), jamais a la main par unite ; les
+ *  donnees UNITS gardent leurs valeurs de base. Ne touche ni l'attaque, ni
+ *  les sorts, ni la recolte, ni la construction, ni les projectiles, ni les
+ *  recharges, ni la Charge (vitesse propre, config/constants.ts). Le rendu
+ *  accelere d'autant les clips de marche (render/unitViews.ts). PROVISOIRE. */
+export const UNIT_MOVE_SPEED_MULTIPLIER = 1.4;
+
+/** Stats avec la vitesse de deplacement effective (voir
+ *  UNIT_MOVE_SPEED_MULTIPLIER) : a appliquer UNE fois, sur des stats de base. */
+export function withEffectiveMoveSpeed<T extends { moveSpeed: number }>(stats: T): T {
+  return { ...stats, moveSpeed: stats.moveSpeed * UNIT_MOVE_SPEED_MULTIPLIER };
+}
+
 export function getUnit(id: string): UnitDef {
   const def = UNITS[id];
   if (!def) throw new Error(`Unite inconnue : ${id}`);

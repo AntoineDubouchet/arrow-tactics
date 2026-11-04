@@ -72,6 +72,9 @@ export function exportMapDef(state: EditorState, base: MapDef): MapDef {
     // de la carte (camps, tas, barils) ; la graine n'est qu'une origine.
     ...featureLists(state),
     ...(state.survivalRules ? { survivalRules: state.survivalRules } : {}),
+    // Camp de depart (2026-11-04) : preset et rotation seulement (le reste
+    // est derive, config/startingBase.ts).
+    ...(state.startingBase ? { startingBase: { preset: state.startingBase.preset, rotation: state.startingBase.rotation } } : {}),
     ...(state.generator ? { generator: { ...state.generator } } : {}),
   };
 }
@@ -169,6 +172,7 @@ export async function loadMapDefFromFile(file: File): Promise<MapDef> {
     ...(Array.isArray(data.destructibles) ? { destructibles: readDestructibles(data.destructibles) } : {}),
     ...(data.survivalRules === 'hero-rts' ? { survivalRules: 'hero-rts' as const } : {}),
     ...(isGenerator(data.generator) ? { generator: { kind: 'survival-procedural' as const, seed: data.generator.seed } } : {}),
+    ...(isStartingBase(data.startingBase) ? { startingBase: { preset: data.startingBase.preset, rotation: data.startingBase.rotation ?? 0 } } : {}),
   };
   return readLegacyCampCleanup(map, campsRead?.legacy ?? []);
 }
@@ -314,12 +318,12 @@ function readWalls(entries: unknown[]): WallLineDef[] {
   const walls: WallLineDef[] = [];
   for (const entry of entries) {
     if (typeof entry !== 'object' || entry === null) continue;
-    const { type, ax, az, bx, bz, team, gates } = entry as Record<string, unknown>;
+    const { type, ax, az, bx, bz, team, gates, openGates } = entry as Record<string, unknown>;
     if (typeof type !== 'string' || !WALL_TYPES[type]) continue;
     if (!isFinitePoint({ x: ax, z: az }) || !isFinitePoint({ x: bx, z: bz })) continue;
     if (team !== undefined && team !== 'player' && team !== 'enemy') continue;
     const gateList = Array.isArray(gates) ? gates.filter((g): g is number => Number.isInteger(g) && (g as number) >= 0) : [];
-    walls.push({ type, ax: ax as number, az: az as number, bx: bx as number, bz: bz as number, ...(team ? { team } : {}), ...(gateList.length > 0 ? { gates: gateList } : {}) });
+    walls.push({ type, ax: ax as number, az: az as number, bx: bx as number, bz: bz as number, ...(team ? { team } : {}), ...(gateList.length > 0 ? { gates: gateList } : {}), ...(openGates === true ? { openGates: true } : {}) });
   }
   if (walls.length < entries.length) console.warn(`Murs : ${entries.length - walls.length} ligne(s) invalide(s) ignorée(s).`);
   return walls;
@@ -343,4 +347,10 @@ function isFinitePoint(value: unknown): value is { x: number; z: number } {
   if (typeof value !== 'object' || value === null) return false;
   const { x, z } = value as Record<string, unknown>;
   return typeof x === 'number' && Number.isFinite(x) && typeof z === 'number' && Number.isFinite(z);
+}
+
+/** `startingBase` bien forme : preset (chaine), rotation entiere 0..3 ou absente. */
+function isStartingBase(v: unknown): v is { preset: string; rotation?: number } {
+  const o = (v ?? {}) as Record<string, unknown>;
+  return typeof o.preset === 'string' && (o.rotation === undefined || (Number.isInteger(o.rotation) && (o.rotation as number) >= 0 && (o.rotation as number) <= 3));
 }

@@ -1,6 +1,7 @@
 import type { ObstacleBounds } from '../../config/constants';
 import type { ResourceNode } from '../../config/resourceNodes';
 import { HARVEST_NODE_KINDS, type HarvestResource, type PileResource } from '../../data/resources';
+import { UNIT_MOVE_SPEED_MULTIPLIER } from '../../data/units';
 import { addItem } from '../inventory';
 import { getBuilding } from '../../data/buildings';
 import { distanceToSegment } from '../../core/wallLine';
@@ -521,7 +522,8 @@ export function refreshHeroStats(e: Entity, rule: 'add' | 'ratio'): void {
   const b = h.equipment;
   const prevMaxHp = e.stats.maxHp;
   const maxHp = base.maxHp + b.maxHp;
-  e.stats = { ...e.stats, maxHp, damage: base.damage + b.damage, moveSpeed: base.moveSpeed + b.moveSpeed, attackCooldown: base.attackCooldown / (1 + b.attackSpeed) };
+  // Vitesse : niveau + equipement, puis le multiplicateur global (data/units.ts).
+  e.stats = { ...e.stats, maxHp, damage: base.damage + b.damage, moveSpeed: (base.moveSpeed + b.moveSpeed) * UNIT_MOVE_SPEED_MULTIPLIER, attackCooldown: base.attackCooldown / (1 + b.attackSpeed) };
   e.hp = adjustCurrent(e.hp, prevMaxHp, maxHp, rule);
   const prevMaxMana = h.maxMana;
   h.maxMana = h.baseMaxMana + b.maxMana;

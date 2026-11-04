@@ -29,6 +29,7 @@ contient ni intentions de design ni décisions futures.
 6 nonies. Or monnaie, Forge et outils, gisements, Maison A/B, Sanctuaire, Écurie
 6 decies. Tourbillon du Paladin (prototype)
 6 undecies. Cargo économique : inventaire RPG ≠ sac de ressources
+6 duodecies. Camp de départ, vitesse ×1,4, bois et pierre libres
 7. Économie d'or
 8. Boutique de run
 9. Inventaire et parchemins de bataille
@@ -60,8 +61,10 @@ des parchemins de bataille.
   acheter des parchemins, construire des bâtiments et acheter des
   améliorations : à la **Forge**, ou sur la fiche d'une Mine ou d'une
   Caserne.
-- **Direction Hero RTS** (provisoire, §6 bis) : la run commence avec le
-  **Héros** seul et la **Baliste**. Le Héros explore sous un **brouillard de
+- **Direction Hero RTS** (provisoire, §6 bis) : la run commence dans un
+  **petit camp préconstruit** (2026-11-04, §6 duodecies : Baliste, Auberge,
+  deux Maisons, deux Villageois, enceinte de Palissade et porte ouverte)
+  avec le **Héros**. Le Héros explore sous un **brouillard de
   guerre**, gagne de l'XP, récolte du **bois**, de la **pierre** et de l'or
   des gisements dans son **sac de ressources** (cargo de 10, séparé de
   l'inventaire RPG), les **dépose à un point de collecte** (Baliste pour
@@ -88,22 +91,24 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `startPlacement`,
 > plus emprunté par la Survie.
 
 1. **Nouvelle run** (menu → **Mode survie**, `createNewRun`) :
-   - armée de départ : le **Héros** seul (§6 bis), avec la Baliste
-     (`STARTING_FANTASSIN_COUNT` = 0 Homme d'armes ; 3 puis 4 avant). Le
-     Héros ne compte pas dans la population. « Homme d'armes » est le nom affiché de l'unité `fantassin`
+   - armée de départ : le **Héros** et **deux Villageois** (camp de départ,
+     §6 duodecies), avec la Baliste (`STARTING_FANTASSIN_COUNT` = 0 Homme
+     d'armes ; 3 puis 4 avant). Le Héros ne compte pas dans la population. « Homme d'armes » est le nom affiché de l'unité `fantassin`
      (identifiant, stats et cartes inchangés) ;
    - or de départ : **20** (`STARTING_GOLD`), 25 avec le talent Or de départ
      (+5, `TALENT_STARTING_GOLD_BONUS`) ;
-   - population : **0 / 5** (base `PLAYER_BASE_POPULATION` = 5, voir
-     ci-dessous) ;
+   - population : **2 / 9** (base `PLAYER_BASE_POPULATION` = 5, + 2 par
+     Maison du camp de départ, 2 Villageois ; 0 / 5 avant le 2026-11-04) ;
    - stock de départ : **0 bois, 0 pierre** (`STARTING_RESOURCES`,
      provisoire) : il faut explorer et déposer avant tout chantier ;
-   - inventaire et bâtiments vides, aucune amélioration (`upgrades = {}`),
-     vague 1.
+   - inventaire vide ; bâtiments : ceux du camp de départ (Auberge, deux
+     Maisons), terminés et gratuits ; aucune amélioration
+     (`upgrades = {}`), vague 1.
 
-   **Début de run** : 20 or, 0 bois, 0 pierre, le Héros et la Baliste,
-   Pop. 0 / 5, aucun bâtiment. Aucun chantier n'est possible avant le
-   premier dépôt de ressources. Recruter exige un bâtiment (§4) : Fantassin → Caserne,
+   **Début de run** : 20 or, 0 bois, 0 pierre, le Héros, deux Villageois et
+   la Baliste dans le camp de départ, Pop. 2 / 9. Aucun chantier n'est
+   possible avant le premier dépôt de ressources (bois et pierre se
+   récoltent dès le départ, sans Forge). Recruter exige un bâtiment (§4) : Fantassin → Caserne,
    Piquier → Caserne (Fantassin → Caserne Niv. 2), Archer → Camp d'archerie,
    Mage → Sanctuaire, Oracle et Vengeur → Église, Cavalier léger → Écurie
    (2026-11-03, §6 nonies). Maison + Caserne ou Maison +
@@ -758,11 +763,13 @@ Sources : `data/hero.ts`, `sim/systems/hero.ts`, `config/resourceNodes.ts`,
 `ringEnemyWavePlan`). Choix d'Antoine et valeurs provisoires :
 `DESIGN_DECISIONS.md` G4 à G9.
 
-**Départ** : le **Héros** seul, avec la **Baliste** au centre de la carte.
-Aucun Homme d'armes, stock **0 bois, 0 pierre**, 20 or, Pop. 0 / 5. La
+**Départ** (2026-11-04, §6 duodecies) : le **Héros** et **deux
+Villageois** dans le **camp de départ préconstruit** (Baliste au centre de
+la carte, Auberge, deux Maisons, enceinte de Palissade, porte ouverte).
+Aucun Homme d'armes, stock **0 bois, 0 pierre**, 20 or, Pop. 2 / 9. La
 Baliste est le cœur du camp : point de dépôt des ressources, point de vision,
 et le **cœur de la base** : sa destruction est une défaite immédiate
-(2026-11-02).
+(2026-11-02), Maisons, Auberge et palissade n'y changent rien.
 
 **Héros** (`hero`) :
 
@@ -772,7 +779,8 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   jusqu'aux PV de son niveau) ;
 - stats affichées : 30 PV, 2,5 dégâts, portée 1, aggro 9, cadence 1,1 s,
   5 % de raté, vitesse **4,16** (2,6 avant le 2026-11-02 : +60 %, demande
-  d'Antoine), rayon 0,6 ;
+  d'Antoine ; **5,82** en jeu depuis le 2026-11-04, ×1,4 comme toutes les
+  unités, §6 duodecies), rayon 0,6 ;
 - **niveaux** (2026-11-02, provisoire, `data/hero.ts`) : **niveau 100
   maximum** (3 avant). XP pour le niveau suivant : 50 × niveau jusqu'au
   niveau 10 (50, 100, 150… 450 : niveaux 2 et 3 toujours à 50 et 150 XP),
@@ -893,10 +901,13 @@ passe par le **cargo économique**, jamais par l'inventaire RPG, voir
   message invite à déposer. Le sac est gardé à la mort et entre les manches ;
 - **constructions** : elles se paient avec le stock **déposé**, jamais avec
   le sac ;
-- **récolte avancée** (règle du 2026-11-03, §6 nonies) : couper les arbres
-  demande la **Hache de bûcheron**, exploiter les gros gisements de pierre
-  et d'or la **Pioche de mineur** ; les deux outils sont donnés par une
-  **Forge terminée** (`BuildingDef.unlocksTools`). La Scierie et le Camp de
+- **récolte avancée** (règle du 2026-11-04, §6 duodecies ; avant : Forge
+  pour tout) : couper les arbres (**Hache de bûcheron**) et extraire la
+  pierre (**Pioche de mineur**) sont possibles **dès le départ**, sans
+  bâtiment ; seul le **gisement d'or** demande la **Pioche de
+  prospecteur**, donnée par une **Forge terminée**
+  (`BuildingDef.unlocksTools`). Les règles ci-dessous (chantier, dernier
+  bâtiment détruit, refus) ne concernent donc plus que l'or. La Scierie et le Camp de
   mineur ne contrôlent plus rien (ce sont des points de collecte, §6
   undecies). Un chantier ne débloque rien ; il suffit
   d'un bâtiment terminé ; les droits sont recalculés avant chaque pas d'après les
@@ -1454,12 +1465,16 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   inchangé). Les gros gisements **bloquent** déplacement et construction
   (cellules `terrainResource`, `config/resourceNodes.ts`), y compris dans
   l'éditeur.
-- **Forge = outils** : une Forge **terminée** donne la Hache de bûcheron et
-  la Pioche de mineur à tout le camp (`run/harvestPermissions.ts`).
-  Première fois : « Nouveaux outils disponibles : Hache de bûcheron et
-  Pioche de mineur. » (une fois par partie). Sans Forge : sélection,
-  message et déplacement, aucune extraction. Dernière Forge détruite :
-  nouveaux ordres refusés, l'unité en cours est finie, puis arrêt.
+- **Forge = or** (2026-11-04 ; son ancien rôle de déblocage du bois et de
+  la pierre est **retiré**) : une Forge **terminée** donne la **Pioche de
+  prospecteur** (gisements d'or) à tout le camp
+  (`run/harvestPermissions.ts`) ; hache et pioche de mineur sont des
+  outils de départ. Première fois : « Nouvel outil disponible : Pioche de
+  prospecteur (gisements d'or). » (une fois par partie). Sans Forge, sur un
+  gisement d'or : sélection, message « Gisement d'or : il faut une Forge
+  (Pioche de prospecteur) » et déplacement, aucune extraction. Dernière
+  Forge détruite : nouveaux ordres sur l'or refusés, l'unité en cours est
+  finie, puis arrêt. La Forge garde ses améliorations de run.
 - **Scierie et Camp de mineur** : **points de collecte** spécialisés depuis
   le 2026-11-03 (Scierie : bois ; Camp de mineur : pierre et or extrait ;
   §6 undecies). Coûts, emprises, modèles et PV inchangés.
@@ -1494,7 +1509,9 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   ramassage d'un tas et dépôt sur la pose de repos (aucun geste dédié,
   KI-64). Se sélectionne et se commande comme une unité. **Clic droit**
   sur un arbre, un gisement de pierre ou d'or : récolte (même permission
-  que le Héros : Forge terminée) ; sur un tas de bois / pierre :
+  que le Héros : bois et pierre dès le départ, or avec une Forge
+  terminée) ; deux Villageois sont présents dès le départ (camp de départ,
+  §6 duodecies) ; sur un tas de bois / pierre :
   ramassage ; sur un point de collecte qui accepte ce qu'il porte : dépôt.
   Cargo de **5** (§6 undecies) : plein → dépôt automatique au point de
   collecte le plus proche (Scierie pour le bois, Camp de mineur pour la
@@ -1689,6 +1706,57 @@ sur grille) est supprimé ; ses anciens murs ne sont jamais convertis.
   « [map] anciens murs ignorés : système de muraille V1 supprimé » ; la
   carte se charge normalement.
 - **Préparation (legacy)** : aucun mur.
+
+## 6 duodecies. Camp de départ, vitesse ×1,4, bois et pierre libres
+
+Depuis le 2026-11-04 (demande d'Antoine, `DESIGN_DECISIONS.md` G36 à G39 ;
+valeurs **provisoires**) :
+
+- **Vitesse ×1,4** : toutes les unités mobiles (Héros, Villageois, armée,
+  Cavalier, neutres et gardes des camps, vagues) se déplacent 40 % plus
+  vite, proportions conservées. Un multiplicateur unique
+  (`UNIT_MOVE_SPEED_MULTIPLIER`, `data/units.ts`) s'applique à la vitesse
+  **finale** (base, améliorations, niveau et équipement du Héros compris) ;
+  les vitesses écrites ailleurs dans ce document sont les valeurs de base
+  (Héros 4,16 → **5,82** en jeu, Homme d'armes et Villageois 2,2 → 3,08,
+  Archer 2 → 2,8, Cavalier 3,6 → 5,04). Attaque, sorts, récolte,
+  construction, projectiles, recharges et Charge du Cavalier inchangés ; pas
+  de croissance de vitesse du Héros après le niveau 3. Les clips de marche
+  et de course jouent 1,4 fois plus vite (pas de glissement des pieds).
+  Arrivée, collisions et palissades : comportement identique à avant
+  (vérifié : même distance d'arrêt, aucun dépassement).
+- **Bois et pierre libres** : hache et pioche de mineur sont des outils de
+  **départ** ; l'or reste lié à la Forge (Pioche de prospecteur, §6 nonies).
+- **Camp de départ préconstruit** (preset `basic-camp`,
+  `config/startingBase.ts`) autour du Départ Survie : **Baliste** au
+  centre, **deux Maisons** (A puis B) et l'**Auberge** contre l'enceinte
+  (Maison A au nord-ouest, Maison B à l'ouest, Auberge à l'est, repère
+  local), cour où apparaissent le **Héros** et **deux Villageois**,
+  enceinte **arrondie** de **Palissade V2** : dodécagone de rayon 10,5
+  cases (diamètre 21, environ 330 cases dedans, 25 pièces) avec une
+  **porte ouverte** de 2,4 cases au milieu d'un côté ; le milieu du camp
+  reste libre pour les constructions suivantes. Tout est terminé, à pleins PV et **gratuit** (stock
+  de départ inchangé). Les bâtiments sont des bâtiments possédés ordinaires
+  (fiche, amélioration, réparation, destruction) : l'Auberge produit des
+  Villageois, les Maisons donnent leur population (Pop. 2 / 9) et la
+  prochaine Maison construite est A ; la porte suit les règles habituelles
+  (alliés passent, ennemis non, fermeture à la main). Terre battue sous les
+  bâtiments et quelques chemins courts. La caméra suit le Héros au
+  lancement. La porte s'ouvre du côté le plus dégagé (rotation choisie par
+  le générateur, ou par l'éditeur à la pose du Départ). La carte n'écrit
+  que le preset et sa rotation (`MapDef.startingBase`) : le reste est
+  dérivé, en run comme dans « Tester le scénario » et l'aperçu de
+  l'éditeur.
+- **Générateur** : l'emprise du camp de départ (disque : enceinte + 2
+  cases, rayon 12,5, la même pour toute rotation) reste sans arbre,
+  gisement, tas ni décor ; les gisements sont
+  posés **avant** la mise en forme finale des forêts (KI-65 résolue :
+  aucun passage d'une case contre un gisement, un flanc de rampe ou un baril
+  de camp) ; même nombre de gisements (26 pierre, 6 or) et de camps, un
+  tas de moins sur 12 graines, −3,9 % d'arbres (goulets élargis). Vérifié
+  sur 12 graines : porte utilisable, Héros et Villageois sortent, petit et
+  grand camps et chaque gisement atteints en vrai déplacement, ennemi
+  bloqué par la porte.
 
 ## 7. Économie d'or
 
@@ -2431,7 +2499,12 @@ méta-progression à zéro, après confirmation. Les réglages sont conservés.
 ## 16. Éditeur de maps
 
 Accessible depuis le menu principal ; le détail d'usage est dans
-`EDITOR.md`. **2026-11-04** (`EDITOR.md` §1 bis, `DESIGN_DECISIONS.md`
+`EDITOR.md`. **2026-11-04, suite** (G38) : le **Départ Survie** porte le
+camp de départ (preset `basic-camp`) : camp dérivé affiché dans l'éditeur,
+emprise complète validée (eau, relief, arbres, gisements, objets, camps
+neutres), porte orientée automatiquement, aperçu de l'emprise au
+déplacement, clic sur une pièce du camp = Départ sélectionné ; « Tester le
+scénario » crée le même camp qu'en run. **2026-11-04** (`EDITOR.md` §1 bis, `DESIGN_DECISIONS.md`
 G34) : l'éditeur est un vrai outil de création de cartes de Survie
 (authored, procédurale ou hybride). **Camps authorables** : « Petit camp »
 et « Grand camp » du groupe Survie (mêmes rosters qu'en jeu), objets

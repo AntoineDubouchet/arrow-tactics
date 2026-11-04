@@ -112,7 +112,7 @@ jamais une statistique figée de la graine. Dessous, la **validation de
 Survie** : **erreurs** en rouge (aucun Départ Survie ; Départ invalide ;
 camp invalide, avec la raison) qui bloquent « Tester le scénario », et
 **avertissements** en orange (aucun camp, aucune ressource, aucune
-palissade) qui ne bloquent rien.
+palissade, celle du camp de départ comptant) qui ne bloquent rien.
 
 **Vue globale** (bouton de la barre du haut, même cadrage qu'Espace) : la
 caméra cadre la carte entière dans l'espace libre de l'écran, calculé
@@ -125,14 +125,30 @@ L'éditeur n'a jamais de brouillard de guerre : toute la carte est visible
 **Éléments de Survie** (Départ Survie, camps, petits tas, barils), groupe
 **Survie** du catalogue (2026-11-04, `DESIGN_DECISIONS.md` G34) :
 
-- **Départ Survie** : la position de la **Baliste principale** ; le Héros
-  apparaît à côté. Un seul par carte : l'outil pose la Baliste au clic
-  (emprise 3 × 3 calée sur la grille, aperçu vert / rouge) et **remplace**
-  l'ancien départ ; l'outil revient à Sélection, départ sélectionné.
-  Marqueur : anneau et fanion bleus sous la tour. Refus : cases manquantes,
-  eau, relief, obstacle ou gisement, bâtiment ou unité sous l'emprise, camp
-  à moins de 14 cases. Le territoire joueur n'est plus exigé. Sans Départ
-  Survie, aucune Baliste n'est affichée.
+- **Départ Survie** : la position de la **Baliste principale** et, depuis
+  le 2026-11-04, le **camp de départ préconstruit** qui l'entoure (preset
+  `basic-camp` : deux Maisons A et B, Auberge, enceinte **arrondie** de
+  Palissade V2 (dodécagone de rayon 10,5 cases, 25 pièces) avec une porte
+  ouverte, Héros et deux Villageois dans la cour). Un seul par carte : l'outil pose la Baliste au clic (emprise 3 × 3
+  calée sur la grille) et **remplace** l'ancien départ ; l'outil revient à
+  Sélection, départ sélectionné. L'**aperçu** montre la Baliste, l'**emprise
+  réservée** du camp (disque : enceinte + 2 cases, rayon 12,5, vert /
+  rouge) et l'enceinte. Le
+  camp dérivé est **affiché** sous le marqueur (bâtiments, palissade, porte,
+  Héros, Villageois) avec le contour bleu de son emprise ; un clic sur
+  n'importe laquelle de ses pièces sélectionne le Départ. Départ déjà
+  sélectionné, un clic sur le camp (hors Baliste) le déplace à cet endroit,
+  même de deux cases. La porte s'ouvre
+  du côté le plus dégagé, recalculé à chaque pose ou déplacement (Ctrl+Z
+  rend aussi l'ancienne orientation). Refus : cases manquantes, eau, relief,
+  obstacle ou gisement, bâtiment ou unité sous la Baliste ; dans toute
+  l'emprise du camp : hors carte, eau, relief, arbre ou gisement, objet
+  bloquant, bâtiment, palissade, camp neutre ; unité posée sous une Maison,
+  l'Auberge ou la palissade du camp (ailleurs dans l'emprise, une unité
+  reste permise) ; camp à moins de 17 cases. Le territoire joueur n'est plus exigé. Sans Départ Survie, aucune
+  Baliste ni camp n'est affiché. Une carte enregistrée n'écrit que le Départ
+  (`ballista`) et le preset avec sa rotation (`startingBase`) : bâtiments,
+  murs et unités du camp ne sont jamais écrits.
 - **Petit camp**, **Grand camp** (un par type de `data/camps.ts`, mêmes
   rosters qu'en jeu : 4 et 6 gardes) : un camp est **un seul objet** (type,
   centre, niveau, orientation). Coffre, postes de garde, feu, tente,
@@ -142,8 +158,8 @@ L'éditeur n'a jamais de brouillard de guerre : toute la carte est visible
   voulu (centre de case), aperçu de la clairière (3,5 cases) vert / rouge.
   Refus : hors carte, eau, relief (falaise ou pente), bâtiment, palissade,
   Départ Survie, unité, arbre, gros gisement ou obstacle dans la
-  clairière ; autre camp à moins de 10 cases ; Départ Survie à moins de 14
-  cases ; abords fermés (moins de 12 cases libres dans la couronne de 2
+  clairière ; clairière qui touche l'emprise du camp de départ ; autre camp
+  à moins de 10 cases ; Départ Survie à moins de 17 cases ; abords fermés (moins de 12 cases libres dans la couronne de 2
   cases : zone manifestement inaccessible). Un décor traversable posé à la
   main dans la clairière ne gêne pas et **reste** après la suppression du
   camp. Niveau 1 par défaut, modifiable dans la fiche (§12) ; les gardes
@@ -972,6 +988,10 @@ identiques).
 - **Héros** (2026-11-04) : sur une carte de Survie (`hero-rts`), le Héros
   apparaît **à côté du Départ Survie** (même formation qu'en vraie run),
   sauf si la carte le place déjà comme unité de scénario.
+- **Camp de départ** (2026-11-04) : le même camp qu'en vraie run, dérivé du
+  Départ (deux Maisons A et B et Auberge en bâtiments de scénario terminés,
+  enceinte de 24 pièces avec la porte ouverte, deux Villageois dans la
+  cour, Héros à sa place).
 - **Camps** : chaque camp de la carte est créé comme en vraie partie
   (gardes au **niveau du camp**, coffre, décor et barils dérivés).
 - **Retour à l'éditeur** : sur une carte de Survie, seulement par la

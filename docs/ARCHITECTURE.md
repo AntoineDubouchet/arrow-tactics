@@ -1459,11 +1459,15 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   (`sim/inventory.ts`) ne connaît plus les ressources (KI-63 close).
   Rendu : `updateCarryBundle(view, cargo)` ; fiche : `dropOffRows`
   (`run/entityInfo.ts`).
-- **Outils** : `data/resources.ts` (`HARVEST_TOOLS`, `HARVEST_NODE_KINDS`
-  : outil, geste, unité, quantité, monnaie) ; `BuildingDef.unlocksTools` ;
-  `run/harvestPermissions.ts` (alliés via `sim/relations.ts`,
-  `areAllied`) ; la simulation ne lit que `World.harvestPermissions`.
-  Annonce unique côté `main.ts` (`announceHarvestTools`).
+- **Outils** : `data/resources.ts` (`HARVEST_TOOLS` : `axe`, `pickaxe`,
+  `goldPickaxe` ; `STARTING_HARVEST_TOOLS` = hache et pioche, à tout camp
+  dès le départ, 2026-11-04 ; `STARTING_HARVEST_PERMISSIONS`, valeur par
+  défaut de `World.harvestPermissions` ; `HARVEST_NODE_KINDS` : outil,
+  geste, unité, quantité) ; `BuildingDef.unlocksTools` (Forge :
+  `goldPickaxe`) ; `run/harvestPermissions.ts` (outils de départ + ceux des
+  bâtiments terminés alliés, via `sim/relations.ts`, `areAllied`) ; la
+  simulation ne lit que `World.harvestPermissions`. Annonce unique côté
+  `main.ts` (`announceHarvestTools`, outils hors départ seulement).
 - **Gisement d'or** : `ObstacleDef.ore: 'gold'` sur un `rock` ; rendu
   `render/rocks.ts` (Rocher E + pépites procédurales, graine = position).
 - **Variantes visuelles** : `BuildingDef.modelVariants`,
@@ -1548,6 +1552,60 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   (`computeArmyFormation`) sur une carte `hero-rts` sans Héros de
   scénario ; la fin « plus de combattant adverse » est ignorée en test sur
   une carte `hero-rts` (défaite ou Échap seulement).
+
+## 13 duodecies. Camp de départ, vitesse, générateur (2026-11-04)
+
+- **Vitesse** : `UNIT_MOVE_SPEED_MULTIPLIER` et `withEffectiveMoveSpeed`
+  (`data/units.ts`) appliqués là où la simulation résout les stats d'une
+  entité : `World.spawn` (base + overrides d'amélioration) et
+  `refreshHeroStats` (niveau + équipement) ; toute lecture de
+  `Entity.stats.moveSpeed` (mouvement, prédiction de la Baliste, fiches)
+  voit donc la vitesse finale ; `UNITS` garde les valeurs de base ; fiche
+  de préparation : `placementUnitInfo` applique le même helper. Rendu :
+  `UnitViews.createView` multiplie le `timeScale` du clip `walk` de tout
+  kit riggé ; cycle procédural (`WALK_CYCLE_SPEED`) idem.
+- **Camp de départ** : `config/startingBase.ts` (dans `config/`, car le
+  générateur s'en sert ; aucun import de `data/`) : `STARTING_BASE_PRESETS`
+  (`basic-camp` : bâtiments relatifs avec façade et variante, enceinte
+  polygonale `enclosure = { type, sides, radius, gateLength }` dont les
+  lignes de mur V2 sont dérivées (porte = ligne dédiée centrée sur +z,
+  `gates: [0]`, `openGates`), unités, Héros), `DEFAULT_STARTING_BASE_PRESET`,
+  `STARTING_BASE_MARGIN` ;
+  `startingBaseLayoutAt(origin, preset, rotation)` (quarts de tour) ;
+  `startingBaseLayoutOf(map)` (`MapDef.ballista` + `MapDef.startingBase`,
+  défaut pour une carte `hero-rts`, `none` = aucun) ;
+  `startingBaseRotationFor(origin, preset, isOpen)` (porte vers le côté le
+  plus dégagé) ; zone réservée en **disque** (`StartingBaseDisc`,
+  `startingBaseReservedAt`, `reservedCells`, `reservedContainsCell`,
+  `reservedOverlapsDisc`), `bounds` = boîte englobante ;
+  `expandStartingBaseWalls(map)` (enceinte ajoutée à
+  `MapDef.walls` à la consommation, comme `expandMapCamps`).
+  `WallLineDef.openGates` → `World.spawnWallLine(…, { openGates })`
+  (`spawnMapWalls`). Consommateurs : `survivalMapFor` (murs) ;
+  `applyStartingBaseToRun` (`main.ts` : bâtiments → `RunState.buildings`
+  à pleins PV avec `modelVariant` et `placedBuildingCounts`, unités →
+  `RunState.army`) ; `computeArmyFormation` (places du Héros et des
+  unités du preset) ; `setupTestBattle` (mêmes bâtiments en bâtiments de
+  scénario, mêmes unités) ; éditeur (`EditorState.startingBase`,
+  `startingBaseLayoutFor`, `startingBaseLayout`, `startPlacementIssue`
+  sur toute l'emprise, `campPlacementIssue` refuse l'emprise ;
+  `editorStartMarker` affiche le camp dérivé et le contour, groupe tagué
+  `startMarker` = sélection du Départ, ignoré par `pickEditorObjectAt`
+  quand le Départ est déjà sélectionné (le clic devient un déplacement) ; `buildStartPreview` montre
+  l'emprise et l'enceinte ; `setBallista` restaure la rotation ;
+  sérialiseur : `startingBase` lu / écrit, `openGates` des murs conservé).
+- **Générateur** (`config/maps/proceduralSurvival.ts`) : zone du camp de
+  départ (toutes rotations) en `keepClear`, sans décor ni tas ;
+  gisements posés **après** une première `shapeForests` et **avant** une
+  seconde qui les voit comme de l'eau (obstacles fixes), avec un anneau
+  d'une case gardé dégagé et deux cases sans eau, relief, rampe ni autre
+  gisement ; candidat refusé déplacé localement (spirale de 4 cases) ;
+  goulets : un « mur » est toute case non accessible depuis le passage
+  (flancs de rampe compris) ; `reached` recalculé avec arbres **et**
+  gisements ; camps neutres : abords stricts (2,5 cases sans eau, colline,
+  rampe ni bord), recherche fine puis repli, arbres retirés jusqu'à 2 cases
+  au-delà de la clairière, écart entre camps mesuré de centre à centre ;
+  `MapDef.startingBase` écrit avec la rotation choisie.
 
 ## 14. Audio
 

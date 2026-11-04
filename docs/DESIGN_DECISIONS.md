@@ -101,6 +101,10 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G31 | Caméra de jeu verrouillée sur le Héros | Retirée (essai d'un jour, retour à la vue RTS libre) |
 | G34 | Éditeur de Survie : camp = objet sémantique authorable avec niveau, Départ Survie explicite, validation | Active (valeurs provisoires) |
 | G35 | Dépôt des ressources instantané au contact du point de collecte | Active |
+| G36 | Vitesse de déplacement ×1,4 pour toutes les unités mobiles (multiplicateur central) | Active (valeur provisoire) |
+| G37 | Bois et pierre récoltables dès le départ ; l'or reste lié à la Forge | Active ; **Ouvert** : l'or |
+| G38 | Départ Survie = petit camp joueur préconstruit (preset dérivé), enceinte arrondie | Active (valeurs provisoires) |
+| G39 | Générateur : gisements avant la mise en forme des forêts, aucun passage d'une case (KI-65) | Active |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -1818,7 +1822,9 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 
 ### G25 — Or monnaie, Forge = outils, gisements bloquants
 
-- **Statut** : Active ; valeurs **provisoires**.
+- **Statut** : Active ; valeurs **provisoires** ; **amendée** le
+  2026-11-04 par G37 (la Forge ne débloque plus le bois ni la pierre) et
+  G39 (placement des gisements).
 - **Demande d'Antoine** (2026-11-03) :
   - **Or = monnaie** : plus un objet du sac ; tas ramassés d'un clic,
     instantanément (remplacé le même jour : le Héros va le ramasser, voir
@@ -2028,6 +2034,117 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `sim/systems/cargo.ts`, `sim/systems/hero.ts`, `render/toonUnitRig.ts`,
   `run/entityInfo.ts`, `ui/heroInventory.ts`, `ui/style.css`, `main.ts`.
 
+### G36 — Vitesse de déplacement ×1,4
+
+- **Statut** : Active (2026-11-04) ; valeur **provisoire**.
+- **Demande d'Antoine** : +40 % de vitesse de déplacement effective pour
+  toutes les unités mobiles (Héros, Villageois, infanterie, archers, mages,
+  cavalerie, neutres, barbares des camps, vagues), proportions conservées ;
+  multiplicateur central plutôt qu'unité par unité ; bonus existants
+  conservés ; ni attaque, ni sort, ni récolte, ni construction, ni
+  projectile, ni recharge ; Héros inclus, sans croissance de vitesse après
+  le niveau 3 ; animations de marche ajustées si besoin.
+- **Choix de la passe** : `UNIT_MOVE_SPEED_MULTIPLIER = 1.4`
+  (`data/units.ts`), appliqué à la vitesse finale quand la simulation
+  résout les stats d'une entité (`World.spawn`, `refreshHeroStats`) ; les
+  données gardent leurs valeurs de base ; clip `walk` et cycle
+  procédural accélérés d'autant ; Charge du Cavalier inchangée (vitesse
+  propre). Mesuré : vitesse réelle ×1,40 (7 unités, joueur, neutres,
+  vague), même distance d'arrêt qu'avant, aucun dépassement, aucune
+  oscillation, palissade jamais traversée.
+- **Effet de jeu** : vagues et gardes arrivent aussi plus vite ; la
+  première vague, les allers-retours de récolte et l'exploration sont plus
+  courts. Change le rythme : à rejouer.
+- **Sources** : `data/units.ts`, `sim/world.ts`, `sim/systems/hero.ts`,
+  `run/entityInfo.ts`, `render/unitViews.ts`.
+
+### G37 — Bois et pierre récoltables dès le départ
+
+- **Statut** : Active (2026-11-04) ; **Ouvert** : l'or (décision
+  d'Antoine).
+- **Demande d'Antoine** : la Forge ne débloque plus la coupe du bois ni
+  l'extraction de la pierre ; Héros et Villageois ont hache et pioche dès le
+  début ; plus de message « il faut une Forge » pour un arbre ou un
+  gisement de pierre ; l'or extrait garde sa règle actuelle ; ne pas
+  inventer de nouvelle fonction à la Forge.
+- **Choix de la passe** : `STARTING_HARVEST_TOOLS` = hache + pioche de
+  mineur (tout camp, sans bâtiment) ; le gisement d'or demande désormais un
+  outil propre, la **Pioche de prospecteur** (nom **provisoire**), que la
+  Forge terminée donne (`unlocksTools: ['goldPickaxe']`) : c'est le seul
+  moyen de garder « or = Forge » sans toucher à la pierre. La Forge garde
+  ses améliorations de run.
+- **À trancher** : l'or doit-il rester lié à la Forge, devenir libre, ou
+  dépendre d'un autre bâtiment (Camp de mineur) ?
+- **Sources** : `data/resources.ts`, `run/harvestPermissions.ts`,
+  `data/buildings.ts`, `sim/world.ts`, `main.ts`.
+
+### G38 — Départ Survie = petit camp joueur préconstruit
+
+- **Statut** : Active (2026-11-04) ; composition et dimensions
+  **provisoires**.
+- **Demande d'Antoine** : commencer dans un petit camp construit autour du
+  Départ Survie : Baliste, Auberge, deux Maisons (A et B), deux Villageois,
+  petite enceinte de Palissade V2 avec une porte ouverte ; tout construit,
+  gratuit, stock inchangé ; donnée sémantique (preset) dérivée plutôt que
+  des objets sérialisés ; architecture extensible (autres presets plus
+  tard, sans interface pour l'instant) ; aperçu de l'emprise dans
+  l'éditeur ; même camp dans « Tester le scénario » ; caméra sur le Héros ;
+  défaite inchangée (Baliste).
+- **Choix de la passe** :
+  - `STARTING_BASE_PRESETS` (`config/startingBase.ts`, preset
+    `basic-camp`), `MapDef.startingBase = { preset, rotation }` ; défaut
+    pour une carte de Survie sans champ ; `none` = aucun camp ;
+  - layout : Baliste au centre, Maison A au nord-ouest, Maison B à
+    l'ouest, Auberge à l'est (toutes contre l'enceinte), cour au sud, porte
+    au milieu du côté sud (repère local) ; la rotation (quart de tour)
+    ouvre la porte vers le côté le plus dégagé (générateur ; éditeur à
+    chaque pose du Départ) ;
+  - **enceinte arrondie** (addendum du 2026-11-04, à la place du rectangle
+    de 15 × 11 cases) : dodécagone régulier de rayon 10,5 cases dérivé de
+    `enclosure = { sides, radius, gateLength }`, soit un diamètre de 21,
+    environ 330 cases dedans (165 avant) et 25 pièces (22 segments de
+    2,7 cases, deux bouts de 1,5 et une porte de 2,4 posée ouverte) ;
+    douze côtés car un quart de tour ramène le polygone sur lui-même ;
+    les bâtiments restent à plus de 1,6 case des murs ; environ 310
+    cases libres pour les constructions suivantes, sans sortir de
+    l'enceinte ; zone réservée = disque de rayon 12,5 (enceinte + 2) ;
+  - en run, les bâtiments deviennent des bâtiments **possédés** (fiche,
+    production, amélioration, réparation, destruction) et les Villageois
+    entrent dans l'armée ; l'enceinte vient des murs de la carte ;
+  - éditeur : emprise complète (disque : enceinte + 2 cases) validée pour
+    le Départ ; aucun camp neutre dedans ; camp neutre à 17 cases au moins
+    du Départ (14 avant : le disque réservé plus la clairière d'un camp
+    font 16) ;
+  - le générateur réserve l'emprise de toutes les rotations.
+- **Effet de jeu** : début de partie plus rapide et plus « base » (deux
+  ouvriers, 4 places de population de plus, Auberge immédiate) ; à
+  rejouer.
+- **Plus tard** : départ minimal, départ fortifié, autre faction, choix du
+  preset.
+- **Sources** : `config/startingBase.ts`, `config/mapDef.ts`,
+  `config/maps/proceduralSurvival.ts`, `main.ts`, `editor/editorState.ts`,
+  `editor/mapSerializer.ts`.
+
+### G39 — Générateur : aucun passage d'une case (KI-65)
+
+- **Statut** : Active (2026-11-04).
+- **Constat** : la grille A* ne connaît pas le rayon des corps ; un passage
+  d'une case lui paraît praticable alors que le Héros (rayon 0,6) n'y passe
+  pas et oscille. Trois sources sur les cartes générées : gisement posé
+  avec une seule case libre contre un arbre (KI-65), arbre contre le flanc
+  d'une rampe, baril de camp contre une falaise.
+- **Choix de la passe** : gisements posés avant une seconde mise en forme
+  des forêts qui les traite en obstacles fixes (goulets élargis en
+  retirant des arbres, poches reliées) ; deux cases sans eau, relief,
+  rampe ni autre gisement autour ; flanc de rampe compté comme mur dans la
+  détection des goulets ; abords stricts des camps neutres ; connexité
+  recalculée avec les gisements ; densité gardée par déplacement local des
+  candidats. Mesuré sur 12 graines : 312 / 312 gisements de pierre, 72 / 72
+  d'or, 24 camps, 457 tas contre 458, −3,9 % d'arbres, génération ~250 ms
+  (~140 avant).
+- **Limite** : un passage d'une case posé à la main dans l'éditeur reste
+  possible (KI-66).
+
 ### G35 — Dépôt des ressources instantané
 
 - **Statut** : Active (2026-11-04).
@@ -2111,7 +2228,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - validation de pose (`campPlacementIssue`) : mêmes critères que le
     générateur, sans sa connexité exacte (les « abords ouverts » remplacent
     le test de liaison à la Baliste) ; écarts provisoires : 10 cases entre
-    camps à la main (20 au générateur), 14 cases au Départ, 12 cases libres
+    camps à la main (20 au générateur), 17 cases au Départ (14 avant le
+    camp de départ arrondi), 12 cases libres
     dans la couronne ; un arbre dans la clairière est refusé (le générateur
     en abattait jusqu'à 4) ;
   - Départ Survie = le champ `ballista` existant, outil dédié, marqueur

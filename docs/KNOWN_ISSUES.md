@@ -69,7 +69,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-60 | Maison B : variante seulement pour les Maisons posées en jeu ; une Maison de scénario de l'éditeur reste A | Limite assumée |
 | KI-62 | Tourbillon : rotation du modèle entier (5 tours/s), sans clip dédié (arme et jambes figées dans le clip courant) ; VFX procédural provisoire (arcs, cercle de zone) | Limite assumée (prototype) |
 | KI-64 | Villageois : clips Spearman, estoc en guise de coup de hache / pioche ; ramassage et dépôt sur la pose de repos, sans geste de travail dédié | Limite assumée (assets) |
-| KI-65 | Carte générée : un gisement bloquant peut fermer un couloir et isoler une poche (régression de `9ffda08`, 2026-11-03) ; les tests `camp.mts` / `camp-boucle.cjs` qui téléportent le Héros sur la ligne droite vers le camp (graine 12345) échouent depuis | À corriger (générateur) |
+| KI-66 | Pathfinding : la grille A* ignore le rayon des corps ; un passage d'une case (posé à la main dans l'éditeur : gisement, arbre, baril contre un obstacle ou une falaise) paraît praticable et le Héros y oscille ; le générateur n'en produit plus (G39) | Limite assumée |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
@@ -80,7 +80,8 @@ KI-49 et KI-50, sans objet depuis la suppression du Wall V1 le 2026-11-02 :
 la Palissade V2 est au menu Construire du temps réel, à tout angle ;
 KI-61, Villageois avec son propre modèle, ses outils et son sac depuis le
 2026-11-03, G32 ; KI-63, piles de ressources retirées de l'inventaire RPG le
-2026-11-03, G33).
+2026-11-03, G33 ; KI-65, passages d'une case des cartes générées supprimés le
+2026-11-04, G39 : `camp.mts` et `camp-boucle.cjs` repassent).
 
 Retirées lors de la refonte de l'éditeur, résolues côté code :
 
@@ -535,25 +536,20 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   au chargement et à la sauvegarde). Une carte de survie dessinée passe
   aujourd'hui par le JSON.
 
-### KI-65 — Carte générée : poche fermée par un gisement bloquant
+### KI-66 — Pathfinding sans rayon : passages d'une case
 
-- **Statut** : à corriger (générateur), constatée le 2026-11-04 pendant la
-  passe G34 ; **antérieure** à cette passe (bisect : `98b893d` sain,
-  `9ffda08` cassé, commit qui a rendu les gisements bloquants, G25).
-- **Constat** : le générateur relie les abords de chaque camp à la Baliste
-  (`reached`) **avant** de poser les gisements de pierre et d'or ; un
-  gisement 2 × 2 bloquant peut ensuite fermer un couloir entre deux massifs
-  et isoler une poche. Graine 12345 : sur la ligne droite entre le centre
-  et le petit camp, à 9 cases du camp, le Héros ne peut plus rejoindre les
-  gardes (ordre d'attaque ou de déplacement : il oscille à 6 cases, aucun
-  chemin). Les gardes restent joignables **depuis la Baliste** (vérifié,
-  graines 1, 7, 99, 12345) : en jeu, le détour existe ; c'est le point de
-  téléportation des tests `camp.mts` (combat, coffre) et `camp-boucle.cjs`
-  qui tombe dans la poche, d'où leurs échecs depuis `9ffda08`.
-- **Piste** : poser les gisements avant la passe de connexité des forêts,
-  ou vérifier qu'un gisement ne coupe aucun couloir (comme `freeForDeposit`
-  le fait pour ses voisines), puis recaler les deux tests (le Villageois,
-  le cargo et les points de collecte ne sont pas concernés).
+- **Statut** : limite assumée (2026-11-04).
+- **Constat** : la grille A* (`sim/pathfinding.ts`) marque une case bloquée
+  ou libre, sans tenir compte du rayon de l'unité (Héros 0,6, Cavalier
+  0,7). Un passage d'une case entre deux obstacles (ou un obstacle et une
+  falaise) est donc proposé comme chemin, mais le corps n'y passe pas : il
+  oscille sur place. Le générateur n'en produit plus (G39, vérifié sur 12
+  graines : 0 passage d'une case contre un gisement, chaque gisement et
+  chaque camp atteint en vrai déplacement) ; une carte dessinée à la main
+  peut encore en contenir.
+- **Piste** : grille d'accessibilité par rayon (ou dilatation des
+  obstacles) dans le pathfinding, à discuter (coût, comportements de
+  mouvement existants) ; ou une alerte de l'éditeur.
 
 ### KI-53 — Sol du plateau en morceaux
 

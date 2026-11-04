@@ -39,6 +39,7 @@ import {
   resolveBallistaOrigin,
   snapBallistaOrigin,
   usesHeroRtsRules,
+  type MapBuildingPlacement,
   type MapDef,
 } from './config/mapDef';
 import { resolveUnitLevel, unitLevelFromUpgradeLevel } from './data/unitLevels';
@@ -240,7 +241,7 @@ import { HeroInventoryPanel } from './ui/heroInventory';
 import { ItemEditor } from './itemEditor/itemEditorUI';
 import { equippedHandVisuals } from './run/heroEquipment';
 import { createHeroInventory, inventoryItems, type InventoryAction } from './sim/inventory';
-import { canHarvestResource, CARGO_LABELS, cargoResourceOf, cargoTotal, HARVEST_NODE_KINDS, HARVEST_TOOLS } from './data/resources';
+import { canHarvestResource, CARGO_LABELS, cargoResourceOf, cargoTotal, HARVEST_NODE_KINDS, HARVEST_TOOLS, STARTING_HARVEST_TOOLS } from './data/resources';
 import { EconomyHud } from './ui/economyHud';
 import { ActionProgressBar } from './ui/actionProgress';
 import { EQUIPMENT, type EquipmentSlot } from './data/equipment';
@@ -253,6 +254,7 @@ import { getSpell } from './data/spells';
 import { INITIAL_EXPLORED_RADIUS } from './data/vision';
 import { REPAIR_FULL_SECONDS, CHEST_OPEN_SECONDS, CONSTRUCTION_START_HP_FRACTION, HARVEST_INTERVAL, HERO_LEVELS, HERO_UNIT_ID, PICKUP_SECONDS } from './data/hero';
 import { campLayoutOf, expandMapCamps } from './data/campLayout';
+import { expandStartingBaseWalls, startingBaseLayoutOf, type StartingBaseDisc, type StartingBaseLayout } from './config/startingBase';
 import { CAMP_KINDS, getCampKind } from './data/camps';
 import { campSpecOf } from './run/camps';
 import { isChestLocked, type Chest } from './sim/systems/camps';
@@ -356,8 +358,9 @@ function survivalMapFor(seed: number): MapDef {
   if (survivalMapParam === 'island') return { ...ISLAND_ARENA_MAP, playerUnits: [], enemyUnits: [] };
   if (survivalMapParam === 'arena') return SURVIVAL_BASE_MAP;
   // Camps semantiques (2026-11-03) : leur decor et leurs barils sont derives
-  // ici, une fois, pour le monde et le plateau.
-  return expandMapCamps(generateSurvivalMap(seed));
+  // ici, une fois, pour le monde et le plateau ; enceinte du camp de depart
+  // (2026-11-04, config/startingBase.ts) aussi.
+  return expandStartingBaseWalls(expandMapCamps(generateSurvivalMap(seed)));
 }
 let survivalBaseMap: MapDef = survivalMapFor(survivalUrlSeed ?? randomSeed());
 /** Vrai une fois la carte de depart utilisee par une run : la suivante en
@@ -1075,6 +1078,23 @@ function createFreshRun(heroId: string = DEFAULT_HERO_ID): RunState {
   return createNewRun(computeStartingGoldBonus(metaProgress), playerUnitMaxHp('fantassin', 0), upgrades, survivalBaseMap, heroId);
 }
 
+/** Camp de depart (2026-11-04, config/startingBase.ts) : ses batiments
+ *  deviennent des batiments POSSEDES, termines, a pleins PV et gratuits
+ *  (aucun cout deduit), dans l'ordre du preset (Maisons A puis B : le
+ *  compteur de pose suit, la Maison construite ensuite est A) ; ses unites
+ *  (Villageois) rejoignent l'armee de depart, a pleins PV. Le stock de
+ *  depart n'est pas touche. L'enceinte vient de la carte (murs derives,
+ *  survivalMapFor). */
+function applyStartingBaseToRun(): void {
+  const layout = startingBaseLayoutOf(survivalBaseMap);
+  if (!layout) return;
+  for (const b of layout.buildings) {
+    currentRun.buildings.push({ buildingId: b.buildingId, x: b.x, z: b.z, hp: effectiveBuildingMaxHp(b.buildingId, 0), rotationY: b.rotationY, ...(b.modelVariant !== undefined ? { modelVariant: b.modelVariant } : {}) });
+    if (getBuilding(b.buildingId).modelVariants) currentRun.placedBuildingCounts[b.buildingId] = (currentRun.placedBuildingCounts[b.buildingId] ?? 0) + 1;
+  }
+  for (const u of layout.units) currentRun.army.push({ unitId: u.unitId, hp: playerUnitMaxHp(u.unitId, 0), productionLevel: 0 });
+}
+
 /** SOURCE UNIQUE de la progression du joueur pour les statistiques
  *  effectives : talents permanents (metaProgress) et niveaux d'amelioration
  *  de la run (currentRun.upgrades). "Tester le scenario", qui n'est pas une
@@ -1144,11 +1164,18 @@ function setupTestBattle(): void {
     rememberPlayerUnitLevel(spawned, level, pos.level);
   }
   // Survie Hero RTS (2026-11-03) : le Heros apparait a cote du Depart
-  // Survie, comme en vraie run (computeArmyFormation), sauf si la carte le
-  // place deja comme unite de scenario.
+  // Survie, comme en vraie run (computeArmyFormation : place du camp de
+  // depart), sauf si la carte le place deja comme unite de scenario. Camp
+  // de depart (2026-11-04) : ses unites (Villageois) a leurs places.
+  const startingBase = startingBaseLayoutOf(currentMap);
   if (usesHeroRtsRules(currentMap) && currentMap.ballista && !currentMap.playerUnits.some((u) => u.unitId === HERO_UNIT_ID)) {
     const at = computeArmyFormation([HERO_UNIT_ID], currentMap)[0];
     if (at) world.spawnHero('player', at.x, at.z, { xp: 0, level: 1, deaths: 0 });
+  }
+  for (const u of startingBase?.units ?? []) {
+    const level = currentProductionLevel(playerProgression().upgrades, u.unitId);
+    const spawned = world.spawn(u.unitId, 'player', u.x, u.z, undefined, playerUnitStatOverrides(u.unitId, level, playerProgression()), playerUnitAbilityDamageBonus(u.unitId, level), playerUnitTauntShieldBonus(u.unitId, level));
+    rememberPlayerUnitLevel(spawned, level);
   }
   // Niveau explicite de la carte (MapUnitPlacement.level), sinon 1.
   for (const pos of currentMap.enemyUnits) world.spawn(pos.unitId, 'enemy', pos.x, pos.z).level = resolveUnitLevel(pos.level);
@@ -1156,8 +1183,11 @@ function setupTestBattle(): void {
   // entites au niveau 1 (PV, collision, fonction), apres les unites comme
   // les batiments possedes en vraie bataille.
   clearScenarioBuildingMeshes();
-  for (const placed of currentMap.buildings ?? []) {
-    const obstacle = gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0);
+  // Camp de depart (2026-11-04) : memes batiments que la vraie run, termines,
+  // en batiments de scenario (Maison B comprise).
+  const startingBuildings: (MapBuildingPlacement & { modelVariant?: number })[] = (startingBase?.buildings ?? []).map((b) => ({ buildingId: b.buildingId, team: 'player', x: b.x, z: b.z, rotationY: b.rotationY, modelVariant: b.modelVariant }));
+  for (const placed of [...startingBuildings, ...((currentMap.buildings ?? []) as (MapBuildingPlacement & { modelVariant?: number })[])]) {
+    const obstacle = gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0, placed.modelVariant);
     const entity = world.spawnBuilding(getBuilding(placed.buildingId), placed.team, placed.x, placed.z, obstacle);
     const mesh = buildObstacleMesh(obstacle, environmentAssets);
     renderer.scene.add(mesh);
@@ -1302,8 +1332,22 @@ function layoutFormation(unitIds: string[], frontZ: number, rowStep: number, per
  * a 6 emplacements) — voir layoutFormation pour la logique melee/distance.
  */
 function computeArmyFormation(unitIds: string[], map: MapDef): { x: number; z: number }[] {
-  // Survie Hero RTS : en rangs au sud de la Baliste, centre du camp.
-  if (usesHeroRtsRules(map) && map.ballista) return layoutFormation(unitIds, map.ballista.z + 2.5, TILE, 6).map((p) => ({ x: p.x + map.ballista!.x - 0.5, z: p.z }));
+  // Survie Hero RTS : en rangs au sud de la Baliste, centre du camp ; avec un
+  // camp de depart (2026-11-04), le Heros et les unites du preset a leurs
+  // places (cour du camp), les autres en rangs.
+  if (usesHeroRtsRules(map) && map.ballista) {
+    const formation = layoutFormation(unitIds, map.ballista.z + 2.5, TILE, 6).map((p) => ({ x: p.x + map.ballista!.x - 0.5, z: p.z }));
+    const base = startingBaseLayoutOf(map);
+    if (!base) return formation;
+    const slots = [...base.units];
+    return unitIds.map((unitId, i) => {
+      if (unitId === HERO_UNIT_ID) return { ...base.hero };
+      const k = slots.findIndex((s) => s.unitId === unitId);
+      if (k < 0) return formation[i]!;
+      const slot = slots.splice(k, 1)[0]!;
+      return { x: slot.x, z: slot.z };
+    });
+  }
   const halfH = (map.height * TILE) / 2;
   // spawnDepth DYNAMIQUE (2026-08-18, agrandissement progressif de la map) —
   // remplace la constante globale PLACEMENT_ROWS pour le jeu REEL : voir
@@ -2163,6 +2207,7 @@ function startNewRun(heroId: string = selectedHeroId): void {
   if (survivalMapUsed && survivalBaseMap.generator) survivalBaseMap = survivalMapFor(survivalUrlSeed ?? randomSeed());
   survivalMapUsed = true;
   currentRun = createFreshRun(heroId);
+  applyStartingBaseToRun();
   resetSettlementGround();
   if (demoItems) currentRun.hero.inventory = createHeroInventory(Object.keys(EQUIPMENT));
   refreshHeroPortrait();
@@ -3124,11 +3169,13 @@ function cargoParts(c: { wood: number; stone: number; minedGold: number }): stri
  *  meme apres la perte puis la reconstruction d'une Forge). */
 let harvestToolsAnnounced = false;
 
-/** Premiere Forge terminee : « Nouveaux outils disponibles » (une fois). */
+/** Premiere Forge terminee : « Nouvel outil disponible » (une fois) ; les
+ *  outils de depart (hache, pioche) ne sont jamais annonces. */
 function announceHarvestTools(): void {
-  if (harvestToolsAnnounced || world.harvestPermissions.tools.length === 0 || !inBattlePhase()) return;
+  const gained = world.harvestPermissions.tools.filter((t) => !STARTING_HARVEST_TOOLS.includes(t));
+  if (harvestToolsAnnounced || gained.length === 0 || !inBattlePhase()) return;
   harvestToolsAnnounced = true;
-  waveIndicator.flash(`Nouveaux outils disponibles : ${world.harvestPermissions.tools.map((t) => HARVEST_TOOLS[t].name).join(' et ')}.`);
+  waveIndicator.flash(`Nouvel outil disponible : ${gained.map((t) => HARVEST_TOOLS[t].name).join(' et ')} (gisements d’or).`);
 }
 
 function handleDepletedResources(): void {
@@ -3545,12 +3592,12 @@ function refreshEditorInfo(): void {
 function syncEditorFeatureViews(): void {
   if (!editorState || !editorAssets) return;
   const sel = editorState.selection?.kind === 'feature' ? editorState.selection.id : null;
-  const key = JSON.stringify([editorState.features.map((f) => [f.id, f.kind, featurePosition(f), f.kind === 'camp' ? [f.camp.kind, f.camp.level ?? 1, f.camp.facing ?? null] : null]), sel, editorState.ballistaExplicit ? editorState.ballista : null]);
+  const key = JSON.stringify([editorState.features.map((f) => [f.id, f.kind, featurePosition(f), f.kind === 'camp' ? [f.camp.kind, f.camp.level ?? 1, f.camp.facing ?? null] : null]), sel, editorState.ballistaExplicit ? editorState.ballista : null, editorState.startingBase ?? null]);
   if (key === editorFeaturesKey) return;
   clearEditorFeatureViews();
   editorFeaturesKey = key;
   for (const f of editorState.features) editorFeaturesGroup.add(editorFeatureView(f, f.id === sel, editorAssets));
-  if (editorState.ballistaExplicit) editorFeaturesGroup.add(editorStartMarker(editorState.ballista.x, editorState.ballista.z));
+  if (editorState.ballistaExplicit) editorFeaturesGroup.add(editorStartMarker(editorState.ballista.x, editorState.ballista.z, editorState.startingBaseLayout, editorAssets));
 }
 
 /** Libere les marqueurs propres a l'editeur (tagges `editorMarker`) ; les
@@ -3575,8 +3622,14 @@ function markerMesh(geometry: THREE.BufferGeometry, material: THREE.Material): T
 }
 
 /** Marqueur du Depart Survie (position de la Baliste principale, le Heros
- *  apparait a cote) : anneau bleu au sol et fanion. */
-function editorStartMarker(x: number, z: number): THREE.Object3D {
+ *  apparait a cote) : anneau bleu au sol et fanion ; camp de depart derive
+ *  (2026-11-04, config/startingBase.ts) : batiments, enceinte et porte,
+ *  Heros et Villageois tels qu'au lancement, et contour bleu de l'emprise
+ *  reservee. Tout le groupe est tague `startMarker` : un clic sur l'une de
+ *  ses pieces selectionne le Depart. */
+function editorStartMarker(x: number, z: number, layout: StartingBaseLayout | null, assets: EnvironmentAssets): THREE.Object3D {
+  const root = new THREE.Group();
+  root.userData['startMarker'] = true;
   const group = new THREE.Group();
   group.position.set(x, surfaceY(x, z), z);
   const ring = markerMesh(new THREE.RingGeometry(2.0, 2.35, 48), new THREE.MeshBasicMaterial({ color: 0x4aa3ff, transparent: true, opacity: 0.55, depthWrite: false }));
@@ -3587,7 +3640,42 @@ function editorStartMarker(x: number, z: number): THREE.Object3D {
   const flag = markerMesh(new THREE.BoxGeometry(0.8, 0.45, 0.04), new THREE.MeshBasicMaterial({ color: 0x4aa3ff }));
   flag.position.set(-1.2, 3.3, -1.6);
   group.add(ring, mast, flag);
-  return group;
+  root.add(group);
+  if (!layout) return root;
+  root.add(reservedOutline(layout.reserved, 0x4aa3ff));
+  for (const b of layout.buildings) {
+    const o = gameplayBuildingObstacle(b.buildingId, b.x, b.z, b.rotationY, b.modelVariant);
+    const mesh = buildObstacleMesh(o, assets);
+    placeObstacleMesh(mesh, o);
+    mesh.rotation.y = b.rotationY;
+    root.add(mesh);
+  }
+  for (const line of layout.walls) {
+    const type = getWallType(line.type);
+    segmentWallLine(line, type.segmentLength).forEach((s, i) => root.add(buildWallPieceView(s, line.gates?.includes(i) === true)));
+  }
+  for (const u of [{ unitId: HERO_UNIT_ID, ...layout.hero }, ...layout.units]) {
+    const mesh = buildUnit(u.unitId, 'player');
+    mesh.position.set(u.x, surfaceY(u.x, u.z), u.z);
+    root.add(mesh);
+  }
+  return root;
+}
+
+/** Contour (au sol) du disque reserve au camp de depart. Marqueur de
+ *  l'editeur (libere avec les autres). */
+function reservedOutline(disc: StartingBaseDisc, color: number): THREE.Object3D {
+  const y = (px: number, pz: number) => surfaceY(px, pz) + 0.08;
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i <= 64; i++) {
+    const a = (i / 64) * Math.PI * 2;
+    const px = disc.x + Math.cos(a) * disc.radius;
+    const pz = disc.z + Math.sin(a) * disc.radius;
+    pts.push(new THREE.Vector3(px, y(px, pz), pz));
+  }
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }));
+  line.userData['editorMarker'] = true;
+  return line;
 }
 
 function editorFeatureView(f: EditorFeature, selected: boolean, assets: EnvironmentAssets): THREE.Object3D {
@@ -4640,9 +4728,9 @@ async function testScenario(): Promise<void> {
     window.alert(`Tester le scénario refusé :\n- ${validation.errors.join('\n- ')}`);
     return;
   }
-  // Decor et barils des camps derives de leurs objets semantiques, comme
-  // pour une vraie run (survivalMapFor).
-  const testMap = expandMapCamps(exportMapDef(editorState, editorBaseMap));
+  // Decor et barils des camps derives de leurs objets semantiques, enceinte
+  // du camp de depart : comme pour une vraie run (survivalMapFor).
+  const testMap = expandStartingBaseWalls(expandMapCamps(exportMapDef(editorState, editorBaseMap)));
 
   // Masque l'editeur (mais garde editorState intact) et bascule dans les
   // memes conditions qu'une bataille normale : inEditorMode a false laisse
@@ -5527,11 +5615,20 @@ function pickEditorObjectAt(
   setRaycasterFromEvent(event);
   // Elements de carte Survie (2026-11-03) : leurs marqueurs passent avant le
   // decor (le feu d'un camp est un decor ; son marqueur designe le camp).
-  const featureHit = raycaster.intersectObjects(editorFeaturesGroup.children, true)[0];
-  if (featureHit) {
+  // Camp de depart derive (2026-11-04) : un clic dessus selectionne le
+  // Depart ; une fois le Depart selectionne, il ne capte plus le clic (le sol
+  // dessous reste une destination de deplacement, meme a deux cases).
+  const startSelected = editorState?.selection?.kind === 'ballista';
+  for (const featureHit of raycaster.intersectObjects(editorFeaturesGroup.children, true)) {
+    if ((featureHit.object as THREE.Line).isLine) continue;
     let o: THREE.Object3D | null = featureHit.object;
-    while (o && o.userData['featureId'] === undefined) o = o.parent;
+    while (o && o.userData['featureId'] === undefined && !o.userData['startMarker']) o = o.parent;
+    if (o?.userData['startMarker']) {
+      if (startSelected) continue;
+      return { kind: 'ballista' };
+    }
     if (o) return { kind: 'feature', id: o.userData['featureId'] as number };
+    break;
   }
   const obstacleHit = raycaster.intersectObjects(editorObjectsGroup.children, true)[0];
   const unitHit = raycaster.intersectObjects(editorUnitsGroup.children, true)[0];
@@ -5739,16 +5836,16 @@ function moveEditorFeature(id: number, x: number, z: number): void {
 
 function moveEditorBallista(x: number, z: number): boolean {
   if (!editorState) return false;
-  const from = { position: { ...editorState.ballista }, explicit: editorState.ballistaExplicit };
+  const from = { position: { ...editorState.ballista }, explicit: editorState.ballistaExplicit, base: editorState.startingBase ? { ...editorState.startingBase } : undefined };
   if (!editorState.moveBallista(x, z)) return false;
-  const to = { position: { ...editorState.ballista }, explicit: editorState.ballistaExplicit };
+  const to = { position: { ...editorState.ballista }, explicit: editorState.ballistaExplicit, base: editorState.startingBase ? { ...editorState.startingBase } : undefined };
   editorHistory.push({
     undo: () => {
-      editorState?.setBallista(from.position, from.explicit);
+      editorState?.setBallista(from.position, from.explicit, from.base);
       refreshEditorObjects();
     },
     redo: () => {
-      editorState?.setBallista(to.position, to.explicit);
+      editorState?.setBallista(to.position, to.explicit, to.base);
       refreshEditorObjects();
     },
   });
@@ -6434,12 +6531,12 @@ function issueRightClickOrder(event: MouseEvent): void {
         // Source visee : selectionnee (anneau jaune), recoltable ou non.
         selectedResourceNodeId = node.id;
         selectedPileId = null;
-        // Source sans l'outil (pas de Forge terminee, 2026-11-02) :
-        // interaction reconnue ET deplacement autorise, jamais « clic
-        // consomme » — le Heros va voir la ressource, sans la recolter ; la
-        // raison est rappelee.
+        // Source sans l'outil (2026-11-04 : seul le gisement d'or, sans Forge
+        // terminee ; bois et pierre sont libres des le depart) : interaction
+        // reconnue ET deplacement autorise, jamais « clic consomme » — le
+        // Heros va voir la ressource, sans la recolter ; la raison est rappelee.
         if (!canHarvestResource(world.harvestPermissions, node.resource)) {
-          waveIndicator.flash(`${HARVEST_NODE_KINDS[node.resource].tool === 'axe' ? 'Couper les arbres' : 'Exploiter ce gisement'} : il faut une Forge (${HARVEST_TOOLS[HARVEST_NODE_KINDS[node.resource].tool].name})`);
+          waveIndicator.flash(`${HARVEST_NODE_KINDS[node.resource].name} : il faut une Forge (${HARVEST_TOOLS[HARVEST_NODE_KINDS[node.resource].tool].name})`);
           // Heros et Villageois vont au pied de la source.
           for (const ids of [heroIds, workerIds]) {
             const first = ids.length > 0 ? world.getById(ids[0]!) : undefined;
@@ -7752,7 +7849,7 @@ function clearWallViews(): void {
 function spawnMapWalls(): void {
   for (const line of currentMap.walls ?? []) {
     if (!WALL_TYPES[line.type]) continue;
-    for (const e of world.spawnWallLine(line.team ?? 'player', line.type, line, { gates: line.gates })) addWallPieceView(e);
+    for (const e of world.spawnWallLine(line.team ?? 'player', line.type, line, { gates: line.gates, openGates: line.openGates })) addWallPieceView(e);
   }
 }
 
@@ -8190,7 +8287,7 @@ let lastRealTime = performance.now();
 
 const loop = new Loop(
   (dt) => {
-    // Outils de recolte (Forge terminee, 2026-11-02) d'apres les batiments
+    // Outils de recolte (de depart + Forge terminee) d'apres les batiments
     // du monde, avant chaque pas (run/harvestPermissions.ts).
     world.harvestPermissions = harvestPermissionsOf(world.entities, RUN_OWNER_TEAM);
     announceHarvestTools();
@@ -10239,8 +10336,9 @@ window.addEventListener('mousemove', (event) => {
  *  placement 3×3 ou un clic au sol la deplacerait — meme regle que le clic
  *  (EditorState.canMoveBallistaTo : geometrie + territoire joueur). Rien si
  *  le curseur vise un objet, qu'un clic selectionnerait au lieu de deplacer. */
-/** Apercu du Depart Survie (emprise 3 × 3, verte / rouge selon
- *  EditorState.canMoveBallistaTo) centre sur `target` (deja cale). */
+/** Apercu du Depart Survie centre sur `target` (deja cale) : emprise 3 × 3
+ *  de la Baliste et emprise reservee du camp de depart (2026-11-04), vertes
+ *  ou rouges selon EditorState.canMoveBallistaTo (toute l'emprise). */
 function buildStartPreview(target: { x: number; z: number }): THREE.Group {
   const valid = editorState?.canMoveBallistaTo(target.x, target.z) ?? false;
   const cornerX = Math.round(target.x - BALLISTA_PLACEMENT_TILES / 2);
@@ -10248,6 +10346,23 @@ function buildStartPreview(target: { x: number; z: number }): THREE.Group {
   const group = new THREE.Group();
   for (let dz = 0; dz < BALLISTA_PLACEMENT_TILES; dz++) {
     for (let dx = 0; dx < BALLISTA_PLACEMENT_TILES; dx++) group.add(buildCellPreview(cornerX + dx, cornerZ + dz, valid));
+  }
+  const layout = editorState?.startingBaseLayoutFor(target.x, target.z) ?? null;
+  if (layout) {
+    const r = layout.reserved;
+    const plane = new THREE.Mesh(new THREE.CircleGeometry(r.radius, 48), new THREE.MeshBasicMaterial({ color: valid ? 0x3ddc84 : 0xff5a4e, transparent: true, opacity: 0.18, depthWrite: false }));
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.set(r.x, surfaceY(target.x, target.z) + 0.07, r.z);
+    group.add(plane, reservedOutline(r, valid ? 0x3ddc84 : 0xff5a4e));
+    // Enceinte et porte a la position visee.
+    for (const line of layout.walls) {
+      const type = getWallType(line.type);
+      for (const [i, s] of segmentWallLine(line, type.segmentLength).entries()) {
+        const ghost = buildWallPieceView(s, line.gates?.includes(i) === true);
+        tintWallGhost(ghost, valid);
+        group.add(ghost);
+      }
+    }
   }
   return group;
 }
@@ -10287,15 +10402,8 @@ function updateEditorBallistaMovePreview(event: MouseEvent): void {
   if (pickEditorObjectAt(event) !== null) return;
   setRaycasterFromEvent(event);
   if (!intersectTerrain(raycaster.ray, groundHit)) return;
-  const target = snapBallistaOrigin(groundHit.x, groundHit.z);
-  const valid = editorState.canMoveBallistaTo(target.x, target.z);
-  const cornerX = Math.round(target.x - BALLISTA_PLACEMENT_TILES / 2);
-  const cornerZ = Math.round(target.z - BALLISTA_PLACEMENT_TILES / 2);
-  const group = new THREE.Group();
-  for (let dz = 0; dz < BALLISTA_PLACEMENT_TILES; dz++) {
-    for (let dx = 0; dx < BALLISTA_PLACEMENT_TILES; dx++) group.add(buildCellPreview(cornerX + dx, cornerZ + dz, valid));
-  }
-  editorGhost = group;
+  // Meme apercu que l'outil Depart Survie : Baliste et emprise du camp.
+  editorGhost = buildStartPreview(snapBallistaOrigin(groundHit.x, groundHit.z));
   editorGhostGroup.add(editorGhost);
 }
 

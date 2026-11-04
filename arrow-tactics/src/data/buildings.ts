@@ -155,8 +155,9 @@ export interface BuildingDef {
    *  liste compte. Absent : pas un point de collecte (Forge). */
   dropOff?: readonly CargoResource[];
   /** Outils de recolte donnes a tout le camp par ce batiment, une fois
-   *  TERMINE (hache : arbres ; pioche : gisements de pierre et d'or). Lu par
-   *  run/harvestPermissions.ts. Aujourd'hui : la Forge. */
+   *  TERMINE, en plus des outils de depart (hache, pioche). Lu par
+   *  run/harvestPermissions.ts. Aujourd'hui : la Forge (pioche de
+   *  prospecteur, gisements d'or). */
   unlocksTools?: readonly HarvestTool[];
   /** Description courte du menu Construire. Absent : aucune. */
   description?: string;
@@ -332,9 +333,11 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_blacksmith',
     footprintTilesX: 2,
     footprintTilesZ: 2,
-    // 2026-11-02 : la premiere Forge terminee donne la hache et la pioche.
-    unlocksTools: ['axe', 'pickaxe'],
-    description: 'Outils : hache de bûcheron et pioche de mineur',
+    // 2026-11-02 : la premiere Forge terminee donnait la hache et la pioche ;
+    // depuis le 2026-11-04, bois et pierre sont libres des le depart, la
+    // Forge ne donne plus que la pioche de prospecteur (gisements d'or).
+    unlocksTools: ['goldPickaxe'],
+    description: 'Outils : pioche de prospecteur (gisements d’or)',
   },
   // Maison : +2 de population maximale tant qu'elle existe (voir
   // data/population.ts). Cout et PV PROVISOIRES, non encore fixes par le

@@ -474,8 +474,15 @@ extrait ; G33). À voir aussi :
   faites le 2026-11-03 ; ~~poser / déplacer un camp à la main, niveau des
   camps~~ : faits le 2026-11-04 (G34, Départ Survie, validation) ; à
   suivre : `survivalRules` et niveaux des unités modifiables (KI-52),
-  versionner le générateur une fois stabilisé (KI-58), gisements qui
-  ferment un couloir (KI-65), un troisième type de camp.
+  versionner le générateur une fois stabilisé (KI-58), ~~gisements qui
+  ferment un couloir (KI-65)~~ (fait le 2026-11-04, G39), un troisième type
+  de camp, alerte de l'éditeur sur les passages d'une case (KI-66).
+- camp de départ (G38, 2026-11-04) : autres presets (départ minimal,
+  fortifié, autre faction), choix du preset (éditeur, carte), rotation
+  modifiable à la main ;
+- règle de l'or (G37, **Ouvert**) : Forge, libre ou autre bâtiment ; rôle
+  propre de la Forge au-delà des améliorations ;
+- pathfinding sensible au rayon des corps (KI-66).
 
 ## 6 octies. Niveaux, cartes de survie, village — suites
 

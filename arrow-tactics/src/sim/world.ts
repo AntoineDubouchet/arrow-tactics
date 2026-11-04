@@ -6,14 +6,14 @@ import { computeCliffObstacles, resolveMapHeightField } from '../config/terrainE
 import { dist } from '../core/math';
 import { Rng, randomSeed } from '../core/rng';
 import { getBuilding, type BuildingDef } from '../data/buildings';
-import { getUnit, type UnitStats } from '../data/units';
+import { getUnit, withEffectiveMoveSpeed, type UnitStats } from '../data/units';
 import { NO_EQUIPMENT_BONUS, type ConstructionState, type Entity, type HeroEquipmentBonus, type ProductionOrder, type Team } from './entity';
 import { CONSTRUCTION_START_HP_FRACTION, heroStatsForLevel } from '../data/hero';
 import { areAllied } from './relations';
 import { ENEMY_LOOT_TABLES, LOOT_TABLES, rollLoot } from '../data/loot';
 import { applyInventoryAction, createHeroInventory, resolveEquipmentBonus, type HeroInventory, type InventoryAction } from './inventory';
 import { DESTRUCTIBLE_LOOT, ENEMY_GOLD_DROPS } from '../data/loot';
-import { CARGO_CAPACITY, createCargo, NO_HARVEST_TOOLS, type HarvestPermissions, type PileResource } from '../data/resources';
+import { CARGO_CAPACITY, createCargo, STARTING_HARVEST_PERMISSIONS, type HarvestPermissions, type PileResource } from '../data/resources';
 import type { NodeResource } from '../config/resourceNodes';
 import { campClearSystem, campSystem, isChestLocked, type CampEvent, type CampSpec, type CampState, type Chest, type LootDropEvent } from './systems/camps';
 import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWhirlwindSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
@@ -241,8 +241,9 @@ export class World {
   lootEvents: LootDropEvent[] = [];
   /** Outils de recolte deja RESOLUS par l'orchestration (run/
    *  harvestPermissions.ts) : la simulation ne sait pas d'ou ils viennent
-   *  (la Forge aujourd'hui). Aucun par defaut. */
-  harvestPermissions: HarvestPermissions = NO_HARVEST_TOOLS;
+   *  (outils de depart, Forge). Par defaut : les outils de depart (hache et
+   *  pioche, 2026-11-04). */
+  harvestPermissions: HarvestPermissions = STARTING_HARVEST_PERMISSIONS;
   /** Renforts ennemis de la vague en cours (mini-vagues du Mode survie),
    *  null hors Mode survie (« Tester le scénario ») — voir
    *  sim/systems/enemyReinforcements.ts. */
@@ -492,7 +493,8 @@ export class World {
       unstickTimer: 0,
       unstickSideX: 0,
       unstickSideZ: 0,
-      stats: { ...def.stats, ...statOverrides },
+      // Vitesse effective (x1,4, data/units.ts) sur la vitesse finale.
+      stats: withEffectiveMoveSpeed({ ...def.stats, ...statOverrides }),
       abilityCooldowns: {},
       dash: null,
       cast: null,
