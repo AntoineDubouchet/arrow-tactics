@@ -1,6 +1,7 @@
 import type { InventoryAction } from '../sim/inventory';
 import type { EquipmentSlot } from '../data/equipment';
 import type { HeroSheetCell, HeroSheetInfo, HeroSheetItem } from '../run/entityInfo';
+import { createSlotIcon } from './slotIcons';
 
 /**
  * Fenetre du personnage et inventaire unique du Heros (2026-11-02), touche I
@@ -9,7 +10,11 @@ import type { HeroSheetCell, HeroSheetInfo, HeroSheetItem } from '../run/entityI
  * grille de cases (ressources en piles avec leur quantite, equipements au
  * cadre de leur rarete). Glisser-deposer : deplacer / echanger / fusionner
  * dans le sac, equiper vers un emplacement compatible, retirer vers le sac ;
- * double-clic : equiper ou retirer. Infobulle au survol. Le jeu continue
+ * double-clic ou clic droit (2026-11-05, G47) : equiper ou retirer. Clic
+ * droit sur le sac : la piece remplacee revient dans la case liberee ; sur une
+ * piece portee, sac plein : refus avec message, rien n'est perdu. Le clic
+ * droit reste dans l'interface : jamais une commande au monde derriere.
+ * Infobulle au survol. Le jeu continue
  * pendant qu'elle est ouverte. Les actions passent par la simulation
  * (World.queueInventoryAction) ; donnees deja mises en forme
  * (run/entityInfo.ts, heroSheetInfo).
@@ -49,6 +54,8 @@ export class HeroInventoryPanel {
     private readonly onAction: (action: InventoryAction) => void,
     savedPosition: InventoryWindowPosition | null = null,
     private readonly savePosition: (position: InventoryWindowPosition) => void = () => {},
+    /** Message discret au joueur (refus d'une action). */
+    private readonly notify: (message: string) => void = () => {},
   ) {
     this.position = savedPosition;
     this.root = document.createElement('div');
@@ -180,7 +187,7 @@ export class HeroInventoryPanel {
     const right = el('div', 'hero-inventory-bag');
     this.gold.title = 'Or du joueur (monnaie) : même valeur que le HUD en haut à droite';
     this.cargo.title = 'Bois, pierre et or extrait transportés (séparés du sac) : déposés à la Baliste';
-    right.append(this.bagTitle, this.grid, this.gold, this.cargo, el('div', 'hero-inventory-detail hero-inventory-hint', 'Glisser-déposer : ranger, fusionner, équiper. Double-clic : équiper / retirer. Bois, pierre et or extrait voyagent dans le sac de ressources, déposé à la Baliste ; l’or de butin est une monnaie.'));
+    right.append(this.bagTitle, this.grid, this.gold, this.cargo, el('div', 'hero-inventory-detail hero-inventory-hint', 'Glisser-déposer : ranger, fusionner, équiper. Clic droit ou double-clic : équiper / retirer. Bois, pierre et or extrait voyagent dans le sac de ressources, déposé à la Baliste ; l’or de butin est une monnaie.'));
     this.body.replaceChildren(left, right);
     // Fin d'un glisser hors d'une case : la grille peut de nouveau suivre.
     document.addEventListener('dragend', () => (this.drag = null));
@@ -217,6 +224,11 @@ export class HeroInventoryPanel {
         cell.draggable = true;
         cell.addEventListener('dragstart', (e) => this.startDrag(e, { from: 'body', slot: wornSlot }));
         cell.addEventListener('dblclick', () => this.onAction({ type: 'unequip', slot: wornSlot }));
+        // Clic droit (G47) : retirer ; sac plein : la piece reste portee.
+        this.rightClick(cell, () => {
+          if (!this.info?.cells.some((c) => c.kind === 'empty')) this.notify('Inventaire plein');
+          else this.onAction({ type: 'unequip', slot: wornSlot });
+        });
       }
       this.hover(cell, () => (slot.item ? itemTooltip(slot.item) : [{ text: slot.label, strong: true }, { text: 'Emplacement vide' }]));
       this.dropTarget(cell, (src) => this.dropOnBody(src, slot.accepts));
@@ -234,6 +246,11 @@ export class HeroInventoryPanel {
     if (c.kind === 'item') {
       this.fillItem(cell, c.item);
       cell.addEventListener('dblclick', () => this.onAction({ type: 'equip', from: index }));
+      // Clic droit (G47) : equiper ; la piece remplacee revient dans cette case.
+      this.rightClick(cell, () => {
+        if (c.item.portable) this.onAction({ type: 'equip', from: index });
+        else this.notify('Ce Héros ne peut pas porter cet objet');
+      });
       this.hover(cell, () => itemTooltip(c.item));
     } else {
       cell.classList.add('inventory-cell--empty');
@@ -250,9 +267,17 @@ export class HeroInventoryPanel {
     cell.classList.add('inventory-cell--item');
     cell.style.borderColor = item.color;
     cell.style.setProperty('--rarity', item.color);
-    const icon = el('i', `inventory-icon inventory-icon--slot-${item.slotId}`);
-    icon.style.color = item.color;
-    cell.append(icon, el('span', 'inventory-cell-name', item.name));
+    cell.append(createSlotIcon(item.slotId, item.color), el('span', 'inventory-cell-name', item.name));
+  }
+
+  /** Clic droit sur une case : l'action, et rien d'autre (ni menu du
+   *  navigateur, ni commande au monde derriere la fenetre). */
+  private rightClick(cell: HTMLElement, action: () => void): void {
+    cell.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!this.drag) action();
+    });
   }
 
   private startDrag(e: DragEvent, source: DragSource): void {

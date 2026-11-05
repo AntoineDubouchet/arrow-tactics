@@ -112,6 +112,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G44 | Passe économie : cargo Villageois 10, temps par unité par ressource (bois 2 s, pierre 2,5 s, or 3 s), Héros ×1,25 plus lent, cadence visuelle depuis les données ; Mine et coûts inchangés | Active (2026-11-05, valeurs provisoires) |
 | G45 | Coûts des bâtiments et technologies recalés autour d'un cargo Villageois de 10 (Maison 10 bois sans or, économique 1 à 2 cargaisons, militaire 2 à 4, avancé 3 à 6 ; bois léger / pierre lourd / mixte militaire) ; Mine 10 bois + 5 pierre ; Palissade inchangée | Active (2026-11-05, valeurs provisoires) |
 | G46 | XP du Héros à 12 cases ; camp de départ de rayon 15 ; 2 gisements d'or visibles au départ ; Villageois constructeurs ; Maj = pose répétée ; double-clic = bâtiments du même type visibles ; DamageType physique / magique (Tourbillon physique) ; banque d'items curated (2 par emplacement, niveaux, tank / physique / magique) ; fin de vague = choix entre 2 items du niveau de la vague ; +5 or de vague supprimé | Active (2026-11-05, valeurs provisoires) |
+| G47 | Loot portable + slot vide = auto-équipement ; clic droit inventaire = équiper / déséquiper ; une icône par EquipmentSlot ; Héros désélectionnable, HUD RPG indépendant de la sélection RTS ; ProductionOrders affiche une barre commune à celle des actions ; bâtiment producteur + clic droit terrain = ralliement ; DamageType reste physical / magic, DamageSchool magique ; effet d'arme = toutes les N attaques réussies, K déclenchements déterministes ; Feu à chaque coup devient N = 1 / K = 1 / fire | Active (2026-11-05, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -1605,7 +1606,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     repoussée (récompense système, pas trouvée dans le monde) — à trancher ;
   - Héros permanent : il prend les ordres dès qu'aucune unité n'est
     sélectionnée ; une unité militaire sélectionnée garde la main (pas de
-    contrôle mixte Héros + armée pour l'instant) ;
+    contrôle mixte Héros + armée pour l'instant) ; **remplacé par G47**
+    (2026-11-05 : Héros désélectionnable, aucun ordre implicite) ;
   - encart du Héros déplacé en haut à droite sous la ligne économique
     (description d'Antoine) ;
   - vitesse caméra : défilement par les bords seulement (le glisser suit la
@@ -2793,6 +2795,70 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `itemEditor/*`, `main.ts`, `CURRENT_STATE.md` §2, §6 bis, §6 ter, §6
   quinquies, §6 duodecies, §7, §16, `ARCHITECTURE.md` §7, §13 ter, §13
   quinquies, §13 septdecies, `GAME_DESIGN.md` §8.
+
+### G47 — Passe du 2026-11-05 : acquisition, clic droit d'inventaire, icônes, Héros désélectionnable, barres de file, ralliement direct, effets d'arme
+
+- **Statut** : Active (2026-11-05). Valeurs **PROVISOIRES**.
+- **Décisions d'Antoine** (2026-11-05) :
+  - **Loot portable + slot vide = auto-équipement** ; une seule règle
+    d'acquisition pour récompense, coffre et futur drop ; **jamais** de
+    remplacement d'une pièce portée ni de comparaison de puissance ; mention
+    jaune « Emplacement vide — sera équipé automatiquement » avant de choisir ;
+  - **Clic droit inventaire = équiper / déséquiper** ; échange dans la case
+    libérée ; sac plein au retrait : refus, « Inventaire plein » ;
+  - **Une icône par EquipmentSlot**, table unique, pas de nouveaux slots ;
+  - **Héros désélectionnable ; HUD RPG indépendant de la sélection RTS** ;
+    clic gauche sur terrain vide = aucune sélection ; aucun ordre implicite ;
+    pas de resélection automatique ; politique de caméra inchangée ;
+  - **ProductionOrders affiche une barre de progression commune à celle des
+    actions** ; seul le premier ordre progresse ;
+  - **Bâtiment producteur sélectionné + clic droit terrain = ralliement** ;
+    groupe homogène : même point ; priorités UI → unités → producteurs → rien ;
+  - **DamageType reste physical / magic ; DamageSchool magique = fire / frost /
+    arcane / nature / holy / shadow** ; Tourbillon et attaques d'armes
+    physiques ; une seule voie `applyDamageToEntity` ;
+  - **Effet d'arme = toutes les N attaques réussies, K déclenchements d'un
+    effet déterministe** ; dégâts par déclenchement : valeur + bonus
+    `magicDamage` (provisoire) ; pas d'effet de statut ;
+  - **Ancien Feu à chaque coup devient N = 1 / K = 1 / fire** ; import
+    converti, export au nouveau format.
+- **Choix de la passe** (à valider ou corriger) : Héros sélectionné au
+  lancement ; sac plein : carte active si son emplacement est vide (aucune
+  case n'est nécessaire) ; « Réparer » d'une fiche ordonne toujours au Héros ;
+  sans constructeur sélectionné, Construire est grisé et un chantier existant
+  attend ; `contextmenu` global conservé ; la fiche d'entité prend les clics
+  (nécessaire à « UI → UI seulement ») ; montant d'un effet fixe, sans
+  progression par niveau ; cible à 0 PV : compteur consommé, sans dégâts ;
+  `arrowItems.give` reste vers le sac (outil de test).
+- **Changements de ressenti et d'équilibrage signalés** : la première pièce de
+  chaque emplacement agit sans passer par l'inventaire ; un clic sur le terrain
+  désélectionne le Héros, et un clic droit ensuite ne fait rien (le plus gros
+  changement d'habitude) ; plus de clic à travers la fiche, ni de zoom molette
+  au-dessus ; `magicDamage` n'était lu par rien et augmente maintenant les
+  déclenchements de la Lame des braises (seule arme à effet) : équilibrage
+  légèrement changé dès qu'un bonus magique est porté.
+- **À trancher** : aucun item magique de la banque n'a d'effet déclenché, donc
+  `magicDamage` n'agit aujourd'hui que via la Lame des braises, une arme
+  physique : l'orientation magique reste faible tant qu'aucune arme magique ou
+  sort offensif n'existe.
+- **Filet de sécurité** : `tests/sim/acquisition.mts`, `effets-arme.mts`,
+  `file-prod.mts`, `degats-types.mts`, `camp.mts` ; en jeu :
+  `ergonomie-jeu.cjs`, `item-editeur.cjs`, `recompense-jeu.cjs`,
+  `equipement-jeu.cjs`, `forge-jeu.cjs`, `construction-jeu.cjs`,
+  `camp-boucle.cjs` (KI-72).
+- **À ne pas faire** : pas de seconde règle d'acquisition par source ; pas
+  d'ordre implicite au Héros ; pas de nouvelle voie de dégâts ; pas de compteur
+  d'effet pour un item du sac ; pas de hasard dans un déclenchement ; ne pas
+  commencer les Vagues V2 ici.
+- **Sources** : `data/damageTypes.ts`, `data/equipment.ts`, `data/heroes.ts`,
+  `sim/inventory.ts`, `sim/damage.ts`, `sim/entity.ts`, `sim/world.ts`,
+  `sim/systems/combat.ts`, `sim/systems/hero.ts`, `run/entityInfo.ts`,
+  `run/heroEquipment.ts`, `run/productionOrders.ts`, `render/battleSelection.ts`,
+  `render/rallyMarkers.ts`, `ui/slotIcons.ts`, `ui/heroInventory.ts`,
+  `ui/actionProgress.ts`, `ui/entityInfoPanel.ts`, `ui/waveRewardPanel.ts`,
+  `ui/combatOverlay.ts`, `itemEditor/*`, `main.ts`, `CURRENT_STATE.md` Fiche
+  d'entité, §2, §6 ter, §6 quinquies, §6 sexies, §16 ter, `ARCHITECTURE.md` §7,
+  §13 ter, §13 quinquies, §13 octodecies, `GAME_DESIGN.md` §7, §8.
 
 ## H. Outils internes
 

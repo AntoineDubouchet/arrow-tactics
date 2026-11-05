@@ -98,7 +98,7 @@ const collect = (w: any, n: number, pick: (w: any) => any[]) => { const out: any
   // Feu des coups (Lame des braises) : porte comme magique, a part de l'attaque physique.
   const invFire = equipFromSlot(addItem(createHeroInventory(), 'ember_blade', 1), 0);
   const bFire = resolveEquipmentBonus(invFire);
-  check('Lame des braises : degats physiques 4 (attaque) + feu 3 (effet, magique) separes', bFire.damage === 4 * HP_PER_PIP && bFire.fireDamage === 3 * HP_PER_PIP && bFire.magicDamage === 0, bFire);
+  check('Lame des braises : degats physiques 4 (attaque) + feu 3 (effet, magique) separes', bFire.damage === 4 * HP_PER_PIP && bFire.procs.length === 1 && bFire.procs[0].amount === 3 * HP_PER_PIP && bFire.procs[0].school === 'fire' && bFire.magicDamage === 0, bFire);
 }
 
 console.log(failures ? failures + ' ECHEC(S)' : 'tout OK');

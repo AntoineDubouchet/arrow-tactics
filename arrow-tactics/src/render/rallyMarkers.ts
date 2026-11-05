@@ -27,7 +27,7 @@ export class RallyMarkers {
   readonly group = new THREE.Group();
   private readonly markers = new Map<number, Marker>();
 
-  sync(entities: readonly Entity[], selectedId: number | null, visible: boolean): void {
+  sync(entities: readonly Entity[], selectedIds: ReadonlySet<number>, visible: boolean): void {
     this.group.visible = visible;
     const seen = new Set<number>();
     for (const b of entities) {
@@ -36,7 +36,7 @@ export class RallyMarkers {
       const m = this.markers.get(b.id) ?? this.create(b.id);
       const y = surfaceY(b.rally.x, b.rally.z);
       m.root.position.set(b.rally.x, y, b.rally.z);
-      const selected = b.id === selectedId;
+      const selected = selectedIds.has(b.id);
       (m.ring.material as THREE.MeshBasicMaterial).opacity = selected ? 0.85 : 0.25;
       (m.flag.material as THREE.MeshBasicMaterial).opacity = selected ? 0.95 : 0.3;
       m.line.visible = selected;

@@ -86,21 +86,22 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await p.screenshot({ path: OUT + 'boucle-5-butin-sol.png' });
   check('butin au sol (KI-45) : piece couchee (plus large que haute), orientation fixe (ne tourne plus)', pose && pose.h < pose.w && pose.spin === pose2, { pose, pose2 });
   pt = await p.evaluate((d) => window.__toScreen(d.x, d.z), drop);
+  const avantEq = await p.evaluate(() => { const h = window.__world.entities.find((e) => e.hero); return { dmg: h.stats.damage, max: h.stats.maxHp, speed: +h.stats.moveSpeed.toFixed(2), cd: +h.stats.attackCooldown.toFixed(3) }; });
   await p.mouse.click(pt.x, pt.y, { button: 'right' }); await L.wait(p, 200);
   let inv = null;
-  for (let i = 0; i < 40 && !inv; i++) { await L.wait(p, 100); const s = await p.evaluate((id) => ({ pris: window.__world.itemDrops[id].taken, items: window.arrowItems.list().inventory.items }), drop.id); if (s.pris) inv = s; }
-  check('ramassage : clic droit sur l item -> sac d objets', inv && inv.items.includes(drop.item), { inv, item: drop.item });
+  for (let i = 0; i < 40 && !inv; i++) { await L.wait(p, 100); const s = await p.evaluate((id) => ({ pris: window.__world.itemDrops[id].taken, items: window.arrowItems.list().inventory.items, equipped: window.arrowItems.list().inventory.equipped }), drop.id); if (s.pris) inv = s; }
+  check('ramassage : clic droit sur l item -> emplacement vide : equipe directement, jamais dans le sac (G47)', inv && Object.values(inv.equipped).includes(drop.item) && !inv.items.includes(drop.item), { inv, item: drop.item });
 
-  // 7. Inventaire (I) puis Equiper (double-clic dans la grille) : stats et visuel.
-  const avantEq = await p.evaluate(() => { const h = window.__world.entities.find((e) => e.hero); return { dmg: h.stats.damage, max: h.stats.maxHp, speed: +h.stats.moveSpeed.toFixed(2), cd: +h.stats.attackCooldown.toFixed(3) }; });
+  // 7. Inventaire (I) : l'item est deja porte ; retirer puis remettre (double-clic) : stats et visuel.
   await p.keyboard.press('i'); await L.wait(p, 400);
-  // Inventaire unique (grille) : double-clic sur l item du sac = equiper.
+  await p.locator('.inventory-cell--body.inventory-cell--item').first().dblclick(); await L.wait(p, 500);
+  const retire = await p.evaluate(() => window.arrowItems.list().inventory);
   await p.locator('.inventory-grid .inventory-cell--item').first().dblclick(); await L.wait(p, 700);
   const apresEq = await p.evaluate(() => { const h = window.__world.entities.find((e) => e.hero); let right = false; window.__R.scene.traverse((o) => { if (o.name === 'equipment_right' && o.visible) right = true; }); return { dmg: h.stats.damage, max: h.stats.maxHp, speed: +h.stats.moveSpeed.toFixed(2), cd: +h.stats.attackCooldown.toFixed(3), equipped: window.arrowItems.list().inventory.equipped, right, texte: document.querySelector('.hero-inventory')?.innerText.slice(0, 400) }; });
   await p.screenshot({ path: OUT + 'boucle-6-inventaire.png' });
   const changed = apresEq.dmg !== avantEq.dmg || apresEq.max !== avantEq.max || apresEq.speed !== avantEq.speed || apresEq.cd !== avantEq.cd;
   const slot = Object.keys(apresEq.equipped)[0];
-  check('inventaire (I) : « Equiper » -> l item du coffre est equipe, les stats du Heros changent ; une arme apparait dans sa main', Object.values(apresEq.equipped).includes(drop.item) && changed && (slot !== 'mainHand' || apresEq.right), { avantEq, apresEq: { ...apresEq, texte: undefined }, item: drop.item });
+  check('inventaire (I) : retirer (sac) puis remettre -> l item du coffre est equipe, les stats du Heros different de celles d avant le ramassage ; une arme apparait dans sa main', retire.items.includes(drop.item) && !Object.values(retire.equipped).includes(drop.item) && Object.values(apresEq.equipped).includes(drop.item) && changed && (slot !== 'mainHand' || apresEq.right), { avantEq, apresEq: { ...apresEq, texte: undefined }, item: drop.item });
   await p.keyboard.press('i'); await L.wait(p, 300);
 
   // 8. La partie continue (compte a rebours de la vague, temps qui avance).

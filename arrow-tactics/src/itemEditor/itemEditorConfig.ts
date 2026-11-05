@@ -3,9 +3,12 @@ import {
   EQUIPMENT_SLOTS,
   EQUIPMENT_STAT_DEFS,
   EQUIPMENT_TYPES,
+  ITEM_EFFECTS,
   RARITIES,
   type EquipmentArchetype,
   type EquipmentDef,
+  type ItemEffectId,
+  type TriggeredEffect,
   type EquipmentSlot,
   type EquipmentStats,
   type EquipmentType,
@@ -18,6 +21,11 @@ import {
  * defaut). Le format est exactement celui du catalogue (data/equipment.ts,
  * EQUIPMENT) : `{ "<id>": <item> }`, pret a y etre colle.
  */
+/** Effet propose par « + Ajouter un effet » : feu a chaque attaque. */
+export function defaultEffect(): TriggeredEffect {
+  return { every: 1, repeat: 1, effect: 'fireDamage', amount: 1 };
+}
+
 export function defaultItem(): EquipmentDef {
   return {
     id: 'nouvel_item',
@@ -30,7 +38,7 @@ export function defaultItem(): EquipmentDef {
     visual: { source: 'western_kingdoms', piece: 'WK_weapon_sword_A', scale: 1, rotation: [0, 0, 0], offset: [0, 0, 0] },
     stats: {},
     scaling: {},
-    effects: {},
+    effects: [],
     sellValue: 1,
   };
 }
@@ -52,7 +60,6 @@ export function cleanItem(item: EquipmentDef): EquipmentDef {
     const s = item.scaling?.[key];
     if (s) scaling[key] = round(s);
   }
-  const fire = item.effects.onHit?.fireDamage;
   return {
     id: item.id,
     name: item.name,
@@ -66,7 +73,9 @@ export function cleanItem(item: EquipmentDef): EquipmentDef {
       : null,
     stats,
     scaling,
-    effects: fire ? { onHit: { fireDamage: round(fire) } } : {},
+    // N et K entiers >= 1 ; un effet sans degats n'est pas exporte.
+    effects: item.effects.filter((e) => e.amount > 0).map((e) => ({ every: Math.max(1, Math.floor(e.every)), repeat: Math.max(1, Math.floor(e.repeat)), effect: e.effect, amount: round(e.amount) })),
+    ...(item.allowedHeroes && item.allowedHeroes.length > 0 ? { allowedHeroes: [...item.allowedHeroes] } : {}),
     sellValue: round(Math.max(0, item.sellValue)),
   };
 }
@@ -78,6 +87,22 @@ export function exportItem(item: EquipmentDef): string {
 }
 
 const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** Effets d'un item relu : nouveau format (tableau), ou ancien champ
+ *  `effects.onHit.fireDamage` converti (N = 1, K = 1, feu). L'export n'ecrit
+ *  que le nouveau format. */
+function readEffects(raw: unknown): TriggeredEffect[] {
+  if (Array.isArray(raw)) {
+    return raw.flatMap((e): TriggeredEffect[] => {
+      const r = (e ?? {}) as Record<string, unknown>;
+      const id = r['effect'];
+      if (typeof id !== 'string' || !(id in ITEM_EFFECTS) || !isNumber(r['amount'])) return [];
+      return [{ every: isNumber(r['every']) ? r['every'] : 1, repeat: isNumber(r['repeat']) ? r['repeat'] : 1, effect: id as ItemEffectId, amount: r['amount'] }];
+    });
+  }
+  const legacy = ((raw ?? {}) as Record<string, Record<string, unknown> | undefined>)['onHit']?.['fireDamage'];
+  return isNumber(legacy) && legacy > 0 ? [{ every: 1, repeat: 1, effect: 'fireDamage', amount: legacy }] : [];
+}
 const vec3 = (v: unknown, fallback: number): [number, number, number] =>
   Array.isArray(v) && v.length === 3 && v.every(isNumber) ? [v[0] as number, v[1] as number, v[2] as number] : [fallback, fallback, fallback];
 
@@ -117,7 +142,7 @@ export function importItem(text: string): EquipmentDef {
   const stats = readStats(raw['stats']);
   const scaling = readStats(raw['scaling']);
   const archetype = (typeof raw['archetype'] === 'string' && raw['archetype'] in EQUIPMENT_ARCHETYPES ? raw['archetype'] : base.archetype) as EquipmentArchetype;
-  const onHit = ((raw['effects'] as Record<string, unknown> | undefined)?.['onHit'] ?? {}) as Record<string, unknown>;
+  const allowed = raw['allowedHeroes'];
   return cleanItem({
     id: typeof raw['id'] === 'string' && raw['id'] ? raw['id'] : itemIdFromName(raw['name']),
     name: raw['name'],
@@ -129,7 +154,8 @@ export function importItem(text: string): EquipmentDef {
     visual,
     stats,
     scaling,
-    effects: isNumber(onHit['fireDamage']) ? { onHit: { fireDamage: onHit['fireDamage'] } } : {},
+    effects: readEffects(raw['effects']),
+    ...(Array.isArray(allowed) ? { allowedHeroes: allowed.filter((h): h is string => typeof h === 'string') } : {}),
     sellValue: isNumber(raw['sellValue']) ? raw['sellValue'] : base.sellValue,
   });
 }

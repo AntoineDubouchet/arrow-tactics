@@ -1,14 +1,15 @@
 import { SIDESTEP_DURATION, type ObstacleDef } from '../../config/constants';
 import type { Rng } from '../../core/rng';
-import { applyDamageToEntity, type DamageType } from '../damage';
+import { applyDamageToEntity, type DamageSchool, type DamageType } from '../damage';
 import { crossesTerrainCliff, findBlockingObstacle, isMeleeAttack, targetDistance } from '../geometry';
 import type { Entity } from '../entity';
 
 export type CombatEvent =
   /** `windup` : coup resolu a la fin d'un elan (UnitStats.attackWindup). */
-  /** `fireDamage` : degats de feu ajoutes a ce coup qui touche (effet
-   *  d'equipement, Entity.onHit), internes. */
-  | { attackerId: number; targetId: number; result: 'hit' | 'miss' | 'dodge'; windup?: true; fireDamage?: number; damageType?: DamageType }
+  | { attackerId: number; targetId: number; result: 'hit' | 'miss' | 'dodge'; windup?: true; damageType?: DamageType }
+  /** Un declenchement d'effet d'arme (Entity.onHit, 2026-11-05, G47) : ses
+   *  propres degats magiques (internes), un evenement par declenchement. */
+  | { attackerId: number; targetId: number; result: 'proc'; damage: number; damageType: 'magic'; damageSchool: DamageSchool }
   | { attackerId: number; targetId: number; result: 'blocked'; impactX: number; impactZ: number }
   /** Debut d'un elan : le coup sera resolu `attackWindup` secondes plus tard. */
   | { attackerId: number; targetId: number; result: 'windup' }
@@ -156,16 +157,34 @@ function resolveStrike(e: Entity, target: Entity, rng: Rng, events: CombatEvent[
 
   // Coup d'arme (melee, Archer) : degats PHYSIQUES (2026-11-05).
   applyDamageToEntity(target, e.stats.damage, 'physical');
-  // Effet d'equipement (2026-11-02) : feu en plus (degats MAGIQUES),
-  // seulement sur un coup qui touche (jamais sur un raté, une esquive ou un
-  // elan annule).
-  const fire = e.onHit?.fireDamage ?? 0;
-  if (fire > 0 && target.alive) {
-    applyDamageToEntity(target, fire, 'magic');
-    events.push({ attackerId: e.id, targetId: target.id, result: 'hit', ...windup, fireDamage: fire, damageType: 'physical' });
-    return;
-  }
   events.push({ attackerId: e.id, targetId: target.id, result: 'hit', ...windup, damageType: 'physical' });
+  advanceWeaponProcs(e, target, events);
+}
+
+/**
+ * Effets d'arme (2026-11-05, G47) : une attaque de base qui vient de toucher
+ * avance le compteur de chaque effet porte ; au seuil `every`, compteur remis
+ * a zero et `repeat` declenchements, chacun un evenement et un passage par la
+ * voie de degats commune. Aucun hasard. Seule resolveStrike appelle cette
+ * fonction : un rate, une esquive, le Tourbillon, un sort ou un autre
+ * declenchement ne font jamais avancer un compteur (aucune recursion).
+ * Degats provisoires : points de l'effet + bonus MAGIQUE du Heros a chaque
+ * declenchement (jamais le bonus physique). Cible deja a 0 PV : le compteur
+ * est consomme, plus aucun degat.
+ */
+function advanceWeaponProcs(e: Entity, target: Entity, events: CombatEvent[]): void {
+  if (!e.onHit) return;
+  const magicBonus = e.hero?.equipment.magicDamage ?? 0;
+  for (const proc of e.onHit) {
+    proc.count += 1;
+    if (proc.count < proc.every) continue;
+    proc.count = 0;
+    for (let i = 0; i < proc.repeat && target.hp > 0; i++) {
+      const damage = proc.amount + magicBonus;
+      applyDamageToEntity(target, damage, 'magic', proc.school);
+      events.push({ attackerId: e.id, targetId: target.id, result: 'proc', damage, damageType: 'magic', damageSchool: proc.school });
+    }
+  }
 }
 
 /** Pas de cote choisi pour s'eloigner de l'obstacle par rapport a la ligne de

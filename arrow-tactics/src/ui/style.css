@@ -588,7 +588,8 @@ img {
   border: 1px solid var(--edge);
   border-left: 5px solid var(--entity-team-color, var(--edge));
   border-radius: 9px;
-  pointer-events: none;
+  /* Prend les clics (G47) : un clic droit sur la fiche ne commande pas le monde. */
+  pointer-events: auto;
   user-select: none;
   backdrop-filter: blur(6px);
   z-index: 5;
@@ -689,8 +690,8 @@ img {
   color: #e07a5f;
 }
 
-/* Actions de la fiche (ex. « Ouvrir la Forge ») : seuls elements cliquables
-   du panneau, qui reste sinon en pointer-events: none. */
+/* Actions de la fiche (ex. « Ouvrir la Forge ») : seuls elements actifs du
+   panneau, qui absorbe les autres clics sans rien faire (G47). */
 .entity-info-actions {
   display: flex;
   flex-direction: column;
@@ -2899,6 +2900,21 @@ canvas.canvas--spell-target {
 /* Progression de l'action du Heros (2026-11-02) : centree, juste au-dessus de
    la barre d'XP ; duree seulement (sort, ramassage, recolte, construction),
    jamais la nature de l'action. */
+/* Barre de progression commune (ui/actionProgress.ts, createProgressBar) :
+   action du Heros et ordre courant d'une file de production (G47). */
+.progress-track {
+  display: block;
+  overflow: hidden;
+  background: rgba(10, 12, 16, 0.75);
+  border: 1px solid rgba(232, 193, 92, 0.7);
+  border-radius: 7px;
+  pointer-events: none;
+}
+
+.progress-track[hidden] {
+  display: none;
+}
+
 .hero-progress {
   position: fixed;
   left: 50%;
@@ -2906,25 +2922,24 @@ canvas.canvas--spell-target {
   width: 260px;
   height: 14px;
   transform: translateX(-50%);
-  overflow: hidden;
-  background: rgba(10, 12, 16, 0.75);
-  border: 1px solid rgba(232, 193, 92, 0.7);
-  border-radius: 7px;
-  pointer-events: none;
   z-index: 5;
 }
 
-.hero-progress[hidden] {
-  display: none;
+.entity-info-progress {
+  position: relative;
+  height: 14px;
+  margin-top: 6px;
 }
 
 .hero-progress-fill {
+  display: block;
   height: 100%;
   width: 0;
   background: linear-gradient(90deg, #c9902a, #f1d27a);
 }
 
 .hero-progress-text {
+  display: block;
   position: absolute;
   inset: 0;
   font-size: 10px;
@@ -2941,6 +2956,17 @@ canvas.canvas--spell-target {
   font-weight: 700;
   text-shadow: 0 1px 2px #000;
 }
+
+/* Autres ecoles magiques (G47) : texte flottant generique, teinte par ecole. */
+.school-text {
+  font-weight: 700;
+  text-shadow: 0 1px 2px #000;
+}
+.school-text--frost { color: #8fd8ff; }
+.school-text--arcane { color: #c79bff; }
+.school-text--nature { color: #8fdc6e; }
+.school-text--holy { color: #ffe38a; }
+.school-text--shadow { color: #b48ad8; }
 
 /* Inventaire du Heros : emplacements et cartes d'items (rarete). */
 .hero-inventory-slot {
@@ -3141,16 +3167,8 @@ body.debug-mode .debug-panel { display: block; top: auto; bottom: 150px; }
 .inventory-cell-label { font-size: 9px; color: var(--ink-dim); text-align: center; line-height: 1.1; }
 .inventory-cell-name { position: absolute; bottom: 1px; left: 2px; right: 2px; font-size: 8px; line-height: 1; text-align: center; color: var(--ink-dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .inventory-icon { display: block; width: 26px; height: 26px; margin-bottom: 6px; }
+/* Pictogramme : masque `--icon`, pose par ui/slotIcons.ts (table unique EquipmentSlot -> icone). */
 .inventory-icon[class*='inventory-icon--slot-'] { background: currentColor; -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
-.inventory-icon--slot-mainHand { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19 2l3 1-1 3-11 11-3-3zM5 15l4 4-2 2-1-1-2 2-2-2 2-2-1-1z'/%3E%3C/svg%3E"); }
-.inventory-icon--slot-offHand,
-.inventory-icon--slot-shield { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z'/%3E%3C/svg%3E"); }
-.inventory-icon--slot-helmet { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3c5 0 8 4 8 9v6h-5v-5H9v5H4v-6c0-5 3-9 8-9z'/%3E%3C/svg%3E"); }
-.inventory-icon--slot-shoulders,
-.inventory-icon--slot-chest,
-.inventory-icon--slot-arms,
-.inventory-icon--slot-legs,
-.inventory-icon--slot-cape { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M8 3l4 2 4-2 6 4-3 4-2-1v11H7V10l-2 1-3-4z'/%3E%3C/svg%3E"); }
 .inventory-tooltip {
   position: fixed;
   max-width: 240px;
@@ -3466,6 +3484,17 @@ canvas.canvas--spell-target { cursor: default; }
 .wave-reward-card-stats {
   margin: 0;
   padding-left: 14px;
+}
+.wave-reward-card .inventory-icon {
+  float: right;
+  width: 22px;
+  height: 22px;
+  margin: 0 0 2px 6px;
+}
+.wave-reward-card-auto {
+  margin-top: 6px;
+  font-weight: 700;
+  color: #f4d03f;
 }
 .wave-reward-foot {
   margin-top: 8px;

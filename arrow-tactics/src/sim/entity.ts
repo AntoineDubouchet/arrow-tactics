@@ -1,4 +1,5 @@
 import type { AbilityDef } from '../data/abilities';
+import type { DamageSchool } from '../data/damageTypes';
 import type { ObstacleDef } from '../config/constants';
 import type { SpellDef } from '../data/spells';
 import type { UnitStats } from '../data/units';
@@ -117,11 +118,23 @@ export interface HeroEquipmentBonus {
   magicDamage: number;
   attackSpeed: number;
   moveSpeed: number;
-  /** Degats de feu (magiques) ajoutes a chaque coup de melee qui touche. */
-  fireDamage: number;
+  /** Effets declenches des items portes (2026-11-05, G47). */
+  procs: readonly ResolvedWeaponProc[];
 }
 
-export const NO_EQUIPMENT_BONUS: Readonly<HeroEquipmentBonus> = { maxHp: 0, maxMana: 0, manaRegen: 0, damage: 0, magicDamage: 0, attackSpeed: 0, moveSpeed: 0, fireDamage: 0 };
+/** Effet declenche resolu pour la simulation (unites internes) : toutes les
+ *  `every` attaques qui touchent, `repeat` degats magiques de `school`,
+ *  `amount` chacun (+ bonus magique du Heros, au moment du declenchement).
+ *  `key` : identite de l'effet porte (emplacement, item, rang). */
+export interface ResolvedWeaponProc {
+  key: string;
+  every: number;
+  repeat: number;
+  school: DamageSchool;
+  amount: number;
+}
+
+export const NO_EQUIPMENT_BONUS: Readonly<HeroEquipmentBonus> = { maxHp: 0, maxMana: 0, manaRegen: 0, damage: 0, magicDamage: 0, attackSpeed: 0, moveSpeed: 0, procs: [] };
 
 /** Commande de la file de production temps reel (Entity.productionOrders) :
  *  une unite, l'amelioration du batiment, ou une recherche (2026-11-05 :
@@ -133,10 +146,12 @@ export type ProductionOrder =
   | { id: number; kind: 'upgrade'; remaining: number; total: number }
   | { id: number; kind: 'research'; techId: string; remaining: number; total: number };
 
-/** Effets « a l'impact » d'une entite (equipement du Heros aujourd'hui),
- *  appliques par combatSystem apres un coup qui touche. */
-export interface OnHitEffects {
-  fireDamage: number;
+/** Effet declenche porte par une entite (equipement du Heros aujourd'hui),
+ *  avec son compteur d'attaques : avance par combatSystem a chaque attaque de
+ *  base qui touche, remis a zero au seuil. Le compteur appartient a l'effet
+ *  equipe : retire, il disparait (refreshHeroStats). */
+export interface WeaponProcState extends ResolvedWeaponProc {
+  count: number;
 }
 
 /** Etat propre au Heros (Entity.hero). */
@@ -371,8 +386,8 @@ export interface Entity {
    *  CastState. Le PROJECTILE resultant n'est PAS stocke ici une fois lance
    *  (voir World.blasts) : il doit survivre a la mort de cette entite. */
   cast: CastState | null;
-  /** Effets a l'impact (equipement du Heros), null sinon. */
-  onHit: OnHitEffects | null;
+  /** Effets declenches par ses attaques (equipement du Heros), null sinon. */
+  onHit: WeaponProcState[] | null;
   /** Garde d'un camp neutre (sim/systems/camps.ts) : son camp, son poste,
    *  `returning` (il y rentre, adversaires ignores), `lastHp` (PV au pas
    *  precedent : un garde blesse alerte son camp), `calm` (camp au calme :

@@ -2,7 +2,8 @@ import type { ObstacleBounds } from '../../config/constants';
 import type { ResourceNode } from '../../config/resourceNodes';
 import { HARVEST_NODE_KINDS, type HarvestResource, type PileResource } from '../../data/resources';
 import { UNIT_MOVE_SPEED_MULTIPLIER } from '../../data/units';
-import { addItem } from '../inventory';
+import { acquireItem, resolveEquipmentBonus } from '../inventory';
+import { ITEM_LEVEL_MIN } from '../../data/equipment';
 import { getBuilding } from '../../data/buildings';
 import { distanceToSegment } from '../../core/wallLine';
 import { applyDamageToEntity, type DamageType } from '../damage';
@@ -57,7 +58,7 @@ export type HeroEvent =
   /** Une unite recoltee sur un arbre ou un rocher, mise dans le sac. */
   /** Petit tas ramasse : quantite prise et quantite restante au sol. */
   /** Item au sol ramasse (butin) : la run l'ajoute a l'inventaire du Heros. */
-  | { type: 'itemPickup'; heroId: number; dropId: number; itemId: string }
+  | { type: 'itemPickup'; heroId: number; dropId: number; itemId: string; equipped: boolean }
   /** Butin non ramasse : aucune case libre (l'item reste au sol). */
   | { type: 'itemPickupFull'; heroId: number; dropId: number; itemId: string }
   /** Coffre ouvert : item tire (null : rien) pose au sol a cote (`dropId`). */
@@ -301,12 +302,17 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       h.working = 'gather';
       h.workTimer += dt;
       if (h.workTimer < PICKUP_SECONDS) continue;
-      // Une case libre du sac ; sinon l'item reste au sol.
-      const next = addItem(h.inventory, drop.itemId);
-      if (next) {
-        h.inventory = next;
+      // Regle d'acquisition commune (2026-11-05, G47) : emplacement vide ->
+      // equipe ; sinon une case libre du sac ; sinon l'item reste au sol.
+      const got = acquireItem(h.inventory, drop.itemId, ITEM_LEVEL_MIN, h.heroId);
+      if (got) {
+        h.inventory = got.inventory;
+        if (got.equipped) {
+          h.equipment = resolveEquipmentBonus(got.inventory);
+          refreshHeroStats(e, 'ratio');
+        }
         drop.taken = true;
-        events.push({ type: 'itemPickup', heroId: e.id, dropId: drop.id, itemId: drop.itemId });
+        events.push({ type: 'itemPickup', heroId: e.id, dropId: drop.id, itemId: drop.itemId, equipped: got.equipped });
       } else events.push({ type: 'itemPickupFull', heroId: e.id, dropId: drop.id, itemId: drop.itemId });
       e.order = { type: 'guard' };
       h.working = null;
@@ -595,7 +601,10 @@ export function refreshHeroStats(e: Entity, rule: 'add' | 'ratio'): void {
   h.maxMana = h.baseMaxMana + b.maxMana;
   h.mana = adjustCurrent(h.mana, prevMaxMana, h.maxMana, rule);
   h.manaRegen = h.baseManaRegen + b.manaRegen;
-  e.onHit = b.fireDamage > 0 ? { fireDamage: b.fireDamage } : null;
+  // Effets d'arme (G47) : le compteur suit l'effet tant qu'il reste porte ;
+  // une piece retiree emporte le sien (rien ne reste pour un item du sac).
+  const previous = e.onHit;
+  e.onHit = b.procs.length > 0 ? b.procs.map((p) => ({ ...p, count: previous?.find((q) => q.key === p.key)?.count ?? 0 })) : null;
 }
 
 function adjustCurrent(current: number, prevMax: number, max: number, rule: 'add' | 'ratio'): number {

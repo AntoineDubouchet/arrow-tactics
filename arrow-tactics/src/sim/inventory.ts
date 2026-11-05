@@ -1,6 +1,7 @@
 import { HP_PER_PIP } from '../config/constants';
-import { EQUIPMENT, EQUIPMENT_SLOTS, ITEM_LEVEL_MIN, statsAtLevel, type EquipmentSlot } from '../data/equipment';
+import { EQUIPMENT, EQUIPMENT_SLOTS, ITEM_EFFECTS, ITEM_LEVEL_MIN, statsAtLevel, type EquipmentSlot } from '../data/equipment';
 import { HERO_INVENTORY_SLOTS } from '../data/hero';
+import { canHeroEquipItem } from '../data/heroes';
 import { NO_EQUIPMENT_BONUS, type HeroEquipmentBonus } from './entity';
 
 /**
@@ -19,6 +20,10 @@ import { NO_EQUIPMENT_BONUS, type HeroEquipmentBonus } from './entity';
  * statsAtLevel) ; les items portes gardent leur niveau dans
  * `equippedLevels`. Un inventaire sans niveaux (ancienne sauvegarde) vaut
  * niveau 1 partout.
+ *
+ * Acquisition (2026-11-05, G47) : une seule regle, acquireItem /
+ * acquisitionPlan (recompense de vague, butin ramasse, futurs drops) : piece
+ * portable + emplacement vide = equipee ; sinon sac ; jamais de remplacement.
  *
  * Etat de simulation (Entity.hero.inventory) : le ramassage d'un objet au
  * sol l'utilise dans le pas fixe ; l'interface passe par
@@ -42,9 +47,11 @@ export type InventoryAction =
   | { type: 'equip'; from: number; slot?: EquipmentSlot }
   /** Retirer l'item de `slot` vers la case `to` (libre) ou la premiere libre. */
   | { type: 'unequip'; slot: EquipmentSlot; to?: number }
-  /** Ajouter un item au niveau `level` (1 par defaut : console de
-   *  developpement ; recompense de vague : niveau de la vague). */
-  | { type: 'add'; itemId: string; level?: number };
+  /** Ajouter un item au sac, sans jamais l'equiper (console de developpement). */
+  | { type: 'add'; itemId: string; level?: number }
+  /** Acquerir un item (recompense, butin) : acquireItem, la seule regle
+   *  d'acquisition (auto-equipement sur un emplacement vide, sinon sac). */
+  | { type: 'acquire'; itemId: string; level?: number };
 
 const levelOf = (level: number | undefined): number => Math.max(ITEM_LEVEL_MIN, Math.floor(level ?? ITEM_LEVEL_MIN));
 
@@ -73,6 +80,41 @@ export function addItem(inv: HeroInventory, itemId: string, level = ITEM_LEVEL_M
   return next;
 }
 
+/** Emplacement libre : ni l'emplacement de l'item ni ceux qui occupent la
+ *  meme main (bouclier et main secondaire). */
+function slotIsFree(inv: Pick<HeroInventory, 'equipped'>, slot: EquipmentSlot): boolean {
+  return [slot, ...EQUIPMENT_SLOTS[slot].exclusiveWith].every((s) => !inv.equipped[s]);
+}
+
+/** Destination d'une piece acquise (2026-11-05, G47), SEULE regle partagee
+ *  par l'acquisition et par ce que l'interface annonce : `equip` si le Heros
+ *  peut la porter et que son emplacement est libre (jamais de remplacement,
+ *  aucune comparaison de puissance) ; `bag` s'il reste une case ; null sinon
+ *  (sac plein, item inconnu). */
+export function acquisitionPlan(inv: HeroInventory, itemId: string, heroId: string): 'equip' | 'bag' | null {
+  const def = EQUIPMENT[itemId];
+  if (!def) return null;
+  if (canHeroEquipItem(heroId, def) && slotIsFree(inv, def.slot)) return 'equip';
+  return inv.slots.includes(null) ? 'bag' : null;
+}
+
+/** Acquisition d'un item (recompense de vague, butin ramasse, futur drop) :
+ *  auto-equipe s'il est portable et que son emplacement est vide, sinon dans
+ *  le sac ; null si rien n'est possible (l'appelant garde l'item). */
+export function acquireItem(inv: HeroInventory, itemId: string, level: number, heroId: string): { inventory: HeroInventory; equipped: boolean } | null {
+  const plan = acquisitionPlan(inv, itemId, heroId);
+  if (plan === null) return null;
+  if (plan === 'bag') {
+    const inventory = addItem(inv, itemId, level);
+    return inventory ? { inventory, equipped: false } : null;
+  }
+  const slot = EQUIPMENT[itemId]!.slot;
+  const inventory = copy(inv);
+  inventory.equipped[slot] = itemId;
+  inventory.equippedLevels[slot] = levelOf(level);
+  return { inventory, equipped: true };
+}
+
 /** Deplace la case `from` vers `to` : case vide -> deplacement, sinon
  *  echange. Indices invalides : inventaire inchange. */
 export function moveSlot(inv: HeroInventory, from: number, to: number): HeroInventory {
@@ -89,12 +131,14 @@ export function moveSlot(inv: HeroInventory, from: number, to: number): HeroInve
 /** Equipe l'item de la case `from` (son emplacement, ou `slot` qui doit etre
  *  le sien). Ce qu'il remplace (meme emplacement, ou emplacement exclusif de
  *  la meme main) retourne dans le sac avec son niveau : d'abord dans la case
- *  liberee, puis dans la premiere case libre. Atomique : null si impossible. */
-export function equipFromSlot(inv: HeroInventory, from: number, slot?: EquipmentSlot): HeroInventory | null {
+ *  liberee, puis dans la premiere case libre. Atomique : null si impossible.
+ *  `heroId` : Heros qui l'equipe ; un item qu'il ne peut pas porter est refuse. */
+export function equipFromSlot(inv: HeroInventory, from: number, slot?: EquipmentSlot, heroId?: string): HeroInventory | null {
   const s = inv.slots[from];
   if (s?.kind !== 'item') return null;
   const def = EQUIPMENT[s.itemId];
   if (!def || (slot !== undefined && slot !== def.slot)) return null;
+  if (heroId !== undefined && !canHeroEquipItem(heroId, def)) return null;
   const next = copy(inv);
   next.slots[from] = null;
   const freed: { itemId: string; level: number }[] = [];
@@ -129,19 +173,22 @@ export function unequipSlot(inv: HeroInventory, slot: EquipmentSlot, to?: number
   return next;
 }
 
-/** Applique une action de l'interface ; null si elle est impossible. */
-export function applyInventoryAction(inv: HeroInventory, action: InventoryAction): HeroInventory | null {
+/** Applique une action de l'interface ; null si elle est impossible.
+ *  `heroId` : Heros qui agit (portabilite ; absent : aucune restriction). */
+export function applyInventoryAction(inv: HeroInventory, action: InventoryAction, heroId?: string): HeroInventory | null {
   switch (action.type) {
     case 'move': {
       const next = moveSlot(inv, action.from, action.to);
       return next === inv ? null : next;
     }
     case 'equip':
-      return equipFromSlot(inv, action.from, action.slot);
+      return equipFromSlot(inv, action.from, action.slot, heroId);
     case 'unequip':
       return unequipSlot(inv, action.slot, action.to);
     case 'add':
       return addItem(inv, action.itemId, action.level);
+    case 'acquire':
+      return acquireItem(inv, action.itemId, action.level ?? ITEM_LEVEL_MIN, heroId ?? '')?.inventory ?? null;
   }
 }
 
@@ -160,9 +207,11 @@ export function equippedLevel(inv: Pick<HeroInventory, 'equippedLevels'>, slot: 
 /** Bonus resolus (unites internes de la simulation) des items equipes, a
  *  leur niveau (statsAtLevel : deterministe). `damage` = degats PHYSIQUES
  *  (attaque de base, Tourbillon) ; `magicDamage` = degats magiques (sorts
- *  offensifs seulement, jamais l'attaque de base) ; feu des coups = magique. */
+ *  offensifs et effets declenches, jamais l'attaque de base). Effets
+ *  declenches : `procs`, en unites internes, un par effet porte. */
 export function resolveEquipmentBonus(inv: Pick<HeroInventory, 'equipped' | 'equippedLevels'>): HeroEquipmentBonus {
-  const bonus: HeroEquipmentBonus = { ...NO_EQUIPMENT_BONUS };
+  const procs: HeroEquipmentBonus['procs'][number][] = [];
+  const bonus: HeroEquipmentBonus = { ...NO_EQUIPMENT_BONUS, procs };
   for (const [slot, itemId] of Object.entries(inv.equipped) as [EquipmentSlot, string | undefined][]) {
     const def = itemId ? EQUIPMENT[itemId] : undefined;
     if (!def) continue;
@@ -174,7 +223,10 @@ export function resolveEquipmentBonus(inv: Pick<HeroInventory, 'equipped' | 'equ
     bonus.magicDamage += (stats.magicDamage ?? 0) * HP_PER_PIP;
     bonus.attackSpeed += (stats.attackSpeed ?? 0) / 100;
     bonus.moveSpeed += stats.moveSpeed ?? 0;
-    bonus.fireDamage += (def.effects.onHit?.fireDamage ?? 0) * HP_PER_PIP;
+    def.effects.forEach((effect, i) => {
+      const kind = ITEM_EFFECTS[effect.effect];
+      if (kind.kind === 'schoolDamage') procs.push({ key: `${slot}:${def.id}:${i}`, every: effect.every, repeat: effect.repeat, school: kind.school, amount: effect.amount * HP_PER_PIP });
+    });
   }
   return bonus;
 }

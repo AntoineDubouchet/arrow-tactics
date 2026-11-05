@@ -9,6 +9,7 @@ import {
   HP_PER_PIP,
   MISS_TEXT_DURATION,
 } from '../config/constants';
+import { DAMAGE_SCHOOLS, type DamageSchool } from '../data/damageTypes';
 import { getUnit } from '../data/units';
 import type { Renderer } from '../render/renderer';
 import { teamColor } from '../render/unitSelectionRing';
@@ -175,6 +176,16 @@ export class CombatOverlay {
   /** Degats de feu d'un coup (effet d'equipement, 2026-11-02), en points. */
   spawnFireText(x: number, z: number, amount: number): void {
     this.spawnFloatingText(x, z, 'fire-text', `🔥${String(amount).replace('.', ',')}`);
+  }
+
+  /** Degats d'un declenchement d'effet d'arme (2026-11-05, G47), en points :
+   *  le feu garde son texte, les autres ecoles un texte generique teinte. */
+  spawnSchoolText(x: number, z: number, amount: number, school: DamageSchool): void {
+    if (school === 'fire') {
+      this.spawnFireText(x, z, amount);
+      return;
+    }
+    this.spawnFloatingText(x, z, `school-text school-text--${school}`, `${DAMAGE_SCHOOLS[school].glyph}${String(amount).replace('.', ',')}`);
   }
 
   /** Texte flottant "+N" au-dessus d'une unite soignee (Soin de l'Oracle ou

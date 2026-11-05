@@ -1,3 +1,5 @@
+import type { DamageSchool } from './damageTypes';
+
 /**
  * Equipement des Heros (2026-11-02, items / loot) : donnees pures. Un item
  * decrit son emplacement, sa rarete, son archetype, son visuel (piece d'un
@@ -13,6 +15,9 @@
  * que sur le CHOIX de l'item (RNG deterministe du jeu). Exactement deux
  * items par emplacement pour l'instant ; les trois orientations (tank,
  * degats physiques, degats magiques) sont presentes dans la banque.
+ *
+ * Effets (2026-11-05, G47) : tableau d'effets declenches (TriggeredEffect) ;
+ * l'ancien « feu a chaque coup » est un effet N = 1, K = 1, feu.
  *
  * Unites : les stats et effets sont en points AFFICHES (comme la fiche :
  * « +3 degats » = 3 points, soit 30 internes, HP_PER_PIP) ; vitesse
@@ -139,15 +144,52 @@ export const EQUIPMENT_STAT_DEFS: readonly { key: EquipmentStatKey; label: strin
   { key: 'moveSpeed', label: 'Vitesse de déplacement', unit: 'cases/s', step: 0.1 },
 ];
 
-/** Effets speciaux (donnees generiques, jamais un test sur l'id d'un item).
- *  Aujourd'hui : degats de feu a chaque coup qui touche (degats MAGIQUES,
- *  2026-11-05). Prevus (non implementes) : vol de vie, bonus contre un type
- *  d'ennemi, regeneration, bonus de recolte. */
-export interface EquipmentEffects {
-  onHit?: {
-    /** Degats de feu ajoutes a chaque coup de melee qui touche (points). */
-    fireDamage?: number;
-  };
+/** Effets declenches (2026-11-05, G47) : « toutes les N attaques reussies,
+ *  declenche K fois un effet ». Donnees fixes de l'item, jamais d'aleatoire,
+ *  jamais un test sur l'id d'un item. Identifiants : une entree de
+ *  ITEM_EFFECTS ; une future famille (soin, buff, debuff, invocation...)
+ *  ajoute une entree et son `kind`, sans changer le format d'un item. */
+export type ItemEffectId = 'fireDamage' | 'frostDamage' | 'arcaneDamage' | 'natureDamage' | 'holyDamage' | 'shadowDamage';
+
+export interface ItemEffectDef {
+  id: ItemEffectId;
+  /** Nom du selecteur de l'Editeur d'items. */
+  label: string;
+  /** Degats magiques de cette ecole, `amount` points par declenchement. */
+  kind: 'schoolDamage';
+  school: DamageSchool;
+  /** Libelle du parametre `amount` dans l'Editeur d'items. */
+  amountLabel: string;
+}
+
+export const ITEM_EFFECTS: Readonly<Record<ItemEffectId, ItemEffectDef>> = {
+  fireDamage: { id: 'fireDamage', label: 'Dégâts de feu', kind: 'schoolDamage', school: 'fire', amountLabel: 'Dégâts' },
+  frostDamage: { id: 'frostDamage', label: 'Dégâts de givre', kind: 'schoolDamage', school: 'frost', amountLabel: 'Dégâts' },
+  arcaneDamage: { id: 'arcaneDamage', label: 'Dégâts arcaniques', kind: 'schoolDamage', school: 'arcane', amountLabel: 'Dégâts' },
+  natureDamage: { id: 'natureDamage', label: 'Dégâts de nature', kind: 'schoolDamage', school: 'nature', amountLabel: 'Dégâts' },
+  holyDamage: { id: 'holyDamage', label: 'Dégâts sacrés', kind: 'schoolDamage', school: 'holy', amountLabel: 'Dégâts' },
+  shadowDamage: { id: 'shadowDamage', label: "Dégâts d'ombre", kind: 'schoolDamage', school: 'shadow', amountLabel: 'Dégâts' },
+};
+
+export const ITEM_EFFECT_ORDER: readonly ItemEffectId[] = ['fireDamage', 'frostDamage', 'arcaneDamage', 'natureDamage', 'holyDamage', 'shadowDamage'];
+
+export interface TriggeredEffect {
+  /** Toutes les N attaques de base qui touchent (>= 1). */
+  every: number;
+  /** Declenchements a chaque seuil atteint (>= 1), chacun un evenement. */
+  repeat: number;
+  effect: ItemEffectId;
+  /** Parametre de l'effet : points de degats par declenchement. */
+  amount: number;
+}
+
+/** Ligne de description d'un effet declenche (inventaire, recompense,
+ *  Editeur d'items). */
+export function describeTriggeredEffect(e: TriggeredEffect): string {
+  const when = e.every <= 1 ? 'À chaque attaque' : `Toutes les ${e.every} attaques`;
+  const times = e.repeat > 1 ? `${e.repeat} × ` : '';
+  const amount = String(Math.round(e.amount * 100) / 100).replace('.', ',');
+  return `${when} : ${times}${amount} ${ITEM_EFFECTS[e.effect].label.toLowerCase()}`;
 }
 
 export interface EquipmentDef {
@@ -164,7 +206,12 @@ export interface EquipmentDef {
   /** Progression par niveau au-dela du 1 (points affiches par niveau) :
    *  deterministe, statsAtLevel. Vide : item fixe. */
   scaling: EquipmentStats;
-  effects: EquipmentEffects;
+  /** Effets declenches (voir TriggeredEffect) ; meme comportement quel que
+   *  soit le niveau de l'exemplaire. */
+  effects: readonly TriggeredEffect[];
+  /** Heros qui peuvent le porter (data/heroes.ts) ; absent : tous. Lu par
+   *  canHeroEquipItem, jamais directement. */
+  allowedHeroes?: readonly string[];
   /** Valeur de vente (or), pour le futur Marche. */
   sellValue: number;
 }
@@ -212,7 +259,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: wk('WK_weapon_sword_A', 1.1),
     stats: { physicalDamage: 3 },
     scaling: { physicalDamage: 0.5 },
-    effects: {},
+    effects: [],
     sellValue: 4,
   },
   ember_blade: {
@@ -226,7 +273,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: brb('BRB_weapon_sword_B', 1.15),
     stats: { physicalDamage: 4 },
     scaling: { physicalDamage: 0.5 },
-    effects: { onHit: { fireDamage: 3 } },
+    effects: [{ every: 1, repeat: 1, effect: 'fireDamage', amount: 3 }],
     sellValue: 12,
   },
   // ---- Main secondaire
@@ -241,7 +288,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { physicalDamage: 1.5, attackSpeed: 10 },
     scaling: { physicalDamage: 0.3, attackSpeed: 1 },
-    effects: {},
+    effects: [],
     sellValue: 5,
   },
   spell_focus: {
@@ -255,7 +302,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { magicDamage: 3, maxMana: 5 },
     scaling: { magicDamage: 0.5, maxMana: 1 },
-    effects: {},
+    effects: [],
     sellValue: 10,
   },
   // ---- Bouclier
@@ -270,7 +317,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: wk('WK_Shield_B'),
     stats: { maxHp: 8 },
     scaling: { maxHp: 1 },
-    effects: {},
+    effects: [],
     sellValue: 10,
   },
   runic_ward: {
@@ -284,7 +331,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: wk('WK_Shield_D', 0.9),
     stats: { maxHp: 3, maxMana: 6, manaRegen: 0.3 },
     scaling: { maxHp: 0.5, maxMana: 1, manaRegen: 0.05 },
-    effects: {},
+    effects: [],
     sellValue: 18,
   },
   // ---- Casque
@@ -299,7 +346,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { maxHp: 6 },
     scaling: { maxHp: 1 },
-    effects: {},
+    effects: [],
     sellValue: 5,
   },
   sage_circlet: {
@@ -313,7 +360,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { maxMana: 6, manaRegen: 0.3, magicDamage: 1 },
     scaling: { maxMana: 1, manaRegen: 0.05, magicDamage: 0.3 },
-    effects: {},
+    effects: [],
     sellValue: 9,
   },
   // ---- Epaulieres
@@ -328,7 +375,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: brb('BRB_shoulderpads_C'),
     stats: { maxHp: 4, moveSpeed: 0.1 },
     scaling: { maxHp: 0.5 },
-    effects: {},
+    effects: [],
     sellValue: 3,
   },
   berserker_spaulders: {
@@ -342,7 +389,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: brb('BRB_shoulderpads_C', 1.1),
     stats: { physicalDamage: 1.5, attackSpeed: 5 },
     scaling: { physicalDamage: 0.3, attackSpeed: 0.5 },
-    effects: {},
+    effects: [],
     sellValue: 9,
   },
   // ---- Torse
@@ -357,7 +404,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { maxHp: 10 },
     scaling: { maxHp: 1.5 },
-    effects: {},
+    effects: [],
     sellValue: 20,
   },
   battle_mail: {
@@ -371,7 +418,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { maxHp: 4, physicalDamage: 2 },
     scaling: { maxHp: 0.5, physicalDamage: 0.3 },
-    effects: {},
+    effects: [],
     sellValue: 6,
   },
   // ---- Bras
@@ -386,7 +433,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { physicalDamage: 2 },
     scaling: { physicalDamage: 0.4 },
-    effects: {},
+    effects: [],
     sellValue: 5,
   },
   weaver_sleeves: {
@@ -400,7 +447,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { magicDamage: 2, manaRegen: 0.2 },
     scaling: { magicDamage: 0.4, manaRegen: 0.05 },
-    effects: {},
+    effects: [],
     sellValue: 9,
   },
   // ---- Jambes
@@ -415,7 +462,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { maxHp: 5, moveSpeed: 0.2 },
     scaling: { maxHp: 1 },
-    effects: {},
+    effects: [],
     sellValue: 5,
   },
   swift_leggings: {
@@ -429,7 +476,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { attackSpeed: 8, moveSpeed: 0.3, physicalDamage: 1 },
     scaling: { attackSpeed: 1, physicalDamage: 0.2 },
-    effects: {},
+    effects: [],
     sellValue: 9,
   },
   // ---- Cape
@@ -444,7 +491,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { maxHp: 5, manaRegen: 0.1 },
     scaling: { maxHp: 1 },
-    effects: {},
+    effects: [],
     sellValue: 4,
   },
   arcane_mantle: {
@@ -458,7 +505,7 @@ export const EQUIPMENT: Readonly<Record<string, EquipmentDef>> = {
     visual: null,
     stats: { magicDamage: 3, maxMana: 8 },
     scaling: { magicDamage: 0.5, maxMana: 1.5 },
-    effects: {},
+    effects: [],
     sellValue: 18,
   },
 };

@@ -85,9 +85,10 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const after = await p.evaluate((id) => { const v = window.__world.getById(id); return { order: v.order.type, auto: v.worker.autoNodeId }; }, vil.id);
   check('chantier fini : le Villageois redevient autonome ~1 s apres (ordre de recolte choisi seul)', after.order === 'harvest' && after.auto !== null, after);
 
-  // ---- 2. Maj + placement repete (Heros : clic sur le terrain = selection videe, le Heros commande).
+  // ---- 2. Maj + placement repete (Heros selectionne par Espace : plus de Heros implicite depuis G47).
   await setView(base.x, base.z - 3, 14); await L.wait(p, 300); await clickGround(base.x, base.z - 3);
   await p.evaluate(() => { const w = window.__world; const h = window.__hero(); h.x = h.prevX = w.entities.find((e) => e.unitId === 'ballista').x; h.z = h.prevZ = w.entities.find((e) => e.unitId === 'ballista').z + 8; w.issueCommand({ kind: 'stop', entityIds: [h.id] }); });
+  await L.blur(p); await p.keyboard.press('Space'); await L.wait(p, 200);
   await p.evaluate(() => window.arrowEconomy.set({ gold: 100, wood: 35, stone: 100 }));
   await setView(base.x + 6, base.z + 6, 14); await L.wait(p, 300);
   const hA = await houses();

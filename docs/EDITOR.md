@@ -5,7 +5,8 @@ aujourd'hui**, d'après le code de la branche `reprise-2026`. En cas d'écart,
 le code fait foi.
 
 Pour l'organisation technique générale, voir `ARCHITECTURE.md` ; pour les bugs
-et limitations, `KNOWN_ISSUES.md`.
+et limitations, `KNOWN_ISSUES.md`. L'Éditeur d'items est un outil distinct :
+`CURRENT_STATE.md` §16 ter (effets déclenchés depuis G47).
 
 **Portée des cartes de l'éditeur** : une run ne charge aucune carte
 enregistrée depuis l'éditeur. Le Mode survie part de son arène officielle,

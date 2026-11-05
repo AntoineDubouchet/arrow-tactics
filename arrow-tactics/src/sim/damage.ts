@@ -1,4 +1,7 @@
+import type { DamageSchool, DamageType } from '../data/damageTypes';
 import type { Entity } from './entity';
+
+export type { DamageSchool, DamageType } from '../data/damageTypes';
 
 /**
  * Applique des degats a une entite, en faisant passer le Shield temporaire
@@ -30,13 +33,12 @@ export function applyHealToEntity(target: Entity, amount: number): number {
 
 /** Deux familles de degats (2026-11-05, decision d'Antoine, G46) : physique
  *  (melee, armes, projectiles d'Archer et de Baliste, Charge, Tourbillon) et
- *  magique (Boule de feu, feu des coups d'equipement, futurs sorts). Aucune
- *  resistance aujourd'hui : les deux infligent la meme quantite brute ; le
- *  type est porte par les evenements et les donnees (equipement, talents,
+ *  magique (Boule de feu, effets d'arme, futurs sorts), avec une ecole pour
+ *  les degats magiques elementaires (G47, data/damageTypes.ts). Aucune
+ *  resistance aujourd'hui : tous infligent la meme quantite brute ; type et
+ *  ecole sont portes par les evenements et les donnees (equipement, talents,
  *  resistances et interface futures). Une seule voie de degats. */
-export type DamageType = 'physical' | 'magic';
-
-export function applyDamageToEntity(target: Entity, amount: number, _type: DamageType): void {
+export function applyDamageToEntity(target: Entity, amount: number, _type: DamageType, _school?: DamageSchool): void {
   if (amount <= 0) return;
   let remaining = amount;
   if (target.shield > 0) {

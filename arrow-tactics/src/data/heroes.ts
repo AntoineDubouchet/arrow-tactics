@@ -1,5 +1,6 @@
 import { HERO_UNIT_ID } from './hero';
 import { getSpell, type SpellDef, type SpellId } from './spells';
+import type { EquipmentDef } from './equipment';
 
 /**
  * Heros jouables (2026-11-02, ecran « Choisir votre Heros ») : donnees pures.
@@ -46,6 +47,13 @@ export const HEROES: readonly HeroDef[] = [
     startingEquipment: [],
   },
 ];
+
+/** Le Heros `heroId` peut-il porter cet item ? (2026-11-05, G47) Seule regle
+ *  de portabilite : auto-equipement, equipement manuel, mention de la
+ *  recompense. Sans restriction sur l'item : tous les Heros. */
+export function canHeroEquipItem(heroId: string, item: Pick<EquipmentDef, 'allowedHeroes'>): boolean {
+  return !item.allowedHeroes || item.allowedHeroes.includes(heroId);
+}
 
 export const DEFAULT_HERO_ID = 'paladin';
 

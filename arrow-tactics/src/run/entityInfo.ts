@@ -23,6 +23,7 @@ import { BODY_LAYOUT, EQUIPMENT_ARCHETYPES, EQUIPMENT_SLOTS, EQUIPMENT_TYPES, ge
 import { CARGO_LABELS, CARGO_RESOURCES, cargoTotal, type ResourceCargo } from '../data/resources';
 import { describeEquipment } from './heroEquipment';
 import { equippedLevel, freeSlotCount, type HeroInventory } from '../sim/inventory';
+import { canHeroEquipItem } from '../data/heroes';
 import { ballistaUpgradeGoldCost, canBallistaLevelUp, displayedUpgradeLevel, runUpgradeLevel, type PlayerProgression } from './runUpgrades';
 import { ballistaNextPurchaseGrantsDamageBonus } from './ballistaUpgradeEffects';
 import { BALLISTA_UPGRADE } from '../data/ballistaUpgrade';
@@ -79,6 +80,9 @@ export interface EntityInfoAction {
   label: string;
   enabled: boolean;
   hint?: string;
+  /** Ordre courant d'une file de production (2026-11-05, G47) : barre
+   *  commune a celle de l'action du Heros (0..1, secondes restantes). */
+  progress?: { progress: number; remaining: number };
 }
 
 export interface EntityInfoStatus {
@@ -336,6 +340,8 @@ export interface HeroSheetItem {
   /** Niveau de l'exemplaire (2026-11-05) et orientation. */
   level: number;
   archetype: string;
+  /** Portable par ce Heros (canHeroEquipItem). */
+  portable: boolean;
   lines: string[];
   sellValue: number;
 }
@@ -365,10 +371,10 @@ export interface HeroSheetInfo {
   cargo?: string;
 }
 
-function sheetItem(itemId: string, level: number): HeroSheetItem {
+function sheetItem(itemId: string, level: number, heroId: string): HeroSheetItem {
   const def = getEquipment(itemId);
   const rarity = RARITIES[def.rarity];
-  return { id: def.id, name: def.name, rarity: rarity.name, color: rarity.color, slot: EQUIPMENT_SLOTS[def.slot].label, slotId: def.slot, type: EQUIPMENT_TYPES[def.type], level, archetype: EQUIPMENT_ARCHETYPES[def.archetype], lines: describeEquipment({ stats: statsAtLevel(def, level), effects: def.effects }), sellValue: def.sellValue };
+  return { id: def.id, name: def.name, rarity: rarity.name, color: rarity.color, slot: EQUIPMENT_SLOTS[def.slot].label, slotId: def.slot, type: EQUIPMENT_TYPES[def.type], level, archetype: EQUIPMENT_ARCHETYPES[def.archetype], portable: canHeroEquipItem(heroId, def), lines: describeEquipment({ stats: statsAtLevel(def, level), effects: def.effects }), sellValue: def.sellValue };
 }
 
 export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: number | null): HeroSheetInfo {
@@ -400,9 +406,9 @@ export function heroSheetInfo(entity: Entity, heroName: string, nextLevelXp: num
     body: BODY_LAYOUT.map((b) => {
       const wornSlot = b.accepts.find((slot) => inventory.equipped[slot] !== undefined);
       const worn = wornSlot ? inventory.equipped[wornSlot] : undefined;
-      return { id: b.id, label: b.label, accepts: b.accepts, item: worn && wornSlot ? sheetItem(worn, equippedLevel(inventory, wornSlot)) : null };
+      return { id: b.id, label: b.label, accepts: b.accepts, item: worn && wornSlot ? sheetItem(worn, equippedLevel(inventory, wornSlot), h.heroId) : null };
     }),
-    cells: inventory.slots.map((s): HeroSheetCell => (s ? { kind: 'item', item: sheetItem(s.itemId, s.level) } : { kind: 'empty' })),
+    cells: inventory.slots.map((s): HeroSheetCell => (s ? { kind: 'item', item: sheetItem(s.itemId, s.level, h.heroId) } : { kind: 'empty' })),
     capacity: `${inventory.slots.length - freeSlotCount(inventory)} / ${inventory.slots.length}`,
     cargo: entity.cargo ? cargoSummary(entity.cargo) : undefined,
   };

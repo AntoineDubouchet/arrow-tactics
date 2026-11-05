@@ -74,9 +74,10 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const t0 = await tick(); await L.wait(p, 700); const t1 = await tick();
   const f2 = await fiche();
   const order = await p.evaluate((id) => window.__world.getById(id).productionOrders.map((o) => ({ kind: o.kind, techId: o.techId, total: o.total })), forge.id);
+  const researchBar = await p.evaluate(() => { const t = document.querySelector('.entity-info:not([hidden]) .entity-info-action[data-action="cancelProduction"] .entity-info-progress'); return t ? { width: parseFloat(t.querySelector('.hero-progress-fill').style.width), text: t.querySelector('.hero-progress-text').textContent } : null; });
   await p.screenshot({ path: OUT + 'forge-recherche.png' });
-  check('« Rechercher » : 20 or, 20 bois, 10 pierre debites (190/85/80 -> 170/65/70, G45) ; commande « research » de 30 s en file ; fiche « Armes forgées I : En recherche » + « 1. Armes forgées I — N s ✕ » ; la simulation CONTINUE (aucun ecran, tick qui avance)',
-    s2.gold === 170 && s2.wood === 65 && s2.stone === 70 && J(order) === J([{ kind: 'research', techId: 'forge_weapons', total: 30 }]) && t1 > t0 && f2.rows.some((r) => /Armes forgées I.*En recherche/.test(r)) && f2.actions.some((a) => a.a === 'cancelProduction' && /1\. Armes forgées I — \d+ s/.test(a.t)) && !(await p.evaluate(() => document.querySelector('.screen-overlay--visible') !== null)), { s2, order, t0, t1, f2 });
+  check('« Rechercher » : 20 or, 20 bois, 10 pierre debites (190/85/80 -> 170/65/70, G45) ; commande « research » de 30 s en file ; fiche « Armes forgées I : En recherche » + « 1. Armes forgées I ✕ » avec la barre de progression commune (G47) ; la simulation CONTINUE (aucun ecran, tick qui avance)',
+    s2.gold === 170 && s2.wood === 65 && s2.stone === 70 && J(order) === J([{ kind: 'research', techId: 'forge_weapons', total: 30 }]) && t1 > t0 && f2.rows.some((r) => /Armes forgées I.*En recherche/.test(r)) && f2.actions.some((a) => a.a === 'cancelProduction' && /^1\. Armes forgées I ✕/.test(a.t)) && researchBar !== null && researchBar.width > 0 && researchBar.width < 100 && /^\d+,\d s$/.test(researchBar.text) && !(await p.evaluate(() => document.querySelector('.screen-overlay--visible') !== null)), { s2, order, t0, t1, f2, researchBar });
 
   // 4. Fin de la recherche : Terminé, Archer present ameliore, Heros inchange.
   let done = false;

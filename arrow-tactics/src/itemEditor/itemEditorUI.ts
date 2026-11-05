@@ -1,10 +1,12 @@
 import * as THREE from 'three';
-import { EQUIPMENT, EQUIPMENT_ARCHETYPES, EQUIPMENT_SLOT_ORDER, EQUIPMENT_SLOTS, EQUIPMENT_STAT_DEFS, EQUIPMENT_TYPES, RARITIES, RARITY_ORDER, type EquipmentDef, type EquipmentStatKey } from '../data/equipment';
+import { EQUIPMENT, EQUIPMENT_ARCHETYPES, EQUIPMENT_SLOT_ORDER, EQUIPMENT_SLOTS, EQUIPMENT_STAT_DEFS, EQUIPMENT_TYPES, ITEM_EFFECT_ORDER, ITEM_EFFECTS, RARITIES, RARITY_ORDER, type EquipmentDef, type EquipmentStatKey, type ItemEffectId, type TriggeredEffect } from '../data/equipment';
 import { describeEquipment } from '../run/heroEquipment';
 import { configFromEntry, type BodySlot, type WorkshopConfig } from '../workshop/workshopConfig';
 import { loadCatalogue, WorkshopModel, type LoadedCatalogue } from '../workshop/workshopModel';
 import { WorkshopStage } from '../workshop/workshopStage';
-import { cleanItem, defaultItem, exportItem, importItem, itemIdFromName } from './itemEditorConfig';
+import { HEROES } from '../data/heroes';
+import { createSlotIcon } from '../ui/slotIcons';
+import { cleanItem, defaultEffect, defaultItem, exportItem, importItem, itemIdFromName } from './itemEditorConfig';
 
 /**
  * Editeur d'items (2026-11-02, outil interne, menu principal) : compose un
@@ -139,6 +141,7 @@ export class ItemEditor {
     name.style.color = rarity.color;
     const lines = describeEquipment(item);
     this.card.replaceChildren(
+      createSlotIcon(item.slot, rarity.color),
       name,
       el('div', 'item-editor-card-meta', `${rarity.name} · ${EQUIPMENT_TYPES[item.type]} · ${EQUIPMENT_SLOTS[item.slot].label}`),
       ...(item.description ? [el('div', 'item-editor-card-desc', item.description)] : []),
@@ -173,6 +176,11 @@ export class ItemEditor {
     this.row(top, 'Type', this.select(Object.entries(EQUIPMENT_TYPES).map(([value, label]) => ({ value, label })), item.type, (v) => this.set({ type: v as EquipmentDef['type'] }), 'type'));
     this.row(top, 'Emplacement', this.select(EQUIPMENT_SLOT_ORDER.map((s) => ({ value: s, label: EQUIPMENT_SLOTS[s].label })), item.slot, (v) => this.changeSlot(v as EquipmentDef['slot']), 'slot'));
     this.row(top, 'Orientation', this.select(Object.entries(EQUIPMENT_ARCHETYPES).map(([value, label]) => ({ value, label })), item.archetype, (v) => this.set({ archetype: v as EquipmentDef['archetype'] }), 'archetype'));
+    this.row(top, 'Portable par', this.select([{ value: '', label: 'Tous les Héros' }, ...HEROES.map((h) => ({ value: h.id, label: h.name }))], item.allowedHeroes?.[0] ?? '', (v) => {
+      const { allowedHeroes: _removed, ...rest } = this.item;
+      this.item = v ? { ...rest, allowedHeroes: [v] } : rest;
+      this.refresh();
+    }, 'allowedHeroes'));
     this.row(top, 'Valeur de vente', this.number(item.sellValue, 1, (v) => this.set({ sellValue: Math.max(0, v) }), 'sellValue'));
 
     const visual = this.section('Visuel');
@@ -208,8 +216,16 @@ export class ItemEditor {
     }
     scaling.appendChild(el('div', 'workshop-hint', 'Stats d’un exemplaire de niveau N = stats + progression × (N − 1), sans hasard (récompense de vague : niveau = vague).'));
     const effects = this.section('Effets spéciaux');
-    this.row(effects, 'Feu à chaque coup', this.number(item.effects.onHit?.fireDamage ?? 0, 0.5, (n) => this.set({ effects: n ? { onHit: { fireDamage: n } } : {} }), 'fireDamage'));
-    effects.appendChild(el('div', 'workshop-hint', 'Dégâts de feu ajoutés à chaque coup de mêlée qui touche.'));
+    item.effects.forEach((effect, i) => {
+      const patch = (change: Partial<TriggeredEffect>, rebuild = false): void => this.set({ effects: this.item.effects.map((e, j) => (j === i ? { ...e, ...change } : e)) }, rebuild);
+      this.row(effects, 'Toutes les … attaques', this.number(effect.every, 1, (n) => patch({ every: Math.max(1, Math.floor(n)) }), `effect-${i}-every`));
+      this.row(effects, 'Déclenche … fois', this.number(effect.repeat, 1, (n) => patch({ repeat: Math.max(1, Math.floor(n)) }), `effect-${i}-repeat`));
+      this.row(effects, 'Effet', this.select(ITEM_EFFECT_ORDER.map((id) => ({ value: id, label: ITEM_EFFECTS[id].label })), effect.effect, (v) => patch({ effect: v as ItemEffectId }, true), `effect-${i}-effect`));
+      this.row(effects, ITEM_EFFECTS[effect.effect].amountLabel, this.number(effect.amount, 0.5, (n) => patch({ amount: Math.max(0, n) }), `effect-${i}-amount`));
+      effects.appendChild(this.button('Retirer cet effet', () => this.set({ effects: this.item.effects.filter((_, j) => j !== i) }, true)));
+    });
+    effects.appendChild(this.button('+ Ajouter un effet', () => this.set({ effects: [...this.item.effects, defaultEffect()] }, true)));
+    effects.appendChild(el('div', 'workshop-hint', 'Compté sur les attaques de base qui touchent (ni raté, ni esquive, ni Tourbillon, ni sort). Dégâts : valeur + bonus de dégâts magiques du Héros, à chaque déclenchement.'));
 
     const io = this.section('Export / import');
     const actions = el('div', 'item-editor-actions');

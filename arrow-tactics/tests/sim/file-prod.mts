@@ -77,6 +77,23 @@ const run = (w: any, seconds: number, log: string[]) => { for (let t = 0; t < se
 }
 
 {
+  // Progression affichee (G47) : barre commune, seul le premier ordre progresse, le suivant repart de 0.
+  const { orderProgress } = await import(SRC + 'run/productionOrders.ts');
+  const { w, b } = mk();
+  w.queueProduction(b.id, { kind: 'unit', unitId: 'piquier' }, 2);
+  w.queueProduction(b.id, { kind: 'unit', unitId: 'piquier' }, 2);
+  const start = orderProgress(b.productionOrders[0]);
+  run(w, 1, []);
+  const mid = orderProgress(b.productionOrders[0]);
+  const waiting = orderProgress(b.productionOrders[1]);
+  check('progression : premiere commande entre 0 et 100 %, deuxieme a 0 (en attente)', start.progress === 0 && mid.progress > 0.4 && mid.progress < 0.6 && waiting.progress === 0 && waiting.remaining === 2, { start, mid, waiting });
+  run(w, 1.1, []);
+  const next = orderProgress(b.productionOrders[0]);
+  check('premiere terminee : la suivante devient la tete et repart de 0 (a peine commencee)', b.productionOrders.length === 1 && next.progress < 0.1 && next.remaining > 1.8, next);
+  check('duree nulle : progression pleine, pas de division par zero', orderProgress({ ...b.productionOrders[0], total: 0, remaining: 0 }).progress === 1);
+}
+
+{
   // Determinisme.
   const sig = () => { const { w, b } = mk(); for (const k of ['unit', 'upgrade', 'unit']) w.queueProduction(b.id, k === 'unit' ? { kind: 'unit', unitId: 'piquier' } : { kind: 'upgrade' }, 2); const log: string[] = []; run(w, 8, log); return JSON.stringify([log, w.entities.map((e: any) => [e.id, e.unitId, Math.round(e.x * 1000), Math.round(e.z * 1000)])]); };
   check('determinisme : memes commandes -> memes sorties, memes positions', sig() === sig());

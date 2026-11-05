@@ -835,7 +835,7 @@ export class World {
       equipment: { ...equipment },
     };
     // Equipement porte des l'apparition : stats finales (meme proportion).
-    if (Object.values(equipment).some((v) => v !== 0)) refreshHeroStats(e, 'ratio');
+    if (Object.values(equipment).some((v) => (Array.isArray(v) ? v.length > 0 : v !== 0))) refreshHeroStats(e, 'ratio');
     return e;
   }
 
@@ -1247,9 +1247,11 @@ export class World {
     for (const change of this.inventoryQueue) {
       const hero = this.entityById.get(change.entityId);
       if (!hero?.hero) continue;
-      const next = applyInventoryAction(hero.hero.inventory, change.action);
+      const next = applyInventoryAction(hero.hero.inventory, change.action, hero.hero.heroId);
       if (!next) continue;
-      const equippedChanged = JSON.stringify(next.equipped) !== JSON.stringify(hero.hero.inventory.equipped);
+      // Emplacements ET niveaux : le meme item a un autre niveau change les bonus.
+      const worn = (inv: HeroInventory): string => JSON.stringify([inv.equipped, inv.equippedLevels ?? {}]);
+      const equippedChanged = worn(next) !== worn(hero.hero.inventory);
       hero.hero.inventory = next;
       if (equippedChanged) {
         hero.hero.equipment = resolveEquipmentBonus(next);

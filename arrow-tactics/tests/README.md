@@ -68,7 +68,11 @@ prioritaire, aucune source, source épuisée, cycle, déterminisme ; G43 :
 sources visibles seulement, portée au contact, quantités 75 / 250 / 250,
 décompte, épuisement, tas inchangés) et
 `or-butin.mts` (G42 : or de butin ramassé au contact du Héros, jamais par
-un Villageois, or extrait = cargo).
+un Villageois, or extrait = cargo), `acquisition.mts` (G47 : auto-équipement,
+sac, non portable, sac plein, échange, ramassage, icônes) et
+`effets-arme.mts` (G47 : N, K, six écoles, bonus magique, compteurs, rate et
+esquive, Tourbillon, migration et export de l'Éditeur d'items). `file-prod.mts`
+couvre aussi la progression affichée (G47).
 
 `tests/game/` : `baliste-reparation.cjs`, `camp-boucle.cjs`,
 `cargo-jeu.cjs`, `depart-jeu.cjs`, `editeur-procedural.cjs`,
@@ -86,6 +90,10 @@ type visibles), `recompense-jeu.cjs` (G46 : panneau de récompense de vague,
 choix, sac plein, file) et `recolte-jeu.cjs` (G43 : récolte au
 contact depuis plusieurs côtés, Villageois face à sa source, clips
 `workingA` / `workingB`, outils, cadence, captures hache / pioche pierre /
-pioche or).
+pioche or), `ergonomie-jeu.cjs` (G47 : sélection et désélection du Héros, HUD,
+ralliement au clic droit, simple et groupé, barres de file, clic droit
+d'inventaire, capture des icônes) et `item-editeur.cjs` (G47 : effets
+déclenchés dans la vraie interface, aller-retour strict, migration du feu).
+`camp-boucle.cjs` a 3 vérifications en échec, antérieures à G47 (KI-72).
 `lib.cjs` est la bibliothèque commune (lancement, ouverture de la Survie,
 caméra, captures).

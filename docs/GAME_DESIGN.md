@@ -212,6 +212,12 @@ Ce que l'on cherche :
 - une intervention qui peut devenir un **archétype à part entière** (§6),
   sans être obligatoire pour réussir.
 
+**Sélection** (2026-11-05, G47) : le Héros est toujours là, pas toujours aux
+ordres. Le HUD RPG reste affiché sans lui ; il ne reçoit un ordre que s'il est
+sélectionné. Le joueur peut ainsi gérer sa base sans faire bouger son Héros
+par accident, et un clic droit fait ce que la sélection annonce : ordre aux
+unités, ralliement pour un bâtiment producteur, rien sans sélection.
+
 La puissance exacte de la Baliste et des sorts reste ouverte (§15).
 
 ## 8. Économie de run et décisions en temps réel
@@ -233,7 +239,12 @@ tourne et pendant que le Héros est loin du camp. On y cherche :
   repoussée propose un choix entre deux items d'une banque conçue à la
   main, au niveau de la vague, sans jamais interrompre la partie ; le
   stuff oriente le Héros (tank, dégâts physiques, dégâts magiques) et
-  remplace l'ancien or fixe de fin de vague.
+  remplace l'ancien or fixe de fin de vague ;
+- un **équipement sans friction** (2026-11-05, G47) : une pièce portable qui
+  arrive sur un emplacement vide est portée tout de suite, et la carte
+  l'annonce ; remplacer une pièce reste toujours un choix du joueur (clic
+  droit), jamais une comparaison automatique ; un effet d'arme se lit comme un
+  rythme (« toutes les N attaques »), sans hasard.
 
 **Orientation UX actuelle**, sans statut de pilier : une interface sobre,
 superposée au champ de bataille, inspirée des jeux de stratégie sur PC, avec

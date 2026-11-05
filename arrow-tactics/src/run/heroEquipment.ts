@@ -1,4 +1,4 @@
-import { EQUIPMENT_SLOTS, EQUIPMENT_STAT_DEFS, getEquipment, type EquipmentDef, type EquipmentSlot, type EquipmentVisual } from '../data/equipment';
+import { describeTriggeredEffect, EQUIPMENT_SLOTS, EQUIPMENT_STAT_DEFS, getEquipment, type EquipmentDef, type EquipmentSlot, type EquipmentVisual } from '../data/equipment';
 
 /**
  * Equipement du Heros cote run (2026-11-02) : l'inventaire unique (sac de
@@ -20,8 +20,7 @@ export function describeEquipment(def: Pick<EquipmentDef, 'stats' | 'effects'>):
     const n = String(Math.round(v * 100) / 100).replace('.', ',');
     lines.push(`${v > 0 ? '+' : ''}${n}${stat.unit === '%' ? ' %' : ''} ${stat.label}${stat.unit && stat.unit !== '%' && stat.unit !== 'PV' ? ` (${stat.unit})` : ''}`);
   }
-  const fire = def.effects.onHit?.fireDamage;
-  if (fire) lines.push(`Feu : +${String(fire).replace('.', ',')} dégâts à chaque coup`);
+  for (const effect of def.effects) lines.push(describeTriggeredEffect(effect));
   return lines;
 }
 

@@ -406,8 +406,11 @@ voir §9.
 **Point d'entrée unique des dégâts** : `applyDamageToEntity` (`sim/damage.ts`),
 avec un **type** (`DamageType` : `physical` | `magic`, 2026-11-05, G46 ;
 mêlée, armes, projectiles de bâtiment, flèche du joueur, Charge et Tourbillon
-physiques ; Boule de feu et feu des coups magiques ; aucune résistance :
-même quantité brute, le type est porté par les événements).
+physiques ; Boule de feu et effets d'arme magiques ; aucune résistance :
+même quantité brute, le type est porté par les événements) et, pour un dégât
+magique, une **école** facultative (`DamageSchool`, `data/damageTypes.ts`,
+G47). Les effets d'arme passent par `advanceWeaponProcs` (`systems/combat.ts`,
+appelé seulement en fin de `resolveStrike`), §13 octodecies.
 Le bouclier absorbe d'abord, puis les PV baissent. Les appelants :
 
 | Source | Fichier |
@@ -1256,14 +1259,15 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
   déterministe, `waveRewardChoices`), `RunState.pendingRewards` (file),
   `applyWaveVictory(run, seed)` / `takeWaveReward` ; interface
   `ui/waveRewardPanel.ts` synchronisée chaque image par `main.ts`
-  (`updateHeroUi`), choix → `InventoryAction` `add` avec `level`.
+  (`updateHeroUi`), choix → `InventoryAction` `acquire` avec `level` (règle
+  unique d'acquisition, §13 octodecies).
 - Run : `run/heroEquipment.ts` (inventaire pur et sérialisable,
   `resolveEquipmentBonus` → `HeroEquipmentBonus` en unités internes,
   visuels tenus, description des items).
 - Simulation : `Entity.hero.equipment` (bonus résolus, jamais d'id
   d'item), `World.queueHeroEquipment` (appliqué au début du pas suivant),
-  `refreshHeroStats` (`sim/systems/hero.ts`), `Entity.onHit` (feu,
-  `combatSystem`), `World.itemDrops` / `dropItem` et ordre `pickupItem`.
+  `refreshHeroStats` (`sim/systems/hero.ts`), `Entity.onHit` (compteurs des
+  effets d'arme, `combatSystem`), `World.itemDrops` / `dropItem` et ordre `pickupItem`.
 - Rendu : `render/toonCatalogue.ts` (catalogues et objets tenus, partagé
   avec l'Atelier : `createHeldPiece`), `render/heroEquipmentView.ts` (arme
   / bouclier du Héros, outil temporaire), `render/itemDropViews.ts`.
@@ -1321,7 +1325,7 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
   `World.goldDropBonus` (talent résolu par `main.ts`).
 - Interface : `ui/economyHud.ts`, `ui/heroInventory.ts` (grille,
   silhouette, glisser-déposer HTML5, infobulle) ; `main.ts` :
-  `rtsCommandIds` (Héros permanent), `updateEdgeScroll`, cercle du Soin,
+  `rtsCommandIds` (unités sélectionnées seulement depuis G47), `updateEdgeScroll`, cercle du Soin,
   `arrowEconomy` (console). `run/userSettings.ts` : vitesse caméra (clé
   propre). `config/maps/blankMap.ts` : carte vierge de l'éditeur.
 
@@ -1736,6 +1740,49 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
 - **Item Editor** : `archetype`, section « Progression par niveau »,
   export / import avec `scaling` ; ancien champ `damage` relu comme
   `physicalDamage`.
+
+## 13 octodecies. Passe du 2026-11-05 (G47) : acquisition, sélection, files, ralliement, effets d'arme
+
+- **Acquisition** : `acquisitionPlan(inv, itemId, heroId)` (`'equip' | 'bag' |
+  null`) et `acquireItem` (`sim/inventory.ts`) sont la seule règle ; le plan
+  sert à la mention de la carte (`main.ts`, `ui/waveRewardPanel.ts`), qui ne
+  peut donc pas diverger. Consommateurs : action `acquire`
+  (`applyInventoryAction`), ramassage (`sim/systems/hero.ts`, événement
+  `itemPickup` avec `equipped`). L'action `add` reste « vers le sac ».
+  Portabilité : `canHeroEquipItem(heroId, item)` (`data/heroes.ts`), contrôlée
+  aussi par `equipFromSlot`. `World` transmet `hero.hero.heroId` et recalcule
+  les bonus si `equipped` **ou** `equippedLevels` change.
+- **Icônes** : `ui/slotIcons.ts`, `SLOT_ICON_PATHS: Record<EquipmentSlot, string>`,
+  masque CSS `--icon`. Le type impose une icône par emplacement, sans repli.
+- **Sélection** : `rtsCommandIds()` ne renvoie que la sélection ; plus
+  d'`implicitId` dans `render/battleSelection.ts`. `hasBattleSelection()` décide
+  de l'Échap. `builderIds()` n'a plus de repli sur le Héros. `followHero()`
+  sélectionne (lancement, Espace, portrait).
+- **Ralliement** : `issueRightClickOrder` → sans unité,
+  `setRallyOfSelectedProducers` (`selectedProducerIds()` : fiche inspectée ou
+  groupe du double-clic, même règle que le bouton), qui passe par
+  `World.queueRallyPoint`. `render/rallyMarkers.ts` reçoit un ensemble d'ids.
+- **Barres** : `ui/actionProgress.ts` expose `createProgressBar` /
+  `setProgressBar`, utilisés par `ActionProgressBar` et `entityInfoPanel`.
+  `.progress-track` porte le visuel, `.hero-progress` et
+  `.entity-info-progress` le placement. `orderProgress`
+  (`run/productionOrders.ts`) calcule l'avancement ; `EntityInfoAction.progress`
+  le transporte ; `structureKey` n'en retient que la présence.
+- **Clics d'interface** : `.entity-info` en `pointer-events: auto` ;
+  `heroInventory.rightClick` fait `preventDefault` et `stopPropagation`. Le
+  `contextmenu` global existant sur `document.body` est conservé.
+- **Effets d'arme** : données `TriggeredEffect { every, repeat, effect, amount }`,
+  `ITEM_EFFECTS`, union extensible par `kind` (`data/equipment.ts`). `sim/` ne
+  voit pas les items : `resolveEquipmentBonus` produit
+  `HeroEquipmentBonus.procs` (`ResolvedWeaponProc`, clé
+  `slot:id:index`, montant en unités internes). `refreshHeroStats` reconstruit
+  `Entity.onHit` (`WeaponProcState`) et garde le compteur des clés encore
+  portées. Événement `{ result: 'proc', damage, damageType: 'magic',
+  damageSchool }`, un par déclenchement ; `main.ts` l'affiche
+  (`CombatOverlay.spawnSchoolText`, flash). Déterministe, sans RNG, pas de
+  récursion : le déclenchement n'appelle pas `resolveStrike`.
+- **Item Editor** : `readEffects` (tableau, ou ancien `onHit.fireDamage`) et
+  `cleanItem` (`itemEditor/itemEditorConfig.ts`) ; champs `effect-N-*`.
 
 ## 14. Audio
 

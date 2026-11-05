@@ -153,6 +153,7 @@ import {
   completeOrders,
   isBallistaUpgradePending,
   isBuildingUpgradePending,
+  orderProgress,
   isTechnologyPending,
   queueBallistaUpgradeOrder,
   queueBuildingUpgradeOrder,
@@ -245,7 +246,7 @@ import { SelectionBox } from './ui/selectionBox';
 import { TalentPointToast } from './ui/talentPointToast';
 import { WaveRewardPanel } from './ui/waveRewardPanel';
 import { waveRewardChoices } from './run/waveRewards';
-import { freeSlotCount } from './sim/inventory';
+import { acquisitionPlan, freeSlotCount } from './sim/inventory';
 import { WaveTransition } from './ui/waveTransition';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -287,19 +288,22 @@ const heroInventory = new HeroInventoryPanel(
   (action) => heroInventoryAction(action),
   loadInventoryWindowPosition(),
   saveInventoryWindowPosition,
+  (message) => waveIndicator.flash(message),
 );
 /** Recompense de vague (2026-11-05, G46) : choix d'un equipement parmi deux,
- *  au niveau de la vague ; la partie continue pendant le choix ; sac plein :
- *  la recompense attend ; plusieurs vagues : file, une a la fois. */
+ *  au niveau de la vague ; la partie continue pendant le choix ; plusieurs
+ *  vagues : file, une a la fois. Acquisition (G47) : la regle commune
+ *  (acquisitionPlan / acquireItem) ; piece sans place : la recompense attend. */
 const waveRewardPanel = new WaveRewardPanel((choice, wave) => {
   if (!inBattlePhase() || inTestMode) return;
-  if (freeSlotCount(heroInventoryState()) === 0) {
+  const plan = acquisitionPlan(heroInventoryState(), choice.itemId, currentRun.hero.heroId);
+  if (plan === null) {
     waveIndicator.flash('Inventaire plein : libérez une case pour choisir la récompense');
     return;
   }
   if (!takeWaveReward(currentRun, wave)) return;
-  heroInventoryAction({ type: 'add', itemId: choice.itemId, level: choice.level });
-  waveIndicator.flash(`Récompense de vague ${wave} : ${choice.def.name} (niveau ${choice.level}) dans le sac`);
+  heroInventoryAction({ type: 'acquire', itemId: choice.itemId, level: choice.level });
+  waveIndicator.flash(`Récompense de vague ${wave} : ${choice.def.name} (niveau ${choice.level}) ${plan === 'equip' ? 'équipé' : 'dans le sac'}`);
 });
 /** Ligne economique permanente (stock utilisable, population), en haut a droite. */
 const economyHud = new EconomyHud();
@@ -1431,12 +1435,12 @@ function startNewRun(heroId: string = selectedHeroId): void {
     applyRunBallistaPosition();
     frameRunCamera();
     startSurvivalRealtime();
-    followHero(false);
+    followHero();
   } else {
     void resetGameBoardToSurvivalMap().then(() => {
       frameRunCamera();
       startSurvivalRealtime();
-      followHero(false);
+      followHero();
     });
   }
 }
@@ -1597,7 +1601,7 @@ function selectPlayerHero(): void {
   }
   // Selection explicite, camera recentree sur le Heros et suivi (portrait,
   // meme geste qu'Espace).
-  followHero(true);
+  followHero();
 }
 
 /** Sort de Heros en attente de sa cible (fiche : Soin) : clic gauche sur le
@@ -1743,8 +1747,7 @@ function toggleBuildMenu(): void {
     buildMenu.close();
     return;
   }
-  // Heros permanent : il construit des qu'il recoit les ordres (selection ou
-  // implicite) ; un Villageois selectionne construit aussi (2026-11-05, G46).
+  // Un Heros ou un Villageois selectionne construit (G46, G47).
   if (builderIds().length === 0) return;
   buildMenu.open(buildChoices());
 }
@@ -1865,7 +1868,7 @@ function updateHeroUi(): void {
   // Construire (2026-11-05, G46) : le Heros ou un Villageois commande (un
   // Villageois selectionne construit avec les memes regles que le Heros).
   const builderSelected = builderIds().length > 0;
-  buildMenu.setEnabled(survival && builderSelected, hero && !hero.alive && !builderSelected ? 'Le Héros est à terre' : 'Sélectionnez le Héros ou un Villageois pour construire');
+  buildMenu.setEnabled(survival && builderSelected, 'Sélectionnez le Héros ou un Villageois pour construire');
   if (buildMenu.isOpen() && performance.now() >= buildMenuRefreshAt) {
     buildMenuRefreshAt = performance.now() + 250;
     buildMenu.refresh(buildChoices());
@@ -1878,7 +1881,16 @@ function updateHeroUi(): void {
   if (hero?.hero && !inTestMode) currentRun.hero.inventory = hero.hero.inventory;
   // Recompense de vague en attente (G46) : la premiere de la file.
   const pendingReward = survival ? currentRun.pendingRewards[0] : undefined;
-  waveRewardPanel.sync(pendingReward ? { wave: pendingReward.wave, choices: waveRewardChoices(pendingReward), queued: currentRun.pendingRewards.length - 1, inventoryFull: freeSlotCount(heroInventoryState()) === 0 } : null);
+  waveRewardPanel.sync(pendingReward ? {
+    wave: pendingReward.wave,
+    // Mention et disponibilite : la regle meme de l'acquisition (G47).
+    cards: waveRewardChoices(pendingReward).map((choice) => {
+      const plan = acquisitionPlan(heroInventoryState(), choice.itemId, currentRun.hero.heroId);
+      return { choice, autoEquip: plan === 'equip', disabled: plan === null };
+    }),
+    queued: currentRun.pendingRewards.length - 1,
+    inventoryFull: freeSlotCount(heroInventoryState()) === 0,
+  } : null);
   if (heroInventory.isOpen() && performance.now() >= heroInventoryRefreshAt) {
     heroInventoryRefreshAt = performance.now() + 250;
     const sheet = heroSheet();
@@ -1933,12 +1945,13 @@ function heroCameraPoint(): { x: number; z: number } | null {
   return hero ? (unitViews.getPosition(hero.id) ?? { x: hero.x, z: hero.z }) : null;
 }
 
-/** Retour au Heros : camera centree sur lui et suivi actif ; `select` :
- *  le Heros devient aussi la selection (Espace, portrait), pas au lancement. */
-function followHero(select: boolean): void {
+/** Retour au Heros : camera centree sur lui et suivi actif, et le Heros devient
+ *  la selection (lancement, Espace, portrait). La selection reste ensuite libre
+ *  (2026-11-05, G47) : rien ne la lui rend apres une commande. */
+function followHero(): void {
   // Sans Heros encore en jeu (lancement) : le suivi s'accroche des qu'il apparait.
   const hero = world.entities.find((e) => e.hero && e.team === 'player');
-  if (select && hero) setBattleSelection([hero.id]);
+  if (hero) setBattleSelection([hero.id]);
   heroCameraLock = true;
   heroCameraLastTarget = null;
   updateHeroCameraLock();
@@ -2107,8 +2120,10 @@ function buildingChoices(): BuildChoice[] {
 function queuedOrderActions(entity: Entity, level: number): EntityInfoAction[] {
   return entity.productionOrders.map((order, i) => {
     const what = order.kind === 'unit' ? getUnit(order.unitId).name : order.kind === 'research' ? getTechnology(order.techId).name : `Amélioration Niv. ${displayedUpgradeLevel(level + 1)}`;
-    const time = i === 0 ? `${Math.ceil(order.remaining)} s` : 'en attente';
-    return { id: 'cancelProduction', payload: String(order.id), label: `${i + 1}. ${what} — ${time} ✕`, enabled: true, hint: 'Clic : annuler (or et stock rendus)' };
+    // Ordre courant (2026-11-05, G47) : barre commune a l'action du Heros,
+    // duree restante dedans ; les suivants attendent, sans barre.
+    const base = { id: 'cancelProduction' as const, payload: String(order.id), enabled: true, hint: 'Clic : annuler (or et stock rendus)' };
+    return i === 0 ? { ...base, label: `1. ${what} ✕`, progress: orderProgress(order) } : { ...base, label: `${i + 1}. ${what} — en attente ✕` };
   });
 }
 
@@ -2150,7 +2165,7 @@ function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
   // Point de ralliement (2026-11-02) : batiment producteur (toute unite
   // produite par sa file : Caserne, Sanctuaire, Ecurie, Eglise... 2026-11-03).
   if (producibleUnits(owned.buildingId, level).length > 0) {
-    actions.push({ id: 'setRally', label: entity.rally ? 'Ralliement : déplacer' : 'Ralliement', enabled: true, hint: 'Puis clic sur le terrain : les unités produites y marchent' });
+    actions.push({ id: 'setRally', label: entity.rally ? 'Ralliement : déplacer' : 'Ralliement', enabled: true, hint: 'Puis clic sur le terrain (ou directement clic droit sur le terrain) : les unités produites y marchent' });
     if (entity.rally) actions.push({ id: 'clearRally', label: 'Retirer le ralliement', enabled: true });
   }
   if (repair) actions.push(repair);
@@ -2249,6 +2264,18 @@ function useRallyOnClick(event: MouseEvent): void {
   if (!point) return;
   world.queueRallyPoint(buildingId, { x: point.x, z: point.z });
   waveIndicator.flash('Point de ralliement placé');
+  entityInfoSelectionKey = '';
+}
+
+/** Clic droit sur le terrain, batiments producteurs selectionnes : le meme
+ *  point de ralliement pour tous, sans passer par un mode (2026-11-05, G47 ;
+ *  premiere commande groupee de batiments). */
+function setRallyOfSelectedProducers(event: MouseEvent): void {
+  const producers = selectedProducerIds();
+  const point = producers.length > 0 ? computeGroundPoint(event) : null;
+  if (!point) return;
+  for (const id of producers) world.queueRallyPoint(id, { x: point.x, z: point.z });
+  waveIndicator.flash(producers.length > 1 ? `Point de ralliement placé (${producers.length} bâtiments)` : 'Point de ralliement placé');
   entityInfoSelectionKey = '';
 }
 
@@ -5493,23 +5520,37 @@ function canIssueRtsOrder(): boolean {
   return isBattleTimeRunning();
 }
 
-/** Unites qui recoivent les ordres (clic droit, S) — Heros permanent
- *  (2026-11-02) : les unites alliees selectionnees s'il y en a ; sinon le
- *  Heros vivant, avatar principal du joueur, meme quand un batiment est
- *  inspecte (contexte secondaire, sa fiche reste ouverte) ou des ennemis
- *  inspectes. Une unite militaire selectionnee explicitement garde la main
- *  (le Heros ne bouge pas) jusqu'a ce que la selection soit videe. */
+/** Unites qui recoivent les ordres (clic droit, S) : les unites alliees
+ *  SELECTIONNEES, et elles seules (2026-11-05, G47, decision d'Antoine : le
+ *  Heros n'est plus commande implicitement). Sans selection, aucun ordre. Le
+ *  HUD du Heros (portrait, PV, mana, sorts, inventaire) ne depend pas de sa
+ *  selection RTS. */
 function rtsCommandIds(): number[] {
-  const units = battleSelection.ids.filter((id) => {
+  return battleSelection.ids.filter((id) => {
     const e = world.getById(id);
     return e !== undefined && e.alive && e.team === 'player' && !e.isBuilding;
   });
-  if (units.length > 0) return units;
-  const hero = playerHero();
-  return hero?.alive && !inTestMode ? [hero.id] : [];
 }
 
-/** Vrai si le Heros recoit les ordres (selectionne, ou implicitement). */
+/** Quelque chose est selectionne ou inspecte en bataille. */
+function hasBattleSelection(): boolean {
+  return battleSelection.size > 0 || battleEnemyInspection.size > 0 || battleInspectedEntityId !== null;
+}
+
+/** Batiments producteurs selectionnes, bâtis et a soi (fiche inspectee, ou tout
+ *  le groupe du double-clic) : ils prennent le ralliement au clic droit
+ *  (2026-11-05, G47). Meme regle que le bouton « Ralliement » de la fiche. */
+function selectedProducerIds(): number[] {
+  if (inTestMode || battleInspectedEntityId === null) return [];
+  const ids = battleInspectedGroupIds.size > 0 ? [...battleInspectedGroupIds] : [battleInspectedEntityId];
+  return ids.filter((id) => {
+    const e = world.getById(id);
+    const index = e ? ownedBuildingIndexByEntityId.get(e.id) : undefined;
+    const owned = index !== undefined ? currentRun.buildings[index] : undefined;
+    return !!e && e.alive && e.team === 'player' && !e.construction && !!owned && producibleUnits(owned.buildingId, buildingLevelOf(currentRun.upgrades, owned)).length > 0;
+  });
+}
+
 /** Constructeurs commandes : Heros et Villageois vivants parmi les unites
  *  qui recoivent les ordres (2026-11-05, G46). */
 function builderIds(): number[] {
@@ -5531,10 +5572,17 @@ let pendingRightClickOrder = false;
  *  sol — l'orchestration n'envoie que ce point, la simulation repartit les
  *  destinations (voir assignGroupDestinations, sim/orders.ts). La simulation
  *  valide encore la commande (unites vivantes du joueur, cible hostile
- *  vivante ou destination dans le plateau) au debut du prochain pas. */
+ *  vivante ou destination dans le plateau) au debut du prochain pas.
+ *  Priorites (2026-11-05, G47) : unites selectionnees -> ordre d'unite ;
+ *  batiments producteurs selectionnes sans unite -> point de ralliement ;
+ *  rien de selectionne -> rien (plus aucun ordre implicite au Heros). */
 function issueRightClickOrder(event: MouseEvent): void {
+  if (!canIssueRtsOrder()) return;
   const entityIds = rtsCommandIds();
-  if (entityIds.length === 0 || !canIssueRtsOrder()) return;
+  if (entityIds.length === 0) {
+    setRallyOfSelectedProducers(event);
+    return;
+  }
 
   const picked = pickEntityAtScreen(pickableEntities(), event.clientX, event.clientY, worldToScreen, (id) => unitViews.getPosition(id));
   if (picked !== null && picked.team !== 'player') {
@@ -5797,7 +5845,7 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
     // seul le depot a la Baliste remplit le stock de la run.
     // Ressources : voir handleCargoEvents (cargo economique, 2026-11-03).
     if (ev.type === 'itemPickup') {
-      waveIndicator.flash(`Butin : ${EQUIPMENT[ev.itemId]?.name ?? ev.itemId}`);
+      waveIndicator.flash(`Butin : ${EQUIPMENT[ev.itemId]?.name ?? ev.itemId}${ev.equipped ? ' — équipé' : ''}`);
       heroInventoryRefreshAt = 0;
     } else if (ev.type === 'itemPickupFull') {
       waveIndicator.flash(`Sac plein — ${EQUIPMENT[ev.itemId]?.name ?? ev.itemId} reste au sol`);
@@ -6253,14 +6301,12 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   // payee separement ; sans Maj, sortie du mode comme avant.
   const keep = event.shiftKey;
   if (!keep) cancelBuildingPlacement();
-  // Chantier cree tout de suite (attaquable) ; les constructeurs commandes
-  // (Heros ou Villageois selectionnes, G46) partent le construire, le Heros
-  // vivant a defaut.
+  // Chantier cree tout de suite (attaquable) ; les constructeurs selectionnes
+  // (Heros ou Villageois, G46) partent le construire. Aucun ordre implicite
+  // (G47) : sans constructeur, le chantier attend un clic droit.
   const site = spawnOwnedBuildingRealtime(currentRun.buildings.length - 1);
   const builders = builderIds();
-  const hero = world.entities.find((e) => e.hero && e.alive && e.team === 'player');
-  const ids = builders.length > 0 ? builders : hero ? [hero.id] : [];
-  if (ids.length > 0) world.issueCommand({ kind: 'build', entityIds: ids, targetEntityId: site.id });
+  if (builders.length > 0) world.issueCommand({ kind: 'build', entityIds: builders, targetEntityId: site.id });
   if (keep) {
     if (currentRun.gold < getEffectiveBuildingCost(def.id) || !canAffordBuildingResources(def.id)) {
       cancelBuildingPlacement();
@@ -6509,7 +6555,8 @@ function confirmWallPlacement(event: MouseEvent): void {
   const x = groundHit.x;
   const z = groundHit.z;
   const type = getWallType(mode.wallType);
-  const hero = world.entities.find((e) => e.hero && e.alive && e.team === 'player');
+  // Constructeurs selectionnes (G46, G47 : jamais d'ordre implicite au Heros).
+  const builders = builderIds();
   if (mode.gate) {
     const target = wallSegmentForGate(x, z);
     const cost = wallGateCost(type);
@@ -6519,7 +6566,7 @@ function confirmWallPlacement(event: MouseEvent): void {
     payWallCost(cost);
     removeWallPieceView(target.id);
     addWallPieceView(gate);
-    if (hero) world.issueCommand({ kind: 'build', entityIds: [hero.id], targetEntityId: gate.id });
+    if (builders.length > 0) world.issueCommand({ kind: 'build', entityIds: builders, targetEntityId: gate.id });
     cancelWallPlacement();
     return;
   }
@@ -6537,8 +6584,8 @@ function confirmWallPlacement(event: MouseEvent): void {
   payWallCost(cost);
   const pieces = world.spawnWallLine('player', type.id, plan.line, { construction: true });
   for (const e of pieces) addWallPieceView(e);
-  // Le Heros bâtit la ligne de A vers B (World : segment suivant d'abord).
-  if (hero && pieces[0]) world.issueCommand({ kind: 'build', entityIds: [hero.id], targetEntityId: pieces[0].id });
+  // Les constructeurs bâtissent la ligne de A vers B (World : segment suivant d'abord).
+  if (builders.length > 0 && pieces[0]) world.issueCommand({ kind: 'build', entityIds: builders, targetEntityId: pieces[0].id });
   // Le mode reste actif pour une nouvelle ligne.
   mode.start = null;
   mode.ghostKey = '';
@@ -6673,6 +6720,7 @@ const loop = new Loop(
       if (event.kind === 'impact' && event.hit) playHitFlash(event.targetId);
     }
 
+    const procTextsThisStep = new Map<number, number>();
     for (const event of world.combatEvents) {
       // Lookup O(1) (World.getById, 2026-08-13) plutot qu'une recherche
       // lineaire dans world.entities — cout croissant avec le nombre
@@ -6686,6 +6734,16 @@ const loop = new Loop(
       if (event.result === 'cancelled') continue;
       if (event.result === 'windup') {
         unitViews.playAttack(attacker.id, attacker.x, attacker.z);
+        continue;
+      }
+      // Effet d'arme (2026-11-05, G47) : retour de degats commun (flash, texte
+      // par ecole), jamais un geste d'attaque de plus. Decale d'un cran par
+      // declenchement du meme pas sur la meme cible, pour rester lisible.
+      if (event.result === 'proc') {
+        const stacked = procTextsThisStep.get(target.id) ?? 0;
+        procTextsThisStep.set(target.id, stacked + 1);
+        combatOverlay.spawnSchoolText(target.x + stacked * 0.3, target.z, Math.round((event.damage / HP_PER_PIP) * 100) / 100, event.damageSchool);
+        playHitFlash(target.id);
         continue;
       }
 
@@ -6729,7 +6787,6 @@ const loop = new Loop(
       // (talent "Réflexes de vétéran").
       if (event.result === 'miss') combatOverlay.spawnMissText(target.x, target.z);
       if (event.result === 'dodge') combatOverlay.spawnDodgeText(target.x, target.z);
-      if (event.result === 'hit' && event.fireDamage) combatOverlay.spawnFireText(target.x, target.z, event.fireDamage / HP_PER_PIP);
       // "Game feel" (2026-08-09) : flash sur la cible qui vient d'encaisser
       // un coup, sans quoi un hit ne se voit qu'a la baisse (lente, par pips
       // de HP_PER_PIP) de la barre de PV. Batiments gameplay (2026-08-16) :
@@ -6946,8 +7003,7 @@ const loop = new Loop(
     // world.clear() est abandonnee par sync() lui-meme. Synchronisees aussi
     // pendant la transition de fin de partie : une unite tuee au dernier pas
     // quitte la selection ou l'inspection, avec son anneau.
-    // Heros permanent : son anneau quand aucune unite n'est selectionnee.
-    battleSelection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id), inBattlePhase() && !inTestMode ? playerHero()?.id ?? null : null);
+    battleSelection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id));
     battleEnemyInspection.sync((id) => world.getById(id), (id) => unitViews.getPosition(id));
     // L'apercu de deplacement n'existe que dans l'editeur.
     if (!inEditorMode) unitMovePreview.hide();
@@ -7033,7 +7089,8 @@ const loop = new Loop(
     itemDropViews.animate(realDt);
     campViews.animate(realDt);
     destructibleViews.animate(realDt);
-    rallyMarkers.sync(world.entities, battleInspectedEntityId, !inEditorMode && inBattlePhase());
+    // Marqueur net pour tout batiment selectionne (groupe du double-clic compris).
+    rallyMarkers.sync(world.entities, battleInspectedGroupIds.size > 0 ? battleInspectedGroupIds : new Set(battleInspectedEntityId !== null ? [battleInspectedEntityId] : []), !inEditorMode && inBattlePhase());
     updateEdgeScroll(realDt);
     // Depot vise par un ordre de depot du Heros : anneau fixe tant qu'il dure.
     const depositing = inBattlePhase() ? world.entities.find((e) => e.alive && e.cargo && e.team === 'player' && e.order.type === 'deposit') : undefined;
@@ -7527,7 +7584,7 @@ window.addEventListener('keydown', (event) => {
       if (document.activeElement instanceof HTMLButtonElement) document.activeElement.blur();
       if (inEditorMode || inTestMode) resetEditorCamera();
       // Espace (2026-11-02) : retour au Heros (selection, centrage, suivi).
-      else followHero(true);
+      else followHero();
       break;
     case 'Delete':
     case 'Backspace':
@@ -7582,6 +7639,9 @@ window.addEventListener('keydown', (event) => {
         screens.show(settingsReturnTo === 'pause' ? 'pause' : 'menu');
       } else if (pauseMenuOpen) {
         resumeFromPause();
+      } else if (inBattlePhase() && hasBattleSelection()) {
+        // Selection RTS (2026-11-05, G47) : Echap la vide, puis ouvre la pause.
+        setBattleSelection([]);
       } else {
         openPauseMenu();
       }
@@ -7708,20 +7768,19 @@ canvas.addEventListener('mousedown', (event) => {
   }
 
   // Clic droit = annule un ciblage en cours (sort du Heros, ralliement) —
-  // meme effet que Echap. Trace de mur en cours : le clic droit l'annule
-  // (puis quitte le mode).
-  const cancelledTargeting = spellTargeting !== null || wallPlacement !== null;
+  // meme effet que Echap, et rien d'autre. Trace de mur en cours : le clic
+  // droit l'annule (puis quitte le mode).
+  const cancelledTargeting = spellTargeting !== null || wallPlacement !== null || rallyTargeting !== null;
   if (wallPlacement) cancelWallTraceOrMode();
   if (spellTargeting) cancelSpellTargeting();
   if (rallyTargeting) cancelRallyTargeting();
 
-  // RTS : en jeu, avec une unite commandee (selection ou Heros), ce clic
-  // droit devient un ordre (attaque ou deplacement) a son relachement (voir
-  // le mouseup plus bas), meme si la souris a un peu bouge. Jamais si ce
-  // clic vient d'annuler un ciblage, ni si un clic gauche s'y ajoute ensuite
-  // (pan).
-  // Heros permanent (2026-11-02) : sans unite selectionnee, le Heros recoit l'ordre.
-  pendingRightClickOrder = !cancelledTargeting && !buildingPlacementMode && rtsCommandIds().length > 0 && canIssueRtsOrder();
+  // RTS : en jeu, avec une unite selectionnee, ce clic droit devient un ordre
+  // (attaque ou deplacement) a son relachement (voir le mouseup plus bas), meme
+  // si la souris a un peu bouge ; avec des batiments producteurs selectionnes,
+  // un point de ralliement. Jamais si ce clic vient d'annuler un ciblage, ni
+  // si un clic gauche s'y ajoute ensuite (pan). Sans selection : rien (G47).
+  pendingRightClickOrder = !cancelledTargeting && !buildingPlacementMode && (rtsCommandIds().length > 0 || selectedProducerIds().length > 0) && canIssueRtsOrder();
 
   // Mode de pose d'un BATIMENT (2026-08-17, demande explicite d'Antoine,
   // point 10 : "Escape ou clic droit -> annule le placement, aucun Gold

@@ -488,9 +488,13 @@ extrait ; G33). À voir aussi :
   Villageois faits le 2026-11-03 (G28, modèle dédié G32 ; coups de hache /
   pioche du Héros prêtés le 2026-11-05, G43) ; à suivre :
   gestes de ramassage / dépôt dédiés (KI-64) ; construction par les
-  Villageois faite le 2026-11-05 (G46) ; à suivre : commandes groupées de
-  bâtiments (le double-clic ne fait qu'inspecter le groupe), résistances
-  physiques / magiques et sorts offensifs du Héros lisant `magicDamage`,
+  Villageois faite le 2026-11-05 (G46) ; ralliement groupé fait le 2026-11-05
+  (G47) ; à suivre : autres commandes groupées de bâtiments (production,
+  amélioration), retrait éventuel du bouton « Ralliement », résistances
+  physiques / magiques par école, effets d'arme au-delà des dégâts (soin, buff,
+  debuff, invocation, statut comme le ralentissement du givre : union prévue,
+  rien d'implémenté), items magiques à effet déclenché, sorts offensifs du
+  Héros lisant `magicDamage`,
   visuels des pièces de corps (KI-44), anneau des vagues face au camp
   agrandi (Vagues V2) ;
 - amélioration de l'Écurie et du Sanctuaire plus parlante que +5 PV
@@ -595,8 +599,8 @@ stats, une valeur de vente et un éventuel effet spécial. Exemple :
 plus tard « +3 dégâts de feu à chaque coup ». Changer d'item change le
 modèle porté. Depuis le 2026-11-05 (G46), le loot est une banque d'items
 conçue à la main (2 par emplacement, niveaux déterministes, récompense de
-vague) : à étendre (plus d'items par emplacement, effets spéciaux,
-visuels). Les emplacements de
+vague) ; effets déclenchés faits (G47) : à étendre (plus d'items par
+emplacement, types d'effets, visuels). Les emplacements de
 l'Atelier préparent cette suite : main droite (arme principale), main
 gauche (seconde arme / bouclier), tête (casques du pack), épaulières, cape.
 `pieces.hands` décrit déjà une pièce visuelle par main, avec son

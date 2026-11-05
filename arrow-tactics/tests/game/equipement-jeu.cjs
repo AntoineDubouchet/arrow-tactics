@@ -22,7 +22,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const etat = () => p.evaluate(() => {
     const h = window.__world.entities.find((e) => e.hero); const view = window.__uv.views.get(h.id);
     const vis = {}; view.traverse((o) => { if (o.isMesh && (/^tool_/.test(o.name) || /^equipment_/.test(o.name))) vis[o.name] = o.visible; });
-    return { vis, dmg: h.stats.damage, maxHp: h.stats.maxHp, hp: h.hp, fire: h.onHit?.fireDamage ?? 0, inv: window.arrowItems.list().inventory, working: h.hero.working };
+    return { vis, dmg: h.stats.damage, maxHp: h.stats.maxHp, hp: h.hp, fire: h.onHit?.[0]?.amount ?? 0, inv: window.arrowItems.list().inventory, working: h.hero.working };
   });
   const e0 = await etat();
   // Inventaire : I, puis Equiper l'Epee du debutant et le Bouclier robuste.

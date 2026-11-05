@@ -3,7 +3,7 @@ import { buildingUpgradeScope } from '../data/buildings';
 import { BUILDING_UPGRADE_SECONDS, producibleUnits, unitProductionSeconds } from '../data/production';
 import { getTechnology } from '../data/technologies';
 import { getUnit } from '../data/units';
-import type { Entity } from '../sim/entity';
+import type { Entity, ProductionOrder } from '../sim/entity';
 import type { ProductionUpgradeEvent } from '../sim/systems/buildingProduction';
 import type { World } from '../sim/world';
 import { effectiveBallistaMaxHp } from './ballistaUpgradeEffects';
@@ -109,6 +109,12 @@ export function queueBallistaUpgradeOrder(run: RunState, world: World, ledger: O
 
 /** Vrai si la technologie `techId` est en recherche quelque part (n'importe
  *  quel batiment vivant du joueur). */
+/** Avancement d'un ordre de la file (unite, recherche, amelioration : meme
+ *  file, meme calcul ; 2026-11-05, G47). */
+export function orderProgress(order: ProductionOrder): { progress: number; remaining: number } {
+  return { progress: order.total > 0 ? 1 - order.remaining / order.total : 1, remaining: order.remaining };
+}
+
 export function isTechnologyPending(world: World, techId: string): boolean {
   return world.entities.some((e) => e.alive && e.team === 'player' && e.productionOrders.some((o) => o.kind === 'research' && o.techId === techId));
 }

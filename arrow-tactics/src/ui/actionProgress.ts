@@ -13,21 +13,40 @@ export interface ActionProgress {
   remaining: number;
 }
 
+/** Une barre de progression : meme markup et memes classes pour l'action du
+ *  Heros et pour l'ordre courant d'une file de production (2026-11-05, G47). */
+export interface ProgressBarRefs {
+  root: HTMLElement;
+  fill: HTMLElement;
+  text: HTMLElement;
+}
+
+/** `className` : placement de la barre ; `span` : elle peut vivre dans un bouton. */
+export function createProgressBar(className: string): ProgressBarRefs {
+  const root = document.createElement('span');
+  root.className = `progress-track ${className}`;
+  const fill = document.createElement('span');
+  fill.className = 'hero-progress-fill';
+  const text = document.createElement('span');
+  text.className = 'hero-progress-text';
+  root.append(fill, text);
+  return { root, fill, text };
+}
+
+export function setProgressBar(bar: ProgressBarRefs, action: ActionProgress): void {
+  bar.fill.style.width = `${Math.round(Math.min(1, Math.max(0, action.progress)) * 1000) / 10}%`;
+  bar.text.textContent = `${Math.max(0, action.remaining).toFixed(1).replace('.', ',')} s`;
+}
+
 export class ActionProgressBar {
+  private readonly bar: ProgressBarRefs;
   private readonly root: HTMLElement;
-  private readonly fill: HTMLElement;
-  private readonly text: HTMLElement;
   private visible = false;
 
   constructor() {
-    this.root = document.createElement('div');
     // `hero-progress` : nom historique garde (styles, outils de test).
-    this.root.className = 'action-progress hero-progress';
-    this.fill = document.createElement('div');
-    this.fill.className = 'hero-progress-fill';
-    this.text = document.createElement('div');
-    this.text.className = 'hero-progress-text';
-    this.root.append(this.fill, this.text);
+    this.bar = createProgressBar('action-progress hero-progress');
+    this.root = this.bar.root;
     this.root.hidden = true;
     document.body.appendChild(this.root);
   }
@@ -39,8 +58,6 @@ export class ActionProgressBar {
 
   update(action: ActionProgress | null): void {
     this.root.hidden = !this.visible || action === null;
-    if (!action) return;
-    this.fill.style.width = `${Math.round(Math.min(1, Math.max(0, action.progress)) * 1000) / 10}%`;
-    this.text.textContent = `${Math.max(0, action.remaining).toFixed(1).replace('.', ',')} s`;
+    if (action) setProgressBar(this.bar, action);
   }
 }

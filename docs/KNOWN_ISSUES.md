@@ -68,6 +68,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-60 | Maison B : variante seulement pour les Maisons posées en jeu ; une Maison de scénario de l'éditeur reste A | Limite assumée |
 | KI-62 | Tourbillon : rotation du modèle entier (5 tours/s), sans clip dédié (arme et jambes figées dans le clip courant) ; VFX procédural provisoire (arcs, cercle de zone) | Limite assumée (prototype) |
 | KI-64 | Villageois : coupe et minage sur les clips Worker du Héros depuis le 2026-11-05 (G43) ; ramassage et dépôt toujours sur la pose de repos, sans geste accroupi dédié | Limite assumée (assets), réduite |
+| KI-72 | `camp-boucle.cjs` : 3 vérifications en échec, déjà présentes avant G47 (coffre non exploré à 8 cases, annonce de nettoyage écrasée) | Confirmé (test) |
 | KI-66 | Pathfinding : la grille A* ignore le rayon des corps ; un passage d'une case (posé à la main dans l'éditeur : gisement, arbre, baril contre un obstacle ou une falaise) paraît praticable et le Héros y oscille ; le générateur n'en produit plus (G39) | Limite assumée |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
@@ -715,6 +716,22 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   Voir `ARCHITECTURE.md` §17 et `tests/README.md`.
 - **Reste** : pas de couverture systématique ; aucun test unitaire fin ;
   les tests en jeu dépendent d'Edge installé et de temporisations.
+
+### KI-72 — `camp-boucle.cjs` : 3 vérifications en échec avant G47
+
+- **Statut** : Confirmé (2026-11-05) : mêmes échecs reproduits sur une copie
+  propre de `b1a985f`, avant G47. Aucun effet de jeu établi ; le test n'a pas
+  été modifié sur ces points.
+- **Constat** : le Héros placé à 8 cases du centre du camp (graine 12345)
+  révèle les gardes mais pas le coffre après 900 ms (`chest: false`). Le clic
+  droit suivant sur le coffre donne donc un déplacement au lieu de « Camp
+  encore défendu » : `chestNear` ignore un coffre non exploré. Après
+  le nettoyage, l'annonce lue est « +3 or » au lieu de « nettoyé ! 8 or au sol ».
+- **Hypothèses** : l'approche du test ne suit plus la disposition des camps
+  depuis un changement de générateur ; l'annonce de nettoyage est remplacée par
+  le ramassage d'or au contact (G42). Non vérifié plus avant.
+- **Piste** : placer le Héros à portée de vision du coffre, relire l'annonce
+  au bon moment ; dire si l'annonce écrasée gêne le joueur.
 
 ### KI-16 — Assets inutilisés copiés dans le build
 

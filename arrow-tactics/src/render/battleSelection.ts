@@ -150,15 +150,8 @@ export class BattleSelection {
   /** A appeler une fois par frame. Retire de la selection les entites
    *  disparues (World vide) ou mortes, puis place un anneau sous la position
    *  rendue de chaque unite restante. */
-  /** `implicitId` (Heros permanent, 2026-11-02) : unite commandee sans etre
-   *  dans la selection (aucune unite selectionnee) ; son anneau est affiche. */
-  sync(lookup: (id: number) => Entity | undefined, renderedPosition: RenderedPosition, implicitId: number | null = null): void {
+  sync(lookup: (id: number) => Entity | undefined, renderedPosition: RenderedPosition): void {
     let used = 0;
-    const implicit = implicitId !== null && this.selected.size === 0 ? lookup(implicitId) : undefined;
-    if (implicit?.alive) {
-      const pos = renderedPosition(implicit.id) ?? { x: implicit.x, z: implicit.z };
-      placeUnitSelectionRing(this.selectionRingAt(used++), implicit.team, pos.x, pos.z, implicit.stats.radius);
-    }
     for (const id of this.selected) {
       const entity = lookup(id);
       if (!entity || !entity.alive) {

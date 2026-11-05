@@ -356,6 +356,9 @@ dans l'éditeur.
   Forge,
   pendant le placement d'un bâtiment, pendant la transition de
   fin de vague, dans les menus et dans l'éditeur.
+- **Clics** (2026-11-05, G47) : la fiche prend les clics posés sur elle ; un
+  clic droit sur la fiche ne commande rien au monde. Avant, elle laissait
+  passer les clics hors de ses boutons. La molette sur la fiche ne zoome plus.
 - **Mise à jour** : immédiate à chaque changement de sélection, sinon environ
   10 fois par seconde. Le DOM n'est reconstruit que si la forme de la fiche
   change.
@@ -1076,8 +1079,9 @@ horizon) derrière la carte ronde ; même rendu dans l'éditeur.
   sélectionné ; il ouvre un petit panneau des bâtiments (nom, coût or /
   bois / pierre, disponible ou non ; pas d'icône, aucune n'existe). Choisir
   arme la pose (stock **déposé** uniquement) ; un clic gauche pose le
-  chantier (payé, créé tout de suite dans la simulation), le Héros vivant
-  part le construire ; clic droit / Échap : annule. **N'importe où sur la
+  chantier (payé, créé tout de suite dans la simulation), le Héros ou les
+  Villageois sélectionnés partent le construire (sans constructeur
+  sélectionné, le menu Construire reste grisé, G47) ; clic droit / Échap : annule. **N'importe où sur la
   carte** : plus de limite de territoire ; refusé hors carte, sur l'eau, une
   case d'arbre, un obstacle bloquant, un bâtiment ou chantier, une unité,
   un sol non plat (pente, rampe). Les gros rochers, décors non bloquants,
@@ -1137,24 +1141,30 @@ niveaux d'item, deux types de dégâts et récompense de vague** depuis le
   l'item (RNG déterministe du jeu) ;
 - **deux types de dégâts** (`DamageType`, `sim/damage.ts`) : **physique**
   (mêlée, armes, flèches d'Archer, carreaux de Baliste et de Tour, Charge,
-  **Tourbillon**) et **magique** (Boule de feu du Mage, feu des coups
-  d'équipement, futurs sorts). Une seule voie de dégâts
+  **Tourbillon**) et **magique** (Boule de feu du Mage, effets d'arme,
+  futurs sorts). Depuis G47, un dégât magique peut porter une **école**
+  (`DamageSchool`, `data/damageTypes.ts` : feu, givre, arcane, nature, sacré,
+  ombre) ; le type reste physique ou magique. Une seule voie de dégâts
   (`applyDamageToEntity` avec le type), aucune résistance pour l'instant :
   même quantité brute ; le type est porté par les événements et les données
   (équipement, talents, résistances et interface futures). Stats d'items :
   `physicalDamage` (s'ajoute à l'attaque de base, donc au Tourbillon qui la
   fige) et `magicDamage` (jamais à l'attaque de base ni au Tourbillon ;
-  aucun sort offensif du Héros ne la lit encore). Le Soin n'est pas un
-  dégât ;
+  s'ajoute à chaque déclenchement d'un effet d'arme, G47, PROVISOIRE ; aucun
+  sort offensif du Héros ne la lit encore). Le Soin n'est pas un dégât ;
 - **récompense de vague** (`run/waveRewards.ts`, `RunState.pendingRewards`) :
   à chaque vague repoussée, **choix entre 2 items** distincts de la banque,
   **niveau = numéro de la vague**, tirage déterministe (graine de carte +
   vague) ; panneau « Récompense de vague N » (`ui/waveRewardPanel.ts`) avec
-  deux cartes (nom, niveau, emplacement, orientation, stats), **sans
-  pause** : la partie continue, le joueur choisit quand il veut ; clic →
-  item au niveau de la vague dans le sac, panneau fermé ; **sac plein** :
-  cartes désactivées, « Inventaire plein », rien n'est perdu ; plusieurs
-  vagues sans choix : **file**, une récompense à la fois. L'ancien +5 or de
+  deux cartes (icône d'emplacement, nom, niveau, emplacement, orientation,
+  stats), **sans pause** : la partie continue, le joueur choisit quand il
+  veut ; clic → item au niveau de la vague, selon la règle d'acquisition
+  ci-dessous, panneau fermé. **Mention jaune** « Emplacement vide — sera
+  équipé automatiquement » sur la carte quand cette règle l'équipera, visible
+  avant de choisir (G47, même fonction que l'acquisition). **Sac plein** :
+  seule une carte qui remplit un emplacement vide reste active (PROVISOIRE) ;
+  les autres sont désactivées, « Inventaire plein », rien n'est perdu ;
+  plusieurs vagues sans choix : **file**, une récompense à la fois. L'ancien +5 or de
   fin de vague est supprimé (loot des ennemis, Mine et camps inchangés).
   Console : `arrowRewards.grant / pending`.
 
@@ -1168,8 +1178,8 @@ niveaux d'item, deux types de dégâts et récompense de vague** depuis le
   niveau 1 en points affichés (PV max, mana max, régénération de mana,
   dégâts physiques, dégâts magiques, vitesse d'attaque en %, vitesse de
   déplacement), **progression par niveau** (mêmes clés), **effets**
-  (aujourd'hui : feu à chaque coup qui touche, magique), **valeur de vente**
-  (or, futur Marché) ;
+  déclenchés (ci-dessous), **Héros autorisés** (`allowedHeroes`, absent = tous ;
+  aucun item restreint aujourd'hui), **valeur de vente** (or, futur Marché) ;
 - **banque actuelle** (2 par emplacement, valeurs provisoires) : arme
   principale Épée du débutant (physique, +3 dégâts physiques, +0,5 par
   niveau) et Lame des braises (physique, +4, feu +3) ; main secondaire
@@ -1186,18 +1196,37 @@ niveaux d'item, deux types de dégâts et récompense de vague** depuis le
   (`sim/inventory.ts`, §6 quinquies) : équipements et ressources dans les
   mêmes cases, items équipés par emplacement ; équiper, remplacer (l'ancien
   revient au sac), retirer ; jamais d'item perdu ni dupliqué ;
+- **acquisition** (2026-11-05, G47, une seule règle : `acquireItem`,
+  `acquisitionPlan`, `sim/inventory.ts`) : récompense de vague et butin ramassé
+  (coffre compris) passent par elle. Pièce **portable** (`canHeroEquipItem`)
+  et **emplacement vide** : équipée directement, sans passer par le sac.
+  Emplacement occupé (ou main gauche prise par l'autre type) ou pièce non
+  portable : **sac**, sans jamais remplacer une pièce portée ni comparer les
+  puissances. Sac plein : refus, rien n'est perdu ; le butin reste au sol. Un
+  emplacement vide n'exige aucune case ;
 - **stats finales** = fiche du niveau + bonus d'équipement, recalculées
   d'un bloc (`refreshHeroStats`) : rien ne se cumule ; PV et mana actuels
   gardent la même proportion du maximum quand l'équipement change (équiper
   puis retirer ne soigne jamais), augmentent du même écart à la montée de
   niveau ; mort et retour gardent l'équipement ;
-- **feu** : à chaque coup de mêlée qui touche, dégâts normaux puis dégâts de
-  feu (`Entity.onHit`, `applyDamageToEntity`) ; rien sur un raté, une
-  esquive ou un élan annulé ; petit texte orange « 🔥3 » à l'impact ;
+- **effets d'arme** (2026-11-05, G47, PROVISOIRE ; remplace « feu à chaque
+  coup ») : « toutes les **N** attaques, **K** déclenchements » d'un effet,
+  aujourd'hui des dégâts magiques d'une des six écoles. Comptées : les attaques
+  de base qui **touchent** ; jamais un raté, une esquive, un élan annulé, le
+  Tourbillon, un sort, un dégât périodique ni un autre déclenchement. Au seuil,
+  compteur remis à 0, K événements de dégâts distincts au même pas, sans
+  hasard. Dégâts par déclenchement : **valeur + bonus `magicDamage` du Héros**,
+  jamais `physicalDamage`. Le compteur appartient à l'effet porté : conservé
+  à la montée de niveau et au changement d'une autre pièce, perdu si l'arme est
+  retirée. Le montant ne monte pas avec le niveau de l'exemplaire. Aucun effet
+  de statut (le givre ne ralentit pas). Lame des braises : N = 1, K = 1, feu 3,
+  jeu inchangé hors bonus magique. Retour : texte de l'école à l'impact (feu
+  « 🔥3 » conservé) et flash de coup ;
 - **interface** : inventaire du Héros (touche I) avec ses emplacements
   (« Retirer ») et son sac d'objets (« Équiper »), cartes à la couleur de la
   rareté ; chaque carte montre le **niveau** de l'exemplaire et son
-  orientation. Console : `arrowItems.give / equip / unequip / list`.
+  orientation. Console : `arrowItems.give / equip / unequip / list` (`give`
+  va toujours au sac, c'est un outil de test).
   `?items=demo` met les items du catalogue dans le sac au lancement ;
 - **ergonomie RTS** (2026-11-05, G46) : **Maj + clic** pendant la pose d'un
   bâtiment place, paie et **reste en mode de pose** du même bâtiment
@@ -1294,7 +1323,8 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
   sont dans les emplacements et ne prennent pas de case. Plus de sac de 6
   ni de sac d'objets de 12. Ajout : piles entamées d'abord (ordre des
   cases), puis cases libres ; sac plein : ramassage **partiel**, le reste
-  reste au sol ; un équipement exige une case libre ; rien ne disparaît ;
+  reste au sol ; un équipement qui va au sac exige une case libre (règle
+  d'acquisition, §6 ter) ; rien ne disparaît ;
 - **or** : depuis le 2026-11-03, l'or est une **monnaie** (§6 nonies) : un
   tas d'or au sol est **ramassé automatiquement par le Héros au contact**
   (2026-11-05, G42 : corps + 0,5 case ; aucun ordre, aucun geste, aucun
@@ -1354,22 +1384,35 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
 - **fenêtre du personnage** (I) : silhouette (tête, épaules, torse, bras,
   main droite, main gauche = main secondaire ou bouclier, jambes, cape),
   statistiques, sorts, sac en grille 5 × 4 (icône, quantité, cadre de
-  rareté), infobulles (ressource : nom, quantité ; équipement : nom,
+  rareté ; **une icône par emplacement réel** depuis G47, table unique
+  `ui/slotIcons.ts`, commune à la récompense et à l'Éditeur d'items),
+  infobulles (ressource : nom, quantité ; équipement : nom,
   rareté, emplacement, type, stats, effet, valeur). Glisser-déposer :
   déplacer, échanger, fusionner les piles ; équiper vers un emplacement
   compatible ; remplacer (l'ancien item revient dans la case d'origine) ;
-  retirer vers le sac ; double-clic : équiper / retirer. Emplacements
-  torse, bras, jambes : données, stats et interface (pas de visuel, KI-44) ;
+  retirer vers le sac ; double-clic : équiper / retirer. **Clic droit**
+  (G47) : sur une pièce du sac, équiper (emplacement occupé : l'ancienne pièce
+  revient dans la case libérée ; non portable : refus avec message) ; sur une
+  pièce portée, retirer vers une case libre (sac plein : elle reste portée,
+  « Inventaire plein »). Le clic droit reste dans la fenêtre : ni menu du
+  navigateur, ni ordre au monde derrière. Emplacements torse, bras, jambes : données, stats et interface (pas de visuel, KI-44) ;
   **déplaçable** par le joueur (2026-11-02) : clic maintenu sur son fond
   puis glisser (jamais depuis une case, un item ou un bouton) ; au moins
   80 px à l'écran, en-tête jamais au-dessus du bord haut ; position
   mémorisée localement ;
-- **Héros permanent** : sans unité alliée sélectionnée, le clic droit et S
-  commandent le Héros, même quand un bâtiment est inspecté (sa fiche reste
-  ouverte) ; son anneau reste affiché ; Construire est disponible. Une
-  unité militaire sélectionnée explicitement garde la main jusqu'à ce que
-  la sélection soit vidée. Portrait : sélectionne le Héros, recentre la
-  caméra et reprend le suivi (comme Espace) ;
+- **Héros désélectionnable** (2026-11-05, G47, remplace le « Héros
+  permanent » de G15) : la sélection peut être le Héros, des unités, des
+  Villageois, des bâtiments ou **rien**. Clic gauche sur un terrain vide, hors
+  mode spécial : vide la sélection. **Échap** : annule d'abord un placement ou
+  un ciblage, sinon vide la sélection, sinon ouvre la pause. Sans sélection, un
+  clic droit ne commande personne ; les ordres ne vont qu'aux unités
+  sélectionnées ; rien ne resélectionne le Héros après un ordre. Il est
+  sélectionné au lancement (PROVISOIRE), puis par clic sur lui, Espace ou le
+  portrait (qui recentre aussi la caméra et reprend le suivi). Le **HUD RPG**
+  (portrait, PV, mana, niveau, sorts, inventaire) ne dépend pas de sa
+  sélection. Construire exige un constructeur sélectionné (Héros ou
+  Villageois) ; « Réparer » d'une fiche ordonne toujours au Héros (PROVISOIRE).
+  Politique de caméra inchangée ;
 - **caméra** : défilement par les bords (4 bords, coins), temps réel,
   limites de la caméra ; jamais sur un panneau d'interface, ni avec
   l'inventaire, un menu ou les Paramètres ouverts. Paramètres > Caméra :
@@ -1407,12 +1450,21 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G16) :
   bâtiment (face +Z du modèle tournée par sa rotation), case la plus proche
   du milieu de la façade ; façade bloquée : deuxième rangée devant, puis les
   côtés ; derrière en dernier recours ;
-- **point de ralliement** (`Entity.rally`, simulation) : bouton
-  « Ralliement » (petit carré translucide) sous la fiche d'un producteur,
-  puis clic sur le terrain ; chaque unité produite sort devant puis y
-  marche. Gardé jusqu'à un nouveau point, « Retirer le ralliement » ou la
+- **point de ralliement** (`Entity.rally`, simulation) : **clic droit sur le
+  terrain** avec le producteur sélectionné (2026-11-05, G47 ; plusieurs
+  producteurs du même type au double-clic : le même point pour tous), ou
+  bouton « Ralliement » (petit carré translucide, conservé pour l'instant)
+  sous sa fiche puis clic sur le terrain ; chaque unité produite sort devant
+  puis y marche. Priorités du clic droit : interface → interface seulement ;
+  unités sélectionnées → ordre d'unité ; producteurs sans unité → ralliement ;
+  rien de sélectionné → rien. Jamais ralliement et déplacement du Héros ensemble. Gardé jusqu'à un nouveau point, « Retirer le ralliement » ou la
   destruction du bâtiment. Drapeau au sol et ligne pointillée quand le
   bâtiment est sélectionné, marqueur très discret sinon ;
+- **barre de progression des files** (2026-11-05, G47) : sur la fiche, le
+  premier ordre (unité, recherche, amélioration, Baliste) affiche « 1. Nom ✕ »
+  et la barre d'action du Héros (même composant, durée restante) ; les suivants
+  « 2. Nom — en attente ✕ », sans barre. Ordre terminé : le suivant repart de
+  0 ; annulation : la barre disparaît ;
 - **murailles diagonales** : supprimées avec tout le Wall V1 le
   2026-11-02 (remplacé par la Palissade V2, §6 octies) ;
 - **réparation** : bouton « Réparer — coût » sur la fiche d'un bâtiment
@@ -2911,15 +2963,21 @@ du menu principal, écran distinct de l'Atelier et de l'éditeur de maps :
 - champs : partir d'un item du catalogue, nom, identifiant, description,
   rareté, type, emplacement (le type et une pièce plausible suivent),
   valeur de vente, source, pièce (objets tenus ou pièces de corps de
-  l'emplacement), échelle, rotation et décalage (objets tenus), six stats,
-  feu à chaque coup ;
+  l'emplacement), échelle, rotation et décalage (objets tenus), stats et
+  progression par niveau, « Portable par » (`allowedHeroes`), **effets
+  déclenchés** (2026-11-05, G47) : « Toutes les … attaques », « Déclenche …
+  fois », « Effet », « Dégâts », « + Ajouter un effet », « Retirer cet effet ».
+  N et K sont des entiers ≥ 1 ; un effet à 0 dégât n'est pas exporté ;
 - aperçu : le Paladin (preset `human_hero` du catalogue) porte l'item, dans
   la scène de l'Atelier ; carte de l'item (nom et cadre à la couleur de la
   rareté, lignes de stats, valeur) ;
 - **Copier la config**, **Exporter JSON** (`<id>.json`), **Charger config**
   (texte collé, validé : valeurs inconnues remplacées par défaut, texte
   illisible refusé avec un message). Format : `{ "<id>": <item> }`, celui de
-  `EQUIPMENT` (data/equipment.ts), prêt à y être collé.
+  `EQUIPMENT` (data/equipment.ts), prêt à y être collé. **Migration** : un
+  ancien `effects.onHit.fireDamage` importé devient
+  `{ every: 1, repeat: 1, effect: 'fireDamage', amount }` ; l'export n'écrit
+  que le nouveau format.
 
 ## 17. Audio
 

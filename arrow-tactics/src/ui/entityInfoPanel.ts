@@ -1,5 +1,6 @@
 import { teamColor } from '../render/unitSelectionRing';
 import type { EntityInfoAction, EntityInfoRow, EntityInfoViewModel } from '../run/entityInfo';
+import { createProgressBar, setProgressBar, type ProgressBarRefs } from './actionProgress';
 
 const TEAM_LABELS = { player: 'Allié', enemy: 'Ennemi' } as const;
 
@@ -18,6 +19,8 @@ interface PanelRefs {
   sectionRows: RowRefs[][];
   status: HTMLElement | null;
   actions: HTMLButtonElement[];
+  /** Barres de progression des actions qui en ont une (ordre courant). */
+  progress: Map<HTMLElement, ProgressBarRefs>;
 }
 
 /**
@@ -77,6 +80,8 @@ export class EntityInfoPanel {
       if (button.disabled !== !action.enabled) button.disabled = !action.enabled;
       const hint = action.hint ?? '';
       if (button.title !== hint) button.title = hint;
+      const bar = refs.progress.get(button);
+      if (bar && action.progress) setProgressBar(bar, action.progress);
     });
   }
 
@@ -134,6 +139,7 @@ export class EntityInfoPanel {
       status = el('div', 'entity-info-status');
       this.root.appendChild(status);
     }
+    const progress = new Map<HTMLElement, ProgressBarRefs>();
     const actions = (vm.actions ?? []).map((action) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -146,6 +152,12 @@ export class EntityInfoPanel {
         button.blur();
         this.onAction(action.id, action.payload);
       });
+      // Ordre courant d'une file (G47) : meme barre que l'action du Heros.
+      if (action.progress) {
+        const bar = createProgressBar('entity-info-progress');
+        button.appendChild(bar.root);
+        progress.set(button, bar);
+      }
       return button;
     });
     if (actions.length > 0) {
@@ -153,7 +165,7 @@ export class EntityInfoPanel {
       box.append(...actions);
       this.root.appendChild(box);
     }
-    return { title, hpValue, hpFill, shieldBar, shieldFill, composition, rows, sectionRows, status, actions };
+    return { title, hpValue, hpFill, shieldBar, shieldFill, composition, rows, sectionRows, status, actions, progress };
   }
 
   private buildRows(parent: HTMLElement, rows: EntityInfoRow[]): RowRefs[] {
@@ -192,7 +204,7 @@ function structureKey(vm: EntityInfoViewModel): string {
     vm.rows.map((r) => r.label),
     vm.sections.map((s) => [s.title, s.rows.map((r) => r.label)]),
     vm.status !== null,
-    (vm.actions ?? []).map((a) => [a.id, a.label]),
+    (vm.actions ?? []).map((a) => [a.id, a.label, a.progress !== undefined]),
   ]);
 }
 
