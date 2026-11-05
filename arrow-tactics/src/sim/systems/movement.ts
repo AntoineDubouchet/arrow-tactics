@@ -75,6 +75,11 @@ export interface PathFailure {
  *  calcul complet par sous-passe pour une unite reellement enfermee). */
 const MARCH_RETRY_SECONDS = 1;
 const marchRetry = new WeakMap<Entity, number>();
+/** Point de travail retenu pour l'ordre `harvest` en cours (2026-11-05) :
+ *  choisi UNE fois par ordre parmi les cotes libres de la source, le premier
+ *  (le plus proche) que la navigation courante peut atteindre ; jamais
+ *  recalcule a chaque pas. */
+const harvestStand = new WeakMap<Entity, { nodeId: number; x: number; z: number }>();
 const marchFailureReported = new WeakSet<Entity>();
 
 /** Unite qui marche vers le camp quand elle n'a pas de cible. */
@@ -286,16 +291,18 @@ export function movementSystem(
           e.steerZ = null;
           continue;
         }
-        // Source bloquante (arbre, gisement) : point d'approche contre un de
-        // ses cotes, dans une case libre, le plus proche de l'unite
-        // (2026-11-05). Aucun cote libre (source enfermee) : l'ordre s'arrete
-        // tout de suite, proprement (ni centre bloque, ni coin, ni tour de
-        // la source, ni recalcul a chaque pas) ; un ordre manuel le signale
-        // (`unreachable`), une source choisie seule par un Villageois est
-        // abandonnee en silence et evitee a son prochain choix (workerSystem :
-        // autoNodeId garde, autoWorked faux).
-        const stand = goal.box ? harvestStandPoint(e, goal.box, teamGrid(e)) : null;
-        if (goal.box && stand === null) {
+        // Source bloquante (arbre, gisement) : point de travail contre un de
+        // ses cotes, dans une case libre ET atteignable par la navigation
+        // courante (ligne droite degagee, sinon A* : une fois par ordre,
+        // memorise dans harvestStand). Aucun cote libre, ou aucun chemin vers
+        // aucun cote (source enfermee, region inaccessible), ou route perdue
+        // en chemin : l'ordre s'arrete tout de suite, proprement (ni centre
+        // bloque, ni coin, ni tour de la source, ni recherche a chaque pas) ;
+        // un ordre manuel le signale (`unreachable`), une source choisie
+        // seule par un Villageois est abandonnee en silence et evitee a son
+        // prochain choix (workerSystem : autoNodeId garde, autoWorked faux).
+        const abandon = () => {
+          harvestStand.delete(e);
           const auto = e.worker !== null && e.order.type === 'harvest' && e.worker.autoNodeId === e.order.nodeId;
           if (auto) {
             e.order = { type: 'guard' };
@@ -303,10 +310,26 @@ export function movementSystem(
             e.steerX = null;
             e.steerZ = null;
           } else finishOrder(e, orderEvents, 'failed', 'unreachable');
-          continue;
+        };
+        let stand: { x: number; z: number } | null = null;
+        if (goal.box && e.order.type === 'harvest') {
+          const nodeId = e.order.nodeId;
+          const kept = harvestStand.get(e);
+          if (kept && kept.nodeId === nodeId) stand = kept;
+          else {
+            stand = reachableHarvestStand(e, goal.box, teamObstacles(e), teamGrid(e));
+            if (stand) harvestStand.set(e, { nodeId, x: stand.x, z: stand.z });
+          }
+          if (!stand) {
+            abandon();
+            continue;
+          }
         }
         const target = goal.target ?? ({ x: stand?.x ?? goal.x, z: stand?.z ?? goal.z, footprintObstacle: null } as unknown as Entity);
-        pursueTargetWithPathfinding(e, target, teamObstacles(e), teamGrid(e), subDt, bodyClearanceFor(e));
+        const routed = pursueTargetWithPathfinding(e, target, teamObstacles(e), teamGrid(e), subDt, bodyClearanceFor(e));
+        // Route perdue apres le choix (chantier pose, source tombee entre
+        // temps) : meme arret propre, sans nouvelle recherche a chaque pas.
+        if (!routed && stand) abandon();
         continue;
       }
 
@@ -824,22 +847,20 @@ function triggerUnstick(e: Entity, target: Entity, pool: Entity[], obstacles: Ob
  *  par pursueTowards (dernier pas vers la cible/le coin) et
  *  pursueTargetWithPathfinding (pas vers le prochain point de cheminement). */
 /**
- * Point d'approche d'une source bloquante (2026-11-05, recolte au contact) :
+ * Points d'approche d'une source bloquante (2026-11-05, recolte au contact) :
  * pour chaque case de chaque COTE de l'emprise (cases entieres), le point
- * au milieu de la case voisine, a (rayon + HARVEST_STAND_GAP) du bord ; parmi
- * les cases voisines libres de la grille, la plus proche de l'unite (egalite
- * : premiere dans l'ordre nord, sud, ouest, est). Jamais un coin (la
- * diagonale se bloque contre l'angle et oscille), jamais le centre. null si
- * aucune case voisine n'est libre (source enfermee) : aucun point de travail
- * valide, l'appelant abandonne l'ordre (pas de repli).
+ * au milieu de la case voisine, a (rayon + HARVEST_STAND_GAP) du bord ;
+ * seules les cases voisines libres de la grille, de la plus proche de
+ * l'unite a la plus lointaine (egalite : ordre nord, sud, ouest, est).
+ * Jamais un coin (la diagonale se bloque contre l'angle et oscille), jamais
+ * le centre. Vide si aucune case voisine n'est libre (source enfermee).
  */
-function harvestStandPoint(e: Entity, box: ObstacleBounds, grid: PathGrid): { x: number; z: number } | null {
+function harvestStandPoints(e: Entity, box: ObstacleBounds, grid: PathGrid): { x: number; z: number }[] {
   const standoff = e.stats.radius + HARVEST_STAND_GAP;
-  const best = { x: 0, z: 0, d: Number.POSITIVE_INFINITY };
+  const points: { x: number; z: number; d: number; i: number }[] = [];
   const consider = (x: number, z: number) => {
     if (isTileBlockedAt(grid, x, z)) return;
-    const d = Math.hypot(x - e.x, z - e.z);
-    if (d < best.d) { best.x = x; best.z = z; best.d = d; }
+    points.push({ x, z, d: Math.hypot(x - e.x, z - e.z), i: points.length });
   };
   for (let cx = Math.floor(box.minX) + 0.5; cx < box.maxX; cx += 1) {
     consider(cx, box.minZ - standoff);
@@ -849,7 +870,23 @@ function harvestStandPoint(e: Entity, box: ObstacleBounds, grid: PathGrid): { x:
     consider(box.minX - standoff, cz);
     consider(box.maxX + standoff, cz);
   }
-  return Number.isFinite(best.d) ? { x: best.x, z: best.z } : null;
+  return points.sort((a, b) => a.d - b.d || a.i - b.i).map((p) => ({ x: p.x, z: p.z }));
+}
+
+/**
+ * Premier point d'approche REELLEMENT atteignable par la navigation courante
+ * (meme grille et memes obstacles que la poursuite) : ligne droite degagee,
+ * sinon un chemin A* existe. Au plus un A* par cote libre, une seule fois
+ * par ordre (l'appelant memorise le resultat) ; un detour valide est trouve
+ * comme pour toute poursuite. null : aucun cote atteignable (source
+ * enfermee, ou region coupee de l'unite).
+ */
+function reachableHarvestStand(e: Entity, box: ObstacleBounds, obstacles: ObstacleDef[], grid: PathGrid): { x: number; z: number } | null {
+  for (const p of harvestStandPoints(e, box, grid)) {
+    if (findBlockingObstacle(e.x, e.z, p.x, p.z, obstacles) === null) return p;
+    if (findPathFrom(e, grid, obstacles, p.x, p.z) !== null) return p;
+  }
+  return null;
 }
 
 function moveStraightTowards(e: Entity, aimX: number, aimZ: number, subDt: number): void {

@@ -113,12 +113,14 @@ export function heroRespawnDelay(deaths: number): number {
  *  config/resourceNodes.ts. */
 export type { ResourceKind } from '../config/resourceNodes';
 
-/** Recolte : une unite toutes les HARVEST_INTERVAL s au contact d'un arbre
- *  ou d'un rocher (portee : rayon du Heros + HARVEST_REACH), mise dans le sac
- *  (HERO_CARRY_CAPACITY). Sources inepuisables ; verrouillees tant que la
- *  Scierie / le Camp de mineur n'existent pas (run/harvestPermissions.ts).
- *  PROVISOIRE. */
-export const HARVEST_INTERVAL = 1.5;
+/** Recolte au contact d'un arbre ou d'un rocher (portee : rayon du Heros +
+ *  HARVEST_REACH) : une unite toutes les HARVEST_NODE_KINDS[r].seconds
+ *  (data/resources.ts, par ressource depuis le 2026-11-05 ; 1,5 s pour tout
+ *  avant), mise dans le cargo. Le Heros recolte HERO_HARVEST_FACTOR fois
+ *  plus lentement qu'un Villageois (2026-11-05, decision d'Antoine : il
+ *  aide, les Villageois restent la vraie economie ; ses stats de combat ne
+ *  bougent pas). PROVISOIRE. */
+export const HERO_HARVEST_FACTOR = 1.25;
 export const HARVEST_REACH = 0.7;
 /** Portee de travail du VILLAGEOIS (2026-11-05, decision d'Antoine : il doit
  *  etre visuellement au contact du bord de la ressource) : distance du bord

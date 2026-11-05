@@ -45,7 +45,9 @@ mots possibles).
 
 ## Scripts
 
-`tests/sim/` : `camp.mts`, `camps-authored.mts`, `cargo.mts`,
+`tests/sim/` : `camp.mts`, `camps-authored.mts`, `cargo.mts`, `economie.mts`
+(G44 : mesure légère sur le camp de départ, temps à la source, cycle,
+rendement, Héros plus lent, répartition à 3 Villageois),
 `collecte.mts`, `depart-camp.mts`, `file-prod.mts`, `heros-niveaux.mts`,
 `mana-soin.mts`, `palissade.mts`, `porte-alliee.mts`, `tourbillon.mts`,
 `vitesse.mts`, `modernisation.mts` (contrats de la passe 1 : file payée

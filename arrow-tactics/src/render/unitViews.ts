@@ -15,6 +15,8 @@ import {
 import { clamp, dist, lerp } from '../core/math';
 import { forwardDir, type Entity } from '../sim/entity';
 import { UNIT_MOVE_SPEED_MULTIPLIER } from '../data/units';
+import { harvestSecondsOfWork, HARVEST_NODE_KINDS, HARVEST_STROKES_PER_UNIT, type HarvestResource } from '../data/resources';
+import { HERO_HARVEST_FACTOR } from '../data/hero';
 import type { RiggedActions } from './riggedGltf';
 import type { ProceduralAttackAnimator } from './proceduralAttackAnimator';
 import { updateCarryBundle } from './resourcePiles';
@@ -117,9 +119,9 @@ export class UnitViews {
   /** Position de la source travaillee par une entite (ordre `harvest`),
    *  fournie par l'orchestration (main.ts, World.resourceNodes) : cap du
    *  rendu vers elle pendant un geste de recolte (2026-11-05). */
-  private workTargetOf: ((entity: Entity) => { x: number; z: number } | null) | null = null;
+  private workTargetOf: ((entity: Entity) => { x: number; z: number; resource?: HarvestResource } | null) | null = null;
 
-  setWorkTargetResolver(resolver: (entity: Entity) => { x: number; z: number } | null): void {
+  setWorkTargetResolver(resolver: (entity: Entity) => { x: number; z: number; resource?: HarvestResource } | null): void {
     this.workTargetOf = resolver;
   }
   /** Tourbillon (2026-11-03) : angle de rotation VISUELLE ajoute a
@@ -730,7 +732,17 @@ export class UnitViews {
       if (desired === 'cast' && cast) {
         cast.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
       } else if (desired === 'walk' || desired === 'chop' || desired === 'mine' || desired === 'build' || desired === 'gather' || desired === 'deposit') {
-        actions[desired]?.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
+        const action = actions[desired];
+        // Cadence de recolte (2026-11-05) : HARVEST_STROKES_PER_UNIT coups
+        // par unite extraite, calee sur le temps par unite de la ressource
+        // (data/resources.ts) et sur l'unite (Heros plus lent) ; ni rafale,
+        // ni outil fige, quel que soit le clip prete.
+        if (action && (desired === 'chop' || desired === 'mine')) {
+          const resource = this.workTargetOf?.(entity)?.resource;
+          const seconds = resource ? HARVEST_NODE_KINDS[resource].seconds : harvestSecondsOfWork(desired);
+          action.timeScale = (action.getClip().duration * HARVEST_STROKES_PER_UNIT) / (seconds * (entity.hero ? HERO_HARVEST_FACTOR : 1));
+        }
+        action?.reset().fadeIn(RIGGED_ANIM_FADE_SECONDS).play();
       } else if (desired === 'idle' || desired === 'combatIdle') {
         // Sans fondu au premier etat de l'unite : un fondu depuis rien
         // passerait par la pose de liaison.

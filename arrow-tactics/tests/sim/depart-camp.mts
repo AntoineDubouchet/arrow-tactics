@@ -224,7 +224,7 @@ check('determinisme : meme graine -> meme carte (camp de depart compris)', JSON.
       w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: n.id });
       w.step(DT);
       const rejection = w.commandResults[0]?.rejection ?? null;
-      for (let i = 0; i < 30 * 6; i++) w.step(DT);
+      for (let i = 0; i < 30 * 10; i++) w.step(DT); // >= 2 unites a 3,125 s (Heros, or)
       out[`${unit}:${res}`] = { rejection, cargo: { wood: u.cargo.wood, stone: u.cargo.stone, gold: u.cargo.minedGold }, tools: w.harvestPermissions.tools };
     }
   }

@@ -151,7 +151,7 @@ for (const [site, expect] of [['sawmill', { wood: 0, stone: 3, gold: 2, total: 5
 }
 {
   const { w, node, u } = setup('hero', 'stone', [{ id: 'sawmill', dx: 0, dz: 4 }]);
-  harvest(w, u, node); const r = follow(w, u, 25);
+  harvest(w, u, node); const r = follow(w, u, 45); // 10 pierre a 3,125 s (Heros)
   check('Scierie seule, Heros mine la pierre : plein (10), aucun point pour la pierre -> alerte, Garde, cargo garde', r.noDrop >= 1 && u.order.type === 'guard' && u.cargo.stone === 10 && !r.phases.some((p) => p.startsWith('deposit')), { ...r, cargo: cargo(u) });
 }
 
@@ -159,10 +159,10 @@ for (const [site, expect] of [['sawmill', { wood: 0, stone: 3, gold: 2, total: 5
 {
   const { w, node, u, built } = setup('villageois', 'wood', [{ id: 'ballista', dx: 8, dz: 0 }, { id: 'sawmill', dx: 0, dz: 4 }]);
   harvest(w, u, node);
-  const r1 = follow(w, u, 30);
+  const r1 = follow(w, u, 60); // 10 bois a 2 s, deux boucles
   kill(built.sawmill);
-  const r2 = follow(w, u, 30);
-  check('Villageois bucheron : arbre -> 5 bois -> Scierie -> retour (2 boucles) ; Scierie detruite -> la Baliste prend le relais', r1.phases.filter((p) => p === 'deposit:sawmill').length >= 2 && !r1.phases.includes('deposit:ballista') && r2.phases.includes('deposit:ballista') && !r2.phases.slice(1).includes('deposit:sawmill') && (r2.bySite.sawmill ?? 0) === 0 && r2.bySite.ballista >= 5, { r1, r2 });
+  const r2 = follow(w, u, 60);
+  check('Villageois bucheron : arbre -> 10 bois -> Scierie -> retour (2 boucles) ; Scierie detruite -> la Baliste prend le relais', r1.phases.filter((p) => p === 'deposit:sawmill').length >= 2 && !r1.phases.includes('deposit:ballista') && r2.phases.includes('deposit:ballista') && !r2.phases.slice(1).includes('deposit:sawmill') && (r2.bySite.sawmill ?? 0) === 0 && r2.bySite.ballista >= 5, { r1, r2 });
 }
 
 // --- Determinisme.

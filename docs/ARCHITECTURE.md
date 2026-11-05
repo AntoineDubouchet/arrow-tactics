@@ -1494,7 +1494,11 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   (`data/production.ts`) et reçoit le ralliement ; Sanctuaire, Écurie et
   Auberge n'ajoutent aucun code de production.
 - **Villageois** : `UnitDef.worker: true` → `Entity.worker` (`WorkerState` :
-  geste, minuteur) et `Entity.cargo` (capacité 5). `sim/systems/workers.ts`
+  geste, minuteur) et `Entity.cargo` (capacité 10, `CARGO_CAPACITY`, 5
+  avant le 2026-11-05). Temps par unité : `HARVEST_NODE_KINDS[r].seconds`
+  (`data/resources.ts`), × `HERO_HARVEST_FACTOR` (`data/hero.ts`) pour le
+  Héros, lus par `cargoWork` ; cadence des clips chop / mine calée dessus
+  par `UnitViews` (`HARVEST_STROKES_PER_UNIT`). `sim/systems/workers.ts`
   (`workerSystem`, après `heroWorkSystem`) appelle `cargoWork` ;
   `sim/orders.ts` accepte `harvest`, `pickup` et `deposit` des entités à
   `worker`. Aucune attaque : `damage` 0, `aggroRange` 0 (`data/units.ts`).
@@ -1663,7 +1667,12 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   (`sim/systems/movement.ts`) : milieu d'une case libre contre un côté de
   la boîte, à `rayon + HARVEST_STAND_GAP` (0,15) du bord, la plus proche de
   l'unité (jamais un coin, jamais le centre : plus d'oscillation en
-  diagonale). Aucun côté libre (source enfermée) : aucun point de travail,
+  diagonale) ; le point retenu doit être **atteignable** : ligne droite
+  dégagée, sinon un chemin A* existe (`reachableHarvestStand`, même grille
+  et mêmes obstacles que la poursuite, au plus un A* par côté libre, une
+  seule fois par ordre, résultat mémorisé dans `harvestStand`). Aucun côté
+  libre ou atteignable (source enfermée, région coupée), ou route perdue
+  en chemin : aucun point de travail,
   l'ordre s'arrête au premier pas — ordre manuel (Héros ou Villageois) :
   `finishOrder` avec `OrderEndEvent` `harvest` / `failed` / `unreachable`,
   message « Aucun accès à cette ressource » (`main.ts`, après `world.step`) ;

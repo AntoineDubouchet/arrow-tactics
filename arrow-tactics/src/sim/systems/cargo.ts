@@ -1,5 +1,5 @@
 import { getBuilding } from '../../data/buildings';
-import { HARVEST_INTERVAL, PICKUP_SECONDS } from '../../data/hero';
+import { HERO_HARVEST_FACTOR, PICKUP_SECONDS } from '../../data/hero';
 import { cargoResourceOf, cargoRoom, cargoTotal, CARGO_RESOURCES, HARVEST_NODE_KINDS, type CargoResource } from '../../data/resources';
 import type { CargoState, Entity } from '../entity';
 
@@ -20,7 +20,8 @@ import type { HeroWorkContext } from './hero';
  * (sim/systems/hero.ts, evenement `lootGold`), jamais par un Villageois.
  *
  * Boucle (meme regle pour les deux unites) :
- *  - `harvest` au contact : une unite toutes les HARVEST_INTERVAL s dans le
+ *  - `harvest` au contact : une unite toutes les HARVEST_NODE_KINDS[r].seconds
+ *    (x HERO_HARVEST_FACTOR pour le Heros) dans le
  *    cargo ; plein -> depot automatique au point allie le plus proche qui
  *    accepte la ressource la plus portee (a defaut, la suivante), puis
  *    retour a la source (`cargo.returnTo`) ;
@@ -287,8 +288,9 @@ export function cargoWork(e: Entity, goal: { reached: boolean; target: Entity | 
   w.working = HARVEST_NODE_KINDS[node.resource].working;
   w.workTimer += dt;
   let lostTool = false;
-  while (w.workTimer >= HARVEST_INTERVAL && cargoRoom(c) > 0 && (work.nodeAmounts.get(node.id) ?? 1) > 0) {
-    w.workTimer -= HARVEST_INTERVAL;
+  const interval = HARVEST_NODE_KINDS[node.resource].seconds * (e.hero ? HERO_HARVEST_FACTOR : 1);
+  while (w.workTimer >= interval && cargoRoom(c) > 0 && (work.nodeAmounts.get(node.id) ?? 1) > 0) {
+    w.workTimer -= interval;
     const left = work.nodeAmounts.get(node.id);
     if (left !== undefined) {
       work.nodeAmounts.set(node.id, left - 1);

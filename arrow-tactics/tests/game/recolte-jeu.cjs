@@ -20,6 +20,7 @@ const TOL_DEG = 25;
     for (const u of urls.filter((n) => n.includes('/src/render/unitViews.ts'))) { const V = (await import(u)).UnitViews; const s = V.prototype.sync; if (!s.__p) { V.prototype.sync = function (...a) { window.__uv = this; return s.apply(this, a); }; V.prototype.sync.__p = true; } }
     window.__SB = await import(urls.find((n) => n.includes('/src/config/startingBase.ts')));
     window.__HERO = await import(urls.find((n) => n.includes('/src/data/hero.ts')));
+    window.__RES = await import(urls.find((n) => n.includes('/src/data/resources.ts')));
     window.__layout = window.__SB.startingBaseLayoutOf((window.__maps ?? []).at(-1));
     window.__hero = () => window.__world.entities.find((e) => e.hero);
     for (const e of window.__world.entities) if (e.team === 'enemy') e.stats.damage = 0;
@@ -86,11 +87,12 @@ const TOL_DEG = 25;
   await runCase('gisement d or depuis le SUD', sources.gold, { x: 0, z: 1 }, pick, 'recolte-pioche-or');
   await runCase('gisement d or depuis le NORD', sources.gold, { x: 0, z: -1 }, pick, null);
 
-  // Outil retire et clip de repos a l'arret ; cadence : un clip de travail de 0,9 s a 0,65 ~ 1,4 s par coup, pour une
-  // unite toutes les 1,5 s (HARVEST_INTERVAL) : ni plusieurs coups rapides par unite, ni outil fige.
-  const after = await p.evaluate(async (vid) => { const w = window.__world; w.issueCommand({ kind: 'stop', entityIds: [vid] }); await new Promise((r) => setTimeout(r, 700)); const g = window.__uv.views.get(vid); const act = g.userData.riggedActions; return { tool: g.userData.toonTool ?? null, role: window.__uv.riggedActionState.get(vid) ?? null, chopDur: +act.chop.getClip().duration.toFixed(3), chopScale: +act.chop.timeScale.toFixed(2), mineDur: +act.mine.getClip().duration.toFixed(3), mineScale: +act.mine.timeScale.toFixed(2), interval: window.__HERO.HARVEST_INTERVAL }; }, sources.vil);
+  // Outil retire et clip de repos a l'arret ; cadence (passe economie 2026-11-05) : HARVEST_STROKES_PER_UNIT coups par
+  // unite de la ressource travaillee, soit bois 2 s / 2 = 1 s par coup (clip 0,9 s -> timeScale 0,9) ; le dernier geste
+  // de pioche etait sur l'or : 3 s / 2 = 1,5 s par coup (timeScale 0,6) : ni plusieurs coups rapides, ni outil fige.
+  const after = await p.evaluate(async (vid) => { const w = window.__world; w.issueCommand({ kind: 'stop', entityIds: [vid] }); await new Promise((r) => setTimeout(r, 700)); const g = window.__uv.views.get(vid); const act = g.userData.riggedActions; return { tool: g.userData.toonTool ?? null, role: window.__uv.riggedActionState.get(vid) ?? null, chopDur: +act.chop.getClip().duration.toFixed(3), chopScale: +act.chop.timeScale.toFixed(2), mineDur: +act.mine.getClip().duration.toFixed(3), mineScale: +act.mine.timeScale.toFixed(2), wood: window.__RES.HARVEST_NODE_KINDS.wood.seconds, gold: window.__RES.HARVEST_NODE_KINDS.gold.seconds, strokes: window.__RES.HARVEST_STROKES_PER_UNIT }; }, sources.vil);
   const strokeChop = after.chopDur / after.chopScale, strokeMine = after.mineDur / after.mineScale;
-  check(`a l arret : outil retire, repos ; cadence des gestes proche du rythme de recolte (un coup de ${strokeChop.toFixed(2)} s / ${strokeMine.toFixed(2)} s pour une unite toutes les ${after.interval} s : entre 0,7 et 1,2 fois l intervalle)`, !after.tool && after.role === 'idle' && strokeChop >= 0.7 * after.interval && strokeChop <= 1.2 * after.interval && strokeMine >= 0.7 * after.interval && strokeMine <= 1.2 * after.interval, after);
+  check(`a l arret : outil retire, repos ; cadence des gestes calee sur le temps par unite de la ressource (${after.strokes} coups par unite : un coup de ${strokeChop.toFixed(2)} s pour un bois toutes les ${after.wood} s, ${strokeMine.toFixed(2)} s pour un or toutes les ${after.gold} s)`, !after.tool && after.role === 'idle' && Math.abs(strokeChop * after.strokes - after.wood) < 0.05 && Math.abs(strokeMine * after.strokes - after.gold) < 0.05, after);
 
   check('aucune erreur de page', errors.length === 0, errors.slice(0, 3));
   console.log(failures ? failures + ' ECHEC(S)' : 'tout OK');

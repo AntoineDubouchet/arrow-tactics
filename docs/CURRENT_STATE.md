@@ -888,7 +888,10 @@ passe par le **cargo économique**, jamais par l'inventaire RPG, voir
   (anneau jaune, étiquette), puis déplacement à portée et récolte
   automatique (hache pour un arbre, pioche pour un gisement) ; plus aucun
   message « il faut une Forge ». La récolte
-  remplit le sac (1 unité / 1,5 s, piles de 5), jamais le stock ; sac plein :
+  remplit le sac (bois : 1 unité / 2 s, pierre : 1 / 2,5 s, or : 1 / 3 s
+  pour un Villageois, ×1,25 pour le Héros, passe économie du 2026-11-05,
+  G44 ;
+  piles de 5), jamais le stock ; sac plein :
   seulement ce qui entre, rien n'est perdu (la source garde le reste) ; un
   arbre étant bloquant, sa portée se mesure jusqu'à sa case ;
 - **gros gisements de pierre** (2026-11-02) : **250 pierre** chacun
@@ -1427,7 +1430,7 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   60 s). Toutes les dépenses lisent le même or.
 - **Gisement d'or** : gros rocher (« Rocher E ») veiné d'or, 2 × 2,
   **250 or** (`HARVEST_NODE_KINDS.gold` ; 25 jusqu'au 2026-11-05, G43),
-  extrait à la pioche, 1 or / 1,5 s
+  extrait à la pioche, 1 or / 3 s (Villageois ; Héros 3,75 s ; G44)
   **crédité directement** (`World.goldMinedEvents`, `creditMinedGold`),
   jamais porté. Étiquette « Gisement d'or — N or ». Épuisé : gravats, cases
   libérées. Carte procédurale : 6 gisements d'or (anneau 26 à 44 cases du
@@ -1479,8 +1482,11 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   G43) : plus d'estoc de lance ; les clips du dossier Worker du Héros sont
   prêtés au rig du Villageois (mêmes os) — `workingA`, coup vertical
   debout par-dessus la tête, pour la **hache** ; `workingB`, coup penché
-  vers le sol, pour la **pioche** ; cadence 0,65 (un coup d'environ
-  1,4 s pour une unité toutes les 1,5 s : ni rafale, ni outil figé).
+  vers le sol, pour la **pioche** ; cadence réglée au lancement du geste
+  depuis les données (`HARVEST_STROKES_PER_UNIT` = 2 coups par unité :
+  1 s par coup pour un bois toutes les 2 s, 1,25 s pour une pierre toutes
+  les 2,5 s, 1,5 s pour un or toutes les 3 s, selon la source de l'ordre ;
+  ni rafale, ni outil figé).
   Pendant le geste, le Villageois **regarde sa source** (cap du rendu
   vers l'arbre ou le gisement, figé, sans oscillation ; la direction de
   marche ne reprend qu'au départ). Ramassage d'un tas et dépôt restent sur
@@ -1522,13 +1528,18 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   pas, retour en Garde, source évitée et autre source visible choisie
   aussitôt après 1 s ; sur un ordre manuel (Villageois ou Héros), l'ordre
   s'arrête proprement avec le message « Aucun accès à cette ressource »,
-  sans tic de récolte ni tour de la source.
-  Cargo de **5** (§6 undecies) : plein → dépôt automatique au point de
+  sans tic de récolte ni tour de la source. Même contrat pour une source
+  dont un côté est libre mais qu'aucun chemin n'atteint (région coupée) :
+  le point de travail est choisi une fois par ordre parmi les côtés que la
+  navigation atteint réellement ; un simple détour est suivi normalement.
+  Cargo de **10** (§6 undecies ; 5 jusqu'au 2026-11-05, G44 : un
+  Villageois reste 20 à 25 s à sa source avant de rentrer) : plein → dépôt
+  automatique au point de
   collecte le plus proche (Scierie pour le bois, Camp de mineur pour la
   pierre et l'or, Baliste sinon) → retour à la source. Source
   épuisée : dépôt du cargo, puis la source voisine du même type à 6 cases,
   sinon Garde. Outil perdu : l'unité en cours est finie, dépôt, Garde.
-  Fiche : « Transport : 3 / 5 — Pierre 3 ».
+  Fiche : « Transport : 3 / 10 — Pierre 3 ».
 
 ## 6 decies. Tourbillon du Paladin (prototype)
 
@@ -1591,7 +1602,8 @@ le « stock direct » G30 du même jour) :
   automatique au contact, sans geste ni arrêt ; « +N or ») ; il ne passe
   jamais dans le cargo, et un Villageois ne le ramasse jamais.
 - **Récolte** (arbre : hache ; gisement de pierre ou d'or : pioche, Forge
-  terminée) : chaque unité (1 / 1,5 s) entre dans le cargo, le **stock et le
+  terminée) : chaque unité (bois 2 s, pierre 2,5 s, or 3 s ; Héros ×1,25 ;
+  G44) entre dans le cargo, le **stock et le
   HUD ne bougent pas**. Cargo plein → **dépôt automatique** au point de
   collecte allié le plus proche qui accepte la ressource la **plus portée**
   (à défaut la suivante) → retour à la source → reprise. Un ordre manuel

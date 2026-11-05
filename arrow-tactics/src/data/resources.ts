@@ -47,6 +47,10 @@ export interface HarvestNodeKind {
   unit: string;
   /** Quantite totale d'une source. */
   amount: number;
+  /** Secondes par unite extraite par un Villageois au contact (le Heros :
+   *  x HERO_HARVEST_FACTOR, data/hero.ts). Rythme visuel : voir
+   *  HARVEST_STROKES_PER_UNIT. 2026-11-05, PROVISOIRE. */
+  seconds: number;
   /** Outil requis (HARVEST_TOOLS, tous de depart). */
   tool: HarvestTool;
   /** Geste au contact (HeroState.working). */
@@ -58,13 +62,29 @@ export interface HarvestNodeKind {
 // verite pour les sources persistantes (arbres, gros gisements), lue par la
 // simulation (World.setMap), le generateur, le camp de depart et l'editeur ;
 // les petits tas au sol (MapDef.resourcePiles) ont leurs propres quantites.
+// Temps par unite (2026-11-05, passe economie, PROVISOIRE ; 1,5 s pour tout
+// avant) : bois 2 s, pierre 2,5 s, or 3 s (le minage est plus lent que la
+// coupe, l'or un peu plus que la pierre sans gonfler les reserves) ; avec
+// un cargo de 10, un Villageois reste 20 s a un arbre, 25 s a la pierre et
+// 30 s a l'or avant de rentrer. La cadence de la pioche suit la ressource
+// travaillee (rendu, HARVEST_STROKES_PER_UNIT).
 export const HARVEST_NODE_KINDS: Readonly<Record<HarvestResource, HarvestNodeKind>> = {
-  wood: { name: 'Arbre', unit: 'bois', amount: 75, tool: 'axe', working: 'chop' },
-  stone: { name: 'Gisement de pierre', unit: 'pierre', amount: 250, tool: 'pickaxe', working: 'mine' },
+  wood: { name: 'Arbre', unit: 'bois', amount: 75, seconds: 2, tool: 'axe', working: 'chop' },
+  stone: { name: 'Gisement de pierre', unit: 'pierre', amount: 250, seconds: 2.5, tool: 'pickaxe', working: 'mine' },
   // Or (2026-11-02) : transporte comme le reste (minedGold) depuis le
   // 2026-11-03. Pioche ordinaire depuis le 2026-11-05 (plus de Forge requise).
-  gold: { name: 'Gisement d’or', unit: 'or', amount: 250, tool: 'pickaxe', working: 'mine' },
+  gold: { name: 'Gisement d’or', unit: 'or', amount: 250, seconds: 3, tool: 'pickaxe', working: 'mine' },
 };
+
+/** Secondes par unite pour un geste de travail quand la ressource n'est pas
+ *  connue (rendu, repli) : hache = bois, pioche = pierre ; avec la source de
+ *  l'ordre, le rendu prend HARVEST_NODE_KINDS[resource].seconds. */
+export function harvestSecondsOfWork(working: 'chop' | 'mine'): number {
+  return working === 'chop' ? HARVEST_NODE_KINDS.wood.seconds : HARVEST_NODE_KINDS.stone.seconds;
+}
+/** Coups d'outil joues par unite extraite (rendu) : deux coups de la duree
+ *  naturelle du clip par unite, plutot qu'un seul coup au ralenti. */
+export const HARVEST_STROKES_PER_UNIT = 2;
 
 /** Bois total d'un arbre (arbre isole ou bosquet). PROVISOIRE. */
 export const TREE_WOOD_AMOUNT = HARVEST_NODE_KINDS.wood.amount;
@@ -108,7 +128,10 @@ export interface ResourceCargo {
 }
 
 /** Capacites PROVISOIRES, centralisees. */
-export const CARGO_CAPACITY = { hero: 10, villageois: 5 } as const;
+// Cargo (2026-11-05, passe economie, PROVISOIRE ; Villageois 5 avant) : 10
+// pour les deux, un Villageois rentre toutes les 20 a 25 s de travail au
+// lieu de 7,5 s (mesure : trajets divises par deux, rendement conserve).
+export const CARGO_CAPACITY = { hero: 10, villageois: 10 } as const;
 
 export function createCargo(capacity: number): ResourceCargo {
   return { wood: 0, stone: 0, minedGold: 0, capacity };

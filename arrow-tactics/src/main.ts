@@ -223,7 +223,7 @@ import { WorldLabel } from './ui/worldLabel';
 import { DEFAULT_HERO_ID, getHero, heroKit, HEROES, type HeroDef } from './data/heroes';
 import { getSpell } from './data/spells';
 import { INITIAL_EXPLORED_RADIUS } from './data/vision';
-import { REPAIR_FULL_SECONDS, CHEST_OPEN_SECONDS, CONSTRUCTION_START_HP_FRACTION, HARVEST_INTERVAL, HERO_LEVELS, HERO_UNIT_ID, PICKUP_SECONDS } from './data/hero';
+import { REPAIR_FULL_SECONDS, CHEST_OPEN_SECONDS, CONSTRUCTION_START_HP_FRACTION, HERO_HARVEST_FACTOR, HERO_LEVELS, HERO_UNIT_ID, PICKUP_SECONDS } from './data/hero';
 import { campLayoutOf, expandMapCamps } from './data/campLayout';
 import { expandStartingBase, startingBaseObstacles, startingBaseLayoutOf, type StartingBaseDisc, type StartingBaseLayout } from './config/startingBase';
 import { CAMP_KINDS, getCampKind } from './data/camps';
@@ -5778,7 +5778,8 @@ function heroHudState(): HeroHudState {
 
 /** Action en cours du Heros (barre de progression du HUD, sans nature) :
  *  incantation, ramassage d'un tas, cycle de recolte (une unite toutes les
- *  HARVEST_INTERVAL s), construction du chantier vise ; null sinon. */
+ *  HARVEST_NODE_KINDS[r].seconds x HERO_HARVEST_FACTOR), construction du
+ *  chantier vise ; null sinon. */
 function heroActionProgress(hero: Entity): { progress: number; remaining: number } | null {
   const h = hero.hero!;
   if (hero.cast) return { progress: Math.min(1, hero.cast.elapsed / Math.max(hero.cast.duration, 1e-6)), remaining: hero.cast.duration - hero.cast.elapsed };
@@ -5788,7 +5789,11 @@ function heroActionProgress(hero: Entity): { progress: number; remaining: number
     const total = hero.order.type === 'openChest' ? CHEST_OPEN_SECONDS : PICKUP_SECONDS;
     return { progress: Math.min(1, h.workTimer / total), remaining: total - h.workTimer };
   }
-  if (h.working === 'chop' || h.working === 'mine') return { progress: Math.min(1, h.workTimer / HARVEST_INTERVAL), remaining: HARVEST_INTERVAL - h.workTimer };
+  if (h.working === 'chop' || h.working === 'mine') {
+    const node = hero.order.type === 'harvest' ? world.resourceNodes.get(hero.order.nodeId) : undefined;
+    const interval = (node ? HARVEST_NODE_KINDS[node.resource].seconds : HARVEST_NODE_KINDS.wood.seconds) * HERO_HARVEST_FACTOR;
+    return { progress: Math.min(1, h.workTimer / interval), remaining: interval - h.workTimer };
+  }
   // Depot : instantane au contact (2026-11-04), aucune barre.
   if (h.working === 'build' && hero.order.type === 'repair' && h.repairJob) {
     // Reparation : part du budget de PV rendue, au rythme de REPAIR_FULL_SECONDS.

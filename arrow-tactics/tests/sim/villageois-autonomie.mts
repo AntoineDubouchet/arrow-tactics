@@ -9,7 +9,9 @@
 // travail ; portee de recolte du Villageois au contact du bord (WORKER_HARVEST_REACH, arbre / pierre / or) ; quantites
 // 75 bois / 250 pierre / 250 or (HARVEST_NODE_KINDS, seule source de verite), decompte, epuisement a 0, tas inchanges.
 // Source enfermee (aucun cote libre) : refusee par l'autonomie (abandon immediat, Garde, evitee, autre source choisie),
-// ordre manuel arrete proprement (evenement `unreachable`, aucun tic de recolte), Heros compris.
+// ordre manuel arrete proprement (evenement `unreachable`, aucun tic de recolte), Heros compris. Source a cote libre
+// mais sans aucun chemin (region coupee) : meme contrat (autonomie, ordre manuel, Heros) ; chemin direct bloque mais
+// detour valide : la recolte se fait normalement.
 // Usage : node --import ../ts-register.mjs villageois-autonomie.mts (ou npm run test:sim)
 const SRC = new URL('../../src/', import.meta.url).href;
 const { World } = await import(SRC + 'sim/world.ts');
@@ -105,7 +107,7 @@ function mk(obstacles: any[] = [sources.tree, sources.stone, sources.gold], seed
   run(w, 1.1);
   const nodeId = v.order.nodeId;
   let sawDeposit = false; let idleDuringDeposit = 0; let resumedSame = false;
-  for (let i = 0; i < 30 * 30; i++) {
+  for (let i = 0; i < 30 * 45; i++) {
     w.step(DT);
     if (v.order.type === 'deposit') { sawDeposit = true; idleDuringDeposit = Math.max(idleDuringDeposit, v.worker.idleSeconds); }
     if (sawDeposit && v.order.type === 'harvest' && v.order.nodeId === nodeId) { resumedSame = true; break; }
@@ -231,6 +233,71 @@ function mk(obstacles: any[] = [sources.tree, sources.stone, sources.gold], seed
   let hEnded: any = null;
   for (let i = 0; i < 30 * 5 && !hEnded; i++) { w.step(DT); hEnded = w.orderEvents.find((ev: any) => ev.entityId === h.id && ev.order === 'harvest') ?? null; }
   check(`Heros : ordre de recolte sur la source enfermee arrete proprement (unreachable), aucun tour de la source ; HARVEST_REACH toujours ${HARVEST_REACH}`, !!hEnded && hEnded.reason === 'unreachable' && h.order.type === 'guard' && h.cargo.wood === 0 && HARVEST_REACH === 0.7, { hEnded, order: h.order });
+}
+
+// ---- 11. Cotes libres mais region inaccessible (anneau de rochers a 2 cases de l'arbre) ; detour valide.
+{
+  const ring: any[] = [];
+  for (let cx = 4; cx <= 8; cx++) for (let cz = -2; cz <= 2; cz++) if (cx === 4 || cx === 8 || cz === -2 || cz === 2) ring.push({ kind: 'rock', tilesX: 1, tilesZ: 1, cornerX: cx, cornerZ: cz });
+  const mkRing = () => { const m = mk([sources.tree, ...ring, sources.stone]); for (const n of m.w.resourceNodes.values()) if (n.resource === 'stone' && n.x > 0) m.w.resourceNodeAmounts.set(n.id, 0); return m; };
+  // Cas A : Villageois autonome -> tentative, echec propre au premier pas, puis le gisement de pierre (visible, accessible).
+  {
+    const { w, spawn, resOf } = mkRing();
+    const tree = [...w.resourceNodes.values()].find((n: any) => n.resource === 'wood');
+    const v = spawn(1.5, 0.5);
+    const trace: string[] = []; let ticks = 0; let moved = 0;
+    for (let i = 0; i < 30 * 12; i++) {
+      const x0 = v.x, z0 = v.z;
+      w.step(DT);
+      if (v.order.type === 'harvest' && v.order.nodeId === tree.id) { moved += Math.hypot(v.x - x0, v.z - z0); if (v.worker.working !== null) ticks++; }
+      const s = `${v.order.type}:${v.order.nodeId ?? '-'}`;
+      if (trace[trace.length - 1] !== s) trace.push(s);
+    }
+    const bounces = trace.filter((s) => s === `harvest:${tree.id}`).length;
+    check('cas A, autonomie : arbre aux 4 cotes libres mais region coupee -> un seul essai, abandon sans tic ni deplacement, puis la pierre accessible ; aucune boucle', bounces === 1 && ticks === 0 && moved < 0.01 && resOf(v) === 'stone', { trace, ticks, moved: +moved.toFixed(3), order: v.order });
+  }
+  // Cas B : ordre manuel sur la meme source -> unreachable au premier pas, aucun tic, immobile.
+  {
+    const { w, spawn } = mkRing();
+    const tree = [...w.resourceNodes.values()].find((n: any) => n.resource === 'wood');
+    const v = spawn(1.5, 0.5); v.worker.autoRetryIn = 1e9;
+    w.issueCommand({ kind: 'harvest', entityIds: [v.id], nodeId: tree.id });
+    let ended: any = null; let steps = 0;
+    for (let i = 0; i < 30 * 5 && !ended; i++) { w.step(DT); steps++; ended = w.orderEvents.find((ev: any) => ev.entityId === v.id && ev.order === 'harvest') ?? null; }
+    const at = { x: v.x, z: v.z };
+    run(w, 1);
+    check('cas B, ordre manuel : harvest / failed / unreachable au premier pas, aucun tic, immobile, Garde', !!ended && ended.reason === 'unreachable' && steps <= 2 && v.cargo.wood === 0 && v.order.type === 'guard' && Math.hypot(v.x - at.x, v.z - at.z) < 1e-6, { ended, steps, order: v.order });
+  }
+  // Cas C : mur de rochers entre le Villageois et l'arbre (x = 4, z = -3..3), detour par le nord ou le sud -> recolte normale.
+  {
+    const wall = Array.from({ length: 7 }, (_, i) => ({ kind: 'rock', tilesX: 1, tilesZ: 1, cornerX: 4, cornerZ: i - 3 }));
+    const { w, spawn } = mk([sources.tree, ...wall, sources.stone]);
+    for (const n of w.resourceNodes.values()) if (n.resource === 'stone' && n.x > 0) w.resourceNodeAmounts.set(n.id, 0);
+    const tree = [...w.resourceNodes.values()].find((n: any) => n.resource === 'wood');
+    const v = spawn(2.5, 0.5); v.worker.autoRetryIn = 1e9;
+    w.issueCommand({ kind: 'harvest', entityIds: [v.id], nodeId: tree.id });
+    let maxAbsZ = 0; let ended: any = null;
+    for (let i = 0; i < 30 * 25 && v.cargo.wood < 1; i++) { w.step(DT); maxAbsZ = Math.max(maxAbsZ, Math.abs(v.z - 0.5)); ended ??= w.orderEvents.find((ev: any) => ev.entityId === v.id && ev.order === 'harvest') ?? null; }
+    const boxDist = (e: any, b: any) => { const dx = Math.max(b.minX - e.x, 0, e.x - b.maxX); const dz = Math.max(b.minZ - e.z, 0, e.z - b.maxZ); return Math.hypot(dx, dz); };
+    check('cas C, detour : chemin direct bloque par un mur de rochers, A* contourne (passage a |z| > 3), recolte au contact, aucun echec signale', v.cargo.wood >= 1 && maxAbsZ > 3 && boxDist(v, tree.block) - v.stats.radius <= WORKER_HARVEST_REACH + 1e-6 && ended === null, { wood: v.cargo.wood, maxAbsZ: +maxAbsZ.toFixed(2), ended });
+  }
+  // Cas D : Heros, memes regles (region coupee -> unreachable ; detour -> recolte).
+  {
+    const { w } = mkRing();
+    const tree = [...w.resourceNodes.values()].find((n: any) => n.resource === 'wood');
+    const h = w.spawnHero('player', 1.5, 2.5, { xp: 0, level: 1, deaths: 0 });
+    w.issueCommand({ kind: 'harvest', entityIds: [h.id], nodeId: tree.id });
+    let ended: any = null; let steps = 0;
+    for (let i = 0; i < 30 * 5 && !ended; i++) { w.step(DT); steps++; ended = w.orderEvents.find((ev: any) => ev.entityId === h.id && ev.order === 'harvest') ?? null; }
+    const wall = Array.from({ length: 7 }, (_, i) => ({ kind: 'rock', tilesX: 1, tilesZ: 1, cornerX: 4, cornerZ: i - 3 }));
+    const d = mk([sources.tree, ...wall, sources.stone]);
+    const tree2 = [...d.w.resourceNodes.values()].find((n: any) => n.resource === 'wood');
+    const h2 = d.w.spawnHero('player', 2.5, 0.5, { xp: 0, level: 1, deaths: 0 });
+    d.w.issueCommand({ kind: 'harvest', entityIds: [h2.id], nodeId: tree2.id });
+    let ended2: any = null;
+    for (let i = 0; i < 30 * 25 && h2.cargo.wood < 1; i++) { d.w.step(DT); ended2 ??= d.w.orderEvents.find((ev: any) => ev.entityId === h2.id && ev.order === 'harvest') ?? null; }
+    check('cas D, Heros : region coupee -> unreachable au premier pas, Garde ; mur avec detour -> recolte normale', !!ended && ended.reason === 'unreachable' && steps <= 2 && h.order.type === 'guard' && h2.cargo.wood >= 1 && ended2 === null, { ended, steps, hOrder: h.order, wood2: h2.cargo.wood, ended2 });
+  }
 }
 
 console.log(failures ? failures + ' ECHEC(S)' : 'tout OK');

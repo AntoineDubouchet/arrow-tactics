@@ -44,21 +44,22 @@ function runLoop(w: any, u: any, nodeId: number, seconds: number) {
   return { phases, deposits, maxCargo, loot };
 }
 
-check('donnees : capacites Heros 10, Villageois 5 ; Baliste = point de collecte universel (bois, pierre, or extrait) ; Forge non ; Scierie et Camp de mineur specialises (voir collecte.mts)', CARGO_CAPACITY.hero === 10 && CARGO_CAPACITY.villageois === 5 && JSON.stringify(getBuilding('ballista').dropOff) === '["wood","stone","minedGold"]' && !getBuilding('forge').dropOff && getBuilding('sawmill').dropOff!.length === 1 && getBuilding('miner_camp').dropOff!.length === 2);
+check('donnees : capacites Heros 10, Villageois 10 (passe economie 2026-11-05 ; 5 avant) ; Baliste = point de collecte universel (bois, pierre, or extrait) ; Forge non ; Scierie et Camp de mineur specialises (voir collecte.mts)', CARGO_CAPACITY.hero === 10 && CARGO_CAPACITY.villageois === 10 && JSON.stringify(getBuilding('ballista').dropOff) === '["wood","stone","minedGold"]' && !getBuilding('forge').dropOff && getBuilding('sawmill').dropOff!.length === 1 && getBuilding('miner_camp').dropOff!.length === 2);
 
 // 1. Heros : bois, plein a 10 -> depot -> retour ; pierre ; or de gisement (monnaie seulement au depot).
 for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'minedGold']] as const) {
   const { w, node, u } = setup('hero', resource);
-  const r = runLoop(w, u, node.id, 40);
+  const r = runLoop(w, u, node.id, resource === 'gold' ? 50 : 40); // Heros : 10 or a 3,75 s (G44)
   const bag = u.hero.inventory.slots.filter((s: any) => s && s.kind === 'resource').length;
   check(`Heros ${resource} : cargo jusqu a 10 (jamais plus), depot automatique a la Baliste (10 ${key} deposes), retour a la source, sac RPG vide`, r.maxCargo === 10 && r.deposits[key] >= 10 && r.phases.includes('deposit') && r.phases.indexOf('deposit') > 0 && r.phases.lastIndexOf(`harvest:${node.id}`) > r.phases.indexOf('deposit') && bag === 0, { ...r, cargo: cargo(u), bag });
 }
 
-// 2. Villageois : capacite 5, boucle arbre -> plein -> Baliste -> retour (bois, pierre, or).
+// 2. Villageois : capacite 10, boucle arbre -> plein -> Baliste -> retour (bois, pierre, or). Temps par unite : bois 2 s,
+// pierre et or 2,5 s (2026-11-05) : 20 a 25 s par remplissage, deux boucles en 80 s.
 for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'minedGold']] as const) {
   const { w, node, u } = setup('villageois', resource);
-  const r = runLoop(w, u, node.id, resource === 'gold' ? 70 : 40);
-  check(`Villageois ${resource} : cargo jusqu a 5, depot automatique, retour a la source, nouvelle boucle`, r.maxCargo === 5 && r.deposits[key] >= 10 && r.phases.filter((p) => p === 'deposit').length >= 2, r);
+  const r = runLoop(w, u, node.id, resource === 'wood' ? 70 : 90);
+  check(`Villageois ${resource} : cargo jusqu a 10, depot automatique, retour a la source, nouvelle boucle`, r.maxCargo === 10 && r.deposits[key] >= 20 && r.phases.filter((p) => p === 'deposit').length >= 2, r);
 }
 
 // 3. Melange bois + pierre (Heros) : plein a 10 au total, tout depose.
@@ -66,12 +67,12 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
   const { w, u } = setup('hero', 'wood');
   const tree = nearest(w, 'wood'); const rock = nearest(w, 'stone');
   w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: tree.id });
-  for (let i = 0; i < 30 * 9; i++) w.step(DT); // ~6 bois
+  for (let i = 0; i < 30 * 16; i++) w.step(DT); // 6 bois (Heros : 2,5 s par bois)
   const c1 = cargo(u);
   const at = beside(rock); u.x = u.prevX = at.x; u.z = u.prevZ = at.z;
   w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: rock.id });
   let dep = { wood: 0, stone: 0 }; let maxT = 0; let firstDone = false;
-  for (let i = 0; i < 30 * 30 && !firstDone; i++) { w.step(DT); maxT = Math.max(maxT, cargoTotal(u.cargo)); for (const ev of w.cargoEvents) if (ev.type === 'cargoDeposit') (dep as any)[ev.resource] += ev.amount; if (dep.wood + dep.stone > 0 && u.order.type !== 'deposit') firstDone = true; }
+  for (let i = 0; i < 30 * 60 && !firstDone; i++) { w.step(DT); maxT = Math.max(maxT, cargoTotal(u.cargo)); for (const ev of w.cargoEvents) if (ev.type === 'cargoDeposit') (dep as any)[ev.resource] += ev.amount; if (dep.wood + dep.stone > 0 && u.order.type !== 'deposit') firstDone = true; }
   check('melange : 6 bois puis pierre -> plein a 10 au total (6 + 4), depot des deux', c1.wood === 6 && c1.stone === 0 && maxT === 10 && dep.wood === 6 && dep.stone === 4, { c1, maxT, dep });
 }
 
@@ -79,7 +80,7 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
 {
   const { w, node, u, depot } = setup('hero', 'wood');
   w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: node.id });
-  for (let i = 0; i < 30 * 5; i++) w.step(DT);
+  for (let i = 0; i < 30 * 8; i++) w.step(DT); // 3 bois (Heros : 2,5 s par bois)
   const before = cargo(u);
   w.issueCommand({ kind: 'deposit', entityIds: [u.id], targetEntityId: depot.id });
   let dep = 0;
@@ -122,7 +123,7 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
   w.issueCommand({ kind: 'move', entityIds: [u.id], x: u.x + 2, z: u.z + 2 });
   let seen: string[] = [];
   for (let i = 0; i < 30; i++) { w.step(DT); if (seen[seen.length - 1] !== u.order.type) seen.push(u.order.type); }
-  check('ordre manuel pendant le trajet de depot : boucle annulee (ni depot ni retour pendant la seconde observee), cargo garde (5)', onWay && !seen.includes('deposit') && !seen.includes('harvest') && cargoTotal(u.cargo) === 5 && u.cargo.returnTo === null, { onWay, seen, cargo: cargo(u) });
+  check('ordre manuel pendant le trajet de depot : boucle annulee (ni depot ni retour pendant la seconde observee), cargo garde (10)', onWay && !seen.includes('deposit') && !seen.includes('harvest') && cargoTotal(u.cargo) === 10 && u.cargo.returnTo === null, { onWay, seen, cargo: cargo(u) });
 }
 
 // 7. Source epuisee (Villageois) : depot du cargo puis source voisine ; Heros : depot puis Garde.
@@ -162,7 +163,7 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
 {
   const { w, node, u } = setup('hero', 'wood');
   w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: node.id });
-  for (let i = 0; i < 30 * 5; i++) w.step(DT);
+  for (let i = 0; i < 30 * 8; i++) w.step(DT); // 3 bois (Heros : 2,5 s par bois)
   const before = cargoTotal(u.cargo);
   u.hp = 0;
   let lost: any = null;
@@ -171,7 +172,7 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
   check('Heros mort avec 3 bois : cargo perdu (evenement), respawn a cargo vide', before === 3 && lost?.wood === 3 && u.alive && cargoTotal(u.cargo) === 0, { before, lost, alive: u.alive, cargo: cargo(u) });
   const v = setup('villageois', 'wood');
   v.w.issueCommand({ kind: 'harvest', entityIds: [v.u.id], nodeId: v.node.id });
-  for (let i = 0; i < 30 * 5; i++) v.w.step(DT);
+  for (let i = 0; i < 30 * 6.5; i++) v.w.step(DT); // 3 bois (Villageois : 2 s par bois)
   const vb = cargoTotal(v.u.cargo); v.u.hp = 0; v.w.step(DT); v.w.step(DT);
   check('Villageois mort avec cargo : perdu', vb === 3 && !v.u.alive && cargoTotal(v.u.cargo) === 0, { vb, cargo: cargo(v.u) });
 }
@@ -187,7 +188,7 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
 // d'un coup (un evenement par ressource), aucun geste 'deposit', retour a la source des le meme pas.
 for (const unit of ['villageois', 'hero'] as const) {
   const { w, node, u } = setup(unit, 'wood');
-  const cap = unit === 'hero' ? 10 : 5;
+  const cap = CARGO_CAPACITY[unit];
   w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: node.id });
   let arrival: any = null; let gestures = 0;
   for (let i = 0; i < 30 * 60 && !arrival; i++) {

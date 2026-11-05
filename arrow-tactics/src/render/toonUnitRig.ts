@@ -196,8 +196,9 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
   // du Heros, pretes a ce rig (memes os) — `workingA` coup vertical debout
   // par-dessus la tete (hache : outil leve, coup vers le tronc), `workingB`
   // coup penche vers le sol (pioche : coup descendant vers le gisement) ;
-  // cadence 0,65 (clip de 0,9 s -> environ 1,4 s par coup, une unite
-  // recoltee toutes les 1,5 s). Outils `tool_axe` / `tool_pick` du GLB,
+  // cadence reglee au lancement par unitViews depuis le temps par unite de
+  // la ressource (HARVEST_STROKES_PER_UNIT coups par unite, data/resources.ts).
+  // Outils `tool_axe` / `tool_pick` du GLB,
   // visibles seulement au travail (setWorkerTool). Ramassage et depot
   // restent sur le repos (KI-64). Aucune attaque en jeu (data/units.ts).
   villageois: {
@@ -208,8 +209,8 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
       ...COMMON_ROLES,
       walk: loop('run', 1.1),
       attack: once('attack'),
-      chop: { ...loop('workingA', 0.65), from: 'hero' },
-      mine: { ...loop('workingB', 0.65), from: 'hero' },
+      chop: { ...loop('workingA'), from: 'hero' },
+      mine: { ...loop('workingB'), from: 'hero' },
       gather: loop('idle'),
       deposit: loop('idle'),
     },

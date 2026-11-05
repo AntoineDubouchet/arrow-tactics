@@ -126,7 +126,7 @@ const fp = (id: string, x: number, z: number) => { const d = getBuilding(id); re
 
 // ---- 5. Economie : cargo et points de collecte inchanges.
 {
-  check('cargo : Heros 10, Villageois 5', CARGO_CAPACITY.hero === 10 && CARGO_CAPACITY.villageois === 5);
+  check('cargo : Heros 10, Villageois 10 (5 avant la passe economie du 2026-11-05)', CARGO_CAPACITY.hero === 10 && CARGO_CAPACITY.villageois === 10);
   check('points de collecte : Baliste tout, Scierie bois, Camp de mineur pierre + or extrait ; Forge aucun',
     JSON.stringify(getBuilding('ballista').dropOff) === '["wood","stone","minedGold"]' && JSON.stringify(getBuilding('sawmill').dropOff) === '["wood"]' && JSON.stringify(getBuilding('miner_camp').dropOff) === '["stone","minedGold"]' && getBuilding('forge').dropOff === undefined);
 }

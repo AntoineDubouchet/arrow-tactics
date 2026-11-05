@@ -6,7 +6,8 @@
 const SRC = new URL('../../src/', import.meta.url).href;
 const { World } = await import(SRC + 'sim/world.ts');
 const { getUnit, UNIT_MOVE_SPEED_MULTIPLIER } = await import(SRC + 'data/units.ts');
-const { heroStatsForLevel, HARVEST_INTERVAL } = await import(SRC + 'data/hero.ts');
+const { heroStatsForLevel, HERO_HARVEST_FACTOR } = await import(SRC + 'data/hero.ts');
+const { HARVEST_NODE_KINDS } = await import(SRC + 'data/resources.ts');
 const { createBlankMap } = await import(SRC + 'config/maps/blankMap.ts');
 const { refreshHeroStats } = await import(SRC + 'sim/systems/hero.ts');
 const DT = 1 / 30;
@@ -60,7 +61,7 @@ check('arrivee : arret a la tolerance existante (distance <= rayon + 0,1, identi
     { lvl3, eq: h.stats.moveSpeed, l1: heroStatsForLevel(1).moveSpeed, l3: heroStatsForLevel(3).moveSpeed, l5: heroStatsForLevel(5).moveSpeed });
 }
 check('pas de croissance de vitesse apres le niveau 3 (donnee inchangee)', heroStatsForLevel(5).moveSpeed === heroStatsForLevel(3).moveSpeed && heroStatsForLevel(10).moveSpeed === heroStatsForLevel(3).moveSpeed);
-check('attaque, recharge, recolte : valeurs de base inchangees (seul moveSpeed est multiplie)', (() => { const w = new World(1); w.setMap(map as any); const u = w.spawn('archer', 'player', 0, 0); const d = getUnit('archer').stats; return u.stats.attackCooldown === d.attackCooldown && u.stats.attackRange === d.attackRange && u.stats.damage === d.damage && HARVEST_INTERVAL === 1.5; })());
+check('attaque, recharge, recolte : valeurs de base inchangees (seul moveSpeed est multiplie)', (() => { const w = new World(1); w.setMap(map as any); const u = w.spawn('archer', 'player', 0, 0); const d = getUnit('archer').stats; return u.stats.attackCooldown === d.attackCooldown && u.stats.attackRange === d.attackRange && u.stats.damage === d.damage && HARVEST_NODE_KINDS.wood.seconds === 2 && HARVEST_NODE_KINDS.stone.seconds === 2.5 && HARVEST_NODE_KINDS.gold.seconds === 3 && HERO_HARVEST_FACTOR === 1.25; })());
 
 // 3. Mur : une palissade de 12 cases entre l'unite et la destination ; jamais traversee.
 {

@@ -109,6 +109,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G41 | Passe de modernisation 2 : Forge = technologies militaires globales, améliorations d'unité = bâtiment producteur (rétroactives), recherches en temps réel par la file, Baliste depuis sa fiche, or libre, plus de pas d'ouverture ni de déblocage par victoire, plus de soin de l'armée | Active (2026-11-05, valeurs provisoires) |
 | G42 | Passe gameplay : Villageois autonomes (idle > 1 s, ressource la moins travaillée), Tourbillon compatible avec le déplacement (10 tics / 5 s, 35 %, flash par tic), or de butin ramassé au contact du Héros, Porte de palissade refaite (sans arche, deux vrais vantaux), pierre + or garantis dans le camp de départ | Active (2026-11-05, valeurs provisoires) / Amendée par G43 (sources visibles seulement, récolte au contact, quantités 75 / 250 / 250, bosquet garanti) |
 | G43 | Passe corrective après l'autonomie : autonomie limitée aux ressources visibles, récolte au contact visuellement crédible, Villageois regardant sa source, animation worker descendante (plus d'estoc), arbre = 75 bois, gisements = 250 pierre / 250 or, camp de départ = bosquet garanti d'au moins 6 arbres + pierre + or | Active (2026-11-05, valeurs provisoires) |
+| G44 | Passe économie : cargo Villageois 10, temps par unité par ressource (bois 2 s, pierre 2,5 s, or 3 s), Héros ×1,25 plus lent, cadence visuelle depuis les données ; Mine et coûts inchangés | Active (2026-11-05, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -2551,7 +2552,8 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     gisement ; clips retenus : `workingA` (coup vertical debout) et
     `workingB` (coup penché vers le sol) du GLB du Héros, prêtés au rig du
     Villageois (même squelette, 29 os ciblés tous présents) ; cadence 0,65
-    pour suivre le rythme de récolte (≈ 1,4 s par coup, 1 unité / 1,5 s) ;
+    pour suivre le rythme de récolte (≈ 1,4 s par coup, 1 unité / 1,5 s ;
+    depuis G44 : cadence calculée depuis le temps par unité) ;
     outils inchangés (mains vides hors travail, hache / pioche retirées à
     la fin, sac de cargo indépendant) ; aucune chaîne Blender ;
   - **arbre = 75 bois**, **gisement de pierre = 250**, **gisement d'or =
@@ -2610,6 +2612,60 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `config/startingBase.ts`, `editor/editorState.ts`, `main.ts`,
   `CURRENT_STATE.md` §6 bis, §6 nonies, §6 duodecies, §16,
   `ARCHITECTURE.md` §13 sedecies, `EDITOR.md`, `KNOWN_ISSUES.md` KI-64.
+
+### G44 — Passe économie du 2026-11-05 : cargo 10, temps par ressource, Héros ouvrier modéré
+
+- **Statut** : Active (2026-11-05). Valeurs **PROVISOIRES**, pas une
+  balance compétitive : une économie agréable pour continuer à développer.
+- **Mesures avant** (camp de départ, graine 12345, simulation) : un
+  Villageois remplissait son cargo de 5 en 7,5 s et rentrait toutes les
+  9 à 10 s (≈ 30 unités / min) ; le Héros (cargo 10) faisait 25 à 37 / min
+  et était le meilleur ouvrier ; un gisement de 250 se vidait en 8 min avec
+  un seul Villageois, en moins de 4 min avec deux.
+- **Décisions** :
+  - **cargo Villageois 10** (Héros 10 inchangé) : trajets divisés par
+    deux, le Villageois reste 20 à 25 s à sa source ;
+  - **temps par unité par ressource** (`HARVEST_NODE_KINDS[r].seconds`) :
+    bois 2 s, pierre 2,5 s, or 3 s (1,5 s pour tout avant ; or 2,5 s
+    dans la première version de la passe, porté à 3 s à la finalisation :
+    l'or un peu plus lent sans gonfler les réserves de toutes les cartes) ;
+    un seul rythme pour tout n'était pas pertinent (le minage doit être
+    plus lent que la coupe, et les gisements durer) ; la cadence de la
+    pioche suit la ressource de l'ordre ;
+  - **Héros ×1,25** (`HERO_HARVEST_FACTOR`) : il aide et récolte en
+    exploration, les Villageois restent la vraie économie ; ses stats de
+    combat ne bougent pas ;
+  - **cadence visuelle** : deux coups d'outil par unité, à la vitesse
+    naturelle du clip (`HARVEST_STROKES_PER_UNIT`), calculée au lancement
+    du geste par le rendu ;
+  - **Mine inchangée** (3 à 7 or / 60 s, ≈ 5 or / min) : passive, sans
+    population ni micro-gestion, durable ; le rapport ≈ ×3 avec un mineur
+    actif (16 à 17 or / min) est accepté provisoirement (Antoine) ;
+  - coûts des bâtiments, Scierie, Camp de mineur, dépôt instantané,
+    autonomie : inchangés.
+- **Mesures après** : Villageois 26 bois / min, 20 pierre / min,
+  16 à 17 or / min à 3 s (20 / min mesurés à 2,5 s ; 11 trajets en 5 min
+  au lieu de 32) ; Héros 20 / 17 / 13 ;
+  2 Villageois autonomes sur 5 min : 110 pierre + 110 or (ils prennent
+  les deux gisements, plus proches de la cour que le bosquet) ; 3 : 125
+  bois + 110 pierre + 110 or ; 5 : 245 / 110 / 220, l'or presque vide
+  (29) à 5 min avec deux mineurs ; 20 Villageois autonomes : 3,1 ms par
+  pas de simulation.
+- **Points ouverts** : les bâtiments coûtent moins d'un trajet de
+  Villageois en bois / pierre (Maison 6 bois = 12 s de coupe) : **les
+  coûts bois / pierre sont trop faibles par rapport à un cargo de 10**,
+  passe séparée à venir (`ROADMAP.md`) ; le gisement d'or du camp reste
+  vidable en 15 min par un Villageois, 8 min par deux.
+- **Filet de sécurité** : `tests/sim/economie.mts` (mesure légère :
+  temps à la source, cycle, rendement, répartition à 3 Villageois),
+  `cargo.mts`, `collecte.mts`, `vitesse.mts`, `modernisation.mts`,
+  `depart-camp.mts`, `villageois-autonomie.mts` (durées recalées) ;
+  en jeu : `cargo-jeu.cjs`, `villageois-jeu.cjs`, `recolte-jeu.cjs`
+  (cadence depuis les données), `depart-jeu.cjs`.
+- **Sources** : `data/resources.ts`, `data/hero.ts`, `sim/systems/cargo.ts`,
+  `render/unitViews.ts`, `render/toonUnitRig.ts`, `main.ts`
+  (`heroActionProgress`), `CURRENT_STATE.md` §6 bis, §6 nonies, §6
+  undecies, `ARCHITECTURE.md` §13 decies.
 
 ## H. Outils internes
 
