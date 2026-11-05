@@ -1,5 +1,5 @@
 import { dist } from '../../core/math';
-import { applyDamageToEntity } from '../damage';
+import { applyDamageToEntity, type DamageType } from '../damage';
 import { targetDistance } from '../geometry';
 import type { Entity } from '../entity';
 
@@ -35,7 +35,7 @@ export interface BuildingProjectile {
 
 export type BuildingAttackEvent =
   | { kind: 'fired'; attackerId: number; targetId: number; projectileId: number }
-  | { kind: 'impact'; attackerId: number; targetId: number; projectileId: number; hit: boolean };
+  | { kind: 'impact'; attackerId: number; targetId: number; projectileId: number; hit: boolean; damageType: DamageType };
 
 function isValidTarget(attacker: Entity, e: Entity | undefined): e is Entity {
   return e !== undefined && e.alive && e.team !== attacker.team && !e.isBuilding;
@@ -63,8 +63,9 @@ export function buildingAttackSystem(
     if (p.elapsed < p.duration) continue;
     const target = lookup(p.targetId);
     const hit = target !== undefined && target.alive;
-    if (hit) applyDamageToEntity(target, p.damage);
-    events.push({ kind: 'impact', attackerId: p.attackerId, targetId: p.targetId, projectileId: p.id, hit });
+    // Carreau de Baliste, fleche de Tour : degats PHYSIQUES (2026-11-05).
+    if (hit) applyDamageToEntity(target, p.damage, 'physical');
+    events.push({ kind: 'impact', attackerId: p.attackerId, targetId: p.targetId, projectileId: p.id, hit, damageType: 'physical' });
     projectiles.splice(i, 1);
   }
 

@@ -86,10 +86,12 @@ export function heroStatsForLevel(level: number): { maxHp: number; damage: numbe
   return { maxHp: base.maxHp + l.maxHpBonus, damage: base.damage + l.damageBonus, moveSpeed: base.moveSpeed + l.moveSpeedBonus, attackCooldown: base.attackCooldown };
 }
 
-/** Rayon (cases) du partage d'XP : toute unite du camp adverse (Neutre) qui
+/** Portee (cases) du gain d'XP : toute unite du camp adverse (Neutre) qui
  *  meurt a cette distance du Heros vivant lui rapporte son XP, qui que soit
- *  son tueur (choix d'Antoine : « zone partagee »). */
-export const HERO_XP_SHARE_RADIUS = 6;
+ *  son tueur (choix d'Antoine : « zone partagee »). 12 depuis le 2026-11-05
+ *  (G46, decision d'Antoine : nettement plus large ; 6 avant). Quantite,
+ *  courbe, partage et regles de kill inchanges. PROVISOIRE. */
+export const HERO_XP_RANGE = 12;
 
 /** XP maximale d'une seule mort (2026-11-01, demande d'Antoine) : un
  *  Ravageur (100) ne fait plus sauter toute la premiere progression. */

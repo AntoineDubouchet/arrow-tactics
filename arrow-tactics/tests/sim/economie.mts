@@ -31,7 +31,7 @@ function camp(nVil: number, withHero: boolean) {
   if (hero) hero.order = { type: 'guard' };
   const vils: any[] = [];
   for (let i = 0; i < nVil; i++) { const u = L.units[i % L.units.length]; const v = w.spawn('villageois', 'player', u.x, u.z + Math.floor(i / 2)); v.order = { type: 'guard' }; vils.push(v); }
-  const nodes = [...w.resourceNodes.values()].filter((n: any) => Math.hypot(n.x - L.origin.x, n.z - L.origin.z) < 10);
+  const nodes = [...w.resourceNodes.values()].filter((n: any) => Math.hypot(n.x - L.origin.x, n.z - L.origin.z) < 15);
   return { w, hero, vils, nodes };
 }
 /** Boucle manuelle d'une unite sur une source : temps a la source par remplissage, cycle complet, rendement. */

@@ -10,6 +10,7 @@ import { createHeroInventory, type HeroInventory } from './heroEquipment';
 import { getUnit } from '../data/units';
 import type { ResourceKind } from '../config/resourceNodes';
 import type { RunUpgradeLevels } from './runUpgrades';
+import { rollWaveReward, type WaveReward } from './waveRewards';
 
 /**
  * Arrondit au dixieme le plus proche — SOURCE UNIQUE utilisee par TOUTE
@@ -176,19 +177,32 @@ export interface RunState {
    *  alternance des variantes visuelles (BuildingDef.modelVariants), sans
    *  effet retroactif d'une destruction. */
   placedBuildingCounts: Record<string, number>;
+  /** Recompenses de vague en attente de choix (2026-11-05, G46), dans
+   *  l'ordre des vagues ; traitees une par une par l'interface. Une
+   *  sauvegarde les conserve (donnees pures). */
+  pendingRewards: WaveReward[];
 }
 
-/** Bonus fixe a chaque vague REPOUSSEE (Survie en temps reel continu, voir
- *  main.ts completeSurvivalWave). Seule source d'or non physique avec la
- *  Mine ; a decider (docs/ROADMAP.md). */
-export const WAVE_CLEAR_BONUS = 5;
-
-/** Vague repoussee : bonus d'or et vague suivante, sans changement de phase.
- *  Renvoie l'or gagne. */
-export function applyWaveVictory(run: RunState): number {
-  run.gold = roundGold(run.gold + WAVE_CLEAR_BONUS);
+/** Vague repoussee (Survie en temps reel continu, main.ts
+ *  completeSurvivalWave) : une recompense d'equipement (deux propositions au
+ *  niveau de la vague, run/waveRewards.ts) mise en attente, et vague
+ *  suivante, sans changement de phase. L'ancien bonus fixe de +5 or
+ *  (WAVE_CLEAR_BONUS) est supprime depuis le 2026-11-05 (G46) : l'or ne
+ *  vient plus que des gisements, des tas laches, de la Mine et des camps.
+ *  Renvoie la recompense ajoutee. */
+export function applyWaveVictory(run: RunState, seed: number): WaveReward {
+  const reward = rollWaveReward(seed, run.waveNumber);
+  run.pendingRewards.push(reward);
   run.waveNumber += 1;
-  return WAVE_CLEAR_BONUS;
+  return reward;
+}
+
+/** Retire la recompense wave de la file (choix fait) ; false si absente. */
+export function takeWaveReward(run: RunState, wave: number): boolean {
+  const index = run.pendingRewards.findIndex((r) => r.wave === wave);
+  if (index < 0) return false;
+  run.pendingRewards.splice(index, 1);
+  return true;
 }
 
 /** Or de depart d'une toute nouvelle run (20 ; 15 puis 5 avant). */
@@ -223,6 +237,7 @@ export function createNewRun(startingGoldBonus = 0, upgrades: RunUpgradeLevels =
     resourcePileAmounts: {},
     mapSeed: 0,
     placedBuildingCounts: {},
+    pendingRewards: [],
   };
 }
 

@@ -2,7 +2,7 @@ import { CHARGE_KNOCKBACK_TILES, TILE, type ObstacleDef } from '../../config/con
 import { clamp, dist } from '../../core/math';
 import { findAbility, type AreaBlastAbility, type ChargeAbility, type HealAbility, type TauntAbility } from '../../data/abilities';
 import { getUnit } from '../../data/units';
-import { applyDamageToEntity, applyHealToEntity } from '../damage';
+import { applyDamageToEntity, applyHealToEntity, type DamageType } from '../damage';
 import type { CastState, Entity, Team } from '../entity';
 import { findBlockingObstacle, obstaclesForUnit } from '../geometry';
 
@@ -41,9 +41,9 @@ import { findBlockingObstacle, obstaclesForUnit } from '../geometry';
 
 export type AbilityEvent =
   | { type: 'charge-start'; entityId: number; targetId: number }
-  | { type: 'charge-impact'; entityId: number; targetId: number; x: number; z: number }
+  | { type: 'charge-impact'; entityId: number; targetId: number; x: number; z: number; damageType: DamageType }
   | { type: 'blast-launch'; entityId: number; fromX: number; fromZ: number; targetX: number; targetZ: number }
-  | { type: 'blast-impact'; x: number; z: number; radiusTiles: number; hitIds: number[] }
+  | { type: 'blast-impact'; x: number; z: number; radiusTiles: number; hitIds: number[]; damageType: DamageType }
   | { type: 'taunt'; entityId: number; x: number; z: number; radiusTiles: number; targetIds: number[]; shieldAmount: number }
   /** Soin applique a la fin d'une incantation (Oracle) : `healed` = PV reellement rendus, `amount` = demandes (interne). */
   | { type: 'heal'; entityId: number; targetId: number; amount: number; healed: number; x: number; z: number }
@@ -391,7 +391,8 @@ function advanceBlasts(
       const d = dist(target.x, target.z, b.targetX, b.targetZ);
       if (d > b.radiusTiles) continue;
 
-      applyDamageToEntity(target, b.damage);
+      // Boule de feu : degats MAGIQUES (2026-11-05).
+      applyDamageToEntity(target, b.damage, 'magic');
       hitIds.push(target.id);
 
       // Batiments (Mine, Baliste) : degats, mais jamais de recul — exclus de
@@ -422,7 +423,7 @@ function advanceBlasts(
         target.z = clamp(target.z + pushZ, -halfH + target.stats.radius, halfH - target.stats.radius);
       }
     }
-    events.push({ type: 'blast-impact', x: b.targetX, z: b.targetZ, radiusTiles: b.radiusTiles, hitIds });
+    events.push({ type: 'blast-impact', x: b.targetX, z: b.targetZ, radiusTiles: b.radiusTiles, hitIds, damageType: 'magic' });
     blasts.splice(i, 1);
   }
 }
@@ -475,7 +476,8 @@ function advanceDash(
       e.z = target.z + (d > 1e-4 ? dz * scale : 0);
     }
 
-    applyDamageToEntity(target, dash.damage);
+    // Charge : coup d'arme, degats PHYSIQUES.
+    applyDamageToEntity(target, dash.damage, 'physical');
 
     // "Bump d'impact" (demande d'Antoine, 2026-08-10) : repousse la cible
     // d'une case en CONTINUANT l'axe de la charge, donc dans la direction
@@ -493,7 +495,7 @@ function advanceDash(
     target.x = clamp(target.x + pushX, -halfW + target.stats.radius, halfW - target.stats.radius);
     target.z = clamp(target.z + pushZ, -halfH + target.stats.radius, halfH - target.stats.radius);
 
-    events.push({ type: 'charge-impact', entityId: e.id, targetId: target.id, x: e.x, z: e.z });
+    events.push({ type: 'charge-impact', entityId: e.id, targetId: target.id, x: e.x, z: e.z, damageType: 'physical' });
   }
   e.dash = null;
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EQUIPMENT, EQUIPMENT_SLOT_ORDER, EQUIPMENT_SLOTS, EQUIPMENT_STAT_DEFS, EQUIPMENT_TYPES, RARITIES, RARITY_ORDER, type EquipmentDef, type EquipmentStatKey } from '../data/equipment';
+import { EQUIPMENT, EQUIPMENT_ARCHETYPES, EQUIPMENT_SLOT_ORDER, EQUIPMENT_SLOTS, EQUIPMENT_STAT_DEFS, EQUIPMENT_TYPES, RARITIES, RARITY_ORDER, type EquipmentDef, type EquipmentStatKey } from '../data/equipment';
 import { describeEquipment } from '../run/heroEquipment';
 import { configFromEntry, type BodySlot, type WorkshopConfig } from '../workshop/workshopConfig';
 import { loadCatalogue, WorkshopModel, type LoadedCatalogue } from '../workshop/workshopModel';
@@ -172,6 +172,7 @@ export class ItemEditor {
     this.row(top, 'Rareté', rarity);
     this.row(top, 'Type', this.select(Object.entries(EQUIPMENT_TYPES).map(([value, label]) => ({ value, label })), item.type, (v) => this.set({ type: v as EquipmentDef['type'] }), 'type'));
     this.row(top, 'Emplacement', this.select(EQUIPMENT_SLOT_ORDER.map((s) => ({ value: s, label: EQUIPMENT_SLOTS[s].label })), item.slot, (v) => this.changeSlot(v as EquipmentDef['slot']), 'slot'));
+    this.row(top, 'Orientation', this.select(Object.entries(EQUIPMENT_ARCHETYPES).map(([value, label]) => ({ value, label })), item.archetype, (v) => this.set({ archetype: v as EquipmentDef['archetype'] }), 'archetype'));
     this.row(top, 'Valeur de vente', this.number(item.sellValue, 1, (v) => this.set({ sellValue: Math.max(0, v) }), 'sellValue'));
 
     const visual = this.section('Visuel');
@@ -201,6 +202,11 @@ export class ItemEditor {
     for (const def of EQUIPMENT_STAT_DEFS) {
       this.row(stats, `${def.label}${def.unit ? ` (${def.unit})` : ''}`, this.number(item.stats[def.key] ?? 0, def.step, (n) => this.set({ stats: { ...this.item.stats, [def.key as EquipmentStatKey]: n } }), `stat-${def.key}`));
     }
+    const scaling = this.section('Progression par niveau (points par niveau au-delà du 1)');
+    for (const def of EQUIPMENT_STAT_DEFS) {
+      this.row(scaling, `${def.label}${def.unit ? ` (${def.unit})` : ''}`, this.number(item.scaling[def.key] ?? 0, def.step / 2, (n) => this.set({ scaling: { ...this.item.scaling, [def.key as EquipmentStatKey]: n } }), `scaling-${def.key}`));
+    }
+    scaling.appendChild(el('div', 'workshop-hint', 'Stats d’un exemplaire de niveau N = stats + progression × (N − 1), sans hasard (récompense de vague : niveau = vague).'));
     const effects = this.section('Effets spéciaux');
     this.row(effects, 'Feu à chaque coup', this.number(item.effects.onHit?.fireDamage ?? 0, 0.5, (n) => this.set({ effects: n ? { onHit: { fireDamage: n } } : {} }), 'fireDamage'));
     effects.appendChild(el('div', 'workshop-hint', 'Dégâts de feu ajoutés à chaque coup de mêlée qui touche.'));

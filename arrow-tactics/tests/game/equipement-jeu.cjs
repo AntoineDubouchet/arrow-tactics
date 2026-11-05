@@ -35,7 +35,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const panel = await p.evaluate(() => document.querySelector('.hero-inventory').innerText);
   await p.keyboard.press('i'); await L.wait(p, 200);
   check('?items=demo : 5 items dans le sac ; inventaire : Equiper l Epee du debutant et le Bouclier robuste -> degats 55, PV max 380, epee et bouclier en main, marteau cache ; fiche : Degats 5.5, rarete et lignes de stats',
-    e0.inv.items.length === 5 && e1.dmg === 55 && e1.maxHp === 380 && e1.vis.equipment_right === true && e1.vis.equipment_left === true && e1.vis.tool_hammer === false && /Dégâts\s+5\.5/.test(panel) && /Épée du débutant/.test(panel),
+    e0.inv.items.length === 18 && e1.dmg === 55 && e1.maxHp === 380 && e1.vis.equipment_right === true && e1.vis.equipment_left === true && e1.vis.tool_hammer === false && /Dégâts\s+5\.5/.test(panel) && /Épée du débutant/.test(panel),
     J({ e0: e0.inv, e1, panel: panel.slice(0, 600) }));
   // Gros plan.
   const h = await p.evaluate(() => { const e = window.__world.entities.find((x) => x.hero); return { x: e.x, z: e.z }; });

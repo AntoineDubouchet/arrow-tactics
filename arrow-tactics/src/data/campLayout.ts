@@ -1,4 +1,4 @@
-import type { ObstacleDef } from '../config/constants';
+import { isBlockingMapObstacle, obstacleBounds, type ObstacleDef } from '../config/constants';
 import { CAMP_CLEAR_RADIUS, type MapCampDef, type MapDef } from '../config/mapDef';
 import { getCampKind } from './camps';
 
@@ -93,10 +93,28 @@ export function expandMapCamps(map: MapDef): MapDef {
   if (camps.length === 0) return map;
   const obstacles = [...map.obstacles];
   const destructibles = [...(map.destructibles ?? [])];
+  // Cases des gisements de la carte (rochers 2 x 2) : un baril ne doit
+  // jamais laisser un passage d'UNE case contre l'un d'eux (KI-65,
+  // 2026-11-05 : un gisement contre la clairiere d'un camp + un baril
+  // coincaient le Heros entre les deux). Un tel baril est simplement omis.
+  const blocked = new Set<string>();
+  for (const o of map.obstacles) {
+    if (o.kind !== 'rock') continue; // gisements seuls : les arbres sont deja tenus a l'ecart de la clairiere
+    const b = obstacleBounds(o);
+    for (let z = Math.floor(b.minZ); z < Math.ceil(b.maxZ); z++) for (let x = Math.floor(b.minX); x < Math.ceil(b.maxX); x++) blocked.add(x + ',' + z);
+  }
+  const pinches = (x: number, z: number): boolean => {
+    const cx = Math.floor(x), cz = Math.floor(z);
+    // Distance de Chebyshev 2 ou 3 : un ou deux passages de case, ou le
+    // Heros (rayon 0,6) accroche un coin en longeant le baril vers le gisement.
+    for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) if (Math.max(Math.abs(dx), Math.abs(dz)) >= 2 && blocked.has(cx + dx + ',' + (cz + dz))) return true;
+    return false;
+  };
   for (const camp of camps) {
     const layout = campLayoutOf(camp);
-    obstacles.push(...layout.props);
-    destructibles.push(...layout.barrels);
+    // Decor bloquant du camp (tentes, caisses) : meme regle que les barils.
+    obstacles.push(...layout.props.filter((o) => !isBlockingMapObstacle(o) || !pinches(o.x ?? 0, o.z ?? 0)));
+    destructibles.push(...layout.barrels.filter((b) => !pinches(b.x, b.z)));
   }
   return { ...map, obstacles, destructibles };
 }

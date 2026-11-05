@@ -1,6 +1,6 @@
 import { PLAYER_ARROW_COOLDOWN, PLAYER_ARROW_HIT_RADIUS, PLAYER_ARROW_SPEED } from '../config/constants';
 import { dist } from '../core/math';
-import { applyDamageToEntity } from './damage';
+import { applyDamageToEntity, type DamageType } from './damage';
 import type { Entity } from './entity';
 
 /**
@@ -99,7 +99,7 @@ export function fireArrowVolley(
   return true;
 }
 
-export type PlayerArrowEvent = { hit: true; targetId: number; x: number; z: number } | { hit: false; x: number; z: number };
+export type PlayerArrowEvent = { hit: true; targetId: number; x: number; z: number; damageType: DamageType } | { hit: false; x: number; z: number };
 
 /**
  * Avance le cooldown et TOUS les vols en cours d'un tick de simulation.
@@ -145,8 +145,8 @@ export function stepPlayerArrow(state: PlayerArrowState, dt: number, entities: E
     }
 
     if (closest) {
-      applyDamageToEntity(closest, damage);
-      events.push({ hit: true, targetId: closest.id, x: toX, z: toZ });
+      applyDamageToEntity(closest, damage, 'physical');
+      events.push({ hit: true, targetId: closest.id, x: toX, z: toZ, damageType: 'physical' });
     } else {
       events.push({ hit: false, x: toX, z: toZ });
     }

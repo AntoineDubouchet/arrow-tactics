@@ -9,6 +9,10 @@ const { World } = await import(SRC + 'sim/world.ts');
 const { getBuilding } = await import(SRC + 'data/buildings.ts');
 const { CARGO_CAPACITY, cargoTotal } = await import(SRC + 'data/resources.ts');
 const { generateSurvivalMap } = await import(SRC + 'config/maps/proceduralSurvival.ts');
+const { cachedPathGrid, isTileBlockedAt } = await import(SRC + 'sim/pathfinding.ts');
+const { terrainObstacles } = await import(SRC + 'sim/geometry.ts');
+/** Point libre (case et ses 4 voisines) autour de l'unite, parmi quelques decalages : la carte generee change avec le camp agrandi (G46). */
+const freeSpot = (w: any, u: any): { x: number; z: number } => { const grid = cachedPathGrid(terrainObstacles(w.obstacles, w.entities), w.boardWidth, w.boardHeight); for (const [dx, dz] of [[3, 0], [0, 3], [-3, 0], [0, -3], [2, 2], [-2, 2], [2, -2], [-2, -2], [4, 1], [1, 4]]) { const x = u.x + dx, z = u.z + dz; if ([[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].every(([ox, oz]) => !isTileBlockedAt(grid, x + ox, z + oz))) return { x, z }; } return { x: u.x + 3, z: u.z }; };
 const DT = 1 / 30;
 let failures = 0;
 const check = (label: string, ok: boolean, extra: unknown = '') => { if (!ok) failures++; console.log(`${ok ? 'OK   ' : 'ECHEC'} ${label}${extra !== '' ? ' — ' + JSON.stringify(extra).slice(0, 900) : ''}`); };
@@ -92,13 +96,15 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
 {
   const { w, u } = setup('hero', 'wood');
   u.cargo.wood = 8;
-  const id = w.dropResource('wood', u.x + 3, u.z, 5);
+  const spot = freeSpot(w, u);
+  const id = w.dropResource('wood', spot.x, spot.z, 5);
   w.issueCommand({ kind: 'pickup', entityIds: [u.id], pileId: id });
   const log: any[] = []; let deps = 0;
   for (let i = 0; i < 30 * 40; i++) { w.step(DT); for (const ev of w.cargoEvents) { if (ev.type === 'pilePickup') log.push({ amount: ev.amount, remaining: ev.remaining, cargo: cargoTotal(u.cargo) }); if (ev.type === 'cargoDeposit') deps += ev.amount; } if (w.resourcePiles[id].amount === 0 && u.order.type === 'guard' && cargoTotal(u.cargo) === 0) break; }
   check('tas de 5 bois, cargo 8/10 : prise de 2 (plein), 3 au sol, depot (10), retour au tas, prise des 3, tas fini', log.length === 2 && log[0].amount === 2 && log[0].remaining === 3 && log[0].cargo === 10 && log[1].amount === 3 && log[1].remaining === 0 && deps === 10 && w.resourcePiles[id].amount === 0, { log, deps });
   u.cargo.wood = 0;
-  const gold = w.dropGold(u.x + 2, u.z + 1, 6);
+  const gspot = freeSpot(w, u);
+  const gold = w.dropGold(gspot.x, gspot.z, 6);
   w.issueCommand({ kind: 'pickup', entityIds: [u.id], pileId: gold });
   let loot = 0;
   for (let i = 0; i < 30 * 6; i++) { w.step(DT); for (const ev of w.cargoEvents) if (ev.type === 'lootGold') loot += ev.amount; }

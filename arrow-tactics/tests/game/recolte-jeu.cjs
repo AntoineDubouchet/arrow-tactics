@@ -33,7 +33,7 @@ const TOL_DEG = 25;
   const reach = await p.evaluate(() => window.__HERO.WORKER_HARVEST_REACH);
   const sources = await p.evaluate(() => {
     const w = window.__world; const o = window.__layout.origin;
-    const inCamp = (n) => Math.hypot(n.x - o.x, n.z - o.z) < 10;
+    const inCamp = (n) => Math.hypot(n.x - o.x, n.z - o.z) < 15;
     const nodes = [...w.resourceNodes.values()].filter(inCamp);
     const pick = (r, side) => { const list = nodes.filter((n) => n.resource === r); return side ? list.sort((a, b) => side(a) - side(b))[0] : list[0]; };
     // Arbres de bord du bosquet (ouest, est, sud : cotes libres ; le nord est la bande etroite contre l'enceinte).

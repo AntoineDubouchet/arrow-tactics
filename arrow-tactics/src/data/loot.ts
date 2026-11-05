@@ -35,7 +35,7 @@ export const LOOT_TABLES: Readonly<Record<string, LootTable>> = {
       { itemId: 'guard_pauldrons', weight: 25 },
       { itemId: 'sturdy_shield', weight: 18 },
       { itemId: 'ember_blade', weight: 12 },
-      { itemId: 'raider_axe', weight: 10 },
+      { itemId: 'plate_cuirass', weight: 10 },
     ],
   },
   /** Coffre d'un grand camp : Commune 30 %, Peu commune 50 %, Rare 20 %. */
@@ -48,7 +48,7 @@ export const LOOT_TABLES: Readonly<Record<string, LootTable>> = {
       { itemId: 'guard_pauldrons', weight: 15 },
       { itemId: 'sturdy_shield', weight: 25 },
       { itemId: 'ember_blade', weight: 25 },
-      { itemId: 'raider_axe', weight: 20 },
+      { itemId: 'plate_cuirass', weight: 20 },
     ],
   },
   /** Maraudeur abattu : rarement un item commun (le coffre reste la

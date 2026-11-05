@@ -1,5 +1,5 @@
 import { HP_PER_PIP } from '../config/constants';
-import { EQUIPMENT, EQUIPMENT_SLOTS, type EquipmentSlot } from '../data/equipment';
+import { EQUIPMENT, EQUIPMENT_SLOTS, ITEM_LEVEL_MIN, statsAtLevel, type EquipmentSlot } from '../data/equipment';
 import { HERO_INVENTORY_SLOTS } from '../data/hero';
 import { NO_EQUIPMENT_BONUS, type HeroEquipmentBonus } from './entity';
 
@@ -10,19 +10,27 @@ import { NO_EQUIPMENT_BONUS, type HeroEquipmentBonus } from './entity';
  * (un item porte ne prend pas de case). Les ressources economiques (bois,
  * pierre, or extrait) n'y entrent JAMAIS : elles vont dans le cargo
  * (Entity.cargo, sim/systems/cargo.ts ; KI-63 close le 2026-11-03).
- * Donnees pures et serialisables (ids), deterministes : les fonctions
- * renvoient un NOUVEL inventaire (ou null si l'operation est impossible) et
- * ne perdent ni ne dupliquent jamais rien.
+ * Donnees pures et serialisables (ids et niveaux), deterministes : les
+ * fonctions renvoient un NOUVEL inventaire (ou null si l'operation est
+ * impossible) et ne perdent ni ne dupliquent jamais rien.
+ *
+ * Niveau d'item (2026-11-05, G46) : chaque exemplaire porte son niveau
+ * (ItemInstance : definition fixe + niveau, stats deterministes par
+ * statsAtLevel) ; les items portes gardent leur niveau dans
+ * `equippedLevels`. Un inventaire sans niveaux (ancienne sauvegarde) vaut
+ * niveau 1 partout.
  *
  * Etat de simulation (Entity.hero.inventory) : le ramassage d'un objet au
  * sol l'utilise dans le pas fixe ; l'interface passe par
  * World.queueInventoryAction (applique au debut du pas suivant).
  */
-export type InventorySlot = { kind: 'item'; itemId: string } | null;
+export type InventorySlot = { kind: 'item'; itemId: string; level: number } | null;
 
 export interface HeroInventory {
   slots: InventorySlot[];
   equipped: Partial<Record<EquipmentSlot, string>>;
+  /** Niveau de chaque item porte (absent : niveau 1). */
+  equippedLevels: Partial<Record<EquipmentSlot, number>>;
 }
 
 /** Action de l'interface sur l'inventaire (World.queueInventoryAction). */
@@ -34,31 +42,34 @@ export type InventoryAction =
   | { type: 'equip'; from: number; slot?: EquipmentSlot }
   /** Retirer l'item de `slot` vers la case `to` (libre) ou la premiere libre. */
   | { type: 'unequip'; slot: EquipmentSlot; to?: number }
-  /** Ajouter un item (console de developpement, recompense). */
-  | { type: 'add'; itemId: string };
+  /** Ajouter un item au niveau `level` (1 par defaut : console de
+   *  developpement ; recompense de vague : niveau de la vague). */
+  | { type: 'add'; itemId: string; level?: number };
+
+const levelOf = (level: number | undefined): number => Math.max(ITEM_LEVEL_MIN, Math.floor(level ?? ITEM_LEVEL_MIN));
 
 export function createHeroInventory(items: readonly string[] = [], size = HERO_INVENTORY_SLOTS): HeroInventory {
   const slots: InventorySlot[] = Array.from({ length: size }, () => null);
-  items.slice(0, size).forEach((itemId, i) => (slots[i] = { kind: 'item', itemId }));
-  return { slots, equipped: {} };
+  items.slice(0, size).forEach((itemId, i) => (slots[i] = { kind: 'item', itemId, level: ITEM_LEVEL_MIN }));
+  return { slots, equipped: {}, equippedLevels: {} };
 }
 
 function copy(inv: HeroInventory): HeroInventory {
-  return { slots: inv.slots.map((s) => (s ? { ...s } : null)), equipped: { ...inv.equipped } };
+  return { slots: inv.slots.map((s) => (s ? { ...s, level: levelOf(s.level) } : null)), equipped: { ...inv.equipped }, equippedLevels: { ...(inv.equippedLevels ?? {}) } };
 }
 
 export function freeSlotCount(inv: HeroInventory): number {
   return inv.slots.filter((s) => s === null).length;
 }
 
-/** Ajoute un equipement dans la premiere case libre ; null si le sac est
- *  plein ou l'item inconnu. */
-export function addItem(inv: HeroInventory, itemId: string): HeroInventory | null {
+/** Ajoute un equipement (niveau `level`) dans la premiere case libre ; null
+ *  si le sac est plein ou l'item inconnu. */
+export function addItem(inv: HeroInventory, itemId: string, level = ITEM_LEVEL_MIN): HeroInventory | null {
   if (!EQUIPMENT[itemId]) return null;
   const index = inv.slots.indexOf(null);
   if (index < 0) return null;
   const next = copy(inv);
-  next.slots[index] = { kind: 'item', itemId };
+  next.slots[index] = { kind: 'item', itemId, level: levelOf(level) };
   return next;
 }
 
@@ -77,8 +88,8 @@ export function moveSlot(inv: HeroInventory, from: number, to: number): HeroInve
 
 /** Equipe l'item de la case `from` (son emplacement, ou `slot` qui doit etre
  *  le sien). Ce qu'il remplace (meme emplacement, ou emplacement exclusif de
- *  la meme main) retourne dans le sac : d'abord dans la case liberee, puis
- *  dans la premiere case libre. Atomique : null si impossible. */
+ *  la meme main) retourne dans le sac avec son niveau : d'abord dans la case
+ *  liberee, puis dans la premiere case libre. Atomique : null si impossible. */
 export function equipFromSlot(inv: HeroInventory, from: number, slot?: EquipmentSlot): HeroInventory | null {
   const s = inv.slots[from];
   if (s?.kind !== 'item') return null;
@@ -86,17 +97,19 @@ export function equipFromSlot(inv: HeroInventory, from: number, slot?: Equipment
   if (!def || (slot !== undefined && slot !== def.slot)) return null;
   const next = copy(inv);
   next.slots[from] = null;
-  const freed: string[] = [];
+  const freed: { itemId: string; level: number }[] = [];
   for (const occupied of [def.slot, ...EQUIPMENT_SLOTS[def.slot].exclusiveWith]) {
     const previous = next.equipped[occupied];
-    if (previous) freed.push(previous);
+    if (previous) freed.push({ itemId: previous, level: levelOf(next.equippedLevels[occupied]) });
     delete next.equipped[occupied];
+    delete next.equippedLevels[occupied];
   }
   next.equipped[def.slot] = s.itemId;
-  for (const itemId of freed) {
+  next.equippedLevels[def.slot] = levelOf(s.level);
+  for (const item of freed) {
     const index = next.slots[from] === null ? from : next.slots.indexOf(null);
     if (index < 0) return null;
-    next.slots[index] = { kind: 'item', itemId };
+    next.slots[index] = { kind: 'item', ...item };
   }
   return next;
 }
@@ -109,8 +122,10 @@ export function unequipSlot(inv: HeroInventory, slot: EquipmentSlot, to?: number
   const index = to !== undefined && inv.slots[to] === null ? to : inv.slots.indexOf(null);
   if (index < 0) return null;
   const next = copy(inv);
+  const level = levelOf(next.equippedLevels[slot]);
   delete next.equipped[slot];
-  next.slots[index] = { kind: 'item', itemId };
+  delete next.equippedLevels[slot];
+  next.slots[index] = { kind: 'item', itemId, level };
   return next;
 }
 
@@ -126,7 +141,7 @@ export function applyInventoryAction(inv: HeroInventory, action: InventoryAction
     case 'unequip':
       return unequipSlot(inv, action.slot, action.to);
     case 'add':
-      return addItem(inv, action.itemId);
+      return addItem(inv, action.itemId, action.level);
   }
 }
 
@@ -137,21 +152,29 @@ export function inventoryItems(inv: HeroInventory): string[] {
   return out;
 }
 
-/** Bonus resolus (unites internes de la simulation) des items equipes :
- *  donnees fixes des items (data/equipment.ts), comme les stats d'unite. */
-export function resolveEquipmentBonus(inv: Pick<HeroInventory, 'equipped'>): HeroEquipmentBonus {
+/** Niveau d'un item porte (1 si inconnu). */
+export function equippedLevel(inv: Pick<HeroInventory, 'equippedLevels'>, slot: EquipmentSlot): number {
+  return levelOf(inv.equippedLevels?.[slot]);
+}
+
+/** Bonus resolus (unites internes de la simulation) des items equipes, a
+ *  leur niveau (statsAtLevel : deterministe). `damage` = degats PHYSIQUES
+ *  (attaque de base, Tourbillon) ; `magicDamage` = degats magiques (sorts
+ *  offensifs seulement, jamais l'attaque de base) ; feu des coups = magique. */
+export function resolveEquipmentBonus(inv: Pick<HeroInventory, 'equipped' | 'equippedLevels'>): HeroEquipmentBonus {
   const bonus: HeroEquipmentBonus = { ...NO_EQUIPMENT_BONUS };
-  for (const itemId of Object.values(inv.equipped)) {
+  for (const [slot, itemId] of Object.entries(inv.equipped) as [EquipmentSlot, string | undefined][]) {
     const def = itemId ? EQUIPMENT[itemId] : undefined;
     if (!def) continue;
-    const { stats, effects } = def;
+    const stats = statsAtLevel(def, equippedLevel(inv, slot));
     bonus.maxHp += (stats.maxHp ?? 0) * HP_PER_PIP;
     bonus.maxMana += stats.maxMana ?? 0;
     bonus.manaRegen += stats.manaRegen ?? 0;
-    bonus.damage += (stats.damage ?? 0) * HP_PER_PIP;
+    bonus.damage += (stats.physicalDamage ?? 0) * HP_PER_PIP;
+    bonus.magicDamage += (stats.magicDamage ?? 0) * HP_PER_PIP;
     bonus.attackSpeed += (stats.attackSpeed ?? 0) / 100;
     bonus.moveSpeed += stats.moveSpeed ?? 0;
-    bonus.fireDamage += (effects.onHit?.fireDamage ?? 0) * HP_PER_PIP;
+    bonus.fireDamage += (def.effects.onHit?.fireDamage ?? 0) * HP_PER_PIP;
   }
   return bonus;
 }

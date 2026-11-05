@@ -228,7 +228,12 @@ tourne et pendant que le Héros est loin du camp. On y cherche :
 - un **placement** des bâtiments et des murs qui compte, en particulier
   face à des menaces qui ciblent certaines positions ;
 - une **tension entre le camp et l'exploration** : le Héros qui s'éloigne
-  gagne des ressources mais laisse la base se défendre seule.
+  gagne des ressources mais laisse la base se défendre seule ;
+- une **récompense de vague en équipement** (2026-11-05) : chaque vague
+  repoussée propose un choix entre deux items d'une banque conçue à la
+  main, au niveau de la vague, sans jamais interrompre la partie ; le
+  stuff oriente le Héros (tank, dégâts physiques, dégâts magiques) et
+  remplace l'ancien or fixe de fin de vague.
 
 **Orientation UX actuelle**, sans statut de pilier : une interface sobre,
 superposée au champ de bataille, inspirée des jeux de stratégie sur PC, avec

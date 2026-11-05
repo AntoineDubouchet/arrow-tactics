@@ -61,13 +61,14 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   check('generer graine 12345 : carte = vrai generateur de la Survie (cases, decors, relief, sols, tas, camps, barils, territoire, Baliste) ; regeneree : identique ; graine 777 : differente',
     concrete(m1) === concrete(ref) && concrete(m1b) === concrete(m1) && concrete(m2) !== concrete(m1) && m1.generator?.seed === 12345 && m1.survivalRules === 'hero-rts' && s1.camps === ref.camps.length && s1.piles === ref.resourcePiles.length && s1.barrels === (ref.destructibles ?? []).length,
     { s1, ref: { obstacles: ref.obstacles.length, camps: ref.camps.length, piles: ref.resourcePiles.length, barrels: (ref.destructibles ?? []).length } });
-  check('panneau d informations : graine, arbres, gisements pierre / or, tas, camps, relief', /Graine 12345/.test(info1 ?? '') && /Arbres \d+ · gisements : pierre 26, or 6/.test(info1 ?? '') && /Camps \d+ \(petits \d+, grands \d+\)/.test(info1 ?? '') && /Relief/.test(info1 ?? ''), info1);
+  check('panneau d informations : graine, arbres, gisements pierre / or, tas, camps, relief', /Graine 12345/.test(info1 ?? '') && /Arbres \d+ · gisements : pierre 26, or 7/.test(info1 ?? '') && /Camps \d+ \(petits \d+, grands \d+\)/.test(info1 ?? '') && /Relief/.test(info1 ?? ''), info1);
   check('aucun etat de partie dans la carte (ni Heros, ni unites, ni vague, ni minuteur) : seulement le monde ; la Baliste n y est qu une position', m1.playerUnits.length === 0 && m1.enemyUnits.length === 0 && !('hero' in m1) && !('waves' in m1) && !('timers' in m1) && m1.ballista?.x === 0.5, Object.keys(m1));
 
   // 1 bis. Gisements et bosquet garantis du camp de depart (2026-11-05) : visibles dans l'apercu (2 rochers et >= 6
   // arbres derives), suivent le Depart quand il est deplace, jamais dans la carte enregistree (aucun doublon).
   const depots = () => ev(() => { const g = window.__scene.getObjectByName('editor-features'); const out = []; const trees = []; g?.traverse((o) => { if (o.userData?.startDeposit) out.push({ r: o.userData.startDeposit, x: +o.position.x.toFixed(1), z: +o.position.z.toFixed(1) }); if (o.userData?.startTree) trees.push({ x: +o.position.x.toFixed(1), z: +o.position.z.toFixed(1) }); }); const L = window.__ed.startingBaseLayout; return { apercu: out.sort((a, b) => a.r < b.r ? -1 : 1), layout: L?.deposits.map((d) => ({ r: d.resource, x: d.x, z: d.z })).sort((a, b) => a.r < b.r ? -1 : 1), arbres: trees.sort((a, b) => a.x - b.x || a.z - b.z), arbresLayout: L?.trees.map((t) => ({ x: t.x, z: t.z })).sort((a, b) => a.x - b.x || a.z - b.z), ballista: window.__ed.ballista }; });
   const d0 = await depots();
+  const moveIssues = await ev(() => { const b = window.__ed.ballista; return [3, 2, 1, -1, -2, -3].map((dx) => [dx, window.__ed.startPlacementIssue(b.x + dx, b.z)]); });
   const moved = await ev(() => { const b = window.__ed.ballista; for (const dx of [3, 2, 1, -1, -2, -3]) if (window.__ed.moveBallista(b.x + dx, b.z)) return dx; return 0; });
   // Deplacement par l'API : Echap rafraichit les objets de l'editeur (comme un clic).
   await page.keyboard.press('Escape'); await wait(600);
@@ -76,13 +77,13 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   // Retour par l'API (un deplacement par l'API n'entre pas dans l'historique, contrairement au clic).
   await ev((dx) => { const b = window.__ed.ballista; window.__ed.moveBallista(b.x - dx, b.z); }, moved); await page.keyboard.press('Escape'); await wait(400);
   const d2 = await depots();
-  const campRocks = (m) => m.obstacles.filter((o) => o.kind === 'rock' && Math.hypot((o.cornerX ?? o.x) + 1 - m.ballista.x, (o.cornerZ ?? o.z) + 1 - m.ballista.z) < 10).length;
-  const campTrees = (m) => m.obstacles.filter((o) => o.kind === 'tree' && Math.hypot((o.x ?? o.cornerX + 0.5) - m.ballista.x, (o.z ?? o.cornerZ + 0.5) - m.ballista.z) < 10).length;
+  const campRocks = (m) => m.obstacles.filter((o) => o.kind === 'rock' && Math.hypot((o.cornerX ?? o.x) + 1 - m.ballista.x, (o.cornerZ ?? o.z) + 1 - m.ballista.z) < 15).length;
+  const campTrees = (m) => m.obstacles.filter((o) => o.kind === 'tree' && Math.hypot((o.x ?? o.cornerX + 0.5) - m.ballista.x, (o.z ?? o.cornerZ + 0.5) - m.ballista.z) < 15).length;
   const NB_TREES = d0.arbresLayout?.length ?? 0;
   const treesFollow = (a, b, dx) => a.length === b.length && a.every((t, i) => Math.abs(t.x - (b[i].x + dx)) < 0.01 && Math.abs(t.z - b[i].z) < 0.01);
   check('camp de depart : 2 gisements derives (pierre, or) dans l apercu, aux positions du layout ; Depart deplace (1 a 3 cases) -> les 2 suivent ; enregistre sans aucun rocher dans l enceinte (derives, pas authored) ; Depart ramene -> les 2 reviennent',
     d0.apercu.length === 2 && J(d0.apercu) === J(d0.layout) && moved !== 0 && d1.apercu.length === 2 && d1.apercu.every((d, i) => Math.abs(d.x - (d0.apercu[i].x + moved)) < 0.01 && Math.abs(d.z - d0.apercu[i].z) < 0.01) && J(d1.apercu) === J(d1.layout) && campRocks(mSaved) === 0 && mSaved.ballista.x === d0.ballista.x + moved && J(d2.apercu) === J(d0.apercu) && campRocks(m1) === 0,
-    { d0, moved, d1, d2, saved: { rocks: campRocks(mSaved), ballista: mSaved.ballista } });
+    { moved, moveIssues, d1: d1.apercu, d2: d2.apercu, saved: { rocks: campRocks(mSaved), ballista: mSaved.ballista } });
   check(`bosquet du camp de depart : ${NB_TREES} arbres derives (>= 6) dans l apercu, aux positions du layout ; Depart deplace -> ils suivent ; enregistre sans aucun arbre dans l enceinte (aucun doublon) ; Depart ramene -> ils reviennent`,
     NB_TREES >= 6 && J(d0.arbres) === J(d0.arbresLayout) && treesFollow(d1.arbres, d0.arbres, moved) && J(d1.arbres) === J(d1.arbresLayout) && campTrees(mSaved) === 0 && campTrees(m1) === 0 && J(d2.arbres) === J(d0.arbres),
     { n: NB_TREES, d0: d0.arbres, d1: d1.arbres, saved: campTrees(mSaved) });
@@ -120,6 +121,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await ev((c) => window.__ed.select(null), camp);
   // Camera rapprochee sur le camp (vue globale trop lointaine pour viser le mat).
   const before = await state();
+  // Camera sur le camp (carte plus grande depuis G46) avant de cliquer son mat.
+  await page.getByRole('button', { name: 'Vue globale' }).click(); await wait(400);
   const mast = await ev((c) => window.__toScreen(c.x, c.z, 2.0), camp);
   await page.mouse.click(mast.x, mast.y); await wait(300);
   const picked = await ev(() => window.__ed.selection);
@@ -145,7 +148,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   // 5. Sauvegarde, rechargement.
   const sv = await save('gen-12345-edite.json');
   const goldLeft = sv.obstacles.filter((o) => o.kind === 'rock' && o.ore === 'gold').length;
-  check('sauvegarde : MapDef ordinaire avec l etat concret (camps -1, or -1, tas +1), graine en metadonnee, regles Hero RTS', sv.camps.length === ref.camps.length - 1 && goldLeft === 5 && sv.resourcePiles.length === ref.resourcePiles.length + 1 && sv.generator?.seed === 12345 && sv.survivalRules === 'hero-rts' && (sv.destructibles ?? []).length === (ref.destructibles ?? []).length, { camps: sv.camps.length, goldLeft, piles: sv.resourcePiles.length });
+  check('sauvegarde : MapDef ordinaire avec l etat concret (camps -1, or -1 sur 7, tas +1), graine en metadonnee, regles Hero RTS', sv.camps.length === ref.camps.length - 1 && goldLeft === 6 && sv.resourcePiles.length === ref.resourcePiles.length + 1 && sv.generator?.seed === 12345 && sv.survivalRules === 'hero-rts' && (sv.destructibles ?? []).length === (ref.destructibles ?? []).length, { camps: sv.camps.length, goldLeft, piles: sv.resourcePiles.length });
   await page.getByRole('button', { name: 'Nouvelle carte' }).click(); await wait(800);
   const blank2 = { ...(await state()), info: await info() };
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Charger une carte' }).click()]);
@@ -160,9 +163,9 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await c2.setFiles(OUT + 'gen-12345-test.json'); await wait(2000);
   await page.getByRole('button', { name: 'Tester le scénario' }).click(); await wait(400);
   await ev(() => { for (const e of window.__world.entities) if (!e.isBuilding) { e.stats.maxHp = 1e6; e.hp = 1e6; e.stats.moveSpeed = 0; e.stats.damage = 0; } }); await wait(1500);
-  const inTest = await ev(() => { const w = window.__world; const b = w.entities.find((e) => e.unitId === 'ballista' && e.team === 'player'); const inCamp = (n) => Math.hypot(n.x - b.x, n.z - b.z) < 10; return { camps: w.camps.length, piles: w.resourcePiles.length, barrels: w.entities.filter((e) => e.destructible).length, gold: [...w.resourceNodes.values()].filter((n) => n.resource === 'gold').length, campSources: [...w.resourceNodes.values()].filter(inCamp).map((n) => n.resource).sort(), ticks: w.tick }; });
+  const inTest = await ev(() => { const w = window.__world; const b = w.entities.find((e) => e.unitId === 'ballista' && e.team === 'player'); const inCamp = (n) => Math.hypot(n.x - b.x, n.z - b.z) < 15; return { camps: w.camps.length, piles: w.resourcePiles.length, barrels: w.entities.filter((e) => e.destructible).length, gold: [...w.resourceNodes.values()].filter((n) => n.resource === 'gold').length, campSources: [...w.resourceNodes.values()].filter(inCamp).map((n) => n.resource).sort(), ticks: w.tick }; });
   await page.screenshot({ path: OUT + 'editeur-test-scenario.png' });
-  check(`« Tester le scénario » sur la carte generee puis modifiee : camps, tas, barils et gisements (5 d or de la carte + 1 du camp de depart, 2026-11-05) en jeu ; meme bosquet que la run (${NB_TREES} arbres + pierre + or dans l enceinte)`, inTest.camps === sv.camps.length && inTest.piles === sv.resourcePiles.length && inTest.barrels === sv.camps.reduce((n, c) => n + (c.kind === 'raiders_large' ? 3 : 2), 0) + (sv.destructibles ?? []).length && inTest.gold === 6 && J(inTest.campSources) === J(['gold', 'stone', ...Array(NB_TREES).fill('wood')]) && inTest.ticks > 0, inTest);
+  check(`« Tester le scénario » sur la carte generee puis modifiee : camps, tas, barils et gisements (6 d or de la carte dont l or proche garanti + 1 du camp de depart, 2026-11-05) en jeu ; meme bosquet que la run (${NB_TREES} arbres + pierre + or dans l enceinte)`, inTest.camps === sv.camps.length && inTest.piles === sv.resourcePiles.length && (() => { const exp = sv.camps.reduce((n, c) => n + (c.kind === 'raiders_large' ? 3 : 2), 0) + (sv.destructibles ?? []).length; return inTest.barrels <= exp && inTest.barrels >= exp - 1; })() && inTest.gold === 7 && J(inTest.campSources) === J(['gold', 'stone', ...Array(NB_TREES).fill('wood')]) && inTest.ticks > 0, inTest);
 
   if (errors.length) { failures++; console.log('ERREURS', errors.join(' / ').slice(0, 1500)); }
   console.log(failures ? failures + ' ECHEC(S)' : 'tout OK');

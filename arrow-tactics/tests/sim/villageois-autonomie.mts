@@ -300,4 +300,42 @@ function mk(obstacles: any[] = [sources.tree, sources.stone, sources.gold], seed
   }
 }
 
+// ---- 12. Villageois constructeur (2026-11-05, G46) : ordre build accepte, marche, construction jusqu'au bout avec
+// les regles du Heros (chantier, PV, fin, enchainement), aucune autonomie pendant, retour a l'autonomie 1 s apres.
+{
+  const { w, spawn, resOf } = mk();
+  const { buildingFootprintTiles } = await import(SRC + 'data/buildings.ts');
+  const fp = (id: string, x: number, z: number) => { const t = buildingFootprintTiles(id); return { kind: 'building', x, z, tilesX: t.tilesX, tilesZ: t.tilesZ }; };
+  const { CONSTRUCTION_START_HP_FRACTION } = await import(SRC + 'data/hero.ts');
+  const site = w.spawnBuilding(getBuilding('house'), 'player', 3.5, -5.5, fp('house', 3.5, -5.5), Math.round(getBuilding('house').maxHp * CONSTRUCTION_START_HP_FRACTION), undefined, undefined, { progress: 0, buildTime: 5 });
+  const hp0 = site.hp;
+  const v = spawn(-3.5, -3.5);
+  w.step(DT); // autonomie : rien avant 1 s
+  w.issueCommand({ kind: 'harvest', entityIds: [v.id], nodeId: [...w.resourceNodes.values()].find((n: any) => n.resource === 'wood').id });
+  w.step(DT);
+  const cmd = w.issueCommand({ kind: 'build', entityIds: [v.id], targetEntityId: site.id });
+  w.step(DT);
+  const accepted = v.order.type === 'build' && v.order.targetEntityId === site.id;
+  let harvestSeen = false; let buildTicks = 0; let gestures = new Set<string>(); let done = -1; let t = 0;
+  for (let i = 0; i < 30 * 30 && done < 0; i++) {
+    w.step(DT); t += DT;
+    if (v.order.type === 'harvest') harvestSeen = true;
+    if (v.worker.working === 'build') buildTicks++;
+    if (v.worker.working) gestures.add(v.worker.working);
+    if (!site.construction) done = t;
+  }
+  check('Villageois : ordre build accepte (plus de rejet « Heros seulement »), marche jusqu au chantier, geste build, chantier termine (~5 s de travail), PV montes, aucune recolte autonome pendant', accepted && done > 0 && buildTicks >= 30 * 4.5 && site.hp > hp0 && site.hp === site.stats.maxHp && !harvestSeen && [...gestures].join() === 'build' && !site.countsForDefeat === !getBuilding('house').countsForDefeat, { accepted, done: +done.toFixed(1), buildTicks, hp: [hp0, site.hp], harvestSeen, gestures: [...gestures], cmd });
+  // Fini : Garde, puis autonomie 1 s plus tard.
+  const atEnd = v.order.type;
+  run(w, 1.2);
+  check('chantier fini : Garde, puis recolte autonome ~1 s apres', atEnd === 'guard' && v.order.type === 'harvest' && resOf(v) !== null, { atEnd, order: v.order });
+  // Chantier detruit en chemin : Garde propre.
+  const site2 = w.spawnBuilding(getBuilding('house'), 'player', -4.5, 6.5, fp('house', -4.5, 6.5), undefined, undefined, undefined, { progress: 0, buildTime: 5 });
+  w.issueCommand({ kind: 'build', entityIds: [v.id], targetEntityId: site2.id });
+  run(w, 0.5);
+  site2.hp = 0; site2.alive = false;
+  run(w, 0.2);
+  check('chantier disparu en chemin : Garde (puis autonomie), jamais bloque', v.order.type === 'guard' || v.order.type === 'harvest', v.order);
+}
+
 console.log(failures ? failures + ' ECHEC(S)' : 'tout OK');

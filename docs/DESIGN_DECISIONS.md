@@ -111,6 +111,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G43 | Passe corrective après l'autonomie : autonomie limitée aux ressources visibles, récolte au contact visuellement crédible, Villageois regardant sa source, animation worker descendante (plus d'estoc), arbre = 75 bois, gisements = 250 pierre / 250 or, camp de départ = bosquet garanti d'au moins 6 arbres + pierre + or | Active (2026-11-05, valeurs provisoires) |
 | G44 | Passe économie : cargo Villageois 10, temps par unité par ressource (bois 2 s, pierre 2,5 s, or 3 s), Héros ×1,25 plus lent, cadence visuelle depuis les données ; Mine et coûts inchangés | Active (2026-11-05, valeurs provisoires) |
 | G45 | Coûts des bâtiments et technologies recalés autour d'un cargo Villageois de 10 (Maison 10 bois sans or, économique 1 à 2 cargaisons, militaire 2 à 4, avancé 3 à 6 ; bois léger / pierre lourd / mixte militaire) ; Mine 10 bois + 5 pierre ; Palissade inchangée | Active (2026-11-05, valeurs provisoires) |
+| G46 | XP du Héros à 12 cases ; camp de départ de rayon 15 ; 2 gisements d'or visibles au départ ; Villageois constructeurs ; Maj = pose répétée ; double-clic = bâtiments du même type visibles ; DamageType physique / magique (Tourbillon physique) ; banque d'items curated (2 par emplacement, niveaux, tank / physique / magique) ; fin de vague = choix entre 2 items du niveau de la vague ; +5 or de vague supprimé | Active (2026-11-05, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -2713,6 +2714,85 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Sources** : `data/buildings.ts`, `data/technologies.ts`,
   `run/buildingCosts.ts`, `main.ts`, `CURRENT_STATE.md` §6 bis, §6 nonies,
   §14.
+
+### G46 — Passe du 2026-11-05 : XP, grand camp, or visible, Villageois constructeurs, Maj, double-clic, types de dégâts, banque d'items, récompense de vague
+
+- **Statut** : Active (2026-11-05). Valeurs **PROVISOIRES**.
+- **Décisions d'Antoine** (2026-11-05) :
+  - **XP du Héros : portée ≈ 12** (`HERO_XP_RANGE`, 6 avant) ; quantité,
+    courbe, partage et règles de kill inchangés ;
+  - **StartingBase beaucoup plus grande** : enceinte de rayon 15 (10,5
+    avant), même langage visuel (dodécagone, porte, Baliste, Auberge, deux
+    Maisons, deux Villageois, bosquet, pierre, or), éléments repoussés vers
+    la périphérie, grande cour constructible (549 cases libres contre
+    241) ; emprise, aperçu, validation, générateur, navigation, sauvegarde
+    et « Tester le scénario » suivent le même modèle dérivé ;
+  - **2 gisements d'or visibles au départ minimum** : celui de l'enceinte
+    et un second dehors, accessible, hors murs, eau et falaise, à l'écart
+    des camps, réellement dans la vision initiale (garantie du générateur
+    `nearbyGold`, avertissement de l'éditeur sur une carte dessinée) ; la
+    vision de la Baliste passe à 21 pour l'assurer ;
+  - **les Villageois peuvent construire**, avec exactement les règles du
+    Héros (une seule architecture de construction) ; ordre manuel
+    prioritaire sur l'autonomie, qui reprend 1 s après ;
+  - **Maj = placement répété** (chaque pose validée et payée séparément ;
+    ressources insuffisantes → sortie propre ; Échap quitte toujours ;
+    Héros et Villageois) ; tracé de Palissade inchangé ;
+  - **double-clic sur un bâtiment allié = sélection des bâtiments du même
+    type visibles à l'écran** (viewport, hors brouillard) ; anneaux sur
+    tous, fiche « Maisons ×N » ; actions attachées au bâtiment principal
+    (pas de commandes groupées dans cette passe) ;
+  - **DamageType = physical / magic**, une seule voie de dégâts, sans
+    résistances pour l'instant ; **Tourbillon = physique** ; Boule de feu
+    et feu des coups = magiques ; le Soin n'est pas un dégât ;
+  - **loot = banque d'items curated**, aucune stat aléatoire par run :
+    ItemDef fixe + `itemLevel` + progression déterministe = ItemInstance ;
+    **2 items par slot pour l'instant** ; **stuff tank / dégâts physiques /
+    dégâts magiques** ; la banque est visible et modifiable dans l'Éditeur
+    d'items ;
+  - **fin de vague = choix entre 2 items du niveau de la vague**, panneau
+    non bloquant (pas de retour à l'écran de fin de manche), sac plein →
+    la récompense attend, plusieurs vagues → file ;
+  - **ancien +5 or de vague supprimé** (loot des ennemis, Mine, camps
+    inchangés).
+- **Choix de la passe** : enceinte 15 plutôt que 14 (géométrie propre, 36
+  pièces) avec vision 21 ; anneau des vagues laissé à 22 (un anneau à 26
+  déplaçait collines et mares et cassait l'accès de 3 graines sur 12 :
+  les vagues apparaissent à ~7 cases des murs, à revoir avec les Vagues
+  V2) ; or proche à 18,5 cases, hors ±60° de la porte ; bonus magique
+  porté par `HeroEquipmentBonus.magicDamage` sans consommateur (aucun sort
+  offensif du Héros) ; Hache du chef pillard retirée (2 items par
+  emplacement), remplacée par la Cuirasse de plates (rare) dans les
+  coffres ; objets de main secondaire et pièces de corps sans visuel
+  (KI-44) ; niveau d'item dans les cases du sac et `equippedLevels`,
+  anciennes sauvegardes lues comme niveau 1 ; tirage des récompenses =
+  `Rng` sur graine de carte + vague.
+- **Changements de ressenti signalés** : le Héros gagne l'XP de loin ; le
+  camp est bien plus vaste et les vagues arrivent plus près des murs ; la
+  Baliste voit plus loin ; un second or est à portée immédiate ; les
+  Villageois construisent ; plus d'or de fin de vague mais un équipement ;
+  les items montent en puissance avec les vagues.
+- **Filet de sécurité** : `tests/sim/loot-bank.mts`, `degats-types.mts`,
+  `recompense.mts`, `heros-niveaux.mts` (portée), `villageois-autonomie.mts`
+  (section 12), `depart-camp.mts` (rayon 15, or proche, cour libre),
+  `camps-authored.mts`, `camp.mts`, `cargo.mts`, `mana-soin.mts`
+  (recalés) ; en jeu : `construction-jeu.cjs` (Villageois constructeur,
+  Maj, double-clic), `recompense-jeu.cjs`, `depart-jeu.cjs`,
+  `editeur-procedural.cjs`, `equipement-jeu.cjs` (18 items).
+- **À ne pas faire** : ne pas regénérer d'item à stats aléatoires ; ne pas
+  créer une seconde banque ni des ItemDef invisibles à l'éditeur ; ne pas
+  dédoubler la voie de dégâts ; ne pas ajouter de bonus de vitesse de
+  construction à plusieurs ; ne pas remettre d'or de fin de vague.
+- **Sources** : `data/hero.ts`, `data/equipment.ts`, `data/loot.ts`,
+  `data/vision.ts`, `sim/damage.ts`, `sim/inventory.ts`, `sim/orders.ts`,
+  `sim/systems/hero.ts`, `sim/systems/workers.ts`, `sim/systems/combat.ts`,
+  `sim/systems/abilities.ts`, `sim/systems/buildingAttack.ts`,
+  `sim/playerArrow.ts`, `run/runState.ts`, `run/waveRewards.ts`,
+  `config/startingBase.ts`, `config/maps/proceduralSurvival.ts`,
+  `data/campLayout.ts`, `editor/editorState.ts`, `ui/waveRewardPanel.ts`,
+  `itemEditor/*`, `main.ts`, `CURRENT_STATE.md` §2, §6 bis, §6 ter, §6
+  quinquies, §6 duodecies, §7, §16, `ARCHITECTURE.md` §7, §13 ter, §13
+  quinquies, §13 septdecies, `GAME_DESIGN.md` §8.
 
 ## H. Outils internes
 

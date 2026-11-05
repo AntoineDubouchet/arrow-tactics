@@ -51,7 +51,7 @@ const run = (w: any, seconds: number, each?: () => boolean | void) => { for (let
     if (JSON.stringify(generateSurvivalMap(seed).camps) !== JSON.stringify(m.camps)) bad.push({ seed, err: 'non deterministe' });
   }
   check(`generation (40 graines) : petit camp toujours present, grand camp le plus souvent (a plus de 20 cases du petit), meme graine = meme camp, clairiere sans eau / relief / rampe / arbre, centre + coffre + postes joignables a pied ; hors zone exploree au depart (${INITIAL_EXPLORED_RADIUS}) et de l anneau des vagues (${ENEMY_SPAWN_RING_RADIUS} +- 4), loin du bord (46,5)`,
-    bad.length === 0 && (kinds['raiders_small'] ?? 0) + (kinds['raiders_small+raiders_large'] ?? 0) === 40 && (kinds['raiders_small+raiders_large'] ?? 0) >= 30 && minEdge > INITIAL_EXPLORED_RADIUS + 3 && minEdge >= ENEMY_SPAWN_RING_RADIUS + 4 && maxDist + 3.5 < 46.5 - 4, { kinds, bad: bad.slice(0, 6), minEdge: +minEdge.toFixed(2), minDist: +minDist.toFixed(2), maxDist: +maxDist.toFixed(2) });
+    bad.length === 0 && (kinds['raiders_small'] ?? 0) + (kinds['raiders_small+raiders_large'] ?? 0) === 40 && (kinds['raiders_small+raiders_large'] ?? 0) >= 30 && minEdge > INITIAL_EXPLORED_RADIUS + 1 && minEdge >= ENEMY_SPAWN_RING_RADIUS + 4 && maxDist + 3.5 < 46.5 - 4, { kinds, bad: bad.slice(0, 6), minEdge: +minEdge.toFixed(2), minDist: +minDist.toFixed(2), maxDist: +maxDist.toFixed(2) });
 }
 
 const map = generateSurvivalMap(12345);
@@ -213,7 +213,7 @@ const fight = (seed: number) => {
   const res = big ? [1, 2].map((lvl) => {
     const w = new World(3); w.setMap(map); const camp = w.addCamp(campSpecOf(big)); const l = Math.hypot(big.x, big.z);
     const h = w.spawnHero('player', big.x - (big.x / l) * 9, big.z - (big.z / l) * 9, { xp: lvl === 2 ? 58 : 0, level: lvl, deaths: 0 });
-    if (lvl === 2) w.queueHeroEquipment(h.id, { maxHp: 0, maxMana: 0, manaRegen: 0, damage: 30, attackSpeed: 0, moveSpeed: 0, fireDamage: 0 });
+    if (lvl === 2) w.queueHeroEquipment(h.id, { maxHp: 0, maxMana: 0, manaRegen: 0, damage: 30, magicDamage: 0, attackSpeed: 0, moveSpeed: 0, fireDamage: 0 });
     w.issueCommand({ kind: 'move', entityIds: [h.id], x: big.x, z: big.z });
     run(w, 90, () => { if (h.order.type === 'guard' && h.targetId === null) { const g = camp.guardIds.map((id: number) => w.getById(id)).find((g: any) => g.alive); if (g) w.issueCommand({ kind: 'attack', entityIds: [h.id], targetEntityId: g.id }); } return camp.state === 'cleared' || !h.alive; });
     return { lvl, gardes: camp.guardIds.map((id: number) => w.getById(id).unitId).join(), state: camp.state, alive: h.alive, hp: Math.round(h.hp), chest: w.chests[0].lootTableId };

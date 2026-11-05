@@ -52,6 +52,7 @@ import { getWallType } from '../data/walls';
 import { campFacingFrom } from '../data/campLayout';
 import { DEFAULT_STARTING_BASE_PRESET, reservedCells, reservedOverlapsDisc, startingBaseLayoutAt, startingBaseRotationFor, STARTING_BASE_PRESETS, type StartingBaseLayout } from '../config/startingBase';
 import { getCampKind } from '../data/camps';
+import { VISION_RADIUS } from '../data/vision';
 import { planWallLine, segmentBoxDistance, segmentWallLine, wallLineCells, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint, type WallSegment } from '../core/wallLine';
 import { resourceNodeCellKeys, resourceOfObstacle, type ResourcePileDef } from '../config/resourceNodes';
 import { computeCliffObstacles } from '../config/terrainElevation';
@@ -283,7 +284,9 @@ export function campKindOfTemplate(template: EditorFeatureTemplate): string | nu
  *  dans la couronne (abords « manifestement inaccessibles » sinon). Le
  *  generateur garde ses propres distances (anneau, 20 cases entre camps). */
 export const CAMP_MIN_SPACING = 10;
-export const CAMP_START_CLEARANCE = 17;
+/** 21 depuis le 2026-11-05 (17 avant) : zone reservee du camp de depart (15 +
+ *  2) + clairiere d'un camp neutre (3,5). */
+export const CAMP_START_CLEARANCE = 21;
 export const CAMP_RING_OPEN_MIN = 12;
 
 /** Validation legere d'une carte de Survie (editeur, 2026-11-03) : les
@@ -729,6 +732,20 @@ export class EditorState {
     if (camps.length === 0) warnings.push('Aucun camp.');
     if (!this.obstacles.some((o) => resourceOfObstacle(o) !== null) && !this.features.some((f) => f.kind === 'pile')) warnings.push('Aucune ressource (arbre, gisement ou tas).');
     if (this.walls.length === 0 && !this.startingBaseLayout?.walls.length) warnings.push('Aucune palissade.');
+    // Or proche garanti (2026-11-05, G46) : un gisement d'or hors de
+    // l'enceinte mais dans la vision initiale de la Baliste ; le generateur
+    // en pose un, une carte dessinee est seulement avertie.
+    const L = this.startingBaseLayout;
+    if (L) {
+      const r = STARTING_BASE_PRESETS[L.preset]?.enclosure.radius ?? 0;
+      const goldOutside = this.obstacles.some((o) => {
+        if (o.kind !== 'rock' || o.ore !== 'gold') return false;
+        const c = obstacleCenter(o);
+        const d = Math.hypot(c.x - L.origin.x, c.z - L.origin.z);
+        return d >= r + 1.5 && d + 1.5 <= VISION_RADIUS.ballista;
+      });
+      if (!goldOutside) warnings.push("Aucun gisement d'or visible hors de l'enceinte au départ (le générateur en garantit un).");
+    }
     return { errors, warnings };
   }
 

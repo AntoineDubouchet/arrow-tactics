@@ -28,7 +28,15 @@ export function applyHealToEntity(target: Entity, amount: number): number {
   return target.hp - before;
 }
 
-export function applyDamageToEntity(target: Entity, amount: number): void {
+/** Deux familles de degats (2026-11-05, decision d'Antoine, G46) : physique
+ *  (melee, armes, projectiles d'Archer et de Baliste, Charge, Tourbillon) et
+ *  magique (Boule de feu, feu des coups d'equipement, futurs sorts). Aucune
+ *  resistance aujourd'hui : les deux infligent la meme quantite brute ; le
+ *  type est porte par les evenements et les donnees (equipement, talents,
+ *  resistances et interface futures). Une seule voie de degats. */
+export type DamageType = 'physical' | 'magic';
+
+export function applyDamageToEntity(target: Entity, amount: number, _type: DamageType): void {
   if (amount <= 0) return;
   let remaining = amount;
   if (target.shield > 0) {

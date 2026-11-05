@@ -5,7 +5,7 @@ import { UNIT_MOVE_SPEED_MULTIPLIER } from '../../data/units';
 import { addItem } from '../inventory';
 import { getBuilding } from '../../data/buildings';
 import { distanceToSegment } from '../../core/wallLine';
-import { applyDamageToEntity } from '../damage';
+import { applyDamageToEntity, type DamageType } from '../damage';
 import { targetDistance } from '../geometry';
 import { areAllied } from '../relations';
 import {
@@ -17,7 +17,7 @@ import {
   CONSTRUCTION_START_HP_FRACTION,
   HARVEST_REACH,
   WORKER_HARVEST_REACH,
-  HERO_XP_SHARE_RADIUS,
+  HERO_XP_RANGE,
   heroLevelForXp,
   heroRespawnDelay,
   heroStatsForLevel,
@@ -73,7 +73,7 @@ export type HeroEvent =
   | { type: 'spellStart'; heroId: number; spellId: string; targetId: number }
   /** Tourbillon (2026-11-03) : frappe n (position, degats, entites touchees),
    *  puis fin (terminee, ou Heros mort). */
-  | { type: 'whirlwindPulse'; heroId: number; x: number; z: number; pulse: number; damage: number; hits: number[] }
+  | { type: 'whirlwindPulse'; heroId: number; x: number; z: number; pulse: number; damage: number; hits: number[]; damageType: DamageType }
   | { type: 'whirlwindEnd'; heroId: number; reason: 'done' | 'death' }
   /** Incantation annulee avant son effet ; `refunded` : mana rendu. */
   | { type: 'spellCancel'; heroId: number; spellId: string; reason: SpellCancelReason; refunded: number }
@@ -183,6 +183,50 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
   return { x: target.x, z: target.z, reached: distanceToSite(e, target) <= e.stats.radius + BUILD_REACH, target };
 }
 
+/**
+ * Un pas de construction d'un chantier au contact, par le Heros OU un
+ * Villageois (2026-11-05, G46 : meme chantier, meme vitesse, meme fin, meme
+ * enchainement ; plusieurs constructeurs avancent chacun le meme chantier,
+ * sans formule de bonus). `worker` : geste et minuteur de l'unite
+ * (HeroState ou WorkerState). Fini : batiment termine (evenement `built`,
+ * heroId = unite constructrice), puis chantier inacheve le plus proche,
+ * sinon Garde. Ligne de mur V2 : le segment suivant de la meme ligne
+ * d'abord (construction de A vers B).
+ */
+export function constructSite(e: Entity, worker: { working: 'chop' | 'mine' | 'build' | 'gather' | null; workTimer: number }, site: Entity, entities: readonly Entity[], dt: number, events: HeroEvent[]): void {
+  const c = site.construction!;
+  worker.working = 'build';
+  const step = Math.min(dt / c.buildTime, 1 - c.progress);
+  c.progress += step;
+  site.hp = Math.min(site.stats.maxHp, site.hp + site.stats.maxHp * (1 - CONSTRUCTION_START_HP_FRACTION) * step);
+  if (c.progress < 1 - 1e-9) return;
+  // Erreur d'arrondi cumulee : un chantier intact finit a pleins PV exacts.
+  if (site.stats.maxHp - site.hp < 1e-6) site.hp = site.stats.maxHp;
+  site.construction = null;
+  site.countsForDefeat = getBuilding(site.unitId).countsForDefeat;
+  events.push({ type: 'built', heroId: e.id, buildingId: site.id });
+  let next: Entity | null = null;
+  let best = BUILD_CHAIN_RADIUS;
+  const line = site.wall;
+  if (line) {
+    for (const o of entities) {
+      if (!o.alive || !o.construction || o.team !== e.team || o.wall?.lineId !== line.lineId) continue;
+      if (!next || Math.abs(o.wall.index - line.index) < Math.abs(next.wall!.index - line.index) || (Math.abs(o.wall.index - line.index) === Math.abs(next.wall!.index - line.index) && o.wall.index > next.wall!.index)) next = o;
+    }
+  }
+  for (const o of next ? [] : entities) {
+    if (!o.alive || !o.construction || o.team !== e.team) continue;
+    const d = Math.hypot(o.x - site.x, o.z - site.z);
+    if (d <= best) {
+      best = d;
+      next = o;
+    }
+  }
+  e.order = next ? { type: 'build', targetEntityId: next.id } : { type: 'guard' };
+  worker.working = null;
+  worker.workTimer = 0;
+}
+
 /** Distance du centre de `e` a l'emprise d'un batiment (ou a son centre, rayon deduit).
  *  Piece de mur V2 : jusqu'a sa capsule (ligne moins la demi-epaisseur). */
 function distanceToSite(e: Entity, site: Entity): number {
@@ -200,7 +244,7 @@ function distanceToBox(e: Entity, b: ObstacleBounds): number {
 }
 
 /** Travail au contact (apres movementSystem) : recolte vers le sac (une unite
- *  toutes les HARVEST_INTERVAL s), ramassage d'un tas (PICKUP_SECONDS), depot
+ *  toutes les HARVEST_NODE_KINDS[r].seconds), ramassage d'un tas (PICKUP_SECONDS), depot
  *  du sac, construction (avancement, PV qui montent ; fin : batiment
  *  fonctionnel, enchainement sur le chantier voisin). */
 export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: number, events: HeroEvent[], cargoEvents: CargoEvent[]): void {
@@ -304,39 +348,7 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       }
       continue;
     }
-    const site = goal.target!;
-    const c = site.construction!;
-    h.working = 'build';
-    const step = Math.min(dt / c.buildTime, 1 - c.progress);
-    c.progress += step;
-    site.hp = Math.min(site.stats.maxHp, site.hp + site.stats.maxHp * (1 - CONSTRUCTION_START_HP_FRACTION) * step);
-    if (c.progress < 1 - 1e-9) continue;
-    // Erreur d'arrondi cumulee : un chantier intact finit a pleins PV exacts.
-    if (site.stats.maxHp - site.hp < 1e-6) site.hp = site.stats.maxHp;
-    site.construction = null;
-    site.countsForDefeat = getBuilding(site.unitId).countsForDefeat;
-    events.push({ type: 'built', heroId: e.id, buildingId: site.id });
-    // Chantier inacheve le plus proche, sinon Garde. Ligne de mur V2 : le
-    // segment suivant de la meme ligne d'abord (construction de A vers B).
-    let next: Entity | null = null;
-    let best = BUILD_CHAIN_RADIUS;
-    const line = site.wall;
-    if (line) {
-      for (const o of entities) {
-        if (!o.alive || !o.construction || o.team !== e.team || o.wall?.lineId !== line.lineId) continue;
-        if (!next || Math.abs(o.wall.index - line.index) < Math.abs(next.wall!.index - line.index) || (Math.abs(o.wall.index - line.index) === Math.abs(next.wall!.index - line.index) && o.wall.index > next.wall!.index)) next = o;
-      }
-    }
-    for (const o of next ? [] : entities) {
-      if (!o.alive || !o.construction || o.team !== e.team) continue;
-      const d = Math.hypot(o.x - site.x, o.z - site.z);
-      if (d <= best) {
-        best = d;
-        next = o;
-      }
-    }
-    e.order = next ? { type: 'build', targetEntityId: next.id } : { type: 'guard' };
-    h.working = null;
+    constructSite(e, h, goal.target!, entities, dt, events);
   }
 }
 
@@ -424,10 +436,12 @@ export function heroWhirlwindSystem(entities: Entity[], dt: number, events: Hero
         if (o.isBuilding && !getBuilding(o.unitId).targetable) continue;
         const reach = targetDistance(e.x, e.z, o) - (o.wall ? 0 : o.stats.radius);
         if (reach > w.radiusTiles) continue;
-        applyDamageToEntity(o, damage);
+        // Tourbillon = degats PHYSIQUES (2026-11-05, G46) : il fige l'attaque
+        // de base, donc la progression physique, jamais la magique.
+        applyDamageToEntity(o, damage, 'physical');
         hits.push(o.id);
       }
-      events.push({ type: 'whirlwindPulse', heroId: e.id, x: e.x, z: e.z, pulse: w.pulses, damage, hits });
+      events.push({ type: 'whirlwindPulse', heroId: e.id, x: e.x, z: e.z, pulse: w.pulses, damage, hits, damageType: 'physical' });
     }
     if (w.pulses >= total) {
       h.whirlwind = null;
@@ -534,7 +548,7 @@ export function heroDeathSystem(entities: Entity[], aliveBefore: ReadonlySet<num
     if (dead.isBuilding) continue;
     for (const h of heroes) {
       // Objet destructible (baril) : pas d'XP.
-      if (dead.destructible !== null || !h.alive || h.team === dead.team || Math.hypot(h.x - dead.x, h.z - dead.z) > HERO_XP_SHARE_RADIUS) continue;
+      if (dead.destructible !== null || !h.alive || h.team === dead.team || Math.hypot(h.x - dead.x, h.z - dead.z) > HERO_XP_RANGE) continue;
       gainHeroXp(h, heroXpForKill(dead.unitId), events);
     }
   }
@@ -573,6 +587,8 @@ export function refreshHeroStats(e: Entity, rule: 'add' | 'ratio'): void {
   const prevMaxHp = e.stats.maxHp;
   const maxHp = base.maxHp + b.maxHp;
   // Vitesse : niveau + equipement, puis le multiplicateur global (data/units.ts).
+  // Degats : base + bonus PHYSIQUE seulement (b.magicDamage ne touche ni
+  // l'attaque de base ni le Tourbillon, 2026-11-05).
   e.stats = { ...e.stats, maxHp, damage: base.damage + b.damage, moveSpeed: (base.moveSpeed + b.moveSpeed) * UNIT_MOVE_SPEED_MULTIPLIER, attackCooldown: base.attackCooldown / (1 + b.attackSpeed) };
   e.hp = adjustCurrent(e.hp, prevMaxHp, maxHp, rule);
   const prevMaxMana = h.maxMana;

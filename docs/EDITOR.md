@@ -128,7 +128,8 @@ L'éditeur n'a jamais de brouillard de guerre : toute la carte est visible
 - **Départ Survie** : la position de la **Baliste principale** et, depuis
   le 2026-11-04, le **camp de départ préconstruit** qui l'entoure (preset
   `basic-camp` : deux Maisons A et B, Auberge, enceinte **arrondie** de
-  Palissade V2 (dodécagone de rayon 10,5 cases, 25 pièces) avec une porte
+  Palissade V2 (dodécagone de rayon 15 cases, 36 pièces, depuis le
+  2026-11-05 ; 10,5 et 25 avant) avec une porte
   ouverte, Héros et deux Villageois dans la cour). Un seul par carte : l'outil pose la Baliste au clic (emprise 3 × 3
   calée sur la grille) et **remplace** l'ancien départ ; l'outil revient à
   Sélection, départ sélectionné. L'**aperçu** montre la Baliste, l'**emprise
@@ -140,7 +141,12 @@ L'éditeur n'a jamais de brouillard de guerre : toute la carte est visible
   qui suivent le Départ et ne sont jamais
   enregistrés dans la carte : des rochers et des arbres dérivés, pas des
   objets de l'éditeur ; leurs cases comptent comme occupées dans la
-  validation du Départ) avec le contour bleu de son emprise ; un clic sur
+  validation du Départ) avec le contour bleu de son emprise (rayon 17 ; un
+  camp neutre doit être à 21 cases au moins du Départ). Validation :
+  avertissement « Aucun gisement d'or visible hors de l'enceinte au
+  départ » si aucun gisement d'or n'est à la fois hors de l'enceinte et
+  dans la vision initiale de la Baliste (le générateur en garantit un) ;
+  un clic sur
   n'importe laquelle de ses pièces sélectionne le Départ. Départ déjà
   sélectionné, un clic sur le camp (hors Baliste) le déplace à cet endroit,
   même de deux cases. La porte s'ouvre

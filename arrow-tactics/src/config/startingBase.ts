@@ -59,6 +59,9 @@ export interface StartingBasePreset {
   /** Bosquet garanti : centres relatifs d'arbres 1 x 1 (entiers depuis la
    *  Baliste, elle-meme centree sur une case), au moins six, groupes. */
   trees: readonly { dx: number; dz: number }[];
+  /** Ressource proche garantie HORS de l'enceinte (generateur) : un gisement
+   *  d'or a `distance` cases de la Baliste, visible au depart. */
+  nearbyGold: { distance: number };
 }
 
 /** Marge (cases) autour de l'enceinte reservee au camp de depart : ni camp,
@@ -66,43 +69,51 @@ export interface StartingBasePreset {
 export const STARTING_BASE_MARGIN = 2;
 
 export const STARTING_BASE_PRESETS: Readonly<Record<string, StartingBasePreset>> = {
-  /** Petit camp de depart : Baliste au centre, deux Maisons (A au nord-ouest,
-   *  B a l'ouest), l'Auberge a l'est, tous contre l'enceinte pour laisser le
-   *  milieu libre ; cour au sud ou apparaissent le Heros et deux Villageois ;
-   *  enceinte de Palissade V2 en dodecagone de rayon 10,5 (diametre 21,
-   *  environ 330 cases dedans), porte ouverte de 2,4 cases au milieu du cote
-   *  sud. 25 pieces (22 segments de 2,7, 2 bouts de 1,5, 1 porte). */
+  /** Camp de depart (2026-11-05, G46 : nettement agrandi, rayon 10,5 -> 15) :
+   *  Baliste au centre, deux Maisons (A au nord-ouest, B a l'ouest) et
+   *  l'Auberge a l'est repoussees contre l'enceinte, cour au sud ou
+   *  apparaissent le Heros et deux Villageois ; enceinte de Palissade V2 en
+   *  dodecagone de rayon 15 (apotheme 14,5, diametre 30, environ 650 cases
+   *  dedans, deux fois la surface d'avant), porte ouverte de 2,4 cases au
+   *  milieu du cote sud. Grande cour centrale libre pour construire. */
   'basic-camp': {
     id: 'basic-camp',
     name: 'Petit camp',
     buildings: [
-      { buildingId: 'house', dx: -5.5, dz: -4.5, faceX: 1, faceZ: 0, modelVariant: 0 },
-      { buildingId: 'house', dx: -7.5, dz: 0.5, faceX: 1, faceZ: 0, modelVariant: 1 },
-      { buildingId: 'tavern', dx: 7.5, dz: -0.5, faceX: -1, faceZ: 0 },
+      { buildingId: 'house', dx: -8.5, dz: -6.5, faceX: 1, faceZ: 0, modelVariant: 0 },
+      { buildingId: 'house', dx: -10.5, dz: 0.5, faceX: 1, faceZ: 0, modelVariant: 1 },
+      { buildingId: 'tavern', dx: 11.5, dz: -0.5, faceX: -1, faceZ: 0 },
     ],
-    enclosure: { type: 'palisade', sides: 12, radius: 10.5, gateLength: 2.4 },
+    enclosure: { type: 'palisade', sides: 12, radius: 15, gateLength: 2.4 },
     units: [
       { unitId: 'villageois', dx: -2.5, dz: 3.5 },
       { unitId: 'villageois', dx: 2.5, dz: 3.5 },
     ],
     hero: { dx: 0, dz: 3 },
-    // Pierre au nord-est (derriere l'Auberge, cote oppose a la porte), or
-    // au sud-ouest (cour, a l'ecart de l'axe de la porte et des places
-    // d'apparition) ; coins a ~8,5 cases du centre pour ~1,6 case libre
-    // devant l'enceinte (apotheme 10,14). PROVISOIRE.
+    // Pierre au nord-est (cote oppose a la porte), or au sud-ouest (a
+    // l'ecart de l'axe de la porte et des places d'apparition), tous deux
+    // vers la peripherie interieure (coins a ~12,7 cases du centre, ~2 cases
+    // libres devant l'enceinte). PROVISOIRE.
     deposits: [
-      { resource: 'stone', dx: 4.5, dz: -5.5 },
-      { resource: 'gold', dx: -4.5, dz: 5.5 },
+      { resource: 'stone', dx: 7.5, dz: -8.5 },
+      { resource: 'gold', dx: -7.5, dz: 8.5 },
     ],
-    // Bosquet de 7 arbres au nord (cote oppose a la porte), entre la Maison A
-    // et le gisement de pierre, a 2 cases d'eux et a ~1,6 case de l'enceinte
-    // (comme les gisements) : amas compact de deux rangs decales, sans case
-    // libre enclavee ni passage d'une case (KI-65) ; la cour reste libre.
-    // PROVISOIRE.
+    // Bosquet de 7 arbres au nord (cote oppose a la porte), contre
+    // l'enceinte (~2 cases libres), loin de la Maison A et de la pierre :
+    // amas compact de deux rangs decales, sans case libre enclavee ni passage
+    // d'une case (KI-65) ; la cour reste libre. PROVISOIRE.
     trees: [
-      { dx: -2, dz: -8 }, { dx: -1, dz: -8 }, { dx: 0, dz: -8 }, { dx: 1, dz: -8 },
-      { dx: -2, dz: -7 }, { dx: -1, dz: -7 }, { dx: 0, dz: -7 },
+      { dx: -2, dz: -12 }, { dx: -1, dz: -12 }, { dx: 0, dz: -12 }, { dx: 1, dz: -12 },
+      { dx: -2, dz: -11 }, { dx: -1, dz: -11 }, { dx: 0, dz: -11 },
     ],
+    // Or proche garanti (2026-11-05, G46 : au moins deux gisements d'or
+    // visibles au depart, celui de l'enceinte et un second dehors) : centre
+    // a cette distance de la Baliste, hors murs (>= rayon + 2), hors de
+    // l'axe de la porte, dans la vision initiale de la Baliste
+    // (data/vision.ts VISION_RADIUS.ballista 21 > 18,5 + 1,5). Pose par le
+    // generateur (config/maps/proceduralSurvival.ts) ; une carte dessinee
+    // sans or visible dehors recoit un avertissement de l'editeur.
+    nearbyGold: { distance: 18.5 },
   },
 };
 

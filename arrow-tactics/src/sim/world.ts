@@ -1293,7 +1293,7 @@ export class World {
     // (un Tourbillon lance pendant ce pas ne compte pas ce pas).
     if (hasHero) heroWhirlwindSystem(this.entities, dt, this.heroEvents);
     if (hasHero) heroWorkSystem(this.entities, this.heroWork(), dt, this.heroEvents, this.cargoEvents);
-    if (this.entities.some((e) => e.worker)) workerSystem(this.entities, this.heroWork(), dt, this.cargoEvents);
+    if (this.entities.some((e) => e.worker)) workerSystem(this.entities, this.heroWork(), dt, this.cargoEvents, this.heroEvents);
     // Sources epuisees pendant ce pas : retirees (arbre abattu : passage
     // ouvert des le pas suivant).
     if (this.depletedThisStep.length > 0) {

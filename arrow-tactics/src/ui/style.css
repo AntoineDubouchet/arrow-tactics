@@ -3409,3 +3409,68 @@ canvas.canvas--spell-target { cursor: default; }
 .hero-inventory-header { cursor: move; }
 .hero-inventory-close { cursor: pointer; }
 .hero-inventory--moving { cursor: move; user-select: none; }
+
+/* Recompense de vague (2026-11-05, G46) : panneau non bloquant, deux cartes. */
+.wave-reward {
+  position: fixed;
+  left: 50%;
+  top: 56px;
+  transform: translateX(-50%);
+  width: 440px;
+  padding: 10px 12px 12px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-top: 3px solid var(--accent-gold);
+  border-radius: 6px;
+  z-index: 6;
+}
+.wave-reward-title {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.wave-reward-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.wave-reward-card {
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--rarity, var(--edge));
+  border-radius: 5px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.wave-reward-card:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+.wave-reward-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.wave-reward-card-name {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.wave-reward-card-meta {
+  color: var(--ink-dim);
+  margin-bottom: 6px;
+}
+.wave-reward-card-stats {
+  margin: 0;
+  padding-left: 14px;
+}
+.wave-reward-foot {
+  margin-top: 8px;
+  color: var(--ink-dim);
+}
+.wave-reward-foot--full {
+  color: #e39a6c;
+}

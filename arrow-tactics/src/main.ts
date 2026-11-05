@@ -187,6 +187,7 @@ import {
 } from './run/entityInfo';
 import {
   applyWaveVictory,
+  takeWaveReward,
   computeEnemyWaveComposition,
   createNewRun,
   formatGold,
@@ -242,6 +243,9 @@ import { DebugPanel } from './ui/debug';
 import { Screens } from './ui/screens';
 import { SelectionBox } from './ui/selectionBox';
 import { TalentPointToast } from './ui/talentPointToast';
+import { WaveRewardPanel } from './ui/waveRewardPanel';
+import { waveRewardChoices } from './run/waveRewards';
+import { freeSlotCount } from './sim/inventory';
 import { WaveTransition } from './ui/waveTransition';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -284,6 +288,19 @@ const heroInventory = new HeroInventoryPanel(
   loadInventoryWindowPosition(),
   saveInventoryWindowPosition,
 );
+/** Recompense de vague (2026-11-05, G46) : choix d'un equipement parmi deux,
+ *  au niveau de la vague ; la partie continue pendant le choix ; sac plein :
+ *  la recompense attend ; plusieurs vagues : file, une a la fois. */
+const waveRewardPanel = new WaveRewardPanel((choice, wave) => {
+  if (!inBattlePhase() || inTestMode) return;
+  if (freeSlotCount(heroInventoryState()) === 0) {
+    waveIndicator.flash('Inventaire plein : libérez une case pour choisir la récompense');
+    return;
+  }
+  if (!takeWaveReward(currentRun, wave)) return;
+  heroInventoryAction({ type: 'add', itemId: choice.itemId, level: choice.level });
+  waveIndicator.flash(`Récompense de vague ${wave} : ${choice.def.name} (niveau ${choice.level}) dans le sac`);
+});
 /** Ligne economique permanente (stock utilisable, population), en haut a droite. */
 const economyHud = new EconomyHud();
 /** Barre d'action globale, centree au-dessus de la barre d'XP. */
@@ -1726,9 +1743,9 @@ function toggleBuildMenu(): void {
     buildMenu.close();
     return;
   }
-  const hero = playerHero();
-  // Heros permanent : il construit des qu'il recoit les ordres (selection ou implicite).
-  if (!hero?.alive || !heroIsCommanded()) return;
+  // Heros permanent : il construit des qu'il recoit les ordres (selection ou
+  // implicite) ; un Villageois selectionne construit aussi (2026-11-05, G46).
+  if (builderIds().length === 0) return;
   buildMenu.open(buildChoices());
 }
 
@@ -1772,6 +1789,21 @@ function equipHeroItem(itemId: string): boolean {
 /** Acces developpeur (console, tests) : stock utilisable de la run
  *  (`arrowEconomy.stock()`, `arrowEconomy.set({ gold: 0 })`) ; ce que le
  *  Heros porte reste dans son inventaire (`arrowItems.list()`). */
+/** Acces developpeur (console, tests) : recompenses de vague et groupe de
+ *  batiments inspecte (2026-11-05, G46). `arrowRewards.grant()` ajoute la
+ *  recompense de la vague en cours comme une vague repoussee (sans toucher
+ *  aux vagues). */
+(window as unknown as Record<string, unknown>)['arrowRewards'] = {
+  grant: () => applyWaveVictory(currentRun, currentRun.mapSeed),
+  pending: () => currentRun.pendingRewards.map((r) => ({ ...r, choices: waveRewardChoices(r).map((c) => ({ itemId: c.itemId, level: c.level, stats: c.stats })) })),
+  panelVisible: () => waveRewardPanel.isVisible(),
+};
+(window as unknown as Record<string, unknown>)['arrowInspection'] = {
+  primary: () => battleInspectedEntityId,
+  group: () => [...battleInspectedGroupIds],
+  placing: () => buildingPlacementMode?.buildingId ?? null,
+  builders: () => builderIds(),
+};
 (window as unknown as Record<string, unknown>)['arrowEconomy'] = {
   stock: () => ({ wood: currentRun.resources.wood, stone: currentRun.resources.stone, gold: currentRun.gold }),
   set: (s: { wood?: number; stone?: number; gold?: number }) => {
@@ -1830,8 +1862,10 @@ let heroInventoryRefreshAt = 0;
 function updateHeroUi(): void {
   const hero = playerHero();
   const survival = inBattlePhase() && !inTestMode;
-  const heroSelected = hero !== null && hero.alive && heroIsCommanded();
-  buildMenu.setEnabled(survival && heroSelected, hero && !hero.alive ? 'Le Héros est à terre' : 'Désélectionnez l\'unité pour reprendre le Héros');
+  // Construire (2026-11-05, G46) : le Heros ou un Villageois commande (un
+  // Villageois selectionne construit avec les memes regles que le Heros).
+  const builderSelected = builderIds().length > 0;
+  buildMenu.setEnabled(survival && builderSelected, hero && !hero.alive && !builderSelected ? 'Le Héros est à terre' : 'Sélectionnez le Héros ou un Villageois pour construire');
   if (buildMenu.isOpen() && performance.now() >= buildMenuRefreshAt) {
     buildMenuRefreshAt = performance.now() + 250;
     buildMenu.refresh(buildChoices());
@@ -1842,6 +1876,9 @@ function updateHeroUi(): void {
   if (heroView && hero?.hero) applyHeroEquipmentVisual(heroView, equippedHandVisuals(hero.hero.inventory));
   // L'inventaire en jeu (simulation) est recopie dans la run.
   if (hero?.hero && !inTestMode) currentRun.hero.inventory = hero.hero.inventory;
+  // Recompense de vague en attente (G46) : la premiere de la file.
+  const pendingReward = survival ? currentRun.pendingRewards[0] : undefined;
+  waveRewardPanel.sync(pendingReward ? { wave: pendingReward.wave, choices: waveRewardChoices(pendingReward), queued: currentRun.pendingRewards.length - 1, inventoryFull: freeSlotCount(heroInventoryState()) === 0 } : null);
   if (heroInventory.isOpen() && performance.now() >= heroInventoryRefreshAt) {
     heroInventoryRefreshAt = performance.now() + 250;
     const sheet = heroSheet();
@@ -1973,12 +2010,14 @@ function completeSurvivalWave(): void {
   survivalWaveActive = false;
   const cleared = currentRun.waveNumber;
   const talentPointsBefore = metaProgress.talentPoints;
-  const bonus = applyWaveVictory(currentRun);
+  // Recompense d'equipement (2026-11-05, G46) a la place de l'ancien +5 or :
+  // deux propositions au niveau de la vague, en attente du choix du joueur.
+  applyWaveVictory(currentRun, currentRun.mapSeed);
   if (registerWaveReached(metaProgress, currentRun.waveNumber)) saveMetaProgress(metaProgress);
   if (metaProgress.talentPoints > talentPointsBefore) talentPointToast.show(metaProgress.talentPoints - talentPointsBefore);
   survivalNextWaveTick = world.tick + Math.round(SURVIVAL_NEXT_WAVE_DELAY_SECONDS * SIM_HZ);
   refreshWaveIndicator();
-  waveIndicator.flash(`Vague ${cleared} repoussée ! +${formatGold(bonus)} or`);
+  waveIndicator.flash(`Vague ${cleared} repoussée ! Récompense : choisissez un équipement`);
 }
 
 /** Batiment possede `index` de la run, cree en jeu (chantier pose en temps
@@ -5149,7 +5188,10 @@ function currentEntityInfoBase(): EntityInfoViewModel | null {
     }
     // Prochaine production de la Mine (aucune en « Tester le scénario »).
     const mineNextIn = inspected.unitId === 'mine' && !inTestMode ? mineProductionIntervalSeconds() - (mineProductionTimers.get(inspected.id) ?? 0) : null;
-    return battleBuildingInfo(inspected, battleOwnedBuildingLevel(inspected), mineNextIn);
+    const info = battleBuildingInfo(inspected, battleOwnedBuildingLevel(inspected), mineNextIn);
+    // Groupe homogene (double-clic, G46) : « Maisons ×4 » ; fiche et actions
+    // restent celles du batiment principal.
+    return battleInspectedGroupIds.size > 1 ? { ...info, title: `${info.title} ×${battleInspectedGroupIds.size}` } : info;
   }
   const aliveEntities = (ids: number[]): Entity[] => ids.map((id) => world.getById(id)).filter((e): e is Entity => e !== undefined && e.alive);
   // Ennemis inspectes (jamais dans battleSelection, donc jamais commandes) :
@@ -5207,6 +5249,27 @@ function cancelCommandDrag(): void {
  *  DOUBLE_CLICK_WINDOW_MS) ; etat separe de celui de l'editeur. */
 let lastBattleUnitClickId: number | null = null;
 let lastBattleUnitClickTime = 0;
+/** Double-clic sur un batiment allie (2026-11-05, G46) : etat separe de celui
+ *  des unites. */
+let lastBattleBuildingClickId: number | null = null;
+let lastBattleBuildingClickTime = 0;
+/** Groupe homogene de batiments inspectes (meme camp, meme type, visibles a
+ *  l'ecran au double-clic) : anneaux sur tous, fiche et actions sur le
+ *  batiment principal (battleInspectedEntityId) seulement. Vide hors groupe. */
+let battleInspectedGroupIds = new Set<number>();
+
+/** Double-clic sur un batiment allie : tous les batiments vivants du meme
+ *  camp et du meme type (BuildingDef.id) visibles a l'ecran (viewport, hors
+ *  brouillard) ; le batiment clique reste le principal. */
+function inspectVisibleSameTypeBuildings(anchor: Entity): void {
+  const rect = canvas.getBoundingClientRect();
+  const ids = world.entities.filter((e) => e.alive && e.isBuilding && !e.destructible && e.team === anchor.team && e.unitId === anchor.unitId && !hiddenByFog(e) && isInScreenRect(worldToScreen(e.x, e.z), rect)).map((e) => e.id);
+  setBattleSelection([]);
+  battleInspectedEntityId = anchor.id;
+  battleInspectedGroupIds = new Set(ids.length > 0 ? ids : [anchor.id]);
+  selectedPileId = null;
+  selectedResourceNodeId = null;
+}
 
 /** Clic gauche (sans glisser) en bataille. Sans Shift : l'unite
  *  alliee vivante sous le curseur devient l'unique selection, un clic
@@ -5241,8 +5304,18 @@ function resolveBattleSelectionClick(event: MouseEvent): void {
       setBattleEnemyInspection(alreadyAlone ? [] : [enemyUnit.id]);
       return;
     }
-    // Bâtiment allie ou Baliste : bascule de l'inspection.
+    // Bâtiment allie ou Baliste : bascule de l'inspection ; double-clic
+    // (2026-11-05, G46) : tous les batiments allies du meme type visibles.
     const building = pickBattleInspectableBuilding(event, picked);
+    const nowB = performance.now();
+    if (building !== null && building.team === 'player' && building.id === lastBattleBuildingClickId && nowB - lastBattleBuildingClickTime < DOUBLE_CLICK_WINDOW_MS) {
+      lastBattleBuildingClickId = null;
+      inspectVisibleSameTypeBuildings(building);
+      return;
+    }
+    lastBattleBuildingClickId = building ? building.id : null;
+    lastBattleBuildingClickTime = nowB;
+    battleInspectedGroupIds = new Set();
     const next = building !== null && building.id !== battleInspectedEntityId ? building.id : null;
     // Petit tas explore sous le curseur (2026-11-02) : selection (anneau
     // jaune, quantite) ; un second clic dessus la retire.
@@ -5321,6 +5394,37 @@ function setBattleEnemyInspection(entityIds: Iterable<number>): void {
 let battleInspectedEntityId: number | null = null;
 let battleInspectionRing: THREE.Mesh | null = null;
 let battleInspectionRingEntityId: number | null = null;
+/** Anneaux des autres batiments du groupe inspecte (G46), par signature. */
+const battleGroupRings: THREE.Mesh[] = [];
+let battleGroupRingsKey = '';
+
+/** A chaque image, apres syncBattleInspection : le groupe suit le batiment
+ *  principal (vide des que l'inspection change ou se vide, membres morts
+ *  retires), un anneau par membre autre que le principal. */
+function syncBattleInspectionGroup(): void {
+  if (battleInspectedEntityId === null || !battleInspectedGroupIds.has(battleInspectedEntityId)) battleInspectedGroupIds = new Set();
+  for (const id of battleInspectedGroupIds) { const e = world.getById(id); if (!e || !e.alive) battleInspectedGroupIds.delete(id); }
+  const key = [...battleInspectedGroupIds].filter((id) => id !== battleInspectedEntityId).join(',');
+  if (key === battleGroupRingsKey) return;
+  battleGroupRingsKey = key;
+  for (const ring of battleGroupRings) {
+    renderer.scene.remove(ring);
+    ring.geometry.dispose();
+    (ring.material as THREE.Material).dispose();
+  }
+  battleGroupRings.length = 0;
+  for (const id of battleInspectedGroupIds) {
+    if (id === battleInspectedEntityId) continue;
+    const entity = world.getById(id);
+    if (!entity) continue;
+    const def = getBuilding(entity.unitId);
+    const ring = createEditorSelectionRing(Math.hypot(def.footprintTilesX ?? 1, def.footprintTilesZ ?? 1) / 2 + 0.2);
+    ring.position.set(entity.x, 0.02 + surfaceY(entity.x, entity.z), entity.z);
+    (ring.material as THREE.MeshBasicMaterial).color.setHex(teamColor(entity.team));
+    renderer.scene.add(ring);
+    battleGroupRings.push(ring);
+  }
+}
 
 /** Bâtiment allie vivant sous le curseur : la Mine ou la Caserne pointee,
  *  sinon celui dont l'empreinte au sol contient le point vise. La Baliste
@@ -5406,9 +5510,13 @@ function rtsCommandIds(): number[] {
 }
 
 /** Vrai si le Heros recoit les ordres (selectionne, ou implicitement). */
-function heroIsCommanded(): boolean {
-  const hero = playerHero();
-  return hero !== null && rtsCommandIds().includes(hero.id);
+/** Constructeurs commandes : Heros et Villageois vivants parmi les unites
+ *  qui recoivent les ordres (2026-11-05, G46). */
+function builderIds(): number[] {
+  return rtsCommandIds().filter((id) => {
+    const e = world.getById(id);
+    return e !== undefined && e.alive && (e.hero !== null || e.worker !== null);
+  });
 }
 
 /** Clic droit seul en bataille, en attente de son relachement : il
@@ -6139,13 +6247,26 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
     ...(modelVariant !== undefined ? { modelVariant } : {}),
     constructionProgress: 0,
   });
-  spawnCoinPopup(economyHud.goldElement, -cost);
-  cancelBuildingPlacement();
-  // Chantier cree tout de suite (attaquable), le Heros vivant part le
-  // construire.
+  if (cost > 0) spawnCoinPopup(economyHud.goldElement, -cost);
+  // Maj maintenue au clic (2026-11-05, G46, pose repetee facon RTS) : le
+  // mode de pose reste actif avec le meme batiment, chaque pose validee et
+  // payee separement ; sans Maj, sortie du mode comme avant.
+  const keep = event.shiftKey;
+  if (!keep) cancelBuildingPlacement();
+  // Chantier cree tout de suite (attaquable) ; les constructeurs commandes
+  // (Heros ou Villageois selectionnes, G46) partent le construire, le Heros
+  // vivant a defaut.
   const site = spawnOwnedBuildingRealtime(currentRun.buildings.length - 1);
+  const builders = builderIds();
   const hero = world.entities.find((e) => e.hero && e.alive && e.team === 'player');
-  if (hero) world.issueCommand({ kind: 'build', entityIds: [hero.id], targetEntityId: site.id });
+  const ids = builders.length > 0 ? builders : hero ? [hero.id] : [];
+  if (ids.length > 0) world.issueCommand({ kind: 'build', entityIds: ids, targetEntityId: site.id });
+  if (keep) {
+    if (currentRun.gold < getEffectiveBuildingCost(def.id) || !canAffordBuildingResources(def.id)) {
+      cancelBuildingPlacement();
+      waveIndicator.flash(`Ressources insuffisantes pour un autre bâtiment : ${def.displayName}`);
+    } else updateBuildingPlacementGhost(lastBuildingGhostGroundX, lastBuildingGhostGroundZ);
+  }
   return true;
 }
 
@@ -6836,6 +6957,7 @@ const loop = new Loop(
     // « Tester le scenario ».
     ballistaIndicator.update(inBattlePhase() && !pauseMenuOpen && inTestMode, currentBallistaStatus(), battleSelection.size, ballistaFireMode);
     syncBattleInspection();
+    syncBattleInspectionGroup();
     updateEntityInfoPanel(now);
 
     // Fait avancer les fleches en attente de depart (voir pendingArrowSpawns) :

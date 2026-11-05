@@ -23,9 +23,9 @@ const near = (a: { x: number; z: number }, b: { x: number; z: number }, eps = 1e
   const full = expandMapCamps(map);
   const props = map.camps.reduce((n: number, c: any) => n + campLayoutOf(c).props.length, 0);
   const barrels = map.camps.reduce((n: number, c: any) => n + campLayoutOf(c).barrels.length, 0);
-  check('generateSurvivalMap 12345 : 2 camps {kind, x, z, level 1, facing}, sans coffre / postes / rayon ni decor ecrit ; expandMapCamps : + 7 / 9 props et 2 / 3 barils derives, carte d origine intacte',
+  check('generateSurvivalMap 12345 : 2 camps {kind, x, z, level 1, facing}, sans coffre / postes / rayon ni decor ecrit ; expandMapCamps : + 7 / 9 props et 2 / 3 barils derives (barils omis s ils pincent un gisement, G46), carte d origine intacte',
     map.camps.length === 2 && map.camps.every((c: any) => c.level === 1 && typeof c.facing === 'number' && !('chest' in c) && !('guardPosts' in c) && !('radius' in c)) && map.destructibles === undefined
-    && props === 16 && barrels === 5 && full.obstacles.length === map.obstacles.length + props && full.destructibles.length === barrels && map.obstacles.length < full.obstacles.length,
+    && props === 16 && barrels === 5 && full.obstacles.length === map.obstacles.length + props && full.destructibles.length <= barrels && full.destructibles.length >= 1 && map.obstacles.length < full.obstacles.length,
     { camps: map.camps, props, barrels });
 }
 
@@ -50,11 +50,11 @@ const near = (a: { x: number; z: number }, b: { x: number; z: number }, eps = 1e
   const placedStart = e.placeFeatureAt('start', 0.4, 0.3);
   const v1 = e.survivalValidation();
   check('Depart Survie pose par l outil (0,4 ; 0,3) -> cale (0,5 ; 0,5), explicite ; validation sans erreur', placedStart && e.ballistaExplicit && e.ballista.x === 0.5 && e.ballista.z === 0.5 && v1.errors.length === 0, { b: e.ballista, v1 });
-  check(`camp a moins de ${CAMP_START_CLEARANCE} cases du Depart : refuse ; a 20 cases : accepte`, /Départ Survie|camp de départ/.test(e.campPlacementIssue(8.5, 0.5) ?? '') && e.campPlacementIssue(20.5, 0.5) === null, { close: e.campPlacementIssue(8.5, 0.5) });
-  const small = e.placeFeatureAt('camp:raiders_small', 20.2, 0.7);
+  check(`camp a moins de ${CAMP_START_CLEARANCE} cases du Depart : refuse ; a 24 cases : accepte`, /Départ Survie|camp de départ/.test(e.campPlacementIssue(8.5, 0.5) ?? '') && e.campPlacementIssue(24.5, 0.5) === null, { close: e.campPlacementIssue(8.5, 0.5) });
+  const small = e.placeFeatureAt('camp:raiders_small', 24.2, 0.7);
   const camp = e.features.find((f: any) => f.kind === 'camp');
-  check('Petit camp pose en (20,2 ; 0,7) -> centre de case (20,5 ; 0,5), niveau 1, dos a l oppose du Depart (facing ~ 0)', small && camp && camp.camp.kind === 'raiders_small' && camp.camp.x === 20.5 && camp.camp.z === 0.5 && camp.camp.level === 1 && Math.abs(camp.camp.facing - campFacingFrom(20.5, 0.5, { x: 0.5, z: 0.5 })) < 1e-9 && Math.abs(camp.camp.facing) < 0.05, camp?.camp);
-  check(`Grand camp a moins de ${CAMP_MIN_SPACING} cases du petit : refuse ; a 12 cases : accepte (2 camps)`, /autre camp/.test(e.campPlacementIssue(26.5, 0.5) ?? '') && e.placeFeatureAt('camp:raiders_large', 20.5, 12.5) && e.features.filter((f: any) => f.kind === 'camp').length === 2, { close: e.campPlacementIssue(26.5, 0.5) });
+  check('Petit camp pose en (24,2 ; 0,7) -> centre de case (24,5 ; 0,5), niveau 1, dos a l oppose du Depart (facing ~ 0)', small && camp && camp.camp.kind === 'raiders_small' && camp.camp.x === 24.5 && camp.camp.z === 0.5 && camp.camp.level === 1 && Math.abs(camp.camp.facing - campFacingFrom(24.5, 0.5, { x: 0.5, z: 0.5 })) < 1e-9 && Math.abs(camp.camp.facing) < 0.05, camp?.camp);
+  check(`Grand camp a moins de ${CAMP_MIN_SPACING} cases du petit : refuse ; a 12 cases : accepte (2 camps)`, /autre camp/.test(e.campPlacementIssue(30.5, 0.5) ?? '') && e.placeFeatureAt('camp:raiders_large', 24.5, 12.5) && e.features.filter((f: any) => f.kind === 'camp').length === 2, { close: e.campPlacementIssue(30.5, 0.5) });
   // Obstacle bloquant dans la clairiere : refuse ; decor traversable : accepte.
   e.obstacles = [...e.obstacles, { id: 9001, kind: 'tree', tilesX: 1, tilesZ: 1, cornerX: -20, cornerZ: 1 } as any];
   e.obstacles = [...e.obstacles, { id: 9002, kind: 'prop', tilesX: 1, tilesZ: 1, propModel: 'kaykit_crate_A_big', x: 0.5, z: 30.5 } as any];
@@ -65,7 +65,7 @@ const near = (a: { x: number; z: number }, b: { x: number; z: number }, eps = 1e
   const after = e.features.find((f: any) => f.id === camp.id);
   const refused = e.moveFeatureTo(camp.id, 8.5, 0.5);
   const same = e.moveFeatureTo(camp.id, -20.5, -20.5);
-  check('deplacement du petit camp en (-20,3 ; -20,6) -> (-20,5 ; -20,5), orientation gardee, nouvel objet ; vers le Depart : refuse ; meme case : rien', moved && after.camp.x === -20.5 && after.camp.z === -20.5 && after.camp.facing === beforeObj.camp.facing && after !== beforeObj && beforeObj.camp.x === 20.5 && !refused && !same, { after: after.camp });
+  check('deplacement du petit camp en (-20,3 ; -20,6) -> (-20,5 ; -20,5), orientation gardee, nouvel objet ; vers le Depart : refuse ; meme case : rien', moved && after.camp.x === -20.5 && after.camp.z === -20.5 && after.camp.facing === beforeObj.camp.facing && after !== beforeObj && beforeObj.camp.x === 24.5 && !refused && !same, { after: after.camp });
   // Niveau.
   const lv = e.setCampLevel(camp.id, 5);
   const lvBad = e.setCampLevel(camp.id, 0);
@@ -76,16 +76,19 @@ const near = (a: { x: number; z: number }, b: { x: number; z: number }, eps = 1e
   // Depart Survie : deplacement, refus pres d un camp.
   const startNear = e.startPlacementIssue(-18.5, -18.5);
   // Camp arrondi (2026-11-04) : 17 cases au moins entre le Depart et un camp ; (4,5 ; 4,5) est a 17,9 du grand camp.
-  const startMoved = e.moveBallista(4.2, 4.1);
-  check('Depart Survie : refus a moins de 17 cases d un camp (« camp trop proche ») ; deplace en (4,2 ; 4,1) -> cale', /camp trop proche \(moins de 17 cases\)/.test(startNear ?? '') && startMoved && e.ballista.x === 4.5 && e.ballista.z === 4.5, { startNear, b: e.ballista });
+  const startMoved = e.moveBallista(-2.8, 10.1);
+  check('Depart Survie : refus a moins de 21 cases d un camp (« camp trop proche », G46) ; deplace en (-2,8 ; 10,1) -> cale (-2,5 ; 10,5)', /camp trop proche/.test(startNear ?? '') && startMoved && e.ballista.x === -2.5 && e.ballista.z === 10.5, { startNear, b: e.ballista });
   // Suppression : le camp entier (une seule feature) ; snapshot / restore.
   const snap = e.objectsSnapshot();
   e.select({ kind: 'feature', id: camp.id }); e.deleteSelected();
   const gone = !e.features.some((f: any) => f.id === camp.id);
   e.restoreObjects(snap);
   check('Suppr : le camp (objet unique) disparait ; restauration : revenu avec son niveau 5', gone && e.features.find((f: any) => f.id === camp.id)?.camp.level === 5);
+  // Or proche garanti (G46) : sans gisement d'or visible hors de l'enceinte, l'editeur avertit ; un gisement a 18,5 cases du Depart (-2,5 ; 10,5) leve l'avertissement.
+  const v1b = e.survivalValidation();
+  e.obstacles = [...e.obstacles, { id: 9003, kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: 15, cornerZ: 10, ore: 'gold' } as any];
   const v2 = e.survivalValidation();
-  check('validation finale : 0 erreur, aucun avertissement (l arbre ajoute compte comme ressource ; la palissade du camp de depart compte, 2026-11-04)', v2.errors.length === 0 && v2.warnings.length === 0, v2);
+  check('validation finale : avertissement « or visible hors de l enceinte » tant qu il manque, puis 0 erreur et aucun avertissement avec un gisement d or a 18,5 cases (l arbre ajoute compte comme ressource ; la palissade du camp de depart compte)', v1b.warnings.some((w: string) => /or visible/.test(w)) && v2.errors.length === 0 && v2.warnings.length === 0, { v1b, v2 });
 }
 // 5. Determinisme du decor.
 check('determinisme : meme camp -> meme decor', JSON.stringify(campLayoutOf({ kind: 'raiders_large', x: 3.5, z: -7.5, level: 2, facing: 2.1 })) === JSON.stringify(campLayoutOf({ kind: 'raiders_large', x: 3.5, z: -7.5, level: 2, facing: 2.1 })));

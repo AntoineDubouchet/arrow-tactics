@@ -23,7 +23,7 @@ const { computeStartingGoldBonus, computeTalentEconomyHooks } = await import(SRC
 const { computePlayerUnitStats } = await import(SRC + 'run/playerUnitStats.ts');
 const { effectivePlayerArrowCooldown, playerArrowBoltsPerVolley } = await import(SRC + 'run/ballistaStats.ts');
 const { TALENT_STARTING_GOLD_BONUS, TALENT_BONUS_GOLD_PER_KILL, TALENT_FANTASSIN_DODGE_CHANCE } = await import(SRC + 'config/constants.ts');
-const { createNewRun, STARTING_GOLD, applyWaveVictory, WAVE_CLEAR_BONUS } = await import(SRC + 'run/runState.ts');
+const { createNewRun, STARTING_GOLD, applyWaveVictory } = await import(SRC + 'run/runState.ts');
 const { CARGO_CAPACITY } = await import(SRC + 'data/resources.ts');
 const { generateSurvivalMap } = await import(SRC + 'config/maps/proceduralSurvival.ts');
 const { campSpecOf } = await import(SRC + 'run/camps.ts');
@@ -101,7 +101,7 @@ const fp = (id: string, x: number, z: number) => { const d = getBuilding(id); re
   check('Tir rapide + Mitraillette : recharge de la Baliste reduite, 3 carreaux par volee', effectivePlayerArrowCooldown(progAll) < effectivePlayerArrowCooldown(progNone) && playerArrowBoltsPerVolley(all) === 3 && playerArrowBoltsPerVolley(none) === 1, { all: effectivePlayerArrowCooldown(progAll), none: effectivePlayerArrowCooldown(progNone) });
   check('deblocage : racine puis fondateurs, Mitraillette apres Tir rapide', canUnlockTalent(none, 'or_depart') && !canUnlockTalent(none, 'tir_rapide') && !canUnlockTalent({ ...none, unlockedTalents: ['or_depart'] }, 'mitraillette') && canUnlockTalent({ ...none, unlockedTalents: ['or_depart', 'tir_rapide'] }, 'mitraillette'));
   const r = createNewRun(TALENT_STARTING_GOLD_BONUS);
-  check('nouvelle run : 20 + 5 or, Heros seul, stock vide ; vague repoussee : +5 or et vague suivante', r.gold === STARTING_GOLD + 5 && r.army.length === 1 && r.army[0]!.unitId === 'hero' && r.resources.wood === 0 && !('inventory' in r) && !('mapExpansion' in r) && applyWaveVictory(r) === WAVE_CLEAR_BONUS && r.waveNumber === 2 && r.gold === STARTING_GOLD + 5 + WAVE_CLEAR_BONUS, r);
+  check('nouvelle run : 20 + 5 or, Heros seul, stock vide ; vague repoussee : recompense en attente (G46, plus de +5 or) et vague suivante', r.gold === STARTING_GOLD + 5 && r.army.length === 1 && r.army[0]!.unitId === 'hero' && r.resources.wood === 0 && !('inventory' in r) && !('mapExpansion' in r) && applyWaveVictory(r, 7).itemIds.length === 2 && r.waveNumber === 2 && r.gold === STARTING_GOLD + 5 && r.pendingRewards.length === 1, r);
 }
 
 // ---- 4. Defaite : Baliste seule condition ; combattants.

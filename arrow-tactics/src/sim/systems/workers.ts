@@ -4,7 +4,7 @@ import type { Entity } from '../entity';
 import { resetNavigation } from '../orders';
 import { areAllied } from '../relations';
 import { cargoWork, type CargoEvent } from './cargo';
-import { workGoal, type HeroWorkContext } from './hero';
+import { constructSite, workGoal, type HeroEvent, type HeroWorkContext } from './hero';
 
 /**
  * Villageois (2026-11-03, unite economique) : apres movementSystem, sa
@@ -36,14 +36,20 @@ import { workGoal, type HeroWorkContext } from './hero';
  * reessaie apres WORKER_AUTO_RETRY_SECONDS, en evitant cette source — pas de
  * recherche a chaque pas, pas de boucle de pathfinding.
  */
-export function workerSystem(entities: Entity[], work: HeroWorkContext, dt: number, events: CargoEvent[]): void {
+export function workerSystem(entities: Entity[], work: HeroWorkContext, dt: number, events: CargoEvent[], heroEvents: HeroEvent[]): void {
   const byId = new Map(entities.map((e) => [e.id, e]));
   for (const e of entities) {
     const w = e.worker;
     if (!w || !e.alive) continue;
     const goal = workGoal(e, work, byId);
     const handled = cargoWork(e, goal, work, entities, dt, events);
-    if (!handled) {
+    if (!handled && e.order.type === 'build') {
+      // Construction (2026-11-05, G46) : memes regles que le Heros
+      // (sim/systems/hero.ts constructSite) ; chantier disparu : Garde.
+      if (!goal) e.order = { type: 'guard' };
+      if (goal && goal.reached && e.tauntSourceId === null) constructSite(e, w, goal.target!, entities, dt, heroEvents);
+      else { w.working = null; w.workTimer = 0; }
+    } else if (!handled) {
       w.working = null;
       w.workTimer = 0;
     }

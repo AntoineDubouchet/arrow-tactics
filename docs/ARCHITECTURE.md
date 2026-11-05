@@ -403,7 +403,11 @@ voir §9.
 
 ## 7. Combat, capacités et dégâts
 
-**Point d'entrée unique des dégâts** : `applyDamageToEntity` (`sim/damage.ts`).
+**Point d'entrée unique des dégâts** : `applyDamageToEntity` (`sim/damage.ts`),
+avec un **type** (`DamageType` : `physical` | `magic`, 2026-11-05, G46 ;
+mêlée, armes, projectiles de bâtiment, flèche du joueur, Charge et Tourbillon
+physiques ; Boule de feu et feu des coups magiques ; aucune résistance :
+même quantité brute, le type est porté par les événements).
 Le bouclier absorbe d'abord, puis les PV baissent. Les appelants :
 
 | Source | Fichier |
@@ -1244,8 +1248,15 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
 ## 13 ter. Équipement, items, butin, Éditeur d'items
 
 - Données : `data/equipment.ts` (raretés, emplacements, format d'item,
-  catalogue `EQUIPMENT`), `data/loot.ts` (sources et tables de butin,
-  tirage déterministe, non branché).
+  **banque** `EQUIPMENT` : 2 items par emplacement, `archetype`, `stats`
+  au niveau 1 + `scaling` par niveau, `statsAtLevel`, `ItemInstance` ;
+  2026-11-05, G46), `data/loot.ts` (sources et tables de butin, tirage
+  déterministe).
+- Récompense de vague : `run/waveRewards.ts` (`rollWaveReward(seed, wave)`
+  déterministe, `waveRewardChoices`), `RunState.pendingRewards` (file),
+  `applyWaveVictory(run, seed)` / `takeWaveReward` ; interface
+  `ui/waveRewardPanel.ts` synchronisée chaque image par `main.ts`
+  (`updateHeroUi`), choix → `InventoryAction` `add` avec `level`.
 - Run : `run/heroEquipment.ts` (inventaire pur et sérialisable,
   `resolveEquipmentBonus` → `HeroEquipmentBonus` en unités internes,
   visuels tenus, description des items).
@@ -1298,8 +1309,9 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
 - `sim/inventory.ts` : inventaire RPG pur (cases d'équipement seulement :
   aucune ressource, KI-63 close le 2026-11-03 ; les ressources vont dans
   `Entity.cargo`, §13 nonies), actions (`InventoryAction`),
-  `resolveEquipmentBonus` (données fixes des items, comme les stats
-  d'unité). État : `Entity.hero.inventory` ; l'interface
+  `resolveEquipmentBonus` (données fixes des items au niveau de l'exemplaire :
+  `InventorySlot.level`, `equippedLevels` ; `HeroEquipmentBonus.damage` =
+  physique, `magicDamage` à part ; un inventaire sans niveaux vaut 1). État : `Entity.hero.inventory` ; l'interface
   passe par `World.queueInventoryAction` (pas suivant) ; `run/heroEquipment`
   ne garde que descriptions et visuels.
 - Données : `data/resources.ts` (sources, outils, cargo), `data/hero.ts`
@@ -1693,6 +1705,37 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   événement `lootGold` (`World.cargoEvents`, crédité par `main.ts`
   `handleCargoEvents`), un ordre `pickup` sur ce tas s'achève ; `cargoWork`
   ne ramasse plus l'or (un Villageois qui y est envoyé repasse en Garde).
+
+## 13 septdecies. Passe du 2026-11-05 (G46) : XP, camp agrandi, constructeurs, ergonomie, dégâts, loot
+
+- **XP** : `HERO_XP_RANGE` (`data/hero.ts`, 12) remplace
+  `HERO_XP_SHARE_RADIUS`.
+- **Camp de départ** : preset `basic-camp` rayon 15 (`config/startingBase.ts`,
+  éléments repoussés en périphérie, `nearbyGold.distance`) ; générateur :
+  zone de départ définie avant collines et mares (celles qui mordraient sur
+  la zone réservée sont abandonnées après le tirage, sans changer les
+  autres), or proche posé après le choix de la rotation (hors axe de la
+  porte, 4 × 4 libre, sans couper de chemin), gisements injoignables
+  reposés, **zigzags d'une case** entre arbres élargis (un corps de rayon
+  0,6 s'y coinçait), `CAMP_START_CLEARANCE` 21 dans l'éditeur ; camps
+  neutres : site strict sans gisement ni tas à 2,5 cases ;
+  `expandMapCamps` omet un baril qui pincerait un gisement (KI-65) ;
+  `VISION_RADIUS.ballista` 21, `INITIAL_EXPLORED_RADIUS` 25.
+- **Villageois constructeurs** : `applyCommands` accepte `build` pour un
+  `worker` ; `constructSite` (`sim/systems/hero.ts`) partagé par
+  `heroWorkSystem` et `workerSystem` (événement `built`, `heroId` = unité
+  constructrice) ; `WorkerState.working` accepte `build` ; rendu : rôle
+  `build` du Villageois (`workingC` du Héros), hache en main.
+- **main.ts** : `builderIds()` (Héros ou Villageois commandés) pour le
+  menu Construire et l'ordre de construction ; `confirmBuildingPlacement`
+  garde le mode avec Maj (`event.shiftKey`) et vérifie à nouveau le coût ;
+  double-clic bâtiment : `inspectVisibleSameTypeBuildings`,
+  `battleInspectedGroupIds` (groupe homogène, anneaux par
+  `syncBattleInspectionGroup`, titre « ×N »), actions sur le principal ;
+  crochets console `arrowRewards`, `arrowInspection`.
+- **Item Editor** : `archetype`, section « Progression par niveau »,
+  export / import avec `scaling` ; ancien champ `damage` relu comme
+  `physicalDamage`.
 
 ## 14. Audio
 

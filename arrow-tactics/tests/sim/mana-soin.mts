@@ -202,8 +202,8 @@ const steps = (w: any, n: number, onStep?: () => void) => { const ev: any[] = []
   const ballista = w.spawnBuilding(getBuilding('ballista'), 'player', 0.5, -4.5, { kind: 'rock', x: 0, z: -5, w: 1, d: 1 } as any);
   const tower = w.spawnBuilding(getBuilding('tower'), 'player', 6.5, -4.5, { kind: 'rock', x: 6, z: -5, w: 1, d: 1 } as any);
   const site = w.spawnBuilding(getBuilding('tower'), 'player', -6.5, -4.5, { kind: 'rock', x: -7, z: -5, w: 1, d: 1 } as any, undefined, undefined, undefined, { progress: 0, buildTime: 10 });
-  check('vision : Baliste 18, Tour terminee 18, chantier 3 ; portee d attaque de la Tour inchangee (' + (tower.buildingAttack?.range ?? '?') + ') ; disque explore 22 > 18',
-    VISION_RADIUS.ballista === 18 && VISION_RADIUS.tower === 18 && visionRadiusOf(ballista) === 18 && visionRadiusOf(tower) === 18 && visionRadiusOf(site) === 3 && INITIAL_EXPLORED_RADIUS === 22 && INITIAL_EXPLORED_RADIUS > VISION_RADIUS.ballista,
+  check('vision : Baliste 21 (18 avant G46), Tour terminee 18, chantier 3 ; portee d attaque de la Tour inchangee (' + (tower.buildingAttack?.range ?? '?') + ') ; disque explore 25 > 21',
+    VISION_RADIUS.ballista === 21 && VISION_RADIUS.tower === 18 && visionRadiusOf(ballista) === 21 && visionRadiusOf(tower) === 18 && visionRadiusOf(site) === 3 && INITIAL_EXPLORED_RADIUS === 25 && INITIAL_EXPLORED_RADIUS > VISION_RADIUS.ballista,
     { ballista: visionRadiusOf(ballista), tower: visionRadiusOf(tower), site: visionRadiusOf(site), towerAttack: tower.buildingAttack });
 }
 

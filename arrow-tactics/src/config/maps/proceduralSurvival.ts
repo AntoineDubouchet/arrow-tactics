@@ -2,7 +2,7 @@ import { Rng } from '../../core/rng';
 import type { ObstacleDef } from '../constants';
 import type { SurfaceCellDef } from '../groundSurfaces';
 import { CAMP_CLEAR_RADIUS, type MapCampDef, type MapDef, type TerrainCellDef } from '../mapDef';
-import { DEFAULT_STARTING_BASE_PRESET, reservedContainsCell, startingBaseReservedAt, startingBaseRotationFor } from '../startingBase';
+import { DEFAULT_STARTING_BASE_PRESET, getStartingBasePreset, reservedContainsCell, startingBaseReservedAt, startingBaseRotationFor } from '../startingBase';
 import type { ResourcePileDef } from '../resourceNodes';
 import type { SlopeDirection, SlopeShape, TerrainElevationCellDef } from '../terrainElevation';
 import type { TerritoryCell } from '../territory';
@@ -30,6 +30,10 @@ const CLEAR_RADIUS = 11;
 const TERRITORY_RADIUS = 8;
 /** Anneau des apparitions ennemies (main.ts, computeEnemyWavePlan) : sans
  *  colline ni eau, pour qu'un groupe trouve toujours ses cases. */
+/** Inchange au 2026-11-05 malgre l'enceinte de rayon 15 (zone reservee 17) :
+ *  les vagues apparaissent a ~7 cases des murs (11,5 avant) ; a revoir avec
+ *  les Vagues V2 (un anneau a 26 deplacait collines et mares de 3 graines
+ *  sur 12 et cassait leurs garanties d'acces). */
 export const ENEMY_SPAWN_RING_RADIUS = 22;
 const SPAWN_RING_CLEARANCE = 4;
 /** Poche praticable isolee par les arbres : comblee en dessous de cette
@@ -403,6 +407,20 @@ export function generateSurvivalMap(seed: number): MapDef {
   }
   const free = (x: number, z: number) => inMap.has(key(x, z));
   const inSpawnRing = (d: number) => Math.abs(d - ENEMY_SPAWN_RING_RADIUS) < SPAWN_RING_CLEARANCE;
+  // Camp de depart (2026-11-04, config/startingBase.ts) : son emprise
+  // complete (disque : enceinte + marge, meme pour toute rotation) reste
+  // degagee : ni colline, ni mare, ni arbre, ni gisement, ni tas, ni decor.
+  const startOrigin = { x: 0.5, z: 0.5 };
+  const startZone = startingBaseReservedAt(startOrigin, DEFAULT_STARTING_BASE_PRESET);
+  const inStartZone = (x: number, z: number) => reservedContainsCell(startZone, x, z);
+  /** Rayon a garder sans relief ni eau autour du centre (zone reservee + 1). */
+  const START_CLEAR = startZone.radius + 1;
+  /** Arbres, decors et petits tas : une case et demie de marge en plus (les
+   *  gisements gardent leurs places d'avant),
+   *  pour que l'editeur puisse deplacer le Depart d'une ou deux cases sans
+   *  que son emprise ne touche la foret (2026-11-05, G46). */
+  const startZoneWide = { ...startZone, radius: startZone.radius + 1.5 };
+  const nearStartZone = (x: number, z: number) => reservedContainsCell(startZoneWide, x, z);
 
   // ---- Collines (niveau 1) avec une rampe tournee vers le centre.
   const hill = new Set<string>();
@@ -421,7 +439,12 @@ export function generateSurvivalMap(seed: number): MapDef {
     if (hillCenters.some((h) => Math.hypot(h.x - cx, h.z - cz) < h.r + r + 5)) continue;
     hillCenters.push({ x: cx, z: cz, r });
   }
-  for (const h of hillCenters) {
+  // Camp de depart agrandi (2026-11-05, G46) : une colline qui mordrait sur sa
+  // zone reservee est abandonnee APRES le tirage (hillCenters garde son role
+  // d'espacement : les autres collines, mares et gisements des graines
+  // existantes ne bougent pas).
+  const keptHills = hillCenters.filter((h) => Math.hypot(h.x, h.z) - h.r >= START_CLEAR);
+  for (const h of keptHills) {
     const own: { x: number; z: number }[] = [];
     for (let z = Math.floor(h.z - h.r); z <= Math.ceil(h.z + h.r); z++) {
       for (let x = Math.floor(h.x - h.r); x <= Math.ceil(h.x + h.r); x++) {
@@ -466,7 +489,9 @@ export function generateSurvivalMap(seed: number): MapDef {
     if (ponds.some((p) => Math.hypot(p.x - cx, p.z - cz) < p.r + r + 8)) continue;
     ponds.push({ x: cx, z: cz, r });
   }
-  for (const p of ponds) {
+  // Meme regle que les collines : une mare qui mordrait sur la zone reservee
+  // du camp est abandonnee apres le tirage.
+  for (const p of ponds.filter((q) => Math.hypot(q.x, q.z) - q.r >= START_CLEAR)) {
     for (let z = Math.floor(p.z - p.r); z <= Math.ceil(p.z + p.r); z++) {
       for (let x = Math.floor(p.x - p.r); x <= Math.ceil(p.x + p.r); x++) {
         const k = key(x, z);
@@ -496,18 +521,11 @@ export function generateSurvivalMap(seed: number): MapDef {
   const forestArea = new Set<string>();
   const keepClear = new Set<string>();
   const isTrail = (x: number, z: number) => Math.abs(fbm(seed + 97, x / 13, z / 13) - 0.5) < 0.03 || Math.abs(fbm(seed + 113, x / 17, z / 17) - 0.5) < 0.022;
-  // Camp de depart (2026-11-04, config/startingBase.ts) : son emprise
-  // complete (disque : enceinte + marge, meme pour toute rotation) reste
-  // degagee : ni arbre, ni gisement, ni tas, ni decor (la plaine centrale la
-  // couvre presque).
-  const startOrigin = { x: 0.5, z: 0.5 };
-  const startZone = startingBaseReservedAt(startOrigin, DEFAULT_STARTING_BASE_PRESET);
-  const inStartZone = (x: number, z: number) => reservedContainsCell(startZone, x, z);
   for (const c of cells) {
     const d = centerDistance(c.x, c.z);
     if (d <= CLEAR_RADIUS || blockedForDecor(c.x, c.z)) continue;
     const k = key(c.x, c.z);
-    if (inStartZone(c.x, c.z)) {
+    if (nearStartZone(c.x, c.z)) {
       keepClear.add(k);
       continue;
     }
@@ -579,6 +597,34 @@ export function generateSurvivalMap(seed: number): MapDef {
   // Seconde passe : gisements = obstacles fixes (comme l'eau : jamais
   // retires, jamais traverses par un couloir).
   shapeForests({ seed, inMap, water: new Set([...water, ...depositCells]), hill, ramps, rampSlopes, trees, forestArea, keepClear });
+  // Zigzags d'une case (2026-11-05, G46) : un pas orthogonal entre deux cases
+  // libres dont aucun cote n'est libre sur les deux cases (arbres en
+  // quinconce) ne laisse passer qu'un corps de rayon <= 0,5 : le Heros (0,6)
+  // s'y coince entre les deux arbres (graine 2). Un arbre d'un des cotes est
+  // retire, trois passes.
+  {
+    const freeCell = (x: number, z: number): boolean => { const k = key(x, z); return inMap.has(k) && !water.has(k) && !hill.has(k) && !trees.has(k) && !depositCells.has(k); };
+    for (let pass = 0; pass < 3; pass++) {
+      let widened = 0;
+      for (const c of cells) {
+        if (!freeCell(c.x, c.z)) continue;
+        for (const [dx, dz] of [[1, 0], [0, 1]] as const) {
+          if (!freeCell(c.x + dx, c.z + dz)) continue;
+          const sx = dz, sz = dx;
+          const sides = [[c.x - sx, c.z - sz], [c.x + dx - sx, c.z + dz - sz], [c.x + sx, c.z + sz], [c.x + dx + sx, c.z + dz + sz]] as const;
+          const leftFree = freeCell(sides[0][0], sides[0][1]) && freeCell(sides[1][0], sides[1][1]);
+          const rightFree = freeCell(sides[2][0], sides[2][1]) && freeCell(sides[3][0], sides[3][1]);
+          if (leftFree || rightFree) continue;
+          const tree = sides.map(([x, z]) => key(x, z)).find((k) => trees.has(k));
+          if (!tree) continue;
+          trees.delete(tree);
+          keepClear.add(tree);
+          widened++;
+        }
+      }
+      if (widened === 0) break;
+    }
+  }
   for (const c of cells) {
     if (!trees.has(key(c.x, c.z))) continue;
     const a = hash2(seed + 43, c.x, c.z) * Math.PI * 2;
@@ -600,10 +646,30 @@ export function generateSurvivalMap(seed: number): MapDef {
   // Cases praticables reliees au camp, calculees sur la carte telle qu'elle
   // sera jouee (2026-11-04 : arbres ET gisements bloquants ; avant : avant
   // les gisements) : tas de ressources, abords des camps neutres.
-  const reached = reachableCells({ inMap, water, hill, ramps, rampSlopes, trees: new Set([...trees, ...depositCells]) });
+  let reached = reachableCells({ inMap, water, hill, ramps, rampSlopes, trees: new Set([...trees, ...depositCells]) });
+  // Gisements injoignables (2026-11-05, G46) : un gisement dont aucune case
+  // de l'anneau n'est reliee au camp (enferme par une mare, une colline ou
+  // la foret) est retire et repose ailleurs, jusqu'a trois passes ; la
+  // carte jouee garantit l'acces a chaque gisement.
+  const ringCells = (r: ObstacleDef): string[] => { const out: string[] = []; for (let dz = -1; dz <= 2; dz++) for (let dx = -1; dx <= 2; dx++) if (dx === -1 || dx === 2 || dz === -1 || dz === 2) out.push(key(r.cornerX! + dx, r.cornerZ! + dz)); return out; };
+  for (let pass = 0; pass < 3; pass++) {
+    const stuck = rockDefs.filter((r) => !ringCells(r).some((k) => reached.has(k)));
+    if (stuck.length === 0) break;
+    for (const r of stuck) {
+      rockDefs.splice(rockDefs.indexOf(r), 1);
+      obstacles.splice(obstacles.indexOf(r), 1);
+      for (let dz = 0; dz <= 1; dz++) for (let dx = 0; dx <= 1; dx++) { const k = key(r.cornerX! + dx, r.cornerZ! + dz); depositCells.delete(k); occupied.delete(k); }
+    }
+    for (const r of stuck) {
+      const before = rockDefs.length;
+      for (let attempt = 0; attempt < 200 && rockDefs.length === before; attempt++) placeDeposit(r.ore ? CLEAR_RADIUS + 14 : CLEAR_RADIUS + 5, MAP_RADIUS - (r.ore ? 4 : 3), r.ore);
+      if (rockDefs.length > before) { const n = rockDefs[rockDefs.length - 1]!; obstacles.push(n); for (let dz = 0; dz <= 1; dz++) for (let dx = 0; dx <= 1; dx++) occupied.add(key(n.cornerX! + dx, n.cornerZ! + dz)); }
+    }
+    reached = reachableCells({ inMap, water, hill, ramps, rampSlopes, trees: new Set([...trees, ...depositCells]) });
+  }
   for (const c of cells) {
     const d = centerDistance(c.x, c.z);
-    if (d <= 3 || blockedForDecor(c.x, c.z) || occupied.has(key(c.x, c.z)) || inStartZone(c.x, c.z)) continue;
+    if (d <= 3 || blockedForDecor(c.x, c.z) || occupied.has(key(c.x, c.z)) || nearStartZone(c.x, c.z)) continue;
     if (hash2(seed + 71, c.x, c.z) >= 0.035) continue;
     const prop = PROPS[Math.floor(hash2(seed + 73, c.x, c.z) * PROPS.length)]!;
     obstacles.push({ kind: 'prop', tilesX: 1, tilesZ: 1, propModel: prop.model, scale: prop.scale, x: c.x + 0.3 + hash2(seed + 79, c.x, c.z) * 0.4, z: c.z + 0.3 + hash2(seed + 83, c.x, c.z) * 0.4 });
@@ -623,7 +689,7 @@ export function generateSurvivalMap(seed: number): MapDef {
       const d = dMin + rng.next() * (dMax - dMin);
       const x = Math.floor(Math.cos(a) * d), z = Math.floor(Math.sin(a) * d);
       const k = key(x, z);
-      if (!reached.has(k) || ramps.has(k) || hill.has(k) || occupied.has(k) || pileCells.has(k) || inStartZone(x, z)) continue;
+      if (!reached.has(k) || ramps.has(k) || hill.has(k) || occupied.has(k) || pileCells.has(k) || nearStartZone(x, z)) continue;
       const far = d > 24;
       const amount = minAmount !== undefined ? minAmount + Math.floor(rng.next() * 2) : (far ? 2 : 1) + Math.floor(rng.next() * 3);
       resourcePiles.push({ x: x + 0.3 + rng.next() * 0.4, z: z + 0.3 + rng.next() * 0.4, resource, amount });
@@ -652,6 +718,57 @@ export function generateSurvivalMap(seed: number): MapDef {
     const k = key(x, z);
     return inMap.has(k) && !water.has(k) && !hill.has(k) && !ramps.has(k) && !occupied.has(k) && !trees.has(k);
   });
+
+  // ---- Or proche garanti (2026-11-05, G46, config/startingBase.ts
+  // nearbyGold) : un second gisement d'or, hors de l'enceinte mais dans la
+  // vision initiale de la Baliste, hors de l'axe de la porte (+- 60°), sur
+  // 4 x 4 cases libres (gisement 2 x 2 + anneau d'une case : jamais un
+  // passage d'une case, KI-65), hors eau, relief, rampe, tas, arbre et
+  // decor. Angle de depart tire de la graine, puis balayage par pas de 10° ;
+  // si aucune place n'est libre, les arbres du meilleur emplacement sont
+  // retires. Aucun doublon avec les gisements generes (plus loin).
+  {
+    const preset = getStartingBasePreset(DEFAULT_STARTING_BASE_PRESET);
+    const D = preset.nearbyGold.distance;
+    const gate = [{ x: 0, z: 1 }, { x: -1, z: 0 }, { x: 0, z: -1 }, { x: 1, z: 0 }][((startRotation % 4) + 4) % 4]!;
+    const baseAngle = hash2(seed + 131, 0, 0) * Math.PI * 2;
+    const corner = (a: number) => ({ x: Math.round(Math.cos(a) * D + startOrigin.x) - 1, z: Math.round(Math.sin(a) * D + startOrigin.z) - 1 });
+    const cellsOf = (x: number, z: number, ring: number) => { const out: string[] = []; for (let dz = -ring; dz <= 1 + ring; dz++) for (let dx = -ring; dx <= 1 + ring; dx++) out.push(key(x + dx, z + dz)); return out; };
+    const ground = (k: string) => inMap.has(k) && !water.has(k) && !hill.has(k) && !ramps.has(k) && !pileCells.has(k) && !depositCells.has(k) && (!occupied.has(k) || trees.has(k));
+    // Un emplacement ne doit couper aucun chemin (camps, gisements, tas
+    // restent relies) : cases reliees recomptees avec le gisement pose et
+    // ses arbres retires ; perte toleree = ses 4 cases.
+    const keeps = (x: number, z: number): boolean => {
+      const own = new Set(cellsOf(x, z, 0));
+      const next = new Set([...trees].filter((k) => !cellsOf(x, z, 1).includes(k)));
+      for (const k of depositCells) next.add(k);
+      for (const k of own) next.add(k);
+      const r2 = reachableCells({ inMap, water, hill, ramps, rampSlopes, trees: next });
+      return r2.size >= reached.size - own.size && cellsOf(x, z, 1).some((k) => !own.has(k) && r2.has(k));
+    };
+    let best: { x: number; z: number; trees: number } | null = null;
+    for (let i = 0; i < 36; i++) {
+      const a = baseAngle + (i * Math.PI) / 18;
+      if (Math.cos(a) * gate.x + Math.sin(a) * gate.z > 0.5) continue; // +- 60° autour de la porte
+      const { x, z } = corner(a);
+      const block = cellsOf(x, z, 1);
+      if (!block.every(ground)) continue;
+      const inWoods = block.filter((k) => trees.has(k)).length;
+      if (best && inWoods >= best.trees) continue;
+      if (!keeps(x, z)) continue;
+      best = { x, z, trees: inWoods };
+      if (inWoods === 0) break;
+    }
+    if (best) {
+      const { x, z } = best;
+      for (const k of cellsOf(x, z, 1)) {
+        if (trees.has(k)) { trees.delete(k); const i = obstacles.findIndex((o) => o.kind === 'tree' && Math.floor(o.x!) === Number(k.split(',')[0]) && Math.floor(o.z!) === Number(k.split(',')[1])); if (i >= 0) obstacles.splice(i, 1); }
+        if (!depositCells.has(k)) keepClear.add(k);
+      }
+      obstacles.push({ kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: x, cornerZ: z, ore: 'gold' });
+      for (const k of cellsOf(x, z, 0)) { depositCells.add(k); occupied.add(k); }
+    }
+  }
 
   // ---- Territoire du joueur : disque central.
   const territory: TerritoryCell[] = cells.filter((c) => centerDistance(c.x, c.z) <= TERRITORY_RADIUS).map((c) => ({ x: c.x, z: c.z, team: 'player' }));
@@ -766,7 +883,11 @@ function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: 
         // Abords (2026-11-04, KI-65) : ni eau, ni colline, ni rampe a moins de
         // 2,5 cases de la clairiere ; un baril du camp (bloquant) y laisserait
         // un passage d'une case contre une falaise.
-        if (strict && disc(cx, cz, CAMP_RADIUS, CAMP_RADIUS + 2.5).some((k) => !g.inMap.has(k) || g.water.has(k) || g.hill.has(k) || g.ramps.has(k) || g.rampClear.has(k))) continue;
+        // 2026-11-05 (G46) : site strict sans gisement ni tas non plus a moins
+        // de 2,5 cases de la clairiere (un rocher 2 x 2 contre la clairiere et
+        // un baril du camp laissent un passage d'une case) ; le Heros, plus
+        // large qu'une case, evite de toute facon ces passages (A* large).
+        if (strict && disc(cx, cz, CAMP_RADIUS, CAMP_RADIUS + 2.5).some((k) => !g.inMap.has(k) || g.water.has(k) || g.hill.has(k) || g.ramps.has(k) || g.rampClear.has(k) || g.pileCells.has(k) || (g.occupied.has(k) && !g.trees.has(k)))) continue;
         let open = 0;
         let ringTrees = 0;
         for (const k of disc(cx, cz, CAMP_RADIUS, CAMP_RADIUS + 2)) {

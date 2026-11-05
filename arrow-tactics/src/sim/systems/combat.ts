@@ -1,6 +1,6 @@
 import { SIDESTEP_DURATION, type ObstacleDef } from '../../config/constants';
 import type { Rng } from '../../core/rng';
-import { applyDamageToEntity } from '../damage';
+import { applyDamageToEntity, type DamageType } from '../damage';
 import { crossesTerrainCliff, findBlockingObstacle, isMeleeAttack, targetDistance } from '../geometry';
 import type { Entity } from '../entity';
 
@@ -8,7 +8,7 @@ export type CombatEvent =
   /** `windup` : coup resolu a la fin d'un elan (UnitStats.attackWindup). */
   /** `fireDamage` : degats de feu ajoutes a ce coup qui touche (effet
    *  d'equipement, Entity.onHit), internes. */
-  | { attackerId: number; targetId: number; result: 'hit' | 'miss' | 'dodge'; windup?: true; fireDamage?: number }
+  | { attackerId: number; targetId: number; result: 'hit' | 'miss' | 'dodge'; windup?: true; fireDamage?: number; damageType?: DamageType }
   | { attackerId: number; targetId: number; result: 'blocked'; impactX: number; impactZ: number }
   /** Debut d'un elan : le coup sera resolu `attackWindup` secondes plus tard. */
   | { attackerId: number; targetId: number; result: 'windup' }
@@ -154,16 +154,18 @@ function resolveStrike(e: Entity, target: Entity, rng: Rng, events: CombatEvent[
     return;
   }
 
-  applyDamageToEntity(target, e.stats.damage);
-  // Effet d'equipement (2026-11-02) : feu en plus, seulement sur un coup qui
-  // touche (jamais sur un raté, une esquive ou un elan annule).
+  // Coup d'arme (melee, Archer) : degats PHYSIQUES (2026-11-05).
+  applyDamageToEntity(target, e.stats.damage, 'physical');
+  // Effet d'equipement (2026-11-02) : feu en plus (degats MAGIQUES),
+  // seulement sur un coup qui touche (jamais sur un raté, une esquive ou un
+  // elan annule).
   const fire = e.onHit?.fireDamage ?? 0;
   if (fire > 0 && target.alive) {
-    applyDamageToEntity(target, fire);
-    events.push({ attackerId: e.id, targetId: target.id, result: 'hit', ...windup, fireDamage: fire });
+    applyDamageToEntity(target, fire, 'magic');
+    events.push({ attackerId: e.id, targetId: target.id, result: 'hit', ...windup, fireDamage: fire, damageType: 'physical' });
     return;
   }
-  events.push({ attackerId: e.id, targetId: target.id, result: 'hit', ...windup });
+  events.push({ attackerId: e.id, targetId: target.id, result: 'hit', ...windup, damageType: 'physical' });
 }
 
 /** Pas de cote choisi pour s'eloigner de l'obstacle par rapport a la ligne de

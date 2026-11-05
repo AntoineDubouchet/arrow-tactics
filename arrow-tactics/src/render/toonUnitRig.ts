@@ -211,6 +211,8 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
       attack: once('attack'),
       chop: { ...loop('workingA'), from: 'hero' },
       mine: { ...loop('workingB'), from: 'hero' },
+      // Construire (2026-11-05, G46) : petits coups accroupi du Heros.
+      build: { ...loop('workingC'), from: 'hero' },
       gather: loop('idle'),
       deposit: loop('idle'),
     },

@@ -54,7 +54,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-41 | Gros rochers (décors non bloquants) : un bâtiment s'y pose | Remplacé (2026-11-03 : gisements bloquants, G25) |
 | KI-42 | Héros : aucun clip d'incantation dans son GLB (Soin en garde de combat) | Limite assumée (assets) |
 | KI-43 | Carte générée : pas d'ombres portées au-delà d'environ 21 cases du centre | Confirmé (observé) |
-| KI-44 | Équipement : casque, épaulières, torse, bras, jambes sans visuel en jeu (modèle du Héros fusionné) | Limite assumée |
+| KI-44 | Équipement : casque, épaulières, torse, bras, jambes et objets de main secondaire sans visuel en jeu (modèle du Héros fusionné ; banque de 18 items depuis le 2026-11-05, G46) | Limite assumée |
 | KI-46 | Camps neutres : état non sauvegardé si le monde était reconstruit en cours de run | Hypothèse (pas de cas aujourd'hui) |
 | KI-47 | Or au sol non ramassé : les tas restent toute la run (aucune disparition) | Voulu (Antoine) ; fusion des tas proches à envisager |
 | KI-51 | Baril : pas encore posable dans l'éditeur de maps (`MapDef.destructibles` prêt) | À faire |

@@ -1,8 +1,10 @@
 import {
+  EQUIPMENT_ARCHETYPES,
   EQUIPMENT_SLOTS,
   EQUIPMENT_STAT_DEFS,
   EQUIPMENT_TYPES,
   RARITIES,
+  type EquipmentArchetype,
   type EquipmentDef,
   type EquipmentSlot,
   type EquipmentStats,
@@ -24,8 +26,10 @@ export function defaultItem(): EquipmentDef {
     rarity: 'common',
     type: 'weapon',
     slot: 'mainHand',
+    archetype: 'physical',
     visual: { source: 'western_kingdoms', piece: 'WK_weapon_sword_A', scale: 1, rotation: [0, 0, 0], offset: [0, 0, 0] },
     stats: {},
+    scaling: {},
     effects: {},
     sellValue: 1,
   };
@@ -41,9 +45,12 @@ const round = (v: number): number => Math.round(v * 1000) / 1000;
 /** Entree propre : stats et effets nuls retires, nombres arrondis. */
 export function cleanItem(item: EquipmentDef): EquipmentDef {
   const stats: EquipmentStats = {};
+  const scaling: EquipmentStats = {};
   for (const { key } of EQUIPMENT_STAT_DEFS) {
     const v = item.stats[key];
     if (v) stats[key] = round(v);
+    const s = item.scaling?.[key];
+    if (s) scaling[key] = round(s);
   }
   const fire = item.effects.onHit?.fireDamage;
   return {
@@ -53,10 +60,12 @@ export function cleanItem(item: EquipmentDef): EquipmentDef {
     rarity: item.rarity,
     type: item.type,
     slot: item.slot,
+    archetype: item.archetype,
     visual: item.visual
       ? { source: item.visual.source, piece: item.visual.piece, scale: round(item.visual.scale), rotation: item.visual.rotation.map(round) as [number, number, number], offset: item.visual.offset.map(round) as [number, number, number] }
       : null,
     stats,
+    scaling,
     effects: fire ? { onHit: { fireDamage: round(fire) } } : {},
     sellValue: round(Math.max(0, item.sellValue)),
   };
@@ -97,9 +106,17 @@ export function importItem(text: string): EquipmentDef {
   const visual = v && typeof v['source'] === 'string' && typeof v['piece'] === 'string'
     ? { source: v['source'], piece: v['piece'], scale: isNumber(v['scale']) ? v['scale'] : 1, rotation: vec3(v['rotation'], 0), offset: vec3(v['offset'], 0) }
     : null;
-  const statsRaw = (raw['stats'] ?? {}) as Record<string, unknown>;
-  const stats: EquipmentStats = {};
-  for (const { key } of EQUIPMENT_STAT_DEFS) if (isNumber(statsRaw[key])) stats[key] = statsRaw[key] as number;
+  const readStats = (source: unknown): EquipmentStats => {
+    const rawStats = (source ?? {}) as Record<string, unknown>;
+    const out: EquipmentStats = {};
+    for (const { key } of EQUIPMENT_STAT_DEFS) if (isNumber(rawStats[key])) out[key] = rawStats[key] as number;
+    // Ancien format (avant le 2026-11-05) : `damage` = degats physiques.
+    if (isNumber(rawStats['damage']) && !isNumber(rawStats['physicalDamage'])) out.physicalDamage = rawStats['damage'] as number;
+    return out;
+  };
+  const stats = readStats(raw['stats']);
+  const scaling = readStats(raw['scaling']);
+  const archetype = (typeof raw['archetype'] === 'string' && raw['archetype'] in EQUIPMENT_ARCHETYPES ? raw['archetype'] : base.archetype) as EquipmentArchetype;
   const onHit = ((raw['effects'] as Record<string, unknown> | undefined)?.['onHit'] ?? {}) as Record<string, unknown>;
   return cleanItem({
     id: typeof raw['id'] === 'string' && raw['id'] ? raw['id'] : itemIdFromName(raw['name']),
@@ -108,8 +125,10 @@ export function importItem(text: string): EquipmentDef {
     rarity,
     type,
     slot,
+    archetype,
     visual,
     stats,
+    scaling,
     effects: isNumber(onHit['fireDamage']) ? { onHit: { fireDamage: onHit['fireDamage'] } } : {},
     sellValue: isNumber(raw['sellValue']) ? raw['sellValue'] : base.sellValue,
   });

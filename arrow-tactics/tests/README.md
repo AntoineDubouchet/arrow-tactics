@@ -45,7 +45,12 @@ mots possibles).
 
 ## Scripts
 
-`tests/sim/` : `camp.mts`, `camps-authored.mts`, `cargo.mts`, `couts.mts`
+`tests/sim/` : `camp.mts`, `camps-authored.mts`, `cargo.mts`, `couts.mts`,
+`loot-bank.mts` (G46 : banque de 18 items, 2 par emplacement, stats
+déterministes par niveau, orientations, tables de butin, éditeur d'items),
+`degats-types.mts` (G46 : physique / magique par source, bonus
+d'équipement physique et magique séparés), `recompense.mts` (G46 :
+récompense de vague, file, inventaire plein, niveaux)
 (G45 : échelle des coûts, débit exact, refus sans ressources), `economie.mts`
 (G44 : mesure légère sur le camp de départ, temps à la source, cycle,
 rendement, Héros plus lent, répartition à 3 Villageois),
@@ -75,7 +80,10 @@ la run continue ; Baliste détruite → « Partie terminée », retour au menu),
 `porte-jeu.cjs` (G42 : structure de la porte refaite, ouverture /
 fermeture, captures extérieur / intérieur / ouverte / trois-quarts) et
 `tourbillon-jeu.cjs` (G42 : flash de dégâts par cible à chaque tic,
-lancement pendant un déplacement) et `recolte-jeu.cjs` (G43 : récolte au
+lancement pendant un déplacement), `construction-jeu.cjs` (G46 : Villageois
+constructeur, Maj + pose répétée, double-clic sur les bâtiments du même
+type visibles), `recompense-jeu.cjs` (G46 : panneau de récompense de vague,
+choix, sac plein, file) et `recolte-jeu.cjs` (G43 : récolte au
 contact depuis plusieurs côtés, Villageois face à sa source, clips
 `workingA` / `workingB`, outils, cadence, captures hache / pioche pierre /
 pioche or).

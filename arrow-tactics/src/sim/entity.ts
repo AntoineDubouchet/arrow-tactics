@@ -109,14 +109,19 @@ export interface HeroEquipmentBonus {
   maxHp: number;
   maxMana: number;
   manaRegen: number;
+  /** Degats PHYSIQUES (attaque de base, Tourbillon qui la fige). */
   damage: number;
+  /** Degats MAGIQUES (2026-11-05, DamageType) : sorts offensifs du Heros
+   *  seulement (aucun aujourd'hui, porte pour l'avenir) ; jamais ajoutes a
+   *  l'attaque de base ni au Tourbillon. */
+  magicDamage: number;
   attackSpeed: number;
   moveSpeed: number;
-  /** Degats de feu ajoutes a chaque coup de melee qui touche. */
+  /** Degats de feu (magiques) ajoutes a chaque coup de melee qui touche. */
   fireDamage: number;
 }
 
-export const NO_EQUIPMENT_BONUS: Readonly<HeroEquipmentBonus> = { maxHp: 0, maxMana: 0, manaRegen: 0, damage: 0, attackSpeed: 0, moveSpeed: 0, fireDamage: 0 };
+export const NO_EQUIPMENT_BONUS: Readonly<HeroEquipmentBonus> = { maxHp: 0, maxMana: 0, manaRegen: 0, damage: 0, magicDamage: 0, attackSpeed: 0, moveSpeed: 0, fireDamage: 0 };
 
 /** Commande de la file de production temps reel (Entity.productionOrders) :
  *  une unite, l'amelioration du batiment, ou une recherche (2026-11-05 :
@@ -137,7 +142,7 @@ export interface OnHitEffects {
 /** Etat propre au Heros (Entity.hero). */
 /** Etat d'un Villageois : son geste de travail (rendu : outil et clip). */
 export interface WorkerState {
-  working: 'chop' | 'mine' | 'gather' | null;
+  working: 'chop' | 'mine' | 'gather' | 'build' | null;
   workTimer: number;
   /** Autonomie (2026-11-05, sim/systems/workers.ts) : secondes
    *  d'inactivite reelle (Garde, aucune boucle de cargo) ; au-dela de

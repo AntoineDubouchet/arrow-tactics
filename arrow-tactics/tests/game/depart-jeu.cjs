@@ -38,17 +38,17 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
       villagers: w.entities.filter((e) => e.alive && e.unitId === 'villageois').length,
       walls: walls.length, gates: walls.filter((e) => e.wall.door).map((e) => e.wall.door.open),
       // Gisements et bosquet garantis du camp (2026-11-05) : sources dans l'enceinte (1 or, 1 pierre, >= 6 arbres).
-      deposits: [...w.resourceNodes.values()].filter((n) => Math.hypot(n.x - L.origin.x, n.z - L.origin.z) < 10).map((n) => n.resource).sort(),
+      deposits: [...w.resourceNodes.values()].filter((n) => Math.hypot(n.x - L.origin.x, n.z - L.origin.z) < 15).map((n) => n.resource).sort(),
       // Quantites initiales (75 / 250 / 250, data/resources.ts) : les Villageois autonomes ont pu entamer une source
       // d'une ou deux unites avant d'etre arretes.
-      amounts: Object.fromEntries([...w.resourceNodes.values()].filter((n) => Math.hypot(n.x - L.origin.x, n.z - L.origin.z) < 10).map((n) => [n.resource, w.resourceNodeAmounts.get(n.id)])),
+      amounts: Object.fromEntries([...w.resourceNodes.values()].filter((n) => Math.hypot(n.x - L.origin.x, n.z - L.origin.z) < 15).map((n) => [n.resource, w.resourceNodeAmounts.get(n.id)])),
       hero: { x: +h.x.toFixed(2), z: +h.z.toFixed(2), inside: h.x > L.bounds.minX && h.x < L.bounds.maxX && h.z > L.bounds.minZ && h.z < L.bounds.maxZ },
       pop: document.querySelector('.economy-hud-item--pop')?.textContent ?? '', stock: window.arrowEconomy.stock(),
       cam: { dx: +(v.targetX - h.x).toFixed(2), dz: +(v.targetZ - h.z).toFixed(2) },
     };
   });
-  check(`run reelle : 1 Baliste, 1 Auberge, 2 Maisons terminees (A puis B), 2 Villageois, enceinte arrondie de 25 pieces dont 1 porte OUVERTE ; 1 or (250) + 1 pierre (250) + ${NB_TREES} arbres (75, >= 6) dans l enceinte ; Heros dans le camp ; Pop. 2 / 9 ; stock de depart inchange (0 bois, 0 pierre, 20 or) ; camera centree sur le Heros`,
-    camp.layout && NB_TREES >= 6 && J(camp.deposits) === J(['gold', 'stone', ...Array(NB_TREES).fill('wood')]) && 250 - camp.amounts.gold <= 3 && 250 - camp.amounts.stone <= 3 && 75 - camp.amounts.wood <= 3 && camp.ballista === 1 && camp.tavern === 1 && J(camp.houses) === J(['blue_home_A', 'blue_home_B']) && camp.houseBuilt && camp.villagers === 2 && camp.walls === 25 && J(camp.gates) === '[true]' && camp.hero.inside && /2\s*\/\s*9/.test(camp.pop) && camp.stock.wood === 0 && camp.stock.stone === 0 && camp.stock.gold === 20 && Math.hypot(camp.cam.dx, camp.cam.dz) < 1.5, camp);
+  check(`run reelle : 1 Baliste, 1 Auberge, 2 Maisons terminees (A puis B), 2 Villageois, enceinte arrondie de 36 pieces dont 1 porte OUVERTE ; 1 or (250) + 1 pierre (250) + ${NB_TREES} arbres (75, >= 6) dans l enceinte ; Heros dans le camp ; Pop. 2 / 9 ; stock de depart inchange (0 bois, 0 pierre, 20 or) ; camera centree sur le Heros`,
+    camp.layout && NB_TREES >= 6 && J(camp.deposits) === J(['gold', 'stone', ...Array(NB_TREES).fill('wood')]) && 250 - camp.amounts.gold <= 3 && 250 - camp.amounts.stone <= 3 && 75 - camp.amounts.wood <= 3 && camp.ballista === 1 && camp.tavern === 1 && J(camp.houses) === J(['blue_home_A', 'blue_home_B']) && camp.houseBuilt && camp.villagers === 2 && camp.walls === 36 && J(camp.gates) === '[true]' && camp.hero.inside && /2\s*\/\s*9/.test(camp.pop) && camp.stock.wood === 0 && camp.stock.stone === 0 && camp.stock.gold === 20 && Math.hypot(camp.cam.dx, camp.cam.dz) < 1.5, camp);
   const o = camp.layout.origin;
   await L.wait(p, 800);
   await L.setView(p, { targetX: o.x, targetZ: o.z, viewHeight: 32, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 900);

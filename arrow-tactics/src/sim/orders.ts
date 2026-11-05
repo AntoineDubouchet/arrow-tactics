@@ -401,12 +401,12 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
       case 'openChest':
       case 'repair':
       case 'deposit': {
-        // Travail : Heros seulement ; recolte et depot : Villageois aussi
-        // (2026-11-03). Source exploitable, chantier allie vivant, tas encore
-        // present ou depot allie vivant.
-        // Tourbillon en cours (2026-11-03) : aucun travail. Villageois :
-        // recolte, tas et depot (cargo, 2026-11-03).
-        const worker = command.kind === 'harvest' || command.kind === 'pickup' || command.kind === 'deposit';
+        // Travail : Heros ; recolte, depot (2026-11-03) et CONSTRUCTION
+        // (2026-11-05, G46 : les Villageois construisent, memes regles que le
+        // Heros) : Villageois aussi. Source exploitable, chantier allie
+        // vivant, tas encore present ou depot allie vivant.
+        // Tourbillon en cours (2026-11-03) : aucun travail.
+        const worker = command.kind === 'harvest' || command.kind === 'pickup' || command.kind === 'deposit' || command.kind === 'build';
         const channeling = accepted.some((e) => e.hero?.whirlwind);
         const canWork = (e: Entity): boolean => (e.hero !== null && !e.hero.whirlwind) || (worker && e.worker !== null);
         for (const e of accepted) if (!canWork(e)) result.rejectedEntityIds.push(e.id);

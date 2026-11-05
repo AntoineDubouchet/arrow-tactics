@@ -434,8 +434,8 @@ talents morts, HUD et vues associés. Reste, à décider ou à construire :
     talents et son architecture ;
   - `Entity.rootTimer` (immobilisation sans source) et `applyPlayerHeal`
     (soin de zone sans appelant) : réutiliser ou retirer ;
-  - `WAVE_CLEAR_BONUS` (+5 or par vague repoussée, seule trace du gain
-    « de fin de manche ») : confirmer ;
+  - ~~`WAVE_CLEAR_BONUS`~~ : supprimé le 2026-11-05 (G46, récompense
+    d'équipement à la place) ;
 - acquisition des **unités** selon la vision (aujourd'hui : portée d'aggro) ;
 - **unités spéciales** capables de traverser les forêts (arbres bloquants
   depuis G11 ; même principe que `canTraverseWater`) ;
@@ -487,8 +487,12 @@ extrait ; G33). À voir aussi :
 - ouvriers / récolte par d'autres unités que le Héros : Auberge et
   Villageois faits le 2026-11-03 (G28, modèle dédié G32 ; coups de hache /
   pioche du Héros prêtés le 2026-11-05, G43) ; à suivre :
-  gestes de ramassage / dépôt dédiés (KI-64), construction par les
-  Villageois ;
+  gestes de ramassage / dépôt dédiés (KI-64) ; construction par les
+  Villageois faite le 2026-11-05 (G46) ; à suivre : commandes groupées de
+  bâtiments (le double-clic ne fait qu'inspecter le groupe), résistances
+  physiques / magiques et sorts offensifs du Héros lisant `magicDamage`,
+  visuels des pièces de corps (KI-44), anneau des vagues face au camp
+  agrandi (Vagues V2) ;
 - amélioration de l'Écurie et du Sanctuaire plus parlante que +5 PV
   (G26) ;
 - ~~éditeur : génération procédurale (graine) et vue globale (G27)~~ :
@@ -589,7 +593,10 @@ rareté, un modèle / une pièce visuelle, un emplacement d'équipement, des
 stats, une valeur de vente et un éventuel effet spécial. Exemple :
 « Épée du débutant », épée, commune, +3 dégâts de mêlée, valeur de vente X ;
 plus tard « +3 dégâts de feu à chaque coup ». Changer d'item change le
-modèle porté. Pas de système de loot dans cette étape. Les emplacements de
+modèle porté. Depuis le 2026-11-05 (G46), le loot est une banque d'items
+conçue à la main (2 par emplacement, niveaux déterministes, récompense de
+vague) : à étendre (plus d'items par emplacement, effets spéciaux,
+visuels). Les emplacements de
 l'Atelier préparent cette suite : main droite (arme principale), main
 gauche (seconde arme / bouclier), tête (casques du pack), épaulières, cape.
 `pieces.hands` décrit déjà une pièce visuelle par main, avec son

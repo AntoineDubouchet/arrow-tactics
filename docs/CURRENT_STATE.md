@@ -224,9 +224,12 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `createFreshRun`,
    pas.
 5. **Vague repoussée** (`completeSurvivalWave`) : quand tous les groupes
    de la vague sont apparus et qu'aucun ennemi ne reste, la run
-   **continue sans écran** : +5 or (`WAVE_CLEAR_BONUS`), record de vague
-   et point de talent éventuels enregistrés, bannière « Vague N
-   repoussée ! +5 or », compte à rebours de la vague suivante (§10). Aucun
+   **continue sans écran** : une **récompense d'équipement** mise en attente
+   (2026-11-05, G46 : deux propositions de la banque d'items au niveau de la
+   vague, panneau non bloquant, §6 ter ; l'ancien +5 or est supprimé),
+   record de vague et point de talent éventuels enregistrés, bannière
+   « Vague N repoussée ! Récompense : choisissez un équipement », compte à
+   rebours de la vague suivante (§10). Aucun
    agrandissement de la carte, aucun bilan de manche (retirés le
    2026-11-04, `DESIGN_DECISIONS.md` G40).
 6. **Défaite** (`endSurvivalRun`) : immédiate dès que la base du joueur
@@ -777,7 +780,8 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   Déclenché par l'événement de simulation `levelUp` existant ; le rendu
   est remplaçable sans toucher à l'XP (`LevelUpEffect`) ;
 - **XP en zone partagée** : chaque unité adverse (pas un bâtiment) morte à
-  6 cases ou moins du Héros vivant lui donne max(4, coût × 4) XP, **30 au
+  **12 cases** ou moins du Héros vivant (`HERO_XP_RANGE`, 2026-11-05, G46 ;
+  6 avant) lui donne max(4, coût × 4) XP, **30 au
   plus par mort**, quel que soit le tueur (Maraudeur 8, Traqueur 12,
   Féticheur, Colosse, Ravageur et Razzieur 30). XP, niveau et morts sont
   gardés sur toute la run ;
@@ -1116,7 +1120,43 @@ horizon) derrière la carte ronde ; même rendu dans l'éditeur.
 
 ## 6 ter. Équipement, items et butin du Héros
 
-Depuis le 2026-11-02 (valeurs PROVISOIRES) :
+Depuis le 2026-11-02 (valeurs PROVISOIRES) ; **banque d'items unique,
+niveaux d'item, deux types de dégâts et récompense de vague** depuis le
+2026-11-05 (G46) :
+
+- **banque d'items** (`data/equipment.ts`, `EQUIPMENT`) : tout le loot vient
+  d'un catalogue conçu à la main, **exactement 2 items par emplacement**
+  (9 emplacements, 18 items), id stable, **aucune stat aléatoire** : un
+  exemplaire porte un **niveau** (`ItemInstance`) et ses stats valent
+  stats de base + progression × (niveau − 1) (`statsAtLevel`,
+  déterministe ; deux exemplaires du même item au même niveau sont
+  identiques). Trois **orientations** (`archetype`) : tank (PV max…),
+  dégâts physiques (attaque de base, Tourbillon), dégâts magiques (mana,
+  sorts offensifs) ; chaque emplacement n'en a pas forcément trois, la
+  banque entière les propose. Le hasard ne porte que sur le choix de
+  l'item (RNG déterministe du jeu) ;
+- **deux types de dégâts** (`DamageType`, `sim/damage.ts`) : **physique**
+  (mêlée, armes, flèches d'Archer, carreaux de Baliste et de Tour, Charge,
+  **Tourbillon**) et **magique** (Boule de feu du Mage, feu des coups
+  d'équipement, futurs sorts). Une seule voie de dégâts
+  (`applyDamageToEntity` avec le type), aucune résistance pour l'instant :
+  même quantité brute ; le type est porté par les événements et les données
+  (équipement, talents, résistances et interface futures). Stats d'items :
+  `physicalDamage` (s'ajoute à l'attaque de base, donc au Tourbillon qui la
+  fige) et `magicDamage` (jamais à l'attaque de base ni au Tourbillon ;
+  aucun sort offensif du Héros ne la lit encore). Le Soin n'est pas un
+  dégât ;
+- **récompense de vague** (`run/waveRewards.ts`, `RunState.pendingRewards`) :
+  à chaque vague repoussée, **choix entre 2 items** distincts de la banque,
+  **niveau = numéro de la vague**, tirage déterministe (graine de carte +
+  vague) ; panneau « Récompense de vague N » (`ui/waveRewardPanel.ts`) avec
+  deux cartes (nom, niveau, emplacement, orientation, stats), **sans
+  pause** : la partie continue, le joueur choisit quand il veut ; clic →
+  item au niveau de la vague dans le sac, panneau fermé ; **sac plein** :
+  cartes désactivées, « Inventaire plein », rien n'est perdu ; plusieurs
+  vagues sans choix : **file**, une récompense à la fois. L'ancien +5 or de
+  fin de vague est supprimé (loot des ennemis, Mine et camps inchangés).
+  Console : `arrowRewards.grant / pending`.
 
 - **items** (`data/equipment.ts`) : id, nom, description, **rareté**
   (Commune blanc, Peu commune vert, Rare bleu, Épique violet, Légendaire
@@ -1124,14 +1164,24 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES) :
   principale, main secondaire, bouclier, casque, épaulières, cape ; main
   secondaire et bouclier partagent la main gauche), **visuel** (source de
   pièces — Western Kingdoms, Barbares, futures —, pièce, échelle, rotation,
-  décalage : format des mains de l'Atelier), **stats** en points affichés
-  (PV max, mana max, régénération de mana, dégâts de mêlée, vitesse
-  d'attaque en %, vitesse de déplacement), **effets** (aujourd'hui : feu à
-  chaque coup qui touche), **valeur de vente** (or, futur Marché) ;
-- **items de démonstration** : Épée du débutant (Commune, +3 dégâts),
-  Lame des braises (Peu commune, +4 dégâts, feu +3 à chaque coup), Bouclier
-  robuste (Peu commun, +8 PV max), Épaulières de garde (Commune, +4 PV,
-  +0,1 vitesse) ;
+  décalage : format des mains de l'Atelier), **orientation**, **stats** au
+  niveau 1 en points affichés (PV max, mana max, régénération de mana,
+  dégâts physiques, dégâts magiques, vitesse d'attaque en %, vitesse de
+  déplacement), **progression par niveau** (mêmes clés), **effets**
+  (aujourd'hui : feu à chaque coup qui touche, magique), **valeur de vente**
+  (or, futur Marché) ;
+- **banque actuelle** (2 par emplacement, valeurs provisoires) : arme
+  principale Épée du débutant (physique, +3 dégâts physiques, +0,5 par
+  niveau) et Lame des braises (physique, +4, feu +3) ; main secondaire
+  Dague de chasse (physique) et Orbe de concentration (magique) ; bouclier
+  Bouclier robuste (tank, +8 PV) et Targe runique (magique) ; casque Heaume
+  de fer (tank) et Diadème du sage (magique) ; épaulières Épaulières de
+  garde (tank) et Spallières du berserker (physique) ; torse Cuirasse de
+  plates (tank, rare) et Cotte de bataille (physique) ; bras Gantelets
+  lourds (physique) et Manches du tisseur (magique) ; jambes Grèves de
+  marche (tank) et Chausses légères (physique) ; cape Cape de laine (tank)
+  et Mante arcanique (magique, rare). La Hache du chef pillard est retirée
+  (la Cuirasse de plates la remplace dans les coffres) ;
 - **inventaire** : depuis le 2026-11-02, inventaire unique de 20 cases
   (`sim/inventory.ts`, §6 quinquies) : équipements et ressources dans les
   mêmes cases, items équipés par emplacement ; équiper, remplacer (l'ancien
@@ -1146,8 +1196,19 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES) :
   esquive ou un élan annulé ; petit texte orange « 🔥3 » à l'impact ;
 - **interface** : inventaire du Héros (touche I) avec ses emplacements
   (« Retirer ») et son sac d'objets (« Équiper »), cartes à la couleur de la
-  rareté. Console : `arrowItems.give / equip / unequip / list`.
+  rareté ; chaque carte montre le **niveau** de l'exemplaire et son
+  orientation. Console : `arrowItems.give / equip / unequip / list`.
   `?items=demo` met les items du catalogue dans le sac au lancement ;
+- **ergonomie RTS** (2026-11-05, G46) : **Maj + clic** pendant la pose d'un
+  bâtiment place, paie et **reste en mode de pose** du même bâtiment
+  (fantôme prêt pour le suivant ; chaque pose validée et payée à part ;
+  ressources insuffisantes → sortie avec « Ressources insuffisantes » ;
+  Échap quitte toujours ; Héros et Villageois constructeurs) ; le tracé de
+  Palissade est inchangé. **Double-clic** sur un bâtiment allié : tous les
+  bâtiments alliés **du même type visibles à l'écran** (viewport, hors
+  brouillard) sont inspectés en groupe (anneau sur chacun, fiche
+  « Maison ×4 ») ; la fiche et les actions restent celles du bâtiment
+  cliqué (pas de commandes groupées, limite documentée) ;
 - **visuel en jeu** : l'arme et le bouclier équipés apparaissent dans les
   mains du Héros (même placement que l'Atelier, pièces de toute source). Au
   travail, l'outil (hache, pioche, marteau de chantier) remplace l'arme le
@@ -1164,8 +1225,10 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES) :
 - **butin branché** (2026-11-02, `data/loot.ts`, RNG du monde) : coffres
   des camps neutres (§6 quater) et Maraudeur abattu (12 %, item commun,
   une fois par mort) ; l'item tombe au sol et se ramasse comme ci-dessus ;
-- **Hache du chef pillard** (Rare, 2026-11-02) : +4 dégâts, +15 % vitesse
-  d'attaque, +4 PV max, vente 20 or ; butin rare des coffres de camp.
+- **items de coffre** : tables de `data/loot.ts` (Épée du débutant,
+  Épaulières de garde, Bouclier robuste, Lame des braises, Cuirasse de
+  plates en rare) ; un item lâché ou donné par la console est de niveau 1,
+  une récompense de vague du niveau de la vague.
 
 ## 6 quater. Camps neutres et coffres
 
@@ -1538,6 +1601,15 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   dont un côté est libre mais qu'aucun chemin n'atteint (région coupée) :
   le point de travail est choisi une fois par ordre parmi les côtés que la
   navigation atteint réellement ; un simple détour est suivi normalement.
+  **Construction** (2026-11-05, G46) : un Villageois sélectionné ouvre le
+  menu Construire, pose un chantier et le **construit** avec exactement les
+  règles du Héros (coût, validation, chantier, durée, interruption,
+  enchaînement du chantier voisin : `constructSite`, `sim/systems/hero.ts`) ;
+  plusieurs constructeurs sur un même chantier l'avancent chacun, sans
+  bonus de vitesse. L'ordre manuel est prioritaire : aucune autonomie
+  pendant la marche ni la construction ; fini, annulé ou perdu → Garde,
+  puis autonomie après 1 s. Geste : petits coups accroupis (`workingC` du
+  Héros), hache en main (pas de marteau dans son GLB, KI-64).
   Cargo de **10** (§6 undecies ; 5 jusqu'au 2026-11-05, G44 : un
   Villageois reste 20 à 25 s à sa source avant de rentrer) : plein → dépôt
   automatique au point de
@@ -1775,11 +1847,20 @@ valeurs **provisoires**) :
   `config/startingBase.ts`) autour du Départ Survie : **Baliste** au
   centre, **deux Maisons** (A puis B) et l'**Auberge** contre l'enceinte
   (Maison A au nord-ouest, Maison B à l'ouest, Auberge à l'est, repère
-  local), cour où apparaissent le **Héros** et **deux Villageois**,
-  enceinte **arrondie** de **Palissade V2** : dodécagone de rayon 10,5
-  cases (diamètre 21, environ 330 cases dedans, 25 pièces) avec une
-  **porte ouverte** de 2,4 cases au milieu d'un côté ; le milieu du camp
-  reste libre pour les constructions suivantes. **Gisements et bosquet
+  local, repoussés vers la périphérie intérieure), cour où apparaissent le
+  **Héros** et **deux Villageois**, enceinte **arrondie** de **Palissade
+  V2** : dodécagone de **rayon 15** (2026-11-05, G46 ; 10,5 avant :
+  apothème 14,5, diamètre 30, 36 pièces, 585 cases à plus d'une case des
+  murs dont **549 libres et constructibles**, contre 277 / 241 avant, soit
+  plus du double) avec une **porte ouverte** de 2,4 cases au milieu d'un
+  côté ; la grande cour centrale reste libre pour les constructions
+  suivantes. **Or proche garanti** (G46) : au moins un **second gisement
+  d'or** hors de l'enceinte mais dans la vision initiale de la Baliste
+  (`preset.nearbyGold`, 18,5 cases du centre, hors de l'axe de la porte,
+  4 × 4 cases libres, posé par le générateur ; l'éditeur avertit une carte
+  dessinée qui n'en a pas). Vision de la Baliste **21** cases (18 avant) et
+  disque exploré au départ 25 (22 avant) ; anneau des vagues inchangé
+  (22 : les vagues apparaissent à environ 7 cases des murs). **Gisements et bosquet
   garantis** (2026-11-05, G42 puis G43) : un **gisement de pierre**
   (nord-est, derrière l'Auberge), un **gisement d'or** (sud-ouest, dans la
   cour) et un **bosquet de 7 arbres** (au nord, côté opposé à la porte,
@@ -1834,7 +1915,8 @@ Gains :
   guerre ;
 - **Mines** : une tranche toutes les 60 s de simulation par Mine terminée,
   sans plafond (§6) ;
-- **vague repoussée** : +5 (`WAVE_CLEAR_BONUS`) ; rien à la défaite ;
+- **vague repoussée** : plus d'or depuis le 2026-11-05 (G46 : une
+  récompense d'équipement à la place, §6 ter) ; rien à la défaite ;
 - **or de gisement** extrait et déposé au Camp de mineur (§6 undecies) ;
 - **annulation** d'une production en file : or rendu (§6 sexies).
 
@@ -2563,7 +2645,9 @@ Accessible depuis le menu principal ; le détail d'usage est dans
 camp de départ (preset `basic-camp`) : camp dérivé affiché dans l'éditeur
 (gisements et bosquet garantis compris depuis le 2026-11-05 : deux rochers
 et sept arbres qui
-suivent le Départ, jamais sauvegardés), emprise complète validée (eau,
+suivent le Départ, jamais sauvegardés ; enceinte de rayon 15, zone réservée
+17, camp neutre à 21 cases au moins ; avertissement si aucun gisement d'or
+n'est visible hors de l'enceinte), emprise complète validée (eau,
 relief, arbres, gisements, objets, camps neutres), porte orientée
 automatiquement, aperçu de l'emprise au
 déplacement, clic sur une pièce du camp = Départ sélectionné ; « Tester le

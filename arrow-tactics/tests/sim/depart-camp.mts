@@ -22,6 +22,7 @@ const { getWallType } = await import(SRC + 'data/walls.ts');
 const { cachedPathGrid } = await import(SRC + 'sim/pathfinding.ts');
 const { terrainObstacles } = await import(SRC + 'sim/geometry.ts');
 const { populationOfEntities } = await import(SRC + 'data/population.ts');
+const { VISION_RADIUS } = await import(SRC + 'data/vision.ts');
 const DT = 1 / 30;
 let failures = 0;
 const check = (label: string, ok: boolean, extra: unknown = '') => { if (!ok) failures++; console.log(`${ok ? 'OK   ' : 'ECHEC'} ${label}${extra !== '' ? ' — ' + JSON.stringify(extra).slice(0, 1200) : ''}`); };
@@ -84,8 +85,8 @@ const insideCamp = (o: any, x: number, z: number, m = 0) => Math.hypot(x - o.x, 
     res.every((q) => q.depOk), res.map((q) => [q.r, q.depOk, q.deposits]));
   check('bosquet garanti, 4 rotations : >= 6 arbres 1 x 1 groupes, dans l enceinte, sans chevauchement (Baliste, batiments, gisements, entre eux), a >= 2 cases des batiments et gisements, hors places, loin de l axe de la porte, a >= 1 case des murs',
     res.every((q) => q.treeOk), res.map((q) => [q.r, q.treeOk, q.trees]));
-  check('preset basic-camp, 4 rotations : 2 Maisons (A, B) + 1 Auberge sans chevauchement (ni Baliste), dans l enceinte, a >= 1,5 case des murs ; Heros et 2 Villageois dans la cour, hors emprises ; 1 porte ouverte ; 25 pieces (dodecagone, 14 lignes)',
-    res.every((q) => q.noOverlap && q.inBounds && q.clearance >= 1.5 && q.peopleOk && q.gates === 1 && q.open && q.pieces === 25 && L0.walls.length === 14 && JSON.stringify(q.houses) === '[0,1]' && q.tavern === 1 && q.villagers === 2), res);
+  check('preset basic-camp, 4 rotations : 2 Maisons (A, B) + 1 Auberge sans chevauchement (ni Baliste), dans l enceinte, a >= 1,5 case des murs ; Heros et 2 Villageois dans la cour, hors emprises ; 1 porte ouverte ; 36 pieces (dodecagone de rayon 15, 14 lignes)',
+    res.every((q) => q.noOverlap && q.inBounds && q.clearance >= 1.5 && q.peopleOk && q.gates === 1 && q.open && q.pieces === 36 && L0.walls.length === 14 && JSON.stringify(q.houses) === '[0,1]' && q.tavern === 1 && q.villagers === 2), res);
 }
 
 // ---- 2. Lot de graines.
@@ -123,6 +124,17 @@ for (const seed of SEEDS) {
   w.setMap(map);
   const campNodes = [...w.resourceNodes.values()].filter((n: any) => insideCamp(L.origin, n.x, n.z));
   row.sourcesCamp = campNodes.map((n: any) => n.resource).sort();
+  // Or proche garanti (G46) : un gisement d'or HORS de l'enceinte dont les 4 cases sont dans la vision initiale de la
+  // Baliste (VISION_RADIUS.ballista depuis l'origine, centres de cases a < rayon - 0,5), a >= 1 case des murs.
+  row.orProche = raw.obstacles.filter((o: any) => o.kind === 'rock' && o.ore === 'gold').filter((o: any) => { const cs = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([dx, dz]) => Math.hypot(o.cornerX + dx + 0.5 - L.origin.x, o.cornerZ + dz + 0.5 - L.origin.z)); return Math.min(...cs) > ENC.radius + 1 && Math.max(...cs) < VISION_RADIUS.ballista - 0.5; }).length;
+  // Cour libre : cases a plus d'une case des murs, hors Baliste, batiments, gisements, bosquet (constructibles).
+  { const blocked = new Set<string>(); const block = (minX: number, maxX: number, minZ: number, maxZ: number) => { for (let z = Math.floor(minZ); z < Math.ceil(maxZ); z++) for (let x = Math.floor(minX); x < Math.ceil(maxX); x++) blocked.add(x + ',' + z); };
+    block(L.origin.x - 1.5, L.origin.x + 1.5, L.origin.z - 1.5, L.origin.z + 1.5);
+    for (const b of L.buildings) { const t = buildingFootprintTiles(b.buildingId); block(b.x - t.tilesX / 2, b.x + t.tilesX / 2, b.z - t.tilesZ / 2, b.z + t.tilesZ / 2); }
+    for (const d of L.deposits) block(d.x - 1, d.x + 1, d.z - 1, d.z + 1);
+    for (const t of L.trees) block(t.x - 0.5, t.x + 0.5, t.z - 0.5, t.z + 0.5);
+    let free = 0; for (let z = Math.floor(L.origin.z - 16); z <= L.origin.z + 16; z++) for (let x = Math.floor(L.origin.x - 16); x <= L.origin.x + 16; x++) if (insideCamp(L.origin, x + 0.5, z + 0.5, 1) && !blocked.has(x + ',' + z)) free++;
+    row.courLibre = free; }
   w.spawnBuilding(getBuilding('ballista'), 'player', L.origin.x, L.origin.z, computeBallistaObstacle(L.origin));
   for (const b of L.buildings) { const { tilesX, tilesZ } = buildingFootprintTiles(b.buildingId); w.spawnBuilding(getBuilding(b.buildingId), 'player', b.x, b.z, { kind: 'building', x: b.x, z: b.z, tilesX, tilesZ }); }
   for (const line of L.walls) w.spawnWallLine('player', line.type, line, { gates: line.gates, openGates: line.openGates });
@@ -203,6 +215,7 @@ check('Heros : atteint le pied de CHAQUE gisement (pierre et or) depuis la sorti
 check('aucun passage d une case contre un gisement (KI-65)', summary.every((r) => r.passagesUneCase === 0), summary.map((r) => [r.seed, r.passagesUneCase]));
 check('ennemi (Maraudeur) a la porte ouverte : n entre jamais tant qu elle tient', summary.every((r) => r.ennemiBloque), summary.map((r) => [r.seed, r.ennemiBloque]));
 const NB_TREES = SB.getStartingBasePreset('basic-camp').trees.length;
+check('or proche garanti (G46, chaque graine) : au moins 1 gisement d or hors de l enceinte, entierement dans la vision initiale de la Baliste (21) ; cour libre constructible >= 500 cases (241 avant, rayon 10,5)', summary.every((r) => r.orProche >= 1 && r.courLibre >= 500), summary.map((r) => [r.seed, r.orProche, r.courLibre]));
 check(`gisements et bosquet garantis du camp (chaque graine) : aucun dans la carte brute, 2 + ${NB_TREES} ajoutes a la consommation (expandStartingBase, avec les 14 lignes de murs) ; dans le monde : 1 pierre + 1 or + ${NB_TREES} arbres (>= 6) dans l enceinte`, NB_TREES >= 6 && summary.every((r) => r.gisementsCamp?.brut === 0 && r.gisementsCamp?.monde === 2 + NB_TREES && r.gisementsCamp?.murs === 14 && r.sourcesCamp?.join() === ['gold', 'stone', ...Array(NB_TREES).fill('wood')].join()), summary.map((r) => [r.seed, r.gisementsCamp, r.sourcesCamp]));
 check(`sources du camp : toutes atteintes par le Heros depuis la cour (${2 + NB_TREES}), aucun passage d une case autour (KI-65)`, summary.every((r) => r.campAtteints === `${2 + NB_TREES}/${2 + NB_TREES}` && r.campPassagesUneCase === 0), summary.map((r) => [r.seed, r.campAtteints, r.campPassagesUneCase]));
 console.log('PERF generation moyenne', (genMs / SEEDS.length).toFixed(1), 'ms ; rotations', JSON.stringify(summary.map((r) => r.rotation)));
