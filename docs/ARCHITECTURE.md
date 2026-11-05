@@ -349,7 +349,7 @@ voir §9.
   `resourceNodeCellKeys` / `resourceNodeCells` : cases dont le centre est
   dans l'emprise ; `World.resourceCells` = sources debout) :
   collision et trajets, jamais les tirs. La même règle refuse la pose
-  (`main.ts`, `isValidPlacementTile`). Vide hors carte, eau et arbres
+  (`main.ts`, `buildingPlacementWorld`). Vide hors carte, eau et arbres
   passent par une seule fusion par rangée (`rowSpanObstacles`, KI-40).
 - `sim/pathfinding.ts` : A* à tas binaire (même ordre que l'ancien tableau
   trié : f puis rang d'insertion, chemins identiques, mesuré), grilles en
@@ -528,7 +528,7 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     (`findBlockingObstacle` → `segmentHitsCapsule`), la grille A*
     (`buildPathGrid` → `wallLineCells` : ligne et épaisseur, sans les bouts
     arrondis) et le test « corps contre mur » de la ligne droite
-    (`bodyPathNearWall`). Voir §13 octies.
+    (`bodyPathNearStructure`). Voir §13 octies.
   - `door` (porte de mur V2) : propriétaire et état, même objet que
     `Entity.wall.door` ; l'emprise reste **toujours** dans
     `World.obstacles`. `obstaclesForUnit(obstacles, unit, crossesWater)`
@@ -774,9 +774,9 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   G12) la pose en jeu n'est plus limitée au territoire, et l'index de
   territoire de `main.ts` (`currentTerritory`,
   `rebuildCurrentTerritoryIndex`), qui ne servait qu'au placement, a été
-  retiré le 2026-11-04 avec lui (G40). `isValidPlacementTile` ne teste
-  plus que les obstacles, les bâtiments, l'eau, les sources debout et
-  l'existence de la case. Le territoire d'une carte (`MapDef.territory`)
+  retiré le 2026-11-04 avec lui (G40). La pose d'un bâtiment (`checkBuildingPlacement`,
+  G48) ne teste que les obstacles, les bâtiments, l'eau, les sources debout, les
+  murs, les unités et l'existence des cases. Le territoire d'une carte (`MapDef.territory`)
   sert au rendu des zones, au camp des unités de l'éditeur et aux
   vagues ; il n'existe pas de `RunState.territory`. La simulation ne
   connaît pas le territoire.
@@ -1443,7 +1443,7 @@ restent comme décors (« Obstacles / structures »).
 | `sim/world.ts` | `spawnWallLine` (une entité par segment, `Entity.wall` : ligne, rang, A, B, porte), `replaceWallSegmentWithGate`, `setDoorWanted` (camp demandeur allié du propriétaire), `refreshDoorPassages` (nouveau tableau d'obstacles, même contenu). |
 | `sim/systems/doors.ts` | portes au pas fixe, avant le mouvement : ouverture immédiate ; fermeture différée tant qu'un corps allié touche la capsule ; chaque changement remplace `World.obstacles` (caches par camp). |
 | `sim/relations.ts` | `areAllied` (relation entre camps, extensible) et `canUnitPassGate` (porte ouverte et alliée). |
-| `sim/geometry.ts` | `targetDistance` (portée jusqu'à la ligne d'une pièce de mur, ciblage / combat / Tour / engagement), `bodyPathNearWall`, capsule dans `findBlockingObstacle`. |
+| `sim/geometry.ts` | `targetDistance` (portée jusqu'à la ligne d'une pièce de mur, ciblage / combat / Tour / engagement), `bodyPathNearStructure`, capsule dans `findBlockingObstacle`. |
 | `sim/systems/movement.ts` | collision capsule ; `findPathFrom` (départ A* hors d'une case bloquée, du bon côté) ; `wallApproachPoint` (poursuite d'une pièce de mur : point du mur le plus proche, de son côté, loin des jonctions). |
 | `sim/systems/hero.ts` | portée de chantier jusqu'à la capsule ; enchaînement sur le segment suivant de la même ligne (A → B). |
 | `render/palisade.ts` | rendu procédural (un mesh fusionné par segment, porte refaite le 2026-11-05 : deux montants sans linteau + deux vrais vantaux `*_door_left/right` construits chacun dans son sens, animés par `BuildingView.setDoorOpenness`), aperçu teinté (`tintWallGhost`). |
@@ -1783,6 +1783,45 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   récursion : le déclenchement n'appelle pas `resolveStrike`.
 - **Item Editor** : `readEffects` (tableau, ou ancien `onHit.fireDamage`) et
   `cleanItem` (`itemEditor/itemEditorConfig.ts`) ; champs `effect-N-*`.
+
+## 13 novodecies. Passe du 2026-11-06 (G48) : placement libre, chantiers, 4 portes, mort du Héros
+
+- **Principe** : **placement continu, navigation en grille dérivée**. Carte,
+  génération, terrain, ressources, camps et A* restent en cases.
+- **Géométrie** : `core/orientedBox.ts` (pur) : `OrientedBox` (centre, demi-tailles,
+  cos / sin de la rotation Three.js), `ContinuousFootprint` (+ `navigationPadding`),
+  chevauchement par axes séparateurs, distance, segment, poussée d'un cercle.
+- **Données** : `buildingFootprint(id)` (`data/buildings.ts`) lit largeur et
+  profondeur dans `footprintTilesX / Z`, sans les dupliquer ;
+  `BUILDING_PLACEMENT_PADDING`, `BUILDING_NAVIGATION_PADDING` (0,2) ;
+  `BUILDING_ROTATION_STEP` (15°) ; `AUTO_CONSTRUCT_RANGE` (`data/hero.ts`).
+- **Obstacle** : `ObstacleDef.footprint` (`buildingContinuousFootprint`) n'est posé
+  que par `ownedBuildingObstacle` (`main.ts`) : bâtiments possédés, camp de départ
+  compris. Sans lui, `rotationY` reste visuelle et l'emprise reste alignée
+  (décors, bâtiments de carte de l'éditeur et de « Tester le scénario »).
+  `obstacleBounds` rend sa boîte englobante, simple filtre ; le test exact est dans
+  `findBlockingObstacle`, `resolveObstacleCollisions`, `buildPathGrid`,
+  `distanceToSite`, `obstacleContainsPoint` (sélection). Conservateur par sa boîte :
+  sortie de production, terre battue, tracé de mur près d'un bâtiment tourné.
+- **Validation** : `run/buildingPlacement.ts`, `checkBuildingPlacement` (pure, renvoie
+  la raison du refus) ; `buildingPlacementWorld()` (`main.ts`) fournit le terrain.
+- **Grille** : `rasterizeFootprint` (`sim/pathfinding.ts`) bloque toute case touchée
+  par l'empreinte + marge. `bodyPathNearStructure` (`sim/geometry.ts`, ex
+  `bodyPathNearWall`) force A* quand la ligne droite passe mais pas le corps.
+  `findPathFrom` cherche un départ libre jusqu'à 3 anneaux. `pursueTargetWithPathfinding` :
+  case libre la plus proche fermée par les voisins → `nearestReachableTile` ; déjà
+  sur la bonne case et ligne libre → approche directe (l'évitement réactif oscillait).
+- **Chantiers** : `nextBuildOrder` (`sim/systems/hero.ts`), appelée par
+  `constructSite` et quand un autre constructeur a fini le chantier visé ;
+  `canReachSite` : inondation depuis l'unité, case libre reliée à moins de 2,5 cases
+  du chantier, sans obstacle entre les deux (`HeroWorkContext.canReachSite`).
+- **4 portes** : `enclosureLines` (`config/startingBase.ts`) découpe un côté sur
+  `sides / 4` ; `inGateApproach` et `GATE_APPROACH_*` (générateur) gardent les couloirs
+  en `keepClear` ; `placeCamps` (site strict) évite les axes. `startingBaseRotationFor`
+  n'oriente plus que la cour.
+- **Mort du Héros** : événement `death` (avec `x`, `z`), `createHeroDeathEffect`
+  (`render/heroDeathVfx.ts`, même forme que `levelUpVfx`) ; `main.ts` lance `play`, `tick`
+  et `clear`. Aucune dépendance de la simulation vers le rendu.
 
 ## 14. Audio
 

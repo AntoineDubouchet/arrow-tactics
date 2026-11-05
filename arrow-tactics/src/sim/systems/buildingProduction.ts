@@ -120,6 +120,8 @@ export function buildingProductionSystem(entities: Entity[], obstacles: Obstacle
  *
  * Renvoie JUSQU'A `count` cases distinctes, moins si la place manque.
  */
+const MIN_EXIT_GAP = 0.4;
+
 function findFreeAdjacentCells(
   building: Entity,
   entities: Entity[],
@@ -152,7 +154,11 @@ function findFreeAdjacentCells(
       const cz = tz + 0.5;
       // Exclut les cases a l'INTERIEUR de l'emprise elle-meme.
       if (cx > bounds.minX && cx < bounds.maxX && cz > bounds.minZ && cz < bounds.maxZ) continue;
-      const ring = Math.max(cx < bounds.minX ? bounds.minX - cx : cx > bounds.maxX ? cx - bounds.maxX : 0, cz < bounds.minZ ? bounds.minZ - cz : cz > bounds.maxZ ? cz - bounds.maxZ : 0) < 1 ? 1 : 2;
+      const edgeGap = Math.max(cx < bounds.minX ? bounds.minX - cx : cx > bounds.maxX ? cx - bounds.maxX : 0, cz < bounds.minZ ? bounds.minZ - cz : cz > bounds.maxZ ? cz - bounds.maxZ : 0);
+      // Batiment pose librement (G48) : pas de sortie collee a son bord (sur la
+      // grille, un centre de case est toujours a 0,5 d'un bord entier).
+      if (edgeGap < MIN_EXIT_GAP) continue;
+      const ring = edgeGap < 1 ? 1 : 2;
       const dx = cx - centerX;
       const dz = cz - centerZ;
       const along = (dx * fx + dz * fz) / Math.max(Math.hypot(dx, dz), 1e-6);

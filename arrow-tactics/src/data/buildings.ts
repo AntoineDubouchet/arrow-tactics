@@ -1,4 +1,5 @@
 import { HP_PER_PIP } from '../config/constants';
+import { makeOrientedBox, type ContinuousFootprint } from '../core/orientedBox';
 import type { ResourceKind } from '../config/resourceNodes';
 import type { CargoResource } from './resources';
 import type { UnitBonus } from './unitBonus';
@@ -579,8 +580,40 @@ export function buildingFootprintTiles(buildingId: string): { tilesX: number; ti
   return { tilesX: def.footprintTilesX ?? 1, tilesZ: def.footprintTilesZ ?? 1 };
 }
 
-/** Pas de rotation d'un batiment en placement (rotation visuelle). */
-export const BUILDING_ROTATION_STEP = Math.PI / 4;
+/** Pas de rotation d'un batiment en placement : 15° (2026-11-06, G48, touche R).
+ *  L'empreinte reelle suit la rotation. PROVISOIRE. */
+export const BUILDING_ROTATION_STEP = Math.PI / 12;
+
+/** Ecart minimal (cases) entre l'empreinte d'un batiment pose et ce qui occupe
+ *  le terrain (2026-11-06, G48) : deux batiments peuvent etre tres proches sans
+ *  que leurs modeles, cales sur leur emprise, se traversent. PROVISOIRE. */
+export const BUILDING_PLACEMENT_PADDING = 0.2;
+
+/** Marge (cases) de l'empreinte sur la grille de navigation (2026-11-06, G48) :
+ *  une case libre a son centre a au moins 0,5 + marge = 0,7 case de tout
+ *  batiment, soit le corps le plus large du jeu (Cavalier, 0,7). Un passage
+ *  trop etroit pour un corps se ferme donc de lui-meme. PROVISOIRE. */
+export const BUILDING_NAVIGATION_PADDING = 0.2;
+
+/** Empreinte de pose d'un batiment : largeur et profondeur viennent de
+ *  footprintTilesX / Z, jamais dupliquees. Rectangle oriente pour l'instant. */
+export interface BuildingFootprint {
+  width: number;
+  depth: number;
+  placementPadding: number;
+  navigationPadding: number;
+}
+
+export function buildingFootprint(buildingId: string): BuildingFootprint {
+  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId);
+  return { width: tilesX, depth: tilesZ, placementPadding: BUILDING_PLACEMENT_PADDING, navigationPadding: BUILDING_NAVIGATION_PADDING };
+}
+
+/** Empreinte continue d'un batiment pose en (x, z), tourne de `rotationY`. */
+export function buildingContinuousFootprint(buildingId: string, x: number, z: number, rotationY: number): ContinuousFootprint {
+  const f = buildingFootprint(buildingId);
+  return { ...makeOrientedBox(x, z, f.width, f.depth, rotationY), navigationPadding: f.navigationPadding };
+}
 
 /** Duree de construction d'un chantier sans BuildingDef.buildTime. */
 export const DEFAULT_BUILD_TIME = 1.2;

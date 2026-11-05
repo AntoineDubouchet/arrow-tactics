@@ -19,6 +19,7 @@ import {
   PLACEMENT_ROWS,
   TILE,
   obstacleBounds,
+  obstacleContainsPoint,
   SIM_HZ,
   SURVIVAL_FIRST_WAVE_DELAY_SECONDS,
   SURVIVAL_NEXT_WAVE_DELAY_SECONDS,
@@ -52,7 +53,8 @@ import { dist } from './core/math';
 import { clampToCellsDistance, type CellCorner } from './core/cameraBounds';
 import { populationOfEntities } from './data/population';
 import { isNoopGridMove, planGridGroupMove, type GridGroupMovePlan, type GridMoveMember } from './core/gridGroupMove';
-import { BUILDINGS, BUILDING_ROTATION_STEP, buildingFootprintTiles, buildTimeOf, getBuilding, listBuyableBuildingIds } from './data/buildings';
+import { BUILDINGS, BUILDING_ROTATION_STEP, buildingContinuousFootprint, buildingFootprint, buildingFootprintTiles, buildTimeOf, getBuilding, listBuyableBuildingIds } from './data/buildings';
+import { checkBuildingPlacement, type BuildingPlacementWorld } from './run/buildingPlacement';
 import { getUnit, WAVE_UNIT_BY_ROLE, type UnitStats } from './data/units';
 import { ENEMY_GOLD_DROPS, ENEMY_LOOT_TABLES } from './data/loot';
 import {
@@ -76,6 +78,7 @@ import { leavesSettlementGround, SETTLEMENT_SURFACE, settlementGroundCells, type
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import {
   buildCellPreview,
+  buildFootprintPreview,
   buildReliefBrushPreview,
   buildSurfaceBrushPreview,
   buildGhost,
@@ -95,9 +98,10 @@ import { ensureModels, loadEnvironmentAssets, obstacleModelKeys, type Environmen
 import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
 import { buildWallPieceView, disposeWallPieceView, tintWallGhost } from './render/palisade';
+import { createHeroDeathEffect, type HeroDeathEffect } from './render/heroDeathVfx';
 import { createProceduralLevelUpEffect, type LevelUpEffect } from './render/levelUpVfx';
 import { createProceduralWhirlwindEffect, type WhirlwindEffect } from './render/whirlwindVfx';
-import { planWallLine, segmentBoxDistance, segmentWallLine, WALL_ISSUE_LABELS, wallLength, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint } from './core/wallLine';
+import { planWallLine, segmentWallLine, WALL_ISSUE_LABELS, wallLength, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint } from './core/wallLine';
 import { getWallType, WALL_TYPES, wallGateCost, wallLineCost } from './data/walls';
 import { crossesTerrainCliff } from './sim/geometry';
 import { buildObstacleMesh, obstaclePlacementOffset, placeObstacleMesh } from './render/obstacleFactory';
@@ -626,9 +630,11 @@ function clearOwnedBuildingViews(): void {
  *  config/constants.ts, ObstacleDef, chantier "placement libre") derivee de
  *  OwnedBuilding.x/z, jamais cornerX/cornerZ (le joueur choisit une position
  *  quelconque dans sa zone, pas necessairement alignee sur un coin de bloc
- *  pair). */
+ *  pair). Empreinte continue (2026-11-06, G48) : rectangle oriente reel pour la
+ *  collision, la ligne de vue et la grille de navigation. */
 function ownedBuildingObstacle(owned: OwnedBuilding): ObstacleDef {
-  return gameplayBuildingObstacle(owned.buildingId, owned.x, owned.z, owned.rotationY ?? 0, owned.modelVariant);
+  const rotationY = owned.rotationY ?? 0;
+  return { ...gameplayBuildingObstacle(owned.buildingId, owned.x, owned.z, rotationY, owned.modelVariant), footprint: buildingContinuousFootprint(owned.buildingId, owned.x, owned.z, rotationY) };
 }
 
 /** Emprise de collision et modele d'un batiment GAMEPLAY centre en (x, z) :
@@ -1384,6 +1390,7 @@ function forgetBattleBuildings(): void {
   ballistaEntityId = null;
   levelUpVfx.clear();
   whirlwindVfx.clear();
+  heroDeathVfx.clear();
   cancelWallPlacement();
   clearWallViews();
   buildingViewsByEntityId.clear();
@@ -5462,8 +5469,7 @@ function pickBattleInspectableBuilding(event: MouseEvent, picked: Entity | null)
   if (!point) return null;
   for (const e of world.entities) {
     if (!e.alive || !e.isBuilding || e.team !== 'player' || !e.footprintObstacle) continue;
-    const b = obstacleBounds(e.footprintObstacle);
-    if (point.x >= b.minX && point.x <= b.maxX && point.z >= b.minZ && point.z <= b.maxZ) return e;
+    if (obstacleContainsPoint(e.footprintObstacle, point.x, point.z)) return e;
   }
   return null;
 }
@@ -5667,8 +5673,7 @@ function issueRightClickOrder(event: MouseEvent): void {
 function battleChantierAt(x: number, z: number): Entity | null {
   return world.entities.find((e) => {
     if (!e.alive || e.team !== 'player' || !e.construction || !e.footprintObstacle) return false;
-    const b = obstacleBounds(e.footprintObstacle);
-    return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ;
+    return obstacleContainsPoint(e.footprintObstacle, x, z);
   }) ?? null;
 }
 
@@ -5676,8 +5681,7 @@ function battleChantierAt(x: number, z: number): Entity | null {
 function battleDepotAt(x: number, z: number): Entity | null {
   return world.entities.find((e) => {
     if (!e.alive || e.team !== 'player' || !e.isBuilding || e.construction || !e.footprintObstacle || !(getBuilding(e.unitId).dropOff?.length)) return false;
-    const b = obstacleBounds(e.footprintObstacle);
-    return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ;
+    return obstacleContainsPoint(e.footprintObstacle, x, z);
   }) ?? null;
 }
 
@@ -5828,6 +5832,9 @@ function playLevelUps(levels: ReadonlyMap<number, number>): void {
  *  remplacable, comme levelUpVfx ; declenche par les evenements de la
  *  simulation (spellStart, whirlwindPulse, whirlwindEnd). */
 const whirlwindVfx: WhirlwindEffect = createProceduralWhirlwindEffect(renderer.scene);
+/** Effet 3D de la mort du Heros (render/heroDeathVfx.ts), declenche par son
+ *  evenement de mort ; le jeu fonctionne sans lui. */
+const heroDeathVfx: HeroDeathEffect = createHeroDeathEffect(renderer.scene, () => renderer.renderer.domElement.height / renderer.viewHeight);
 
 function startWhirlwindVfx(heroId: number): void {
   whirlwindVfx.start(heroId, () => {
@@ -5864,7 +5871,10 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
       // VFX et badge (2026-11-02) a la place de l'ancien bandeau texte.
       levelUps.set(ev.heroId, Math.max(levelUps.get(ev.heroId) ?? 0, ev.level));
     } else if (ev.type === 'death') {
-      waveIndicator.flash(`Héros à terre — retour dans ${Math.round(ev.respawnIn)} s`);
+      // Mort heroique (2026-11-06, G48) : effet unique, a la mort seulement ; la
+      // partie continue tant que la Baliste existe.
+      heroDeathVfx.play(ev.x, surfaceY(ev.x, ev.z), ev.z);
+      waveIndicator.flash(`Le Héros est tombé — retour dans ${Math.round(ev.respawnIn)} s · la partie continue`);
     } else if (ev.type === 'respawn') {
       waveIndicator.flash('Le Héros revient à la Baliste');
     } else if (ev.type === 'spellStart' && getSpell(ev.spellId).whirlwind) {
@@ -6003,31 +6013,40 @@ function computeGroundPoint(event: MouseEvent): { x: number; z: number } | null 
   return { x: groundHit.x, z: groundHit.z };
 }
 
-/** Une case (centre en demi-entiers) peut recevoir une pose du joueur
- *  (batiment, chantier, mur) : pas sur un obstacle bloquant, un batiment
- *  possede ou la Baliste, pas sur l'eau ni une source debout, et une case
- *  existante de la carte (plus de limite de territoire depuis le 2026-11-02,
- *  demande d'Antoine). Les contraintes vis-a-vis des unites vivantes et des
- *  murs sont dans canPlaceBuildingAt / planRuntimeWall. */
-function isValidPlacementTile(tileX: number, tileZ: number): boolean {
-  // Les DECORS (arbres, rochers, vegetation, structures decoratives…) sont
-  // purement visuels depuis le 2026-10-28 (voir config/constants.ts,
-  // isBlockingMapObstacle) : un batiment se pose dessus. Les batiments
-  // possedes ET la plateforme Baliste (toujours presente, voir
-  // activeBuildingObstacles) bloquent toujours.
-  const onObstacle = [...currentMap.obstacles.filter(isBlockingMapObstacle), ...activeBuildingObstacles()].some((o) => {
-    const b = obstacleBounds(o);
-    return tileX > b.minX && tileX < b.maxX && tileZ > b.minZ && tileZ < b.maxZ;
-  });
-  if (onObstacle) return false;
-  // Eau (isWaterSurface) : ni batiment, ni mur.
-  if (isWaterTile(tileX, tileZ)) return false;
-  // Source debout (arbre, gros gisement de pierre ou d'or, 2026-11-02) : sa
-  // case bloque les unites terrestres, donc aussi toute pose (batiment,
-  // chantier, mur, Baliste) — regle unique (config/resourceNodes.ts,
-  // resourceNodeCellKeys). Source epuisee : case de nouveau constructible.
-  if (world.resourceCells.has(cellKey(Math.floor(tileX), Math.floor(tileZ)))) return false;
-  return isMapTile(tileX, tileZ);
+/** Ce qui occupe le terrain pour la pose libre d'un batiment
+ *  (run/buildingPlacement.ts, 2026-11-06, G48) : pas sur un obstacle bloquant, un
+ *  batiment possede ou la Baliste, pas sur l'eau ni une source debout, sur des
+ *  cases existantes de la carte (plus de limite de territoire depuis le
+ *  2026-11-02, demande d'Antoine), loin des murs et des unites vivantes. */
+function buildingPlacementWorld(): BuildingPlacementWorld {
+  return {
+    // Eau (isWaterSurface) : ni batiment, ni mur.
+    isBuildableCell: (cellX, cellZ) => isMapTile(cellX + 0.5, cellZ + 0.5) && !isWaterTile(cellX + 0.5, cellZ + 0.5),
+    flatLevelOver: (minX, maxX, minZ, maxZ) => gameTerrain().flatLevelOver(minX, maxX, minZ, maxZ),
+    // Les DECORS (arbres, rochers, vegetation, structures decoratives…) sont
+    // purement visuels depuis le 2026-10-28 (voir config/constants.ts,
+    // isBlockingMapObstacle) : un batiment se pose dessus. Batiments possedes,
+    // chantiers, plateforme Baliste et destructibles bloquent toujours.
+    blockers: [
+      ...currentMap.obstacles.filter(isBlockingMapObstacle),
+      ...activeBuildingObstacles(),
+      ...world.entities.filter((e) => e.alive && !e.wall && e.footprintObstacle).map((e) => e.footprintObstacle!),
+    ],
+    // Source debout (arbre, gros gisement de pierre ou d'or, 2026-11-02) : sa
+    // case bloque les unites terrestres, donc aussi toute pose — regle unique
+    // (config/resourceNodes.ts, resourceNodeCellKeys). Source epuisee : de
+    // nouveau constructible.
+    sources: [...world.resourceCells].map((k) => {
+      const [x, z] = k.split(',').map(Number) as [number, number];
+      return { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
+    }),
+    // Lignes de mur et portes V2 : meme ecart que la pose d'un mur pres d'un batiment.
+    walls: world.entities.filter((e) => e.alive && e.wall).map((e) => {
+      const type = getWallType(e.wall!.wallType);
+      return { segment: e.wall!, clearance: type.halfWidth + type.buildingClearance };
+    }),
+    bodies: world.entities.filter((e) => e.alive && !e.isBuilding).map((e) => ({ x: e.x, z: e.z, radius: e.stats.radius })),
+  };
 }
 
 /** Cases existantes de `currentMap` (resolveMapCells), recalculees quand la
@@ -6123,10 +6142,9 @@ function resetSettlementGround(): void {
 
 interface BuildingPlacementMode {
   buildingId: string;
-  /** Orientation VISUELLE courante (radians) — Ctrl+molette fait tourner par
-   *  pas de 45°, voir rotateBuildingPlacement. PUREMENT cosmetique, jamais
-   *  lue par canPlaceBuildingAt/l'empreinte de collision (voir
-   *  OwnedBuilding.rotationY). */
+  /** Orientation courante (radians) : R ou Ctrl+molette la tournent par pas de
+   *  15° (2026-11-06, G48), voir rotateBuildingPlacement. L'empreinte reelle
+   *  suit cette rotation (OwnedBuilding.rotationY). */
   rotationY: number;
 }
 
@@ -6149,38 +6167,13 @@ let lastBuildingGhostGroundZ = 0;
  *  placement — un seul groupe, vide tant qu'aucun placement n'est en cours.
  *  Ajoute a la scene une fois pour toutes, comme buildingVfxGroup. */
 const buildingPlacementGroup = new THREE.Group();
+buildingPlacementGroup.name = 'building-placement';
 renderer.scene.add(buildingPlacementGroup);
 
-/** Coin de grille (case entiere) du batiment de `tilesX`x`tilesZ` dont le
- *  CENTRE tomberait sur (x, z) — meme convention de case que le reste du
- *  placement (floor + 0.5 = centre de case). */
-function computeBuildingFootprintCorner(x: number, z: number, tilesX: number, tilesZ: number): { cornerX: number; cornerZ: number } {
-  return { cornerX: Math.round(x - tilesX / 2), cornerZ: Math.round(z - tilesZ / 2) };
-}
-
-/** Centres de case (floor+0.5) occupes par un batiment de `tilesX`x`tilesZ`
- *  dont le coin de grille est (cornerX, cornerZ). */
-function buildingFootprintCells(cornerX: number, cornerZ: number, tilesX: number, tilesZ: number): { x: number; z: number }[] {
-  const cells: { x: number; z: number }[] = [];
-  for (let dz = 0; dz < tilesZ; dz++) {
-    for (let dx = 0; dx < tilesX; dx++) cells.push({ x: cornerX + dx + 0.5, z: cornerZ + dz + 0.5 });
-  }
-  return cells;
-}
-
-/** Valide si TOUTES les cases qu'occuperait ce batiment sont valides —
- *  reutilise isValidPlacementTile telle quelle (aucun obstacle/batiment
- *  deja present, case de la carte), jamais une deuxieme regle de validite
- *  dupliquee ; en jeu, jamais sur une unite vivante ni contre un mur. */
-function canPlaceBuildingAt(buildingId: string, cornerX: number, cornerZ: number): boolean {
-  const { tilesX, tilesZ } = buildingFootprintTiles(buildingId);
-  if (gameTerrain().flatLevelOver(cornerX, cornerX + tilesX, cornerZ, cornerZ + tilesZ) === null) return false;
-  // Jamais sur une unite vivante (elle serait enfermee).
-  if (inBattlePhase() && world.entities.some((e) => e.alive && !e.isBuilding && e.x > cornerX - e.stats.radius && e.x < cornerX + tilesX + e.stats.radius && e.z > cornerZ - e.stats.radius && e.z < cornerZ + tilesZ + e.stats.radius)) return false;
-  // Ni sur une ligne de mur V2 (meme ecart que la pose d'un mur pres d'un batiment).
-  const footprint = { minX: cornerX, maxX: cornerX + tilesX, minZ: cornerZ, maxZ: cornerZ + tilesZ };
-  if (inBattlePhase() && world.entities.some((e) => e.alive && e.wall && segmentBoxDistance(e.wall, footprint) < getWallType(e.wall.wallType).halfWidth + getWallType(e.wall.wallType).buildingClearance)) return false;
-  return buildingFootprintCells(cornerX, cornerZ, tilesX, tilesZ).every((c) => isValidPlacementTile(c.x, c.z));
+/** Pose libre (2026-11-06, G48) : le centre du batiment est le point vise, sans
+ *  aucun arrondi ; la regle unique est run/buildingPlacement.ts. */
+function canPlaceBuildingAt(buildingId: string, x: number, z: number, rotationY: number): boolean {
+  return checkBuildingPlacement(buildingId, x, z, rotationY, buildingPlacementWorld()) === null;
 }
 
 /** Choix d'un batiment dans le menu Construire : entre en mode de pose —
@@ -6202,15 +6195,17 @@ function requestPlaceBuilding(buildingId: string): void {
   buildingRotationHint.setVisible(true);
 }
 
-/** Ctrl+molette pendant un placement de batiment : tourne le fantome par pas
- *  de 45° (2026-08-17, demande explicite d'Antoine) — jamais la rotation par
- *  pas de 90° de l'editeur de maps (bouton "Tourner"/R, systeme distinct).
- *  Rafraichit le fantome IMMEDIATEMENT via la derniere position sol connue,
- *  sans attendre un mousemove. */
+/** R ou Ctrl+molette pendant un placement de batiment : tourne le fantome et
+ *  son empreinte par pas de 15° (2026-11-06, G48 ; 45° avant), cumulatif — jamais
+ *  la rotation par pas de 90° de l'editeur de maps (bouton "Tourner"/R, systeme
+ *  distinct). Rafraichit le fantome IMMEDIATEMENT via la derniere position sol
+ *  connue, sans attendre un mousemove. */
 function rotateBuildingPlacement(direction: number): void {
   if (!buildingPlacementMode) return;
   const step = BUILDING_ROTATION_STEP;
-  buildingPlacementMode.rotationY = (buildingPlacementMode.rotationY + direction * step + Math.PI * 2) % (Math.PI * 2);
+  const turns = Math.round(buildingPlacementMode.rotationY / step) + direction;
+  const full = Math.round((Math.PI * 2) / step);
+  buildingPlacementMode.rotationY = (((turns % full) + full) % full) * step;
   updateBuildingPlacementGhost(lastBuildingGhostGroundX, lastBuildingGhostGroundZ);
 }
 
@@ -6219,40 +6214,60 @@ function rotateBuildingPlacement(direction: number): void {
  *  en cours. */
 function cancelBuildingPlacement(): void {
   buildingPlacementMode = null;
-  buildingPlacementGroup.clear();
+  clearBuildingPreview();
   buildingRotationHint.setVisible(false);
 }
 
-/** Repositionne le fantome + l'apercu vert/rouge sous le curseur — appele a
- *  chaque mousemove tant qu'un placement de batiment est en cours. */
+/** Apercu de pose : modele du jeu en fantome (reconstruit seulement si le
+ *  batiment, sa rotation ou son modele charge changent) et plaque verte / rouge
+ *  de l'empreinte reelle. */
+let placementGhost: { key: string; mesh: THREE.Group } | null = null;
+let placementPlate: THREE.Mesh | null = null;
+
+function clearBuildingPreview(): void {
+  buildingPlacementGroup.clear();
+  placementGhost = null;
+  if (placementPlate) {
+    placementPlate.geometry.dispose();
+    (placementPlate.material as THREE.Material).dispose();
+    placementPlate = null;
+  }
+}
+
+/** Fantome et plaque sous le curseur, sans saut de case (2026-11-06, G48) :
+ *  appele a chaque mousemove tant qu'un placement de batiment est en cours. */
 function updateBuildingPlacementGhost(x: number, z: number): void {
   if (!buildingPlacementMode) return;
   lastBuildingGhostGroundX = x;
   lastBuildingGhostGroundZ = z;
-  buildingPlacementGroup.clear();
   const mode = buildingPlacementMode;
   const def = getBuilding(mode.buildingId);
-  const { tilesX, tilesZ } = buildingFootprintTiles(mode.buildingId);
-  const { cornerX, cornerZ } = computeBuildingFootprintCorner(x, z, tilesX, tilesZ);
-  const valid = canPlaceBuildingAt(mode.buildingId, cornerX, cornerZ);
-  if (def.buildingModel) addBuildingPreview(mode.buildingId, cornerX, cornerZ, mode.rotationY, valid);
-}
-
-/** Apercu d'un batiment de placement : cases vertes/rouges de son emprise
- *  (tournee) et modele du jeu en fantome. */
-function addBuildingPreview(buildingId: string, cornerX: number, cornerZ: number, rotationY: number, valid: boolean): void {
-  const obstacle = gameplayBuildingObstacle(buildingId, 0, 0, rotationY);
-  for (let dz = 0; dz < obstacle.tilesZ; dz++) {
-    for (let dx = 0; dx < obstacle.tilesX; dx++) buildingPlacementGroup.add(buildCellPreview(cornerX + dx, cornerZ + dz, valid));
+  if (!def.buildingModel) return;
+  const valid = canPlaceBuildingAt(mode.buildingId, x, z, mode.rotationY);
+  const obstacle = gameplayBuildingObstacle(mode.buildingId, x, z, mode.rotationY);
+  const key = `${mode.buildingId}:${mode.rotationY}:${environmentAssets.buildingsByName[def.buildingModel] ? 1 : 0}`;
+  if (placementGhost?.key !== key) {
+    clearBuildingPreview();
+    placementGhost = { key, mesh: buildGhost(obstacle, x, z, environmentAssets) };
+    placementGhost.mesh.name = 'building-placement-ghost';
+    buildingPlacementGroup.add(placementGhost.mesh);
+  } else {
+    placeObstacleMesh(placementGhost.mesh, obstacle);
   }
-  const centerX = cornerX + obstacle.tilesX / 2;
-  const centerZ = cornerZ + obstacle.tilesZ / 2;
-  buildingPlacementGroup.add(buildGhost(gameplayBuildingObstacle(buildingId, centerX, centerZ, rotationY), centerX, centerZ, environmentAssets));
+  if (placementPlate) {
+    buildingPlacementGroup.remove(placementPlate);
+    placementPlate.geometry.dispose();
+    (placementPlate.material as THREE.Material).dispose();
+  }
+  const { width, depth } = buildingFootprint(mode.buildingId);
+  placementPlate = buildFootprintPreview(x, z, width, depth, mode.rotationY, valid);
+  placementPlate.name = 'building-placement-plate';
+  buildingPlacementGroup.add(placementPlate);
 }
 
-/** Indication de placement d'un batiment pose a l'unite : rotation. */
+/** Indication de placement d'un batiment pose a l'unite. */
 function placementHintText(): string {
-  return 'Ctrl + molette — tourner (45°)';
+  return 'R — tourner (15°) · Maj — poser plusieurs · Échap — annuler';
 }
 
 /** Clic de confirmation pendant une pose de batiment : deduit l'or et les
@@ -6264,9 +6279,11 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   setRaycasterFromEvent(event);
   if (!intersectTerrain(raycaster.ray, groundHit)) return false;
   const def = getBuilding(buildingPlacementMode.buildingId);
-  const { tilesX, tilesZ } = buildingFootprintTiles(buildingPlacementMode.buildingId);
-  const { cornerX, cornerZ } = computeBuildingFootprintCorner(groundHit.x, groundHit.z, tilesX, tilesZ);
-  if (!canPlaceBuildingAt(buildingPlacementMode.buildingId, cornerX, cornerZ)) return false;
+  // Position exacte du curseur, jamais arrondie a la grille (2026-11-06, G48).
+  const x = groundHit.x;
+  const z = groundHit.z;
+  const rotationY = buildingPlacementMode.rotationY;
+  if (!canPlaceBuildingAt(def.id, x, z, rotationY)) return false;
 
   // Cout EFFECTIF — voir requestPlaceBuilding, meme source unique
   // (getEffectiveBuildingCost) : le prix retire ICI doit toujours
@@ -6278,7 +6295,6 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   }
   currentRun.gold = Math.max(0, roundGold(currentRun.gold - cost));
   payBuildingResources(buildingPlacementMode.buildingId);
-  const rotationY = buildingPlacementMode.rotationY;
   // Variante visuelle alternee (Maison A, B, A... ; 2026-11-03) : d'apres le
   // nombre d'exemplaires deja POSES pendant la run, jamais d'apres ceux
   // encore debout (une destruction ne change aucune autre Maison).
@@ -6288,8 +6304,8 @@ function confirmBuildingPlacement(event: MouseEvent): boolean {
   // CHANTIER (direction Hero RTS) : le Heros le construit.
   currentRun.buildings.push({
     buildingId: def.id,
-    x: cornerX + tilesX / 2,
-    z: cornerZ + tilesZ / 2,
+    x,
+    z,
     hp: Math.max(1, Math.round(def.maxHp * CONSTRUCTION_START_HP_FRACTION)),
     rotationY,
     ...(modelVariant !== undefined ? { modelVariant } : {}),
@@ -7171,6 +7187,7 @@ const loop = new Loop(
     // Montee de niveau : effet 3D (temps reel, fige en pause).
     levelUpVfx.tick(realDt, loop.timeScale === 0);
     whirlwindVfx.tick(realDt, loop.timeScale === 0);
+    heroDeathVfx.tick(realDt, loop.timeScale === 0);
     debugPanel.update(realDt);
 
     const inBattle = inBattlePhase();
@@ -7562,6 +7579,9 @@ window.addEventListener('keydown', (event) => {
       // l'etape 2) — la camera reste pilotable normalement par ailleurs.
       if (inEditorMode) {
         rotateSelectedObstacleBy(Math.PI / 2);
+      } else if (buildingPlacementMode) {
+        // Pose d'un batiment : rotation de 15° (2026-11-06, G48).
+        rotateBuildingPlacement(1);
       } else {
         renderer.resetCamera();
       }

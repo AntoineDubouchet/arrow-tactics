@@ -1,3 +1,5 @@
+import { orientedBoxBounds, orientedBoxContains, type ContinuousFootprint } from '../core/orientedBox';
+
 /**
  * Toutes les valeurs de reglage du jeu. Aucun nombre magique ailleurs dans le code.
  * Regle d'or : les stats sont stockees x10 en interne (50 PV = 5 coeurs affiches)
@@ -394,6 +396,12 @@ export interface ObstacleDef {
    *  a chaque rendu. Si absent, orientation fixee par la graine d'aspect
    *  (voir obstacleAppearanceSeed). */
   rotationY?: number;
+  /** Empreinte CONTINUE (2026-11-06, G48) d'un batiment pose librement par le
+   *  joueur : rectangle oriente reel, qui suit rotationY pour la collision, la
+   *  ligne de vue et la grille de navigation (sim/pathfinding.ts). Absente
+   *  (decors, batiments de carte de l'editeur) : rotationY reste visuelle et
+   *  l'emprise reste le rectangle aligne de obstacleBounds. */
+  footprint?: ContinuousFootprint;
   /** Faux : l'obstacle bloque le deplacement mais PAS les tirs (ligne de tir
    *  des attaques et capacites, voir sim/geometry.ts, findBlockingObstacle).
    *  Absent = bloque aussi les tirs (comportement de tout obstacle
@@ -536,6 +544,9 @@ export interface ObstacleBounds {
  *  config/ (couche neutre) : partagee par la simulation, l'editeur et
  *  main.ts sans qu'aucun d'eux depende d'un autre. */
 export function obstacleBounds(obstacle: ObstacleDef): ObstacleBounds {
+  // Empreinte continue (G48) : boite englobante du rectangle oriente, simple
+  // premier filtre pour les tests exacts (voir ObstacleDef.footprint).
+  if (obstacle.footprint) return orientedBoxBounds(obstacle.footprint);
   const center = obstacleCenter(obstacle);
   const halfW = (obstacle.tilesX * TILE) / 2;
   const halfD = (obstacle.tilesZ * TILE) / 2;
@@ -545,6 +556,14 @@ export function obstacleBounds(obstacle: ObstacleDef): ObstacleBounds {
     minZ: center.z - halfD,
     maxZ: center.z + halfD,
   };
+}
+
+/** Vrai si le point est dans l'emprise reelle de l'obstacle (rectangle oriente
+ *  d'une empreinte continue, sinon son rectangle aligne), bords compris. */
+export function obstacleContainsPoint(obstacle: ObstacleDef, x: number, z: number): boolean {
+  if (obstacle.footprint) return orientedBoxContains(obstacle.footprint, x, z);
+  const b = obstacleBounds(obstacle);
+  return x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ;
 }
 
 /** Distance (en cases) a laquelle une unite en marche neutre (pas encore de

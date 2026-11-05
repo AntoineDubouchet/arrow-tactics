@@ -18,11 +18,12 @@ import {
 import { HARVEST_STAND_GAP } from '../../data/hero';
 import { clamp } from '../../core/math';
 import { closestOnSegment } from '../../core/wallLine';
-import { bodyPathNearTerrainCliff, bodyPathNearWall, crossesTerrainCliff, findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, isMeleeAttack, obstaclesForUnit, segmentIntersectsBox, targetDistance, terrainObstacles } from '../geometry';
+import { bodyPathNearStructure, bodyPathNearTerrainCliff, crossesTerrainCliff, findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, isMeleeAttack, obstaclesForUnit, segmentIntersectsBox, targetDistance, terrainObstacles } from '../geometry';
 import { forwardDir, type Entity } from '../entity';
 import { finishOrder, isWorkOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
 import { workGoal, type HeroWorkContext } from './hero';
-import { cachedPathGrid, findPath, isTileBlockedAt, tileToWorldX, tileToWorldZ, type PathGrid } from '../pathfinding';
+import { pushCircleOutOfOrientedBox } from '../../core/orientedBox';
+import { cachedPathGrid, findPath, isTileBlockedAt, nearestReachableTile, tileToWorldX, tileToWorldZ, type PathGrid } from '../pathfinding';
 import { SpatialGrid } from '../spatialGrid';
 
 /** Distance (cases) sous laquelle un point de cheminement est considere
@@ -149,7 +150,7 @@ export function movementSystem(
   /** Recoit les fins d'ordres manuels du pas (voir sim/orders.ts). */
   orderEvents: OrderEndEvent[] = [],
   /** Sources de ressources (ordres de recolte du Heros). */
-  heroWork: HeroWorkContext = { nodes: new Map(), nodeAmounts: new Map(), depleted: [], canHarvest: () => false, isVisible: () => true, piles: [], drops: [], chests: [], chestLocked: () => true, openChest: () => ({ itemId: null, dropId: null }) },
+  heroWork: HeroWorkContext = { canReachSite: () => false, nodes: new Map(), nodeAmounts: new Map(), depleted: [], canHarvest: () => false, isVisible: () => true, piles: [], drops: [], chests: [], chestLocked: () => true, openChest: () => ({ itemId: null, dropId: null }) },
   /** Marche des vagues vers le camp (null : marche neutre historique). */
   march: MarchContext | null = null,
 ): void {
@@ -927,7 +928,7 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
   const aim = target.wall ? wallApproachPoint(e, target.wall, target.footprintObstacle?.line?.halfWidth ?? 0) : target;
   // target.footprintObstacle (2026-08-16) : meme correctif que combatSystem —
   // un batiment cible ne doit jamais se declarer bloquant envers lui-meme.
-  if (findBlockingObstacle(e.x, e.z, aim.x, aim.z, obstacles, target.footprintObstacle) === null && !bodyPathNearTerrainCliff(e.x, e.z, aim.x, aim.z, bodyClearance, obstacles) && !bodyPathNearWall(e.x, e.z, aim.x, aim.z, bodyClearance, obstacles, target.footprintObstacle)) {
+  if (findBlockingObstacle(e.x, e.z, aim.x, aim.z, obstacles, target.footprintObstacle) === null && !bodyPathNearTerrainCliff(e.x, e.z, aim.x, aim.z, bodyClearance, obstacles) && !bodyPathNearStructure(e.x, e.z, aim.x, aim.z, bodyClearance, obstacles, target.footprintObstacle)) {
     e.path = null;
     moveStraightTowards(e, aim.x, aim.z, subDt);
     return true;
@@ -939,8 +940,22 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
 
   if (!e.path || e.path.length === 0 || stale || cachedPathBlocked(e, grid)) {
     e.path = findPathFrom(e, grid, obstacles, aim.x, aim.z);
+    // Batiment pose librement (G48) : la case libre la plus proche peut etre une
+    // poche fermee par ses voisins ; on vise la plus proche case reliee.
+    if (e.path === null && target.footprintObstacle?.footprint) {
+      const stand = nearestReachableTile(grid, e.x, e.z, aim.x, aim.z, SITE_STAND_SEARCH_RADIUS);
+      if (stand) e.path = findPathFrom(e, grid, obstacles, stand.x, stand.z);
+    }
     e.pathGoalTileX = goalTileX;
     e.pathGoalTileZ = goalTileZ;
+  }
+
+  // Deja sur la bonne case, et seule la marge de corps ecartait la ligne droite
+  // (G48 : un batiment voisin, pose tout pres) : approche finale directe, comme
+  // un chemin epuise. L'evitement reactif oscillerait ici sans jamais arriver.
+  if (e.path?.length === 0 && findBlockingObstacle(e.x, e.z, aim.x, aim.z, obstacles, target.footprintObstacle) === null) {
+    moveStraightTowards(e, aim.x, aim.z, subDt);
+    return true;
   }
 
   if (!e.path || e.path.length === 0) {
@@ -1000,7 +1015,7 @@ function followMoveOrder(
     return;
   }
 
-  if (findBlockingObstacle(e.x, e.z, order.x, order.z, obstacles) === null && !bodyPathNearTerrainCliff(e.x, e.z, order.x, order.z, bodyClearance, obstacles) && !bodyPathNearWall(e.x, e.z, order.x, order.z, bodyClearance, obstacles)) {
+  if (findBlockingObstacle(e.x, e.z, order.x, order.z, obstacles) === null && !bodyPathNearTerrainCliff(e.x, e.z, order.x, order.z, bodyClearance, obstacles) && !bodyPathNearStructure(e.x, e.z, order.x, order.z, bodyClearance, obstacles)) {
     e.path = null;
     moveStraightTowards(e, order.x, order.z, subDt);
     return;
@@ -1081,25 +1096,33 @@ function wallApproachPoint(e: Entity, w: { ax: number; az: number; bx: number; b
  * (sim/pathfinding.ts) : partir de cette case laisserait A* la faire sortir
  * du mauvais cote, a travers le mur. Le depart est alors la case libre
  * voisine la plus proche atteignable en ligne droite (meme cote), ajoutee en
- * tete du chemin. Case libre (cas general) : findPath tel quel.
+ * tete du chemin. Case libre (cas general) : findPath tel quel. La marge de
+ * navigation d'un batiment pose librement (G48) peut bloquer plusieurs rangees
+ * autour de l'unite : l'anneau de recherche s'elargit alors.
  */
+const FREE_START_RINGS = 3;
+/** Rayon de recherche (cases) d'un point d'approche relie autour d'un batiment. */
+const SITE_STAND_SEARCH_RADIUS = 6;
+
 function findPathFrom(e: Entity, grid: PathGrid, obstacles: ObstacleDef[], toX: number, toZ: number): { x: number; z: number }[] | null {
   if (!isTileBlockedAt(grid, e.x, e.z)) return findPath(grid, e.x, e.z, toX, toZ);
   const tx = Math.floor(e.x + grid.halfW);
   const tz = Math.floor(e.z + grid.halfH);
   let start: { x: number; z: number } | null = null;
   let bestD = Infinity;
-  for (let dz = -1; dz <= 1; dz++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      if (dx === 0 && dz === 0) continue;
-      const cx = tileToWorldX(grid, tx + dx);
-      const cz = tileToWorldZ(grid, tz + dz);
-      if (tx + dx < 0 || tz + dz < 0 || tx + dx >= grid.width || tz + dz >= grid.height || isTileBlockedAt(grid, cx, cz)) continue;
-      if (findBlockingObstacle(e.x, e.z, cx, cz, obstacles) !== null) continue;
-      const d = Math.hypot(cx - e.x, cz - e.z);
-      if (d < bestD) {
-        bestD = d;
-        start = { x: cx, z: cz };
+  for (let ring = 1; ring <= FREE_START_RINGS && !start; ring++) {
+    for (let dz = -ring; dz <= ring; dz++) {
+      for (let dx = -ring; dx <= ring; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+        const cx = tileToWorldX(grid, tx + dx);
+        const cz = tileToWorldZ(grid, tz + dz);
+        if (tx + dx < 0 || tz + dz < 0 || tx + dx >= grid.width || tz + dz >= grid.height || isTileBlockedAt(grid, cx, cz)) continue;
+        if (findBlockingObstacle(e.x, e.z, cx, cz, obstacles) !== null) continue;
+        const d = Math.hypot(cx - e.x, cz - e.z);
+        if (d < bestD) {
+          bestD = d;
+          start = { x: cx, z: cz };
+        }
       }
     }
   }
@@ -1412,6 +1435,17 @@ function resolveObstacleCollisions(e: Entity, obstacles: ObstacleDef[]): void {
     if (line) {
       if (e.x < minX - r || e.x > maxX + r || e.z < minZ - r || e.z > maxZ + r) continue;
       pushOutOfCapsule(e, line, r);
+      continue;
+    }
+    // Empreinte continue (G48) : rectangle oriente exact, meme filtre.
+    const footprint = obstacles[i]!.footprint;
+    if (footprint) {
+      if (e.x < minX - r || e.x > maxX + r || e.z < minZ - r || e.z > maxZ + r) continue;
+      const out = pushCircleOutOfOrientedBox(footprint, e.x, e.z, r);
+      if (out) {
+        e.x = out.x;
+        e.z = out.z;
+      }
       continue;
     }
 

@@ -12,26 +12,30 @@ import type { MapDef, WallLineDef } from './mapDef';
  * Dans config/ (et non data/) : le generateur (config/maps) en a besoin ;
  * identifiants de batiments et d'unites en chaines, sans import de data/.
  *
- * Repere LOCAL d'un preset : origine au centre de la Baliste, porte de
- * l'enceinte vers +z. `rotation` (quarts de tour) tourne tout le camp ; le
- * generateur et l'editeur choisissent la rotation qui ouvre la porte sur le
- * cote le plus degage (startingBaseRotationFor). Offsets des batiments en
- * demi-cases : la Baliste est centree sur une case (x.5), les emprises 2 x 2
- * tombent sur les bords de case. Valeurs PROVISOIRES.
+ * Repere LOCAL d'un preset : origine au centre de la Baliste, cour vers +z.
+ * `rotation` (quarts de tour) tourne tout le camp ; le generateur et l'editeur
+ * choisissent la rotation qui tourne la cour vers le cote le plus degage
+ * (startingBaseRotationFor). Valeurs PROVISOIRES.
  *
  * Enceinte ARRONDIE (addendum du 2026-11-04) : un polygone regulier de
  * `sides` cotes inscrit dans le cercle de rayon `radius` (cases), centre sur
- * la Baliste, lu comme un enclos rond ; le cote centre sur +z porte la porte
- * (ligne dediee de `gateLength` cases, posee ouverte), flanquee de deux bouts
- * de mur. `sides` multiple de 4 : un quart de tour ramene le polygone sur
- * lui-meme, seule la porte tourne. Zone reservee = disque de `radius` +
- * STARTING_BASE_MARGIN, identique pour toute rotation.
+ * la Baliste, lu comme un enclos rond. QUATRE PORTES (2026-11-06, G48, decision
+ * d'Antoine) : les cotes centres sur +z, +x, -z et -x portent chacun une porte
+ * de Palissade V2 (ligne dediee de `gateLength` cases, posee ouverte, le joueur
+ * les ferme une par une), flanquee de deux bouts de mur. `sides` multiple de
+ * 4 : un quart de tour ramene le polygone et ses portes sur eux-memes. Zone
+ * reservee = disque de `radius` + STARTING_BASE_MARGIN, identique pour toute
+ * rotation.
+ *
+ * Batiments a position flottante (G48) : pousses vers l'enceinte, entre les
+ * axes des portes, pour liberer la cour. Gisements et arbres restent sur la
+ * grille (ce sont des sources de carte, cases entieres).
  *
  * GISEMENTS ET BOSQUET GARANTIS (2026-11-05, decision d'Antoine) : le preset
  * place dans l'enceinte au moins un gisement de pierre, un gisement d'or
  * (`deposits`) et un bosquet d'au moins six arbres groupes (`trees`), vers
- * la peripherie interieure, hors batiments, Baliste, porte, places
- * d'apparition et axe de la porte, a plus d'une case de l'enceinte (aucun
+ * la peripherie interieure, hors batiments, Baliste, portes, places
+ * d'apparition et axes des portes, a plus d'une case de l'enceinte (aucun
  * passage d'une case, KI-65), en laissant la cour libre pour construire. Ce
  * sont des sources ORDINAIRES (obstacles `rock` 2 x 2, pierre ou `ore:
  * 'gold'` ; `tree` 1 x 1) : memes quantites (data/resources.ts), meme cargo,
@@ -69,20 +73,20 @@ export interface StartingBasePreset {
 export const STARTING_BASE_MARGIN = 2;
 
 export const STARTING_BASE_PRESETS: Readonly<Record<string, StartingBasePreset>> = {
-  /** Camp de depart (2026-11-05, G46 : nettement agrandi, rayon 10,5 -> 15) :
-   *  Baliste au centre, deux Maisons (A au nord-ouest, B a l'ouest) et
-   *  l'Auberge a l'est repoussees contre l'enceinte, cour au sud ou
-   *  apparaissent le Heros et deux Villageois ; enceinte de Palissade V2 en
-   *  dodecagone de rayon 15 (apotheme 14,5, diametre 30, environ 650 cases
-   *  dedans, deux fois la surface d'avant), porte ouverte de 2,4 cases au
-   *  milieu du cote sud. Grande cour centrale libre pour construire. */
+  /** Camp de depart (2026-11-05, G46 : nettement agrandi, rayon 10,5 -> 15 ;
+   *  G48 : 4 portes) : Baliste au centre, deux Maisons au nord-ouest et
+   *  l'Auberge au sud-est, poussees vers l'enceinte entre les axes des portes ;
+   *  cour au sud ou apparaissent le Heros et deux Villageois ; enceinte de
+   *  Palissade V2 en dodecagone de rayon 15 (apotheme 14,5, diametre 30, environ
+   *  650 cases dedans), une porte ouverte de 2,4 cases au milieu des cotes nord,
+   *  est, sud et ouest. Grande cour centrale libre pour construire. */
   'basic-camp': {
     id: 'basic-camp',
     name: 'Petit camp',
     buildings: [
-      { buildingId: 'house', dx: -8.5, dz: -6.5, faceX: 1, faceZ: 0, modelVariant: 0 },
-      { buildingId: 'house', dx: -10.5, dz: 0.5, faceX: 1, faceZ: 0, modelVariant: 1 },
-      { buildingId: 'tavern', dx: 11.5, dz: -0.5, faceX: -1, faceZ: 0 },
+      { buildingId: 'house', dx: -9.7, dz: -6.3, faceX: 1, faceZ: 0, modelVariant: 0 },
+      { buildingId: 'house', dx: -6.1, dz: -9.7, faceX: 0, faceZ: 1, modelVariant: 1 },
+      { buildingId: 'tavern', dx: 9.6, dz: 6.4, faceX: -1, faceZ: 0 },
     ],
     enclosure: { type: 'palisade', sides: 12, radius: 15, gateLength: 2.4 },
     units: [
@@ -90,26 +94,24 @@ export const STARTING_BASE_PRESETS: Readonly<Record<string, StartingBasePreset>>
       { unitId: 'villageois', dx: 2.5, dz: 3.5 },
     ],
     hero: { dx: 0, dz: 3 },
-    // Pierre au nord-est (cote oppose a la porte), or au sud-ouest (a
-    // l'ecart de l'axe de la porte et des places d'apparition), tous deux
-    // vers la peripherie interieure (coins a ~12,7 cases du centre, ~2 cases
-    // libres devant l'enceinte). PROVISOIRE.
+    // Pierre a l'est-nord-est, or au sud-ouest : entre les axes des portes,
+    // a l'ecart des places d'apparition, vers la peripherie interieure (coins a
+    // ~12,7 cases du centre, ~2 cases libres devant l'enceinte). PROVISOIRE.
     deposits: [
-      { resource: 'stone', dx: 7.5, dz: -8.5 },
+      { resource: 'stone', dx: 9.5, dz: -6.5 },
       { resource: 'gold', dx: -7.5, dz: 8.5 },
     ],
-    // Bosquet de 7 arbres au nord (cote oppose a la porte), contre
-    // l'enceinte (~2 cases libres), loin de la Maison A et de la pierre :
-    // amas compact de deux rangs decales, sans case libre enclavee ni passage
-    // d'une case (KI-65) ; la cour reste libre. PROVISOIRE.
+    // Bosquet de 7 arbres au nord-nord-est, a l'ecart de l'axe de la porte nord
+    // (2,5 cases) : amas compact de deux rangs, sans case libre enclavee ni
+    // passage d'une case contre l'enceinte (KI-65). PROVISOIRE.
     trees: [
-      { dx: -2, dz: -12 }, { dx: -1, dz: -12 }, { dx: 0, dz: -12 }, { dx: 1, dz: -12 },
-      { dx: -2, dz: -11 }, { dx: -1, dz: -11 }, { dx: 0, dz: -11 },
+      { dx: 3, dz: -10 }, { dx: 4, dz: -10 }, { dx: 5, dz: -10 }, { dx: 6, dz: -10 },
+      { dx: 3, dz: -9 }, { dx: 4, dz: -9 }, { dx: 5, dz: -9 },
     ],
     // Or proche garanti (2026-11-05, G46 : au moins deux gisements d'or
     // visibles au depart, celui de l'enceinte et un second dehors) : centre
-    // a cette distance de la Baliste, hors murs (>= rayon + 2), hors de
-    // l'axe de la porte, dans la vision initiale de la Baliste
+    // a cette distance de la Baliste, hors murs (>= rayon + 2), jamais devant
+    // une porte (G48), dans la vision initiale de la Baliste
     // (data/vision.ts VISION_RADIUS.ballista 21 > 18,5 + 1,5). Pose par le
     // generateur (config/maps/proceduralSurvival.ts) ; une carte dessinee
     // sans or visible dehors recoit un avertissement de l'editeur.
@@ -177,29 +179,50 @@ function rotate(x: number, z: number, r: number): { x: number; z: number } {
 const round3 = (v: number): number => Math.round(v * 1000) / 1000;
 
 /** Lignes de mur (repere local) de l'enceinte polygonale : sommets a
- *  (k + 1/2) x 360° / sides depuis +z, donc un cote centre sur +z ; ce cote
- *  est decoupe en bout, porte (ouverte) et bout ; les autres cotes sont une
- *  ligne chacun. Lignes voisines partagent leur extremite (jonctions). */
+ *  (k + 1/2) x 360° / sides depuis +z, donc le cote k est centre sur l'angle
+ *  k x 360° / sides ; un cote sur sides / 4 (+z, +x, -z, -x) est decoupe en
+ *  bout, porte (ouverte) et bout ; les autres cotes sont une ligne chacun.
+ *  Lignes voisines partagent leur extremite (jonctions). */
 function enclosureLines(e: StartingBasePreset['enclosure']): { ax: number; az: number; bx: number; bz: number; gates?: number[]; openGates?: boolean }[] {
   const step = (2 * Math.PI) / e.sides;
   const vertex = (k: number) => {
     const a = (k + 0.5) * step;
     return { x: round3(e.radius * Math.sin(a)), z: round3(e.radius * Math.cos(a)) };
   };
-  const left = vertex(e.sides - 1);
-  const right = vertex(0);
   const half = e.gateLength / 2;
-  const lines = [
-    { ax: left.x, az: left.z, bx: -half, bz: left.z },
-    { ax: -half, az: left.z, bx: half, bz: left.z, gates: [0], openGates: true },
-    { ax: half, az: left.z, bx: right.x, bz: right.z },
-  ];
-  for (let k = 0; k < e.sides - 1; k++) {
-    const p = vertex(k);
-    const q = vertex(k + 1);
-    lines.push({ ax: p.x, az: p.z, bx: q.x, bz: q.z });
+  const gateEvery = e.sides / 4;
+  const lines: { ax: number; az: number; bx: number; bz: number; gates?: number[]; openGates?: boolean }[] = [];
+  for (let k = 0; k < e.sides; k++) {
+    const p = vertex(k - 1);
+    const q = vertex(k);
+    if (k % gateEvery !== 0) {
+      lines.push({ ax: p.x, az: p.z, bx: q.x, bz: q.z });
+      continue;
+    }
+    // Cote a porte : perpendiculaire a un axe, centre sur lui.
+    const len = Math.hypot(q.x - p.x, q.z - p.z);
+    const ux = (q.x - p.x) / len;
+    const uz = (q.z - p.z) / len;
+    const mx = (p.x + q.x) / 2;
+    const mz = (p.z + q.z) / 2;
+    const g1 = { x: round3(mx - ux * half), z: round3(mz - uz * half) };
+    const g2 = { x: round3(mx + ux * half), z: round3(mz + uz * half) };
+    lines.push(
+      { ax: p.x, az: p.z, bx: g1.x, bz: g1.z },
+      { ax: g1.x, az: g1.z, bx: g2.x, bz: g2.z, gates: [0], openGates: true },
+      { ax: g2.x, az: g2.z, bx: q.x, bz: q.z },
+    );
   }
   return lines;
+}
+
+/** Vrai si la case (x, z), en coordonnees relatives au centre du camp, est sur
+ *  le couloir d'une porte : `halfWidth` cases de part et d'autre d'un axe, de
+ *  l'enceinte jusqu'a `reach` cases du centre. Identique pour toute rotation
+ *  (les portes sont sur les quatre axes). */
+export function inGateApproach(x: number, z: number, radius: number, halfWidth: number, reach: number): boolean {
+  const along = Math.max(Math.abs(x), Math.abs(z));
+  return Math.min(Math.abs(x), Math.abs(z)) <= halfWidth && along >= radius - 1 && along <= reach;
 }
 
 /** Camp de depart `presetId` autour du Depart `origin` (centre de la
@@ -257,10 +280,10 @@ export function reservedOverlapsDisc(d: StartingBaseDisc, cx: number, cz: number
   return Math.hypot(cx - d.x, cz - d.z) < d.radius + r;
 }
 
-/** Rotation (quart de tour) qui ouvre la porte sur le cote le plus degage :
- *  cases ouvertes (`isOpen`) d'une fenetre 9 x 9 centree juste au-dela de
- *  la zone reservee, dans la direction de la porte. Egalite : la plus petite
- *  rotation (porte au sud par defaut). Deterministe. */
+/** Rotation (quart de tour) qui tourne la cour (+z local) vers le cote le plus
+ *  degage : cases ouvertes (`isOpen`) d'une fenetre 9 x 9 centree juste au-dela
+ *  de la zone reservee, dans cette direction. Egalite : la plus petite rotation
+ *  (cour au sud par defaut). Deterministe. */
 export function startingBaseRotationFor(origin: { x: number; z: number }, presetId: string, isOpen: (x: number, z: number) => boolean): number {
   const reach = startingBaseReservedAt(origin, presetId).radius + 5;
   let best = 0;

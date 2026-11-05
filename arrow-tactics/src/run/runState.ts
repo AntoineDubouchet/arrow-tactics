@@ -91,14 +91,10 @@ export interface OwnedBuilding {
   z: number;
   /** PV actuels (echelle interne x10) — meme convention que OwnedUnit.hp. */
   hp: number;
-  /** Orientation VISUELLE (radians), 2026-08-17 : Ctrl+molette pendant la
-   *  pose fait tourner le fantome par pas de 45° (voir main.ts,
-   *  requestPlaceBuilding/confirmBuildingPlacement) — PUREMENT cosmetique,
-   *  jamais lue par le calcul de collision/empreinte (obstacleBounds,
-   *  sim/geometry.ts, reste toujours axe sur tilesX/tilesZ quel que soit
-   *  l'angle, meme principe deja etabli pour les rochers/arbres/props de
-   *  l'editeur — voir render/buildings.ts, createBuildingObstacle). Absente
-   *  = 0 (compatibilite avec une sauvegarde/un format anterieur a ce champ). */
+  /** Orientation (radians), par pas de 15° a la pose (2026-11-06, G48, voir
+   *  main.ts, rotateBuildingPlacement) : l'empreinte reelle du batiment la suit
+   *  (ObstacleDef.footprint). x, z et rotationY sont conserves tels quels, jamais
+   *  arrondis a la grille. Absente = 0. */
   rotationY?: number;
   /** Variante visuelle choisie a la pose (index dans
    *  BuildingDef.modelVariants, 2026-11-03), conservee telle quelle :

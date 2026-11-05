@@ -1,4 +1,5 @@
 import { obstacleBounds, TILE, type ObstacleDef } from '../config/constants';
+import { orientedBoxBounds, orientedBoxOverlapsRect } from '../core/orientedBox';
 import { wallLineCells } from '../core/wallLine';
 
 /**
@@ -16,11 +17,17 @@ import { wallLineCells } from '../core/wallLine';
  * Grille alignee sur les cases du plateau (TILE = 1, voir CLAUDE.md "Unite
  * de mesure : la case") : une case est bloquee si un obstacle quelconque la
  * recouvre, exactement la meme regle que la collision physique
- * (resolveObstacleCollisions) et le placement (isValidPlacementTile) — pas
- * de marge d'evitement ici, volontairement : la grille sert a trouver une
- * route GROSSIERE qui evite les vrais murs, la precision fine (separation,
- * marge d'evitement) reste geree par le mouvement local existant une fois
- * la case cible du prochain pas de cheminement visee.
+ * (resolveObstacleCollisions) — pas de marge d'evitement ici, volontairement :
+ * la grille sert a trouver une route GROSSIERE qui evite les vrais murs, la
+ * precision fine (separation, marge d'evitement) reste geree par le mouvement
+ * local existant une fois la case cible du prochain pas de cheminement visee.
+ *
+ * Batiments poses librement (2026-11-06, G48) : la pose est continue, la
+ * navigation reste en grille. L'empreinte + navigationPadding est rasterisee :
+ * toute case qu'elle touche est bloquee. Le centre d'une case libre est donc a
+ * au moins 0,5 + marge d'un batiment : un passage trop etroit pour un corps se
+ * ferme de lui-meme, sans test de connectivite. Prudence assumee : un passage
+ * physiquement suffisant mais mal cale sur la grille peut etre ferme pour A*.
  */
 
 export interface PathGrid {
@@ -63,6 +70,10 @@ export function buildPathGrid(obstacles: ObstacleDef[], boardWidth: number, boar
       }
       continue;
     }
+    if (obstacle.footprint) {
+      rasterizeFootprint(blocked, obstacle.footprint, boardWidth, boardHeight, halfW, halfH);
+      continue;
+    }
     const b = obstacleBounds(obstacle);
     if (obstacle.terrainCliff) {
       blockCliffEdges(edges, b, boardWidth, boardHeight, halfW, halfH);
@@ -95,6 +106,22 @@ export function cachedPathGrid(obstacles: ObstacleDef[], boardWidth: number, boa
     gridCache.set(obstacles, grid);
   }
   return grid;
+}
+
+/** Bloque les cases touchees par l'empreinte elargie de sa marge de navigation. */
+function rasterizeFootprint(blocked: Uint8Array, f: NonNullable<ObstacleDef['footprint']>, width: number, height: number, halfW: number, halfH: number): void {
+  const pad = f.navigationPadding;
+  const b = orientedBoxBounds(f, pad);
+  const minTx = Math.max(0, Math.floor(b.minX + halfW));
+  const maxTx = Math.min(width - 1, Math.ceil(b.maxX + halfW) - 1);
+  const minTz = Math.max(0, Math.floor(b.minZ + halfH));
+  const maxTz = Math.min(height - 1, Math.ceil(b.maxZ + halfH) - 1);
+  for (let tz = minTz; tz <= maxTz; tz++) {
+    for (let tx = minTx; tx <= maxTx; tx++) {
+      const cell = { minX: tx - halfW, maxX: tx + 1 - halfW, minZ: tz - halfH, maxZ: tz + 1 - halfH };
+      if (orientedBoxOverlapsRect(f, cell, pad)) blocked[tz * width + tx] = 1;
+    }
+  }
 }
 
 /** Falaise (segment sur une ligne de la grille, voir computeCliffObstacles) :
@@ -361,6 +388,28 @@ export function reachableTiles(grid: PathGrid, fromX: number, fromZ: number): Ui
     }
   }
   return seen;
+}
+
+/** Case libre RELIEE a (fromX, fromZ) la plus proche de (toX, toZ), au centre de
+ *  case (2026-11-06, G48) : pres d'un batiment pose librement, la case libre la
+ *  plus proche peut etre une poche fermee par ses voisins. Null : aucune a moins
+ *  de `maxRadius` cases. */
+export function nearestReachableTile(grid: PathGrid, fromX: number, fromZ: number, toX: number, toZ: number, maxRadius: number): { x: number; z: number } | null {
+  const reach = reachableTiles(grid, fromX, fromZ);
+  if (!reach) return null;
+  const gx = worldToTileX(grid, toX);
+  const gz = worldToTileZ(grid, toZ);
+  for (let r = 0; r <= maxRadius; r++) {
+    for (let dz = -r; dz <= r; dz++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const x = gx + dx;
+        const z = gz + dz;
+        if (x >= 0 && x < grid.width && z >= 0 && z < grid.height && reach[z * grid.width + x] === 1) return { x: tileToWorldX(grid, x), z: tileToWorldZ(grid, z) };
+      }
+    }
+  }
+  return null;
 }
 
 /** Vrai si la case du point monde (x, z) est marquee dans `reach`. */

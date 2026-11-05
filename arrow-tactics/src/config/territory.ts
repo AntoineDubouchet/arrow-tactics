@@ -91,7 +91,7 @@ export function resolveMapTerritory(map: Pick<MapDef, 'width' | 'height' | 'cell
  * Les rangées se comptent depuis l'emprise réelle des cellules
  * (computeMapCellBounds), pas depuis `height / 2` : pour un rectangle plein
  * de dimensions paires (carte de départ et toutes ses expansions), le
- * résultat est identique à la zone de `isValidPlacementTile` (main.ts) ; pour
+ * résultat est identique à la zone des cases de la carte (main.ts) ; pour
  * une dimension impaire, il suit la grille effective des cellules.
  *
  * Si les deux bandes se chevauchent (2 × spawnDepth supérieur à la

@@ -15,7 +15,7 @@ import { DESTRUCTIBLE_LOOT, ENEMY_GOLD_DROPS } from '../data/loot';
 import { CARGO_CAPACITY, createCargo, STARTING_HARVEST_PERMISSIONS, type HarvestPermissions, type PileResource } from '../data/resources';
 import type { NodeResource } from '../config/resourceNodes';
 import { campClearSystem, campSystem, isChestLocked, type CampEvent, type CampSpec, type CampState, type Chest, type LootDropEvent } from './systems/camps';
-import { heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWhirlwindSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
+import { canReachSite, heroDeathSystem, heroRespawnSystem, heroSpellSystem, heroWhirlwindSystem, heroWorkSystem, interruptHeroSpells, refreshHeroStats, type HeroEvent, type HeroWorkContext, type ItemDrop, type ResourcePile } from './systems/hero';
 import { loseCargoOnDeath, type CargoEvent } from './systems/cargo';
 import { workerSystem } from './systems/workers';
 import { DEFAULT_HERO_ID, heroKit, type HeroKit } from '../data/heroes';
@@ -49,7 +49,7 @@ import {
 } from './systems/enemyReinforcements';
 import { movementSystem, type PathFailure } from './systems/movement';
 import { cachedPathGrid, isReachable, reachableTiles } from './pathfinding';
-import { terrainObstacles } from './geometry';
+import { obstaclesForUnit, terrainObstacles } from './geometry';
 import { targetingSystem } from './systems/targeting';
 
 /**
@@ -1060,6 +1060,7 @@ export class World {
       chests: this.chests,
       chestLocked: (chest) => isChestLocked(chest, this.camps),
       openChest: (chest) => this.lootChest(chest),
+      canReachSite: (e, site) => canReachSite(e, site, obstaclesForUnit(this.obstacles, e, e.stats.canTraverseWater === true), this.boardWidth, this.boardHeight),
     };
   }
 

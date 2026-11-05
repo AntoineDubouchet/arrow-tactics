@@ -141,10 +141,11 @@ export const HARVEST_STAND_GAP = 0.15;
  *  vient avec l'avancement). PROVISOIRE. */
 export const BUILD_REACH = 0.8;
 export const CONSTRUCTION_START_HP_FRACTION = 0.25;
-/** Le Heros enchaine sur le chantier inacheve le plus proche dans ce rayon
- *  (cases) quand il en termine un (une ligne de mur V2 passe d'abord au
- *  segment suivant de la meme ligne, sim/systems/hero.ts). */
-export const BUILD_CHAIN_RADIUS = 3;
+/** Le constructeur (Heros ou Villageois) qui termine un chantier enchaine sur
+ *  le chantier allie inacheve et atteignable le plus proche dans ce rayon
+ *  (cases, 2026-11-06, G48 ; 3 avant) ; une ligne de mur V2 passe d'abord au
+ *  segment suivant de la meme ligne (sim/systems/hero.ts). PROVISOIRE. */
+export const AUTO_CONSTRUCT_RANGE = 12;
 
 /** Transport (2026-11-03) : capacite du cargo dans data/resources.ts
  *  (CARGO_CAPACITY) ; le stock de la run n'augmente qu'au depot

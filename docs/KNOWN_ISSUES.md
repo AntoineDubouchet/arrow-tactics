@@ -68,6 +68,8 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-60 | Maison B : variante seulement pour les Maisons posées en jeu ; une Maison de scénario de l'éditeur reste A | Limite assumée |
 | KI-62 | Tourbillon : rotation du modèle entier (5 tours/s), sans clip dédié (arme et jambes figées dans le clip courant) ; VFX procédural provisoire (arcs, cercle de zone) | Limite assumée (prototype) |
 | KI-64 | Villageois : coupe et minage sur les clips Worker du Héros depuis le 2026-11-05 (G43) ; ramassage et dépôt toujours sur la pose de repos, sans geste accroupi dédié | Limite assumée (assets), réduite |
+| KI-74 | Montée de niveau : particules et étincelles sous le pixel, caméra orthographique | Confirmé (lecture du code) |
+| KI-73 | Placement libre : grille prudente, un passage suffisant mais mal calé peut être fermé pour A* ; plusieurs calculs passent par la boîte englobante d'un bâtiment tourné | Limite assumée |
 | KI-72 | `camp-boucle.cjs` : 3 vérifications en échec, déjà présentes avant G47 (coffre non exploré à 8 cases, annonce de nettoyage écrasée) | Confirmé (test) |
 | KI-66 | Pathfinding : la grille A* ignore le rayon des corps ; un passage d'une case (posé à la main dans l'éditeur : gisement, arbre, baril contre un obstacle ou une falaise) paraît praticable et le Héros y oscille ; le générateur n'en produit plus (G39) | Limite assumée |
 
@@ -546,6 +548,30 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   au chargement et à la sauvegarde). Une carte de survie dessinée passe
   aujourd'hui par le JSON.
 
+### KI-74 — Montée de niveau : particules sous le pixel
+
+- **Statut** : Confirmé par lecture du code et par le même défaut observé sur la mort du
+  Héros (2026-11-06) ; l'effet de montée de niveau lui-même n'a pas été observé pour ça.
+- **Constat** : la caméra du jeu est orthographique : `PointsMaterial.size` s'y exprime en
+  pixels, pas en cases. `render/levelUpVfx.ts` utilise 0,22 et 0,16 : ses particules et
+  étincelles ne se voient pas ; flash, ondes et colonne ne sont pas concernés.
+- **Piste** : la conversion de `render/heroDeathVfx.ts` (`pixelsPerCase`). Non corrigé : hors
+  de la passe G48.
+
+### KI-73 — Placement libre : grille prudente et boîte englobante
+
+- **Statut** : limite assumée (2026-11-06, G48).
+- **Constat** : toute case touchée par l'empreinte + 0,2 est bloquée. Un passage de moins
+  de 1,4 case est toujours fermé ; entre 1,4 et 2,4 cases, il est ouvert ou fermé selon
+  son calage sur la grille. Un passage fermé pour A* reste franchissable en ligne droite
+  s'il est assez large pour le corps : sinon les unités contournent. Un enclos formé par
+  des bâtiments assez proches peut donc être refusé (`unreachable`) alors qu'on le croit
+  ouvert. Un chantier entouré de voisins très proches sur tous ses côtés n'est pas pris par
+  l'enchaînement automatique ; un ordre manuel y laisse le constructeur contre un voisin.
+- **Boîte englobante** d'un bâtiment tourné, donc prudente : sortie de production, terre
+  battue, tracé d'un mur à côté, évitement réactif.
+- **Piste** : grille plus fine autour des bâtiments, ou couloirs par rayon (KI-66).
+
 ### KI-66 — Pathfinding sans rayon : passages d'une case
 
 - **Statut** : limite assumée (2026-11-04).
@@ -556,7 +582,8 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   oscille sur place. Le générateur n'en produit plus (G39, vérifié sur 12
   graines : 0 passage d'une case contre un gisement, chaque gisement et
   chaque camp atteint en vrai déplacement) ; une carte dessinée à la main
-  peut encore en contenir.
+  peut encore en contenir. Les bâtiments posés en jeu n'ont pas ce défaut depuis
+  G48 : leur marge de navigation ferme ce qui est trop étroit (KI-73).
 - **Piste** : grille d'accessibilité par rayon (ou dilatation des
   obstacles) dans le pathfinding, à discuter (coût, comportements de
   mouvement existants) ; ou une alerte de l'éditeur.

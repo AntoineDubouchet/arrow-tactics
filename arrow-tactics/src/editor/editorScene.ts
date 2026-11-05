@@ -160,6 +160,36 @@ export function buildCellPreview(x: number, z: number, valid: boolean, color?: n
   return mesh;
 }
 
+/** Plaque verte / rouge de l'empreinte reelle d'un batiment en pose libre
+ *  (2026-11-06, G48) : rectangle oriente qui epouse la surface. */
+export function buildFootprintPreview(x: number, z: number, width: number, depth: number, rotationY: number, valid: boolean): THREE.Mesh {
+  const cos = Math.cos(rotationY);
+  const sin = Math.sin(rotationY);
+  const nx = Math.max(1, Math.ceil(width * 2));
+  const nz = Math.max(1, Math.ceil(depth * 2));
+  const positions: number[] = [];
+  const vertex = (i: number, j: number): void => {
+    const lx = (i / nx - 0.5) * width;
+    const lz = (j / nz - 0.5) * depth;
+    const wx = x + lx * cos + lz * sin;
+    const wz = z - lx * sin + lz * cos;
+    positions.push(wx, surfaceY(wx, wz) + 0.03, wz);
+  };
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      vertex(i, j);
+      vertex(i, j + 1);
+      vertex(i + 1, j);
+      vertex(i + 1, j);
+      vertex(i, j + 1);
+      vertex(i + 1, j + 1);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  return new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: valid ? CELL_PREVIEW_VALID_COLOR : CELL_PREVIEW_INVALID_COLOR, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }));
+}
+
 /**
  * Apercu du pinceau de relief : les cases futures `cells` dans leur vraie
  * geometrie (plateau, pentes cardinales, pentes de coin), surface verte si

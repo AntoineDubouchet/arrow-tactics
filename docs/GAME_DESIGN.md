@@ -218,6 +218,10 @@ sélectionné. Le joueur peut ainsi gérer sa base sans faire bouger son Héros
 par accident, et un clic droit fait ce que la sélection annonce : ordre aux
 unités, ralliement pour un bâtiment producteur, rien sans sélection.
 
+**Mort du Héros** (2026-11-06, G48) : un moment fort et lisible, jamais une fin.
+La lumière blanche qui monte vers le ciel dit à la fois « le Héros est tombé » et
+« la partie continue tant que la Baliste existe ».
+
 La puissance exacte de la Baliste et des sorts reste ouverte (§15).
 
 ## 8. Économie de run et décisions en temps réel
@@ -240,6 +244,13 @@ tourne et pendant que le Héros est loin du camp. On y cherche :
   main, au niveau de la vague, sans jamais interrompre la partie ; le
   stuff oriente le Héros (tank, dégâts physiques, dégâts magiques) et
   remplace l'ancien or fixe de fin de vague ;
+- une **base organique** (2026-11-06, G48) : la grille reste une infrastructure
+  invisible, le joueur pose où il veut, oriente par pas de 15°, rapproche ses
+  bâtiments, exploite les petits espaces et suit la forme ronde de l'enceinte ; les
+  constructeurs enchaînent seuls les chantiers proches, pour construire une rangée sans
+  microgestion ;
+- un **camp ouvert sur quatre côtés** (2026-11-06, G48) : quatre sorties lisibles,
+  à garder ouvertes ou à fermer une par une ;
 - un **équipement sans friction** (2026-11-05, G47) : une pièce portable qui
   arrive sur un emplacement vide est portée tout de suite, et la carte
   l'annonce ; remplacer une pièce reste toujours un choix du joueur (clic

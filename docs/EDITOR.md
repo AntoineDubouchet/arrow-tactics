@@ -8,6 +8,12 @@ Pour l'organisation technique générale, voir `ARCHITECTURE.md` ; pour les bugs
 et limitations, `KNOWN_ISSUES.md`. L'Éditeur d'items est un outil distinct :
 `CURRENT_STATE.md` §16 ter (effets déclenchés depuis G47).
 
+**Grille et placement libre** (2026-11-06, G48) : l'éditeur et le générateur gardent
+leur grille. Le placement continu, avec empreinte tournée, ne concerne que les bâtiments
+construits pendant la partie et ceux du camp de départ en vraie run. Un bâtiment de
+carte posé ici garde son emprise alignée, sa rotation reste visuelle, y compris dans
+« Tester le scénario », où le camp de départ est aussi rendu ainsi.
+
 **Portée des cartes de l'éditeur** : une run ne charge aucune carte
 enregistrée depuis l'éditeur. Le Mode survie part de son arène officielle,
 exportée de l'éditeur puis intégrée au code (`SURVIVAL_BASE_MAP`, voir
@@ -130,13 +136,13 @@ L'éditeur n'a jamais de brouillard de guerre : toute la carte est visible
   le 2026-11-04, le **camp de départ préconstruit** qui l'entoure (preset
   `basic-camp` : deux Maisons A et B, Auberge, enceinte **arrondie** de
   Palissade V2 (dodécagone de rayon 15 cases, 36 pièces, depuis le
-  2026-11-05 ; 10,5 et 25 avant) avec une porte
-  ouverte, Héros et deux Villageois dans la cour). Un seul par carte : l'outil pose la Baliste au clic (emprise 3 × 3
+  2026-11-05 ; 10,5 et 25 avant) avec quatre portes
+  ouvertes, une par côté (G48), Héros et deux Villageois dans la cour). Un seul par carte : l'outil pose la Baliste au clic (emprise 3 × 3
   calée sur la grille) et **remplace** l'ancien départ ; l'outil revient à
   Sélection, départ sélectionné. L'**aperçu** montre la Baliste, l'**emprise
   réservée** du camp (disque : enceinte + 2 cases, rayon 12,5, vert /
   rouge) et l'enceinte. Le
-  camp dérivé est **affiché** sous le marqueur (bâtiments, palissade, porte,
+  camp dérivé est **affiché** sous le marqueur (bâtiments, palissade, 4 portes,
   Héros, Villageois et, depuis le 2026-11-05, les **deux gisements
   garantis** — pierre et or — et le **bosquet garanti** de sept arbres,
   qui suivent le Départ et ne sont jamais

@@ -54,7 +54,9 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   let isClosed = false;
   for (let i = 0; i < 20 && !isClosed; i++) { await L.wait(p, 250); isClosed = await p.evaluate(() => !window.__world.entities.find((e) => e.wall?.door).wall.door.open); }
   await L.wait(p, 900);
-  const openness = await p.evaluate(() => { let rot = null; window.__R.scene.traverse((o) => { if (o.name === 'palisade_door_left') rot = +o.rotation.y.toFixed(3); }); return rot; });
+  // Plusieurs portes (G48) : le vantail le plus proche de la porte manipulee.
+  await p.evaluate(() => { window.__leafOfDoor = () => { const d = window.__world.entities.find((e) => e.wall?.door); const v = new window.THREE.Vector3(); let rot = null; let best = Infinity; window.__R.scene.traverse((o) => { if (o.name !== 'palisade_door_left') return; o.getWorldPosition(v); const dist = Math.hypot(v.x - d.x, v.z - d.z); if (dist < best) { best = dist; rot = +o.rotation.y.toFixed(3); } }); return rot; }; });
+  const openness = await p.evaluate(() => window.__leafOfDoor());
   await shot('porte-exterieur-fermee', { x: dir.x, z: dir.z }, 22, 6);
   await shot('porte-interieur-fermee', { x: -dir.x, z: -dir.z }, 22, 6);
   const reopened = await p.evaluate(() => { const w = window.__world; const d = w.entities.find((e) => e.wall?.door); w.setDoorWanted(d.id, true, 'player'); return true; });
@@ -63,7 +65,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await L.wait(p, 900);
   // Trois-quarts, porte rouverte (les vantaux ouverts rendent l'ouverture evidente).
   await L.setView(p, { targetX: g.x, targetZ: g.z, viewHeight: 9, yawDeg: yawOf(dir.x, dir.z) + 35, pitchDeg: 30 }); await L.wait(p, 500); await p.screenshot({ path: OUT + 'porte-trois-quarts.png' });
-  const opennessOpen = await p.evaluate(() => { let rot = null; window.__R.scene.traverse((o) => { if (o.name === 'palisade_door_left') rot = +o.rotation.y.toFixed(3); }); return rot; });
+  const opennessOpen = await p.evaluate(() => window.__leafOfDoor());
   check('ouverture / fermeture : porte fermee -> vantail gauche a 0 rad ; rouverte -> vantail gauche a -pi/2 (animation de pivot conservee) ; 4 captures ecrites', typeof closed === 'number' && isClosed && openness === 0 && reopened && isOpen && Math.abs(opennessOpen + Math.PI / 2) < 0.02, { isClosed, openness, isOpen, opennessOpen });
   check('aucune erreur de page', errors.length === 0, errors.slice(0, 3));
   console.log(failures ? failures + ' ECHEC(S)' : 'tout OK');

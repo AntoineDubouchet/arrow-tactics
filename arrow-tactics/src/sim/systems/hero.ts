@@ -1,4 +1,5 @@
-import type { ObstacleBounds } from '../../config/constants';
+import { obstacleBounds, type ObstacleBounds, type ObstacleDef } from '../../config/constants';
+import { distanceToOrientedBox } from '../../core/orientedBox';
 import type { ResourceNode } from '../../config/resourceNodes';
 import { HARVEST_NODE_KINDS, type HarvestResource, type PileResource } from '../../data/resources';
 import { UNIT_MOVE_SPEED_MULTIPLIER } from '../../data/units';
@@ -7,10 +8,11 @@ import { ITEM_LEVEL_MIN } from '../../data/equipment';
 import { getBuilding } from '../../data/buildings';
 import { distanceToSegment } from '../../core/wallLine';
 import { applyDamageToEntity, type DamageType } from '../damage';
-import { targetDistance } from '../geometry';
+import { findBlockingObstacle, targetDistance } from '../geometry';
+import { cachedPathGrid, isReachable, reachableTiles } from '../pathfinding';
 import { areAllied } from '../relations';
 import {
-  BUILD_CHAIN_RADIUS,
+  AUTO_CONSTRUCT_RANGE,
   BUILD_REACH,
   CHEST_OPEN_SECONDS,
   REPAIR_FULL_SECONDS,
@@ -53,7 +55,7 @@ export type SpellCancelReason = 'order' | 'death' | 'taunt' | 'target' | 'out-of
 export type HeroEvent =
   | { type: 'xp'; heroId: number; amount: number; xp: number }
   | { type: 'levelUp'; heroId: number; level: number }
-  | { type: 'death'; heroId: number; respawnIn: number }
+  | { type: 'death'; heroId: number; respawnIn: number; x: number; z: number }
   | { type: 'respawn'; heroId: number; x: number; z: number }
   /** Une unite recoltee sur un arbre ou un rocher, mise dans le sac. */
   /** Petit tas ramasse : quantite prise et quantite restante au sol. */
@@ -126,6 +128,8 @@ export interface HeroWorkContext {
   chests: readonly Chest[];
   chestLocked(chest: Chest): boolean;
   openChest(chest: Chest): { itemId: string | null; dropId: number | null };
+  /** Chantier que l'unite peut rejoindre a pied (World, canReachSite). */
+  canReachSite(e: Entity, site: Entity): boolean;
 }
 
 /** But du travail d'un Heros ou d'un Villageois (source, chantier, tas,
@@ -190,11 +194,9 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
  * enchainement ; plusieurs constructeurs avancent chacun le meme chantier,
  * sans formule de bonus). `worker` : geste et minuteur de l'unite
  * (HeroState ou WorkerState). Fini : batiment termine (evenement `built`,
- * heroId = unite constructrice), puis chantier inacheve le plus proche,
- * sinon Garde. Ligne de mur V2 : le segment suivant de la meme ligne
- * d'abord (construction de A vers B).
+ * heroId = unite constructrice), puis prochain chantier (nextBuildOrder).
  */
-export function constructSite(e: Entity, worker: { working: 'chop' | 'mine' | 'build' | 'gather' | null; workTimer: number }, site: Entity, entities: readonly Entity[], dt: number, events: HeroEvent[]): void {
+export function constructSite(e: Entity, worker: { working: 'chop' | 'mine' | 'build' | 'gather' | null; workTimer: number }, site: Entity, entities: readonly Entity[], work: HeroWorkContext, dt: number, events: HeroEvent[]): void {
   const c = site.construction!;
   worker.working = 'build';
   const step = Math.min(dt / c.buildTime, 1 - c.progress);
@@ -206,39 +208,79 @@ export function constructSite(e: Entity, worker: { working: 'chop' | 'mine' | 'b
   site.construction = null;
   site.countsForDefeat = getBuilding(site.unitId).countsForDefeat;
   events.push({ type: 'built', heroId: e.id, buildingId: site.id });
-  let next: Entity | null = null;
-  let best = BUILD_CHAIN_RADIUS;
-  const line = site.wall;
-  if (line) {
-    for (const o of entities) {
-      if (!o.alive || !o.construction || o.team !== e.team || o.wall?.lineId !== line.lineId) continue;
-      if (!next || Math.abs(o.wall.index - line.index) < Math.abs(next.wall!.index - line.index) || (Math.abs(o.wall.index - line.index) === Math.abs(next.wall!.index - line.index) && o.wall.index > next.wall!.index)) next = o;
-    }
-  }
-  for (const o of next ? [] : entities) {
-    if (!o.alive || !o.construction || o.team !== e.team) continue;
-    const d = Math.hypot(o.x - site.x, o.z - site.z);
-    if (d <= best) {
-      best = d;
-      next = o;
-    }
-  }
-  e.order = next ? { type: 'build', targetEntityId: next.id } : { type: 'guard' };
+  e.order = nextBuildOrder(e, site, entities, work);
   worker.working = null;
   worker.workTimer = 0;
 }
 
+/**
+ * Ordre du constructeur `e` dont le chantier `finished` vient de se terminer
+ * (2026-11-06, G48, decision d'Antoine). Ligne de mur V2 : le segment suivant
+ * de la meme ligne d'abord (construction de A vers B). Sinon, parmi les
+ * chantiers allies inacheves a AUTO_CONSTRUCT_RANGE de `e`, le plus proche
+ * (egalite : id le plus bas) REELLEMENT atteignable ; un chantier injoignable
+ * laisse la place au suivant. Sinon Garde : le Heros reste au repos, le
+ * Villageois reprend son autonomie apres WORKER_IDLE_SECONDS. Deterministe. Un
+ * ordre du joueur arrive avant les systemes de travail : s'il a remplace `build`,
+ * on ne passe pas ici. Pas de bonus de vitesse : plusieurs constructeurs peuvent
+ * choisir le meme chantier.
+ */
+export function nextBuildOrder(e: Entity, finished: Entity, entities: readonly Entity[], work: HeroWorkContext): UnitOrder {
+  const line = finished.wall;
+  if (line) {
+    let next: Entity | null = null;
+    for (const o of entities) {
+      if (!o.alive || !o.construction || o.team !== e.team || o.wall?.lineId !== line.lineId) continue;
+      if (!next || Math.abs(o.wall.index - line.index) < Math.abs(next.wall!.index - line.index) || (Math.abs(o.wall.index - line.index) === Math.abs(next.wall!.index - line.index) && o.wall.index > next.wall!.index)) next = o;
+    }
+    if (next) return { type: 'build', targetEntityId: next.id };
+  }
+  const sites = entities
+    .filter((o) => o.alive && o.construction && o.team === e.team)
+    .map((o) => ({ site: o, d: Math.hypot(o.x - e.x, o.z - e.z) }))
+    .filter((c) => c.d <= AUTO_CONSTRUCT_RANGE)
+    .sort((a, b) => a.d - b.d || a.site.id - b.site.id);
+  for (const { site } of sites) if (work.canReachSite(e, site)) return { type: 'build', targetEntityId: site.id };
+  return { type: 'guard' };
+}
+
+/** Distance maximale (cases) entre le centre d'une case libre et l'emprise d'un
+ *  chantier pour qu'elle serve de point d'approche : la marge de navigation
+ *  bloque au plus la rangee voisine (0,5 + marge + 1 case). */
+const SITE_APPROACH_RANGE = 2.5;
+
+/** Vrai si une case libre reliee a `e` jouxte le chantier, sans obstacle entre
+ *  elle et lui (un chantier derriere un mur n'est pas atteint par ce cote). */
+export function canReachSite(e: Entity, site: Entity, obstacles: ObstacleDef[], boardWidth: number, boardHeight: number): boolean {
+  const grid = cachedPathGrid(obstacles, boardWidth, boardHeight);
+  const reach = reachableTiles(grid, e.x, e.z);
+  if (!reach) return false;
+  const f = site.footprintObstacle;
+  const b = f ? obstacleBounds(f) : { minX: site.x - site.stats.radius, maxX: site.x + site.stats.radius, minZ: site.z - site.stats.radius, maxZ: site.z + site.stats.radius };
+  for (let tz = Math.floor(b.minZ + grid.halfH - SITE_APPROACH_RANGE); tz <= Math.ceil(b.maxZ + grid.halfH + SITE_APPROACH_RANGE); tz++) {
+    for (let tx = Math.floor(b.minX + grid.halfW - SITE_APPROACH_RANGE); tx <= Math.ceil(b.maxX + grid.halfW + SITE_APPROACH_RANGE); tx++) {
+      const cx = tx - grid.halfW + 0.5;
+      const cz = tz - grid.halfH + 0.5;
+      if (!isReachable(grid, reach, cx, cz) || distanceToSite({ x: cx, z: cz }, site) > SITE_APPROACH_RANGE) continue;
+      if (findBlockingObstacle(cx, cz, site.x, site.z, obstacles, f) === null) return true;
+    }
+  }
+  return false;
+}
+
 /** Distance du centre de `e` a l'emprise d'un batiment (ou a son centre, rayon deduit).
- *  Piece de mur V2 : jusqu'a sa capsule (ligne moins la demi-epaisseur). */
-function distanceToSite(e: Entity, site: Entity): number {
+ *  Piece de mur V2 : jusqu'a sa capsule (ligne moins la demi-epaisseur).
+ *  Empreinte continue (G48) : jusqu'au rectangle oriente. */
+function distanceToSite(e: { x: number; z: number }, site: Entity): number {
   const f = site.footprintObstacle;
   if (f?.line) return Math.max(0, distanceToSegment(e.x, e.z, f.line) - f.line.halfWidth);
+  if (f?.footprint) return distanceToOrientedBox(f.footprint, e.x, e.z);
   if (!f) return Math.max(0, Math.hypot(site.x - e.x, site.z - e.z) - site.stats.radius);
   return distanceToBox(e, { minX: site.x - (f.tilesX / 2), maxX: site.x + (f.tilesX / 2), minZ: site.z - (f.tilesZ / 2), maxZ: site.z + (f.tilesZ / 2) });
 }
 
 /** Distance du centre de `e` a un rectangle (0 a l'interieur). */
-function distanceToBox(e: Entity, b: ObstacleBounds): number {
+function distanceToBox(e: { x: number; z: number }, b: ObstacleBounds): number {
   const dx = Math.max(b.minX - e.x, 0, e.x - b.maxX);
   const dz = Math.max(b.minZ - e.z, 0, e.z - b.maxZ);
   return Math.hypot(dx, dz);
@@ -281,9 +323,10 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
     // cible (source epuisee, point de collecte detruit -> le suivant).
     if (cargoWork(e, goal, work, entities, dt, cargoEvents)) continue;
     if (isWorkOrder(e.order) && !goal) {
-      // Source, tas ou chantier disparu (chantier termine par ailleurs,
-      // detruit, tas vide) : le Heros passe en Garde.
-      e.order = { type: 'guard' };
+      // Source, tas ou chantier disparu (detruit, tas vide) : le Heros passe en
+      // Garde. Chantier termine par un autre constructeur (G48) : il enchaine.
+      const site = e.order.type === 'build' ? byId.get(e.order.targetEntityId) : undefined;
+      e.order = site?.alive && !site.construction ? nextBuildOrder(e, site, entities, work) : { type: 'guard' };
     }
     if (!goal || !goal.reached || e.tauntSourceId !== null) {
       h.working = null;
@@ -354,7 +397,7 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       }
       continue;
     }
-    constructSite(e, h, goal.target!, entities, dt, events);
+    constructSite(e, h, goal.target!, entities, work, dt, events);
   }
 }
 
@@ -548,7 +591,7 @@ export function heroDeathSystem(entities: Entity[], aliveBefore: ReadonlySet<num
       dead.hero.working = null;
       dead.hero.workTimer = 0;
       dead.order = { type: 'guard' };
-      events.push({ type: 'death', heroId: dead.id, respawnIn: dead.hero.respawnTimer });
+      events.push({ type: 'death', heroId: dead.id, respawnIn: dead.hero.respawnTimer, x: dead.x, z: dead.z });
       continue;
     }
     if (dead.isBuilding) continue;

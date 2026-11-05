@@ -509,6 +509,12 @@ extrait ; G33). À voir aussi :
 - camp de départ (G38, 2026-11-04) : autres presets (départ minimal,
   fortifié, autre faction), choix du preset (éditeur, carte), rotation
   modifiable à la main ;
+- placement libre (G48, 2026-11-06) : rotation analogique, empreintes non
+  rectangulaires, aimantation optionnelle entre bâtiments, bâtiments de carte de
+  l'éditeur en empreinte continue, déplacement d'un bâtiment posé, grille plus fine
+  autour des bâtiments (KI-73) ;
+- mort du Héros (G48) : son héroïque de mort (parking, le pipeline audio n'est pas
+  prêt), effet de résurrection au retour ;
 - règle de l'or : tranchée (G37 / G41, or libre) ; rôle de la Forge =
   technologies militaires ;
 - pathfinding sensible au rayon des corps (KI-66).

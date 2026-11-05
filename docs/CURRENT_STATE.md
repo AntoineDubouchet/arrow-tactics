@@ -69,7 +69,7 @@ code.
   `DESIGN_DECISIONS.md` G41). Aucun écran ne fige plus le jeu pour cela.
 - **Direction Hero RTS** (provisoire, §6 bis) : la run commence dans un
   **petit camp préconstruit** (2026-11-04, §6 duodecies : Baliste, Auberge,
-  deux Maisons, deux Villageois, enceinte de Palissade et porte ouverte)
+  deux Maisons, deux Villageois, enceinte de Palissade et 4 portes ouvertes)
   avec le **Héros**. Le Héros explore sous un **brouillard de
   guerre**, gagne de l'XP, récolte du **bois**, de la **pierre** et de l'or
   des gisements dans son **sac de ressources** (cargo de 10, séparé de
@@ -574,7 +574,27 @@ réel (§6 bis) ; la Boutique et son onglet « Bâtiments » n'existent plus
   placement ; le coût n'est payé qu'au clic de confirmation sur un
   emplacement valide ; Échap ou clic droit annule sans rien payer. Le
   bâtiment est d'abord un **chantier**, bâti par le Héros (§6 bis).
-- **Rotation** : Ctrl+molette pendant le placement, par pas de 45°.
+- **Placement libre** (2026-11-06, G48, décision d'Antoine) : la grille reste
+  technique (carte, terrain, obstacles, ressources, navigation), elle ne
+  contraint plus la pose. Le centre d'un bâtiment est le point visé, à
+  coordonnées flottantes, sans arrondi ; le fantôme suit la souris en continu,
+  plaque verte / rouge de l'**empreinte réelle** dessous. Pour tous les
+  bâtiments standards (la Palissade garde son tracé A → B). Refus par géométrie
+  continue (`run/buildingPlacement.ts`) : autre bâtiment, chantier, structure
+  bloquante, baril, source debout, mur, porte, unité vivante ; eau, pente, hors
+  carte d'après les cases que l'empreinte touche vraiment. **Marge de pose
+  0,2 case** (PROVISOIRE) : deux bâtiments peuvent être très proches sans se
+  traverser. Héros et Villageois : une seule voie.
+- **Rotation** : **R** pendant le placement, par pas de **15°**, cumulatif
+  (Ctrl+molette aussi, dans les deux sens ; 45° avant). L'empreinte suit :
+  collision, ligne de vue, sélection et navigation utilisent le rectangle
+  tourné. Hors placement, R remet la caméra, comme avant. Maj reste réservée à
+  la pose répétée.
+- **Navigation** : toujours en grille, dérivée de l'empreinte : toute case
+  touchée par l'empreinte + **marge de navigation 0,2** (PROVISOIRE) est
+  bloquée, chantier compris. Le centre d'une case libre est donc à 0,7 case au
+  moins du bâtiment, le corps le plus large du jeu : un passage trop étroit se
+  ferme de lui-même. Limite : KI-73.
 - **Déplacement** : aucun ; un bâtiment posé ne se déplace plus (le
   glisser de l'ancienne préparation a disparu avec elle).
 - **Persistance** : les bâtiments restent toute la run, avec leurs PV ; un
@@ -744,7 +764,7 @@ Sources : `data/hero.ts`, `sim/systems/hero.ts`, `config/resourceNodes.ts`,
 
 **Départ** (2026-11-04, §6 duodecies) : le **Héros** et **deux
 Villageois** dans le **camp de départ préconstruit** (Baliste au centre de
-la carte, Auberge, deux Maisons, enceinte de Palissade, porte ouverte).
+la carte, Auberge, deux Maisons, enceinte de Palissade, 4 portes ouvertes).
 Aucun Homme d'armes, stock **0 bois, 0 pierre**, 20 or, Pop. 2 / 9. La
 Baliste est le cœur du camp : point de dépôt des ressources, point de vision,
 et le **cœur de la base** : sa destruction est une défaite immédiate
@@ -782,6 +802,13 @@ et le **cœur de la base** : sa destruction est une défaite immédiate
   seul effet par Héros). Héros à terre : badge seulement, pas d'effet 3D.
   Déclenché par l'événement de simulation `levelUp` existant ; le rendu
   est remplaçable sans toucher à l'XP (`LevelUpEffect`) ;
+- **mort du Héros** (2026-11-06, G48) : effet noble et lumineux d'environ 2,2 s
+  (`render/heroDeathVfx.ts`), blanc dominant, légèrement doré : flash doux,
+  halo et cercle au sol, colonne de lumière, lueur et particules qui **montent
+  vers le ciel**, puis tout s'efface. Une seule fois, à la mort, sur l'événement
+  `death` de la simulation : rien pendant l'attente, rien au retour. Aucune
+  cinématique, caméra libre, jeu jamais bloqué ; message « Le Héros est tombé —
+  retour dans N s · la partie continue ». Règles de retour inchangées ;
 - **XP en zone partagée** : chaque unité adverse (pas un bâtiment) morte à
   **12 cases** ou moins du Héros vivant (`HERO_XP_RANGE`, 2026-11-05, G46 ;
   6 avant) lui donne max(4, coût × 4) XP, **30 au
@@ -957,8 +984,14 @@ finale) :
 
 **Chantiers** : posés en temps réel depuis le bouton **Construire** (ci-dessous),
 25 % de leurs PV, semi-transparents, sans aucune fonction tant que le Héros
-ne les a pas bâtis ; attaquables pendant la construction. Le Héros enchaîne
-sur le chantier voisin (3 cases).
+ne les a pas bâtis ; attaquables pendant la construction. **Enchaînement**
+(2026-11-06, G48 ; 3 cases avant) : un Héros ou un Villageois qui vient de finir
+un chantier va de lui-même au chantier allié inachevé et atteignable le plus
+proche à moins de `AUTO_CONSTRUCT_RANGE` (12 cases, PROVISOIRE ; égalité : id le
+plus bas, déterministe). Chantier injoignable : le suivant. Aucun : Garde pour
+le Héros, autonomie après 1 s pour le Villageois. Un ordre du joueur reste
+prioritaire ; une ligne de mur finit d'abord ses segments. Plusieurs constructeurs
+peuvent choisir le même chantier, sans bonus nouveau.
 
 **Carte procédurale** (`config/maps/proceduralSurvival.ts`) :
 
@@ -1082,9 +1115,9 @@ horizon) derrière la carte ronde ; même rendu dans l'éditeur.
   chantier (payé, créé tout de suite dans la simulation), le Héros ou les
   Villageois sélectionnés partent le construire (sans constructeur
   sélectionné, le menu Construire reste grisé, G47) ; clic droit / Échap : annule. **N'importe où sur la
-  carte** : plus de limite de territoire ; refusé hors carte, sur l'eau, une
-  case d'arbre, un obstacle bloquant, un bâtiment ou chantier, une unité,
-  un sol non plat (pente, rampe). Les gros rochers, décors non bloquants,
+  carte**, à position libre (G48, §6) : plus de limite de territoire ; refusé hors
+  carte, sur l'eau, une source debout, un obstacle bloquant, un bâtiment ou
+  chantier, un mur, une unité, un sol non plat (pente, rampe). Les gros rochers, décors non bloquants,
   l'acceptent (règle du 2026-10-28, inchangée). La fiche du Héros n'a plus
   la liste « Construire : … ». **Palissade** et **Porte de palissade** au
   menu depuis le 2026-11-02 (tracé A → B, §6 octies) ;
@@ -1656,7 +1689,7 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   **Construction** (2026-11-05, G46) : un Villageois sélectionné ouvre le
   menu Construire, pose un chantier et le **construit** avec exactement les
   règles du Héros (coût, validation, chantier, durée, interruption,
-  enchaînement du chantier voisin : `constructSite`, `sim/systems/hero.ts`) ;
+  enchaînement du chantier proche, §6 bis : `constructSite`, `sim/systems/hero.ts`) ;
   plusieurs constructeurs sur un même chantier l'avancent chacun, sans
   bonus de vitesse. L'ordre manuel est prioritaire : aucune autonomie
   pendant la marche ni la construction ; fini, annulé ou perdu → Garde,
@@ -1903,24 +1936,30 @@ valeurs **provisoires**) :
   **Héros** et **deux Villageois**, enceinte **arrondie** de **Palissade
   V2** : dodécagone de **rayon 15** (2026-11-05, G46 ; 10,5 avant :
   apothème 14,5, diamètre 30, 36 pièces, 585 cases à plus d'une case des
-  murs dont **549 libres et constructibles**, contre 277 / 241 avant, soit
-  plus du double) avec une **porte ouverte** de 2,4 cases au milieu d'un
-  côté ; la grande cour centrale reste libre pour les constructions
-  suivantes. **Or proche garanti** (G46) : au moins un **second gisement
+  murs dont **526 libres**, contre 277 / 241 avant G46) avec **4 portes ouvertes**
+  de 2,4 cases (2026-11-06, G48 ; une seule avant), une au milieu des côtés nord,
+  est, sud et ouest, à 90° l'une de l'autre, qui suivent la rotation du camp :
+  même Porte de Palissade (PV, largeur, animation, collision, règles, réparation),
+  fermées une par une à la main ; la grande cour centrale reste libre pour les
+  constructions suivantes. **Couloirs** : 5 cases de large sur 10 au-delà de
+  l'enceinte sans arbre ni gisement (générateur), pour des sorties lisibles.
+  **Positions flottantes** (G48) : Maisons au nord-ouest (−9,7 ; −6,3) et
+  (−6,1 ; −9,7), Auberge au sud-est (9,6 ; 6,4), entre les axes des portes. **Or proche garanti** (G46) : au moins un **second gisement
   d'or** hors de l'enceinte mais dans la vision initiale de la Baliste
-  (`preset.nearbyGold`, 18,5 cases du centre, hors de l'axe de la porte,
-  4 × 4 cases libres, posé par le générateur ; l'éditeur avertit une carte
+  (`preset.nearbyGold`, 18,5 cases du centre, jamais devant une porte : à plus
+  de 25° des quatre axes, 4 × 4 cases libres et arbres retirés à deux cases, posé
+  par le générateur ; l'éditeur avertit une carte
   dessinée qui n'en a pas). Vision de la Baliste **21** cases (18 avant) et
   disque exploré au départ 25 (22 avant) ; anneau des vagues inchangé
   (22 : les vagues apparaissent à environ 7 cases des murs). **Gisements et bosquet
   garantis** (2026-11-05, G42 puis G43) : un **gisement de pierre**
-  (nord-est, derrière l'Auberge), un **gisement d'or** (sud-ouest, dans la
-  cour) et un **bosquet de 7 arbres** (au nord, côté opposé à la porte,
-  entre la Maison A et la pierre : deux rangs décalés, à 2 cases des
-  bâtiments et gisements, à environ 1,6 case de l'enceinte, sans case
+  (est-nord-est, 9,5 ; −6,5), un **gisement d'or** (sud-ouest, 7,5 ; 8,5, dans la
+  cour) et un **bosquet de 7 arbres** (nord-nord-est, à 2,5 cases de l'axe de la
+  porte nord : deux rangs décalés, à 2 cases des
+  bâtiments et gisements, sans case
   enclavée ni passage d'une case, 525 bois en tout) dans
-  l'enceinte, vers la périphérie, hors bâtiments, Baliste, porte, places
-  d'apparition et axe de la porte, la cour restant libre pour construire ;
+  l'enceinte, vers la périphérie, hors bâtiments, Baliste, portes, places
+  d'apparition et axes des portes, la cour restant libre pour construire ;
   sources
   ordinaires (quantités, cargo, épuisement, gravats et souches identiques à
   celles de la
@@ -1931,11 +1970,12 @@ valeurs **provisoires**) :
   de départ inchangé). Les bâtiments sont des bâtiments possédés ordinaires
   (fiche, amélioration, réparation, destruction) : l'Auberge produit des
   Villageois, les Maisons donnent leur population (Pop. 2 / 9) et la
-  prochaine Maison construite est A ; la porte suit les règles habituelles
+  prochaine Maison construite est A ; les portes suivent les règles habituelles
   (alliés passent, ennemis non, fermeture à la main). Terre battue sous les
   bâtiments et quelques chemins courts. La caméra suit le Héros au
-  lancement. La porte s'ouvre du côté le plus dégagé (rotation choisie par
-  le générateur, ou par l'éditeur à la pose du Départ). La carte n'écrit
+  lancement. La cour est tournée vers le côté le plus dégagé (rotation choisie
+  par le générateur, ou par l'éditeur à la pose du Départ) ; les 4 portes restent
+  sur les axes. La carte n'écrit
   que le preset et sa rotation (`MapDef.startingBase`) : le reste est
   dérivé, en run comme dans « Tester le scénario » et l'aperçu de
   l'éditeur.
@@ -1946,9 +1986,10 @@ valeurs **provisoires**) :
   aucun passage d'une case contre un gisement, un flanc de rampe ou un baril
   de camp) ; même nombre de gisements (26 pierre, 6 or) et de camps, un
   tas de moins sur 12 graines, −3,9 % d'arbres (goulets élargis). Vérifié
-  sur 12 graines : porte utilisable, Héros et Villageois sortent, petit et
+  sur 12 graines : portes utilisables, Héros et Villageois sortent, petit et
   grand camps et chaque gisement atteints en vrai déplacement, ennemi
-  bloqué par la porte.
+  bloqué par les portes. Sur 4 graines (`camp-portes.mts`) : sortie par chacune des
+  4 portes, Héros, Villageois et Cavalier. Camps neutres hors des axes des portes.
 
 ## 7. Économie d'or
 

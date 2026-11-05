@@ -72,7 +72,12 @@ un Villageois, or extrait = cargo), `acquisition.mts` (G47 : auto-équipement,
 sac, non portable, sac plein, échange, ramassage, icônes) et
 `effets-arme.mts` (G47 : N, K, six écoles, bonus magique, compteurs, rate et
 esquive, Tourbillon, migration et export de l'Éditeur d'items). `file-prod.mts`
-couvre aussi la progression affichée (G47).
+couvre aussi la progression affichée (G47). G48 : `placement-libre.mts` (pose à
+coordonnées flottantes, marge, rotation, refus, rasterisation, passages large et étroit,
+tous les bâtiments standards), `auto-construction.mts` (enchaînement, portée, égalité,
+inaccessible, ordre manuel, plusieurs constructeurs, grappe serrée, événement de mort)
+et `camp-portes.mts` (4 portes, graines 1, 42, 12345, 99999 : angles, axes, sortie par
+chacune, porte fermée, ennemi, or proche, camps).
 
 `tests/game/` : `baliste-reparation.cjs`, `camp-boucle.cjs`,
 `cargo-jeu.cjs`, `depart-jeu.cjs`, `editeur-procedural.cjs`,
@@ -93,7 +98,11 @@ contact depuis plusieurs côtés, Villageois face à sa source, clips
 pioche or), `ergonomie-jeu.cjs` (G47 : sélection et désélection du Héros, HUD,
 ralliement au clic droit, simple et groupé, barres de file, clic droit
 d'inventaire, capture des icônes) et `item-editeur.cjs` (G47 : effets
-déclenchés dans la vraie interface, aller-retour strict, migration du feu).
+déclenchés dans la vraie interface, aller-retour strict, migration du feu),
+`placement-jeu.cjs` (G48 : fantôme continu, R, Maison 3,27 / 8,63 à 15°, Maj, Villageois,
+double-clic, ralliement et production d'un bâtiment tourné, captures) et
+`mort-heros-jeu.cjs` (G48 : effet à la position, montée, durée, unicité, partie qui
+continue, capture au milieu).
 `camp-boucle.cjs` a 3 vérifications en échec, antérieures à G47 (KI-72).
 `lib.cjs` est la bibliothèque commune (lancement, ouverture de la Survie,
 caméra, captures).

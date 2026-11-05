@@ -2,7 +2,7 @@ import { Rng } from '../../core/rng';
 import type { ObstacleDef } from '../constants';
 import type { SurfaceCellDef } from '../groundSurfaces';
 import { CAMP_CLEAR_RADIUS, type MapCampDef, type MapDef, type TerrainCellDef } from '../mapDef';
-import { DEFAULT_STARTING_BASE_PRESET, getStartingBasePreset, reservedContainsCell, startingBaseReservedAt, startingBaseRotationFor } from '../startingBase';
+import { DEFAULT_STARTING_BASE_PRESET, getStartingBasePreset, inGateApproach, reservedContainsCell, startingBaseReservedAt, startingBaseRotationFor } from '../startingBase';
 import type { ResourcePileDef } from '../resourceNodes';
 import type { SlopeDirection, SlopeShape, TerrainElevationCellDef } from '../terrainElevation';
 import type { TerritoryCell } from '../territory';
@@ -421,6 +421,10 @@ export function generateSurvivalMap(seed: number): MapDef {
    *  que son emprise ne touche la foret (2026-11-05, G46). */
   const startZoneWide = { ...startZone, radius: startZone.radius + 1.5 };
   const nearStartZone = (x: number, z: number) => reservedContainsCell(startZoneWide, x, z);
+  // Couloirs des 4 portes du camp (2026-11-06, G48) : sans arbre ni gisement sur
+  // quelques cases, chaque sortie reste lisible. Memes cases pour toute rotation.
+  const startRadius = getStartingBasePreset(DEFAULT_STARTING_BASE_PRESET).enclosure.radius;
+  const onGateApproach = (x: number, z: number) => inGateApproach(x - Math.floor(startOrigin.x), z - Math.floor(startOrigin.z), startRadius, GATE_APPROACH_HALF_WIDTH, startRadius + GATE_APPROACH_LENGTH);
 
   // ---- Collines (niveau 1) avec une rampe tournee vers le centre.
   const hill = new Set<string>();
@@ -525,7 +529,7 @@ export function generateSurvivalMap(seed: number): MapDef {
     const d = centerDistance(c.x, c.z);
     if (d <= CLEAR_RADIUS || blockedForDecor(c.x, c.z)) continue;
     const k = key(c.x, c.z);
-    if (nearStartZone(c.x, c.z)) {
+    if (nearStartZone(c.x, c.z) || onGateApproach(c.x, c.z)) {
       keepClear.add(k);
       continue;
     }
@@ -712,7 +716,7 @@ export function generateSurvivalMap(seed: number): MapDef {
   // pas ecrits ici, ils se derivent du camp (data/campLayout.ts).
   const camps = placeCamps(seed, { inMap, water, hill, ramps, rampClear, trees, occupied, pileCells, reached }, obstacles, resourcePiles);
 
-  // ---- Camp de depart : porte tournee vers le cote le plus degage (cases
+  // ---- Camp de depart : cour tournee vers le cote le plus degage (cases
   // dans la carte, sans eau, relief, arbre ni gisement), apres tout le reste.
   const startRotation = startingBaseRotationFor(startOrigin, DEFAULT_STARTING_BASE_PRESET, (x, z) => {
     const k = key(x, z);
@@ -721,8 +725,9 @@ export function generateSurvivalMap(seed: number): MapDef {
 
   // ---- Or proche garanti (2026-11-05, G46, config/startingBase.ts
   // nearbyGold) : un second gisement d'or, hors de l'enceinte mais dans la
-  // vision initiale de la Baliste, hors de l'axe de la porte (+- 60°), sur
-  // 4 x 4 cases libres (gisement 2 x 2 + anneau d'une case : jamais un
+  // vision initiale de la Baliste, jamais devant une porte (hors de +- 25°
+  // autour des 4 axes, G48), sur 4 x 4 cases libres (gisement 2 x 2 + anneau d'une case) et, a deux cases,
+  // ni eau, ni relief, ni rampe, ni gisement, ses arbres retires (jamais un
   // passage d'une case, KI-65), hors eau, relief, rampe, tas, arbre et
   // decor. Angle de depart tire de la graine, puis balayage par pas de 10° ;
   // si aucune place n'est libre, les arbres du meilleur emplacement sont
@@ -730,7 +735,6 @@ export function generateSurvivalMap(seed: number): MapDef {
   {
     const preset = getStartingBasePreset(DEFAULT_STARTING_BASE_PRESET);
     const D = preset.nearbyGold.distance;
-    const gate = [{ x: 0, z: 1 }, { x: -1, z: 0 }, { x: 0, z: -1 }, { x: 1, z: 0 }][((startRotation % 4) + 4) % 4]!;
     const baseAngle = hash2(seed + 131, 0, 0) * Math.PI * 2;
     const corner = (a: number) => ({ x: Math.round(Math.cos(a) * D + startOrigin.x) - 1, z: Math.round(Math.sin(a) * D + startOrigin.z) - 1 });
     const cellsOf = (x: number, z: number, ring: number) => { const out: string[] = []; for (let dz = -ring; dz <= 1 + ring; dz++) for (let dx = -ring; dx <= 1 + ring; dx++) out.push(key(x + dx, z + dz)); return out; };
@@ -740,7 +744,7 @@ export function generateSurvivalMap(seed: number): MapDef {
     // ses arbres retires ; perte toleree = ses 4 cases.
     const keeps = (x: number, z: number): boolean => {
       const own = new Set(cellsOf(x, z, 0));
-      const next = new Set([...trees].filter((k) => !cellsOf(x, z, 1).includes(k)));
+      const next = new Set([...trees].filter((k) => !cellsOf(x, z, 2).includes(k)));
       for (const k of depositCells) next.add(k);
       for (const k of own) next.add(k);
       const r2 = reachableCells({ inMap, water, hill, ramps, rampSlopes, trees: next });
@@ -749,10 +753,11 @@ export function generateSurvivalMap(seed: number): MapDef {
     let best: { x: number; z: number; trees: number } | null = null;
     for (let i = 0; i < 36; i++) {
       const a = baseAngle + (i * Math.PI) / 18;
-      if (Math.cos(a) * gate.x + Math.sin(a) * gate.z > 0.5) continue; // +- 60° autour de la porte
+      if (Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a))) > NEAR_GOLD_GATE_COS) continue; // devant une porte
       const { x, z } = corner(a);
       const block = cellsOf(x, z, 1);
       if (!block.every(ground)) continue;
+      if (cellsOf(x, z, 2).some((k) => water.has(k) || hill.has(k) || ramps.has(k) || depositCells.has(k))) continue;
       const inWoods = block.filter((k) => trees.has(k)).length;
       if (best && inWoods >= best.trees) continue;
       if (!keeps(x, z)) continue;
@@ -761,7 +766,7 @@ export function generateSurvivalMap(seed: number): MapDef {
     }
     if (best) {
       const { x, z } = best;
-      for (const k of cellsOf(x, z, 1)) {
+      for (const k of cellsOf(x, z, 2)) {
         if (trees.has(k)) { trees.delete(k); const i = obstacles.findIndex((o) => o.kind === 'tree' && Math.floor(o.x!) === Number(k.split(',')[0]) && Math.floor(o.z!) === Number(k.split(',')[1])); if (i >= 0) obstacles.splice(i, 1); }
         if (!depositCells.has(k)) keepClear.add(k);
       }
@@ -798,6 +803,13 @@ export function generateSurvivalMap(seed: number): MapDef {
  *  distance au centre en cases). Au-dela de la zone exploree au depart
  *  (INITIAL_EXPLORED_RADIUS 22) et de l'anneau des vagues, loin du bord ;
  *  PROVISOIRE : un petit camp, un grand camp. */
+/** Couloir d'une porte du camp de depart (2026-11-06, G48) : demi-largeur et
+ *  longueur au-dela du rayon de l'enceinte (cases). PROVISOIRE. */
+const GATE_APPROACH_HALF_WIDTH = 2;
+const GATE_APPROACH_LENGTH = 10;
+/** Or proche : cosinus de l'ecart minimal aux axes des portes (25°). */
+const NEAR_GOLD_GATE_COS = Math.cos((25 * Math.PI) / 180);
+
 const CAMP_SITES: readonly { kind: string; dMin: number; dMax: number; level: number }[] = [
   { kind: 'raiders_small', dMin: 31, dMax: 38, level: 1 },
   { kind: 'raiders_large', dMin: 33, dMax: 38, level: 1 },
@@ -867,6 +879,8 @@ function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: 
       const a = turn + (i / dirs) * Math.PI * 2;
       for (let d = dMin; d <= dMax; d += step) {
         const cx = Math.round(Math.cos(a) * d), cz = Math.round(Math.sin(a) * d);
+        // Site strict : jamais dans l'axe d'une porte du camp de depart (G48).
+        if (strict && Math.min(Math.abs(cx), Math.abs(cz)) < CAMP_RADIUS + GATE_APPROACH_HALF_WIDTH) continue;
         // Centres de case des deux cotes (2026-11-04 : la comparaison coin / centre
         // laissait deux camps a 19,6 cases).
         if (camps.some((c) => Math.hypot(c.x - (cx + 0.5), c.z - (cz + 0.5)) < CAMP_SPACING)) continue;

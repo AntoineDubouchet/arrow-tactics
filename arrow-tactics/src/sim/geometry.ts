@@ -1,4 +1,5 @@
 import { MELEE_CONTACT_RANGE, obstacleBounds, type ObstacleBounds, type ObstacleDef } from '../config/constants';
+import { segmentEntersOrientedBox } from '../core/orientedBox';
 import { distanceToSegment, segmentDistance, segmentHitsCapsule } from '../core/wallLine';
 import { canUnitPassGate } from './relations';
 import type { UnitStats } from '../data/units';
@@ -175,20 +176,21 @@ export function targetDistance(x: number, z: number, target: { x: number; z: num
  *  (la cible elle-meme). La ligne de visee seule (findBlockingObstacle) peut
  *  passer dans un interstice plus etroit que l'unite, entre deux murs : le
  *  deplacement passe alors par A* plutot que de s'y coincer. Meme marge que
- *  les falaises. */
-const wallLinesCache = new WeakMap<ObstacleDef[], ObstacleDef[]>();
+ *  les falaises. Meme regle pour les batiments poses librement (2026-11-06,
+ *  G48) : deux batiments a 0,2 case laissent passer une ligne, jamais un corps. */
+const structuresCache = new WeakMap<ObstacleDef[], ObstacleDef[]>();
 
-export function bodyPathNearWall(ax: number, az: number, bx: number, bz: number, radius: number, obstacles: ObstacleDef[], ignore: ObstacleDef | null = null): boolean {
-  let walls = wallLinesCache.get(obstacles);
-  if (!walls) {
-    walls = obstacles.filter((o) => o.line !== undefined);
-    wallLinesCache.set(obstacles, walls);
+export function bodyPathNearStructure(ax: number, az: number, bx: number, bz: number, radius: number, obstacles: ObstacleDef[], ignore: ObstacleDef | null = null): boolean {
+  let structures = structuresCache.get(obstacles);
+  if (!structures) {
+    structures = obstacles.filter((o) => o.line !== undefined || o.footprint !== undefined);
+    structuresCache.set(obstacles, structures);
   }
   const m = Math.max(0, radius - CLIFF_BODY_CLEARANCE_SLACK);
   const path = { ax, az, bx, bz };
-  for (const o of walls) {
+  for (const o of structures) {
     if (o === ignore) continue;
-    if (segmentDistance(path, o.line!) < o.line!.halfWidth + m) return true;
+    if (o.line ? segmentDistance(path, o.line) < o.line.halfWidth + m : segmentEntersOrientedBox(o.footprint!, ax, az, bx, bz, m) !== null) return true;
   }
   return false;
 }
@@ -289,6 +291,12 @@ export function findBlockingObstacle(
     const line = obstacles[i]!.line;
     if (line) {
       hit = segmentHitsCapsule({ ax, az, bx, bz }, line, line.halfWidth);
+      if (hit === null) continue;
+    }
+    // Empreinte continue (G48) : idem, le rectangle oriente decide.
+    const footprint = obstacles[i]!.footprint;
+    if (footprint) {
+      hit = segmentEntersOrientedBox(footprint, ax, az, bx, bz);
       if (hit === null) continue;
     }
 

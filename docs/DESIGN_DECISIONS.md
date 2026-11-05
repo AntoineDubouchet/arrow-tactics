@@ -113,6 +113,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G45 | Coûts des bâtiments et technologies recalés autour d'un cargo Villageois de 10 (Maison 10 bois sans or, économique 1 à 2 cargaisons, militaire 2 à 4, avancé 3 à 6 ; bois léger / pierre lourd / mixte militaire) ; Mine 10 bois + 5 pierre ; Palissade inchangée | Active (2026-11-05, valeurs provisoires) |
 | G46 | XP du Héros à 12 cases ; camp de départ de rayon 15 ; 2 gisements d'or visibles au départ ; Villageois constructeurs ; Maj = pose répétée ; double-clic = bâtiments du même type visibles ; DamageType physique / magique (Tourbillon physique) ; banque d'items curated (2 par emplacement, niveaux, tank / physique / magique) ; fin de vague = choix entre 2 items du niveau de la vague ; +5 or de vague supprimé | Active (2026-11-05, valeurs provisoires) |
 | G47 | Loot portable + slot vide = auto-équipement ; clic droit inventaire = équiper / déséquiper ; une icône par EquipmentSlot ; Héros désélectionnable, HUD RPG indépendant de la sélection RTS ; ProductionOrders affiche une barre commune à celle des actions ; bâtiment producteur + clic droit terrain = ralliement ; DamageType reste physical / magic, DamageSchool magique ; effet d'arme = toutes les N attaques réussies, K déclenchements déterministes ; Feu à chaque coup devient N = 1 / K = 1 / fire | Active (2026-11-05, valeurs provisoires) |
+| G48 | Map, navigation et génération restent en grille ; placement joueur des bâtiments continu ; navigation dérivée de l'empreinte continue ; rotation par pas de 15° ; fin d'un chantier : le constructeur cherche un autre chantier allié proche ; camp de départ à 4 portes ouvertes, une par côté ; mort du Héros : VFX blanc héroïque montant vers le ciel | Active (2026-11-06, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -2859,6 +2860,55 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `ui/combatOverlay.ts`, `itemEditor/*`, `main.ts`, `CURRENT_STATE.md` Fiche
   d'entité, §2, §6 ter, §6 quinquies, §6 sexies, §16 ter, `ARCHITECTURE.md` §7,
   §13 ter, §13 quinquies, §13 octodecies, `GAME_DESIGN.md` §7, §8.
+
+### G48 — Passe du 2026-11-06 : placement libre, enchaînement des chantiers, 4 portes, mort du Héros
+
+- **Statut** : Active (2026-11-06). Valeurs **PROVISOIRES**.
+- **Décisions d'Antoine** (2026-11-06) :
+  - **Map, navigation et génération restent en grille** ; l'éditeur et le
+    générateur gardent la leur ;
+  - **placement joueur des bâtiments = continu** : centre à coordonnées
+    flottantes, sans snap, pour tous les bâtiments standards (Palissade non migrée) ;
+  - **navigation dérivée de l'empreinte continue**, pas de navigation continue ;
+  - **rotation par pas de 15°**, touche R, l'empreinte suit ; Maj réservée à la
+    pose répétée ;
+  - **fin d'un chantier → le constructeur cherche un autre chantier allié proche**
+    (`AUTO_CONSTRUCT_RANGE` 12) : réellement inachevé, au joueur, atteignable, le plus
+    proche, id le plus bas ; ordre manuel prioritaire, pas de nouveau bonus ;
+  - **camp de départ = 4 portes ouvertes, une par côté**, le même système de porte ;
+  - **mort du Héros = VFX blanc héroïque montant vers le ciel**, à la mort seulement,
+    sans cinématique ni changement du retour ; audio parqué.
+- **Choix de la passe** (à valider ou corriger) : marge de pose 0,2 ; marge de
+  navigation 0,2 (0,5 + 0,2 = 0,7, rayon du Cavalier, corps le plus large) ; toute case
+  touchée est bloquée (prudent, KI-73) ; `AUTO_CONSTRUCT_RANGE` mesuré depuis le
+  constructeur ; Ctrl+molette gardé au même pas de 15° ; rotation conservée entre deux
+  poses en Maj, remise à 0 à chaque nouveau choix au menu ; R hors pose garde la caméra ;
+  empreinte continue aussi pour les bâtiments préconstruits du camp ; bâtiments de carte
+  de l'éditeur non migrés ; couloirs de portes 5 × 10 cases ; or proche à plus de 25° des
+  axes ; camps neutres hors de l'axe (site strict) ; barils désormais refusés sous une
+  pose.
+- **Changements de ressenti et d'équilibrage signalés** : base plus compacte possible,
+  donc plus de bâtiments dans la même enceinte ; 4 portes ouvertes au départ, à défendre
+  ou fermer une à une : les ennemis ne franchissent pas une porte ouverte mais ont quatre
+  cibles de plus ; le constructeur enchaîne sur 12 cases au lieu de 3 : un Villageois peut
+  partir plus loin construire plutôt que récolter ; forêts et gisements un peu différents
+  pour une même graine (couloirs, or proche, camps déplacés) ; Maisons et Auberge déplacées ;
+  bosquet et pierre déplacés.
+- **Filet de sécurité** : `tests/sim/placement-libre.mts`, `auto-construction.mts`,
+  `camp-portes.mts`, `depart-camp.mts` (recalé) ; en jeu : `placement-jeu.cjs`,
+  `mort-heros-jeu.cjs`, `depart-jeu.cjs`, `editeur-procedural.cjs` (recalés).
+- **À ne pas faire** : ne pas valider une pose en disant seulement « ces cases sont libres » ;
+  ne pas remplacer le pathfinding par une navigation continue ; ne pas lancer de test de
+  connectivité globale à chaque mouvement de souris ; ne pas migrer la Palissade ; ne pas
+  dupliquer largeur et profondeur hors de `BuildingDef` ; pas de logique Three.js en `sim/` ;
+  ne pas écrire les portes dans une `MapDef` ; ne pas ajouter de bonus de construction.
+- **Sources** : `core/orientedBox.ts`, `config/constants.ts`, `config/startingBase.ts`,
+  `config/maps/proceduralSurvival.ts`, `data/buildings.ts`, `data/hero.ts`,
+  `run/buildingPlacement.ts`, `run/runState.ts`, `sim/geometry.ts`, `sim/pathfinding.ts`,
+  `sim/world.ts`, `sim/systems/movement.ts`, `sim/systems/hero.ts`, `sim/systems/workers.ts`,
+  `sim/systems/buildingProduction.ts`, `render/heroDeathVfx.ts`, `editor/editorScene.ts`,
+  `main.ts`, `CURRENT_STATE.md` §2, §6, §6 bis, §6 duodecies, `ARCHITECTURE.md` §13
+  novodecies, `GAME_DESIGN.md` §7, §8, `EDITOR.md`, `KNOWN_ISSUES.md` KI-66, KI-73.
 
 ## H. Outils internes
 

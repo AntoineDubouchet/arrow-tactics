@@ -80,7 +80,7 @@ export function resourceNodeCells(o: ObstacleDef): { x: number; z: number }[] {
 
 /** Cases bloquees par les sources d'une liste de decors (cles `x,z`, format
  *  de cellKey), en cache par tableau. REGLE UNIQUE : deplacement
- *  (World.setMap) et construction (main.ts, isValidPlacementTile). Une
+ *  (World.setMap) et construction (main.ts, buildingPlacementWorld). Une
  *  source epuisee : la retirer de la liste. */
 const resourceCellsCache = new WeakMap<readonly ObstacleDef[], ReadonlySet<string>>();
 

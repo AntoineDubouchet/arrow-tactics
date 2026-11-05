@@ -68,11 +68,25 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   // arbres derives), suivent le Depart quand il est deplace, jamais dans la carte enregistree (aucun doublon).
   const depots = () => ev(() => { const g = window.__scene.getObjectByName('editor-features'); const out = []; const trees = []; g?.traverse((o) => { if (o.userData?.startDeposit) out.push({ r: o.userData.startDeposit, x: +o.position.x.toFixed(1), z: +o.position.z.toFixed(1) }); if (o.userData?.startTree) trees.push({ x: +o.position.x.toFixed(1), z: +o.position.z.toFixed(1) }); }); const L = window.__ed.startingBaseLayout; return { apercu: out.sort((a, b) => a.r < b.r ? -1 : 1), layout: L?.deposits.map((d) => ({ r: d.resource, x: d.x, z: d.z })).sort((a, b) => a.r < b.r ? -1 : 1), arbres: trees.sort((a, b) => a.x - b.x || a.z - b.z), arbresLayout: L?.trees.map((t) => ({ x: t.x, z: t.z })).sort((a, b) => a.x - b.x || a.z - b.z), ballista: window.__ed.ballista }; });
   const d0 = await depots();
+  // 4 portes du camp de depart (G48) : visibles dans l'apercu, autour du Depart.
+  const gatePreview = () => ev(() => { const g = window.__scene.getObjectByName('editor-features'); const out = []; const v = new window.THREE.Vector3(); g?.traverse((o) => { if (o.name === 'palisade_door_left') { o.getWorldPosition(v); out.push({ x: +v.x.toFixed(2), z: +v.z.toFixed(2) }); } }); const b = window.__ed.ballista; return { n: out.length, dist: out.map((p) => +Math.hypot(p.x - b.x, p.z - b.z).toFixed(1)), pts: out }; });
+  const gates0 = await gatePreview();
   const moveIssues = await ev(() => { const b = window.__ed.ballista; return [3, 2, 1, -1, -2, -3].map((dx) => [dx, window.__ed.startPlacementIssue(b.x + dx, b.z)]); });
   const moved = await ev(() => { const b = window.__ed.ballista; for (const dx of [3, 2, 1, -1, -2, -3]) if (window.__ed.moveBallista(b.x + dx, b.z)) return dx; return 0; });
   // Deplacement par l'API : Echap rafraichit les objets de l'editeur (comme un clic).
   await page.keyboard.press('Escape'); await wait(600);
   const d1 = await depots();
+  const gates1 = await gatePreview();
+  // Rotation du Depart : les 4 portes restent sur les axes, le camp tourne, aucun doublon.
+  const rot0 = await ev(() => window.__ed.startingBase?.rotation ?? 0);
+  const buildingsAt = () => ev(() => { const L = window.__ed.startingBaseLayout; return { gates: L.walls.filter((w) => w.gates).length, walls: L.walls.length, b: L.buildings.map((q) => [q.x, q.z]) }; });
+  const beforeRot = await buildingsAt();
+  await ev((r) => { const e = window.__ed; e.setBallista(e.ballista, true, { preset: e.startingBase.preset, rotation: (r + 1) % 4 }); }, rot0); await page.keyboard.press('Escape'); await wait(600);
+  const gatesR = await gatePreview();
+  const afterRot = await buildingsAt();
+  check('camp de depart dans l editeur : 4 portes visibles dans l apercu, a l apotheme du Depart ; elles suivent son deplacement et sa rotation, sans doublon', gates0.n === 4 && gates0.dist.every((d) => Math.abs(d - 14.5) < 1.6) && gates1.n === 4 && gates1.dist.every((d) => Math.abs(d - 14.5) < 1.6) && gatesR.n === 4 && gatesR.dist.every((d) => Math.abs(d - 14.5) < 1.6) && afterRot.gates === 4 && afterRot.walls === 20 && J(afterRot.b) !== J(beforeRot.b), { gates0, gates1, gatesR, beforeRot, afterRot });
+  await page.screenshot({ path: OUT + 'editeur-4-portes.png' });
+  await ev((r) => { const e = window.__ed; e.setBallista(e.ballista, true, { preset: e.startingBase.preset, rotation: r }); }, rot0); await page.keyboard.press('Escape'); await wait(300);
   const mSaved = await save('gen-12345-depart-deplace.json');
   // Retour par l'API (un deplacement par l'API n'entre pas dans l'historique, contrairement au clic).
   await ev((dx) => { const b = window.__ed.ballista; window.__ed.moveBallista(b.x - dx, b.z); }, moved); await page.keyboard.press('Escape'); await wait(400);
@@ -165,6 +179,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await ev(() => { for (const e of window.__world.entities) if (!e.isBuilding) { e.stats.maxHp = 1e6; e.hp = 1e6; e.stats.moveSpeed = 0; e.stats.damage = 0; } }); await wait(1500);
   const inTest = await ev(() => { const w = window.__world; const b = w.entities.find((e) => e.unitId === 'ballista' && e.team === 'player'); const inCamp = (n) => Math.hypot(n.x - b.x, n.z - b.z) < 15; return { camps: w.camps.length, piles: w.resourcePiles.length, barrels: w.entities.filter((e) => e.destructible).length, gold: [...w.resourceNodes.values()].filter((n) => n.resource === 'gold').length, campSources: [...w.resourceNodes.values()].filter(inCamp).map((n) => n.resource).sort(), ticks: w.tick }; });
   await page.screenshot({ path: OUT + 'editeur-test-scenario.png' });
+  const testGates = await ev(() => window.__world.entities.filter((e) => e.alive && e.wall?.door).map((e) => e.wall.door.open));
+  check('« Tester le scénario » : les memes 4 portes, ouvertes ; carte enregistree sans mur ajoute (aucun doublon au rechargement)', J(testGates) === '[true,true,true,true]' && (sv.walls ?? []).length === 0, { testGates, walls: (sv.walls ?? []).length });
   check(`« Tester le scénario » sur la carte generee puis modifiee : camps, tas, barils et gisements (6 d or de la carte dont l or proche garanti + 1 du camp de depart, 2026-11-05) en jeu ; meme bosquet que la run (${NB_TREES} arbres + pierre + or dans l enceinte)`, inTest.camps === sv.camps.length && inTest.piles === sv.resourcePiles.length && (() => { const exp = sv.camps.reduce((n, c) => n + (c.kind === 'raiders_large' ? 3 : 2), 0) + (sv.destructibles ?? []).length; return inTest.barrels <= exp && inTest.barrels >= exp - 1; })() && inTest.gold === 7 && J(inTest.campSources) === J(['gold', 'stone', ...Array(NB_TREES).fill('wood')]) && inTest.ticks > 0, inTest);
 
   if (errors.length) { failures++; console.log('ERREURS', errors.join(' / ').slice(0, 1500)); }
