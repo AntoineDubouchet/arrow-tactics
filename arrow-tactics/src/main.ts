@@ -165,6 +165,7 @@ import { FogOfWar, type VisionSource } from './render/fogOfWar';
 import { DepotTargetRing, ResourcePileViews, type DepotRingTarget } from './render/resourcePiles';
 import { randomSeed, Rng } from './core/rng';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp, getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
+import { buildingMaterialCost, canAffordMaterials, payMaterials } from './run/buildingCosts';
 import { computePlayerUnitStats, playerUnitMaxHp } from './run/playerUnitStats';
 import {
   effectivePlayerArrowCooldown,
@@ -2054,7 +2055,7 @@ function buildingChoices(): BuildChoice[] {
     .map((id) => {
       const gold = getEffectiveBuildingCost(id);
       const res = buildingResourceCost(id);
-      const cost = [`${formatGold(gold)} or`, res.wood ? `${res.wood} bois` : '', res.stone ? `${res.stone} pierre` : ''].filter(Boolean).join(', ');
+      const cost = [gold > 0 ? `${formatGold(gold)} or` : '', res.wood ? `${res.wood} bois` : '', res.stone ? `${res.stone} pierre` : ''].filter(Boolean).join(', ');
       const enabled = currentRun.gold >= gold && canAffordBuildingResources(id);
       const description = getBuilding(id).description;
       return { id, name: getBuilding(id).displayName, cost, enabled, hint: enabled ? undefined : 'Or ou ressources déposées insuffisants', ...(description ? { description } : {}) };
@@ -5809,21 +5810,18 @@ function heroActionProgress(hero: Entity): { progress: number; remaining: number
 }
 
 /** Bois et pierre que coute `buildingId` (BuildingDef.resourceCost),
- *  `times` fois. */
+ *  `times` fois ; verification et debit : run/buildingCosts.ts (purs,
+ *  testes par tests/sim/couts.mts). */
 function buildingResourceCost(buildingId: string, times = 1): Record<ResourceKind, number> {
-  const cost = getBuilding(buildingId).resourceCost ?? {};
-  return { wood: (cost.wood ?? 0) * times, stone: (cost.stone ?? 0) * times };
+  return buildingMaterialCost(buildingId, times);
 }
 
 function canAffordBuildingResources(buildingId: string, times = 1): boolean {
-  const cost = buildingResourceCost(buildingId, times);
-  return currentRun.resources.wood >= cost.wood && currentRun.resources.stone >= cost.stone;
+  return canAffordMaterials(currentRun.resources, buildingId, times);
 }
 
 function payBuildingResources(buildingId: string, times = 1): void {
-  const cost = buildingResourceCost(buildingId, times);
-  currentRun.resources.wood = Math.max(0, currentRun.resources.wood - cost.wood);
-  currentRun.resources.stone = Math.max(0, currentRun.resources.stone - cost.stone);
+  payMaterials(currentRun.resources, buildingId, times);
 }
 
 /** S en bataille : interrompt l'ordre de toutes les unites

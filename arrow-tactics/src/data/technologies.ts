@@ -48,8 +48,10 @@ export const TECHNOLOGIES: Readonly<Record<string, TechnologyDef>> = {
     id: 'forge_weapons',
     name: 'Armes forgées I',
     site: 'forge',
+    // G45 (2026-11-05) : une technologie militaire coute au moins autant de
+    // matiere qu'un batiment economique (20 or, 10 bois, 5 pierre avant).
     goldCost: 20,
-    resourceCost: { wood: 10, stone: 5 },
+    resourceCost: { wood: 20, stone: 10 },
     seconds: 30,
     effects: [{ target: { kind: 'military' }, bonus: { attackPercent: 10 } }],
     description: 'Unités militaires : +10 % dégâts',
@@ -58,8 +60,9 @@ export const TECHNOLOGIES: Readonly<Record<string, TechnologyDef>> = {
     id: 'forge_armor',
     name: 'Armures forgées I',
     site: 'forge',
+    // G45 : 20 or, 5 bois, 10 pierre avant.
     goldCost: 20,
-    resourceCost: { wood: 5, stone: 10 },
+    resourceCost: { wood: 10, stone: 20 },
     seconds: 30,
     effects: [{ target: { kind: 'military' }, bonus: { hpPercent: 10 } }],
     description: 'Unités militaires : +10 % PV max',
@@ -72,8 +75,9 @@ export const TECHNOLOGIES: Readonly<Record<string, TechnologyDef>> = {
     name: 'Entraînement des hommes d’armes',
     site: 'barracks',
     requiresSiteLevel: 1,
+    // G45 : matiere ajoutee (7 or seul avant) ; l'or reste modeste.
     goldCost: 7,
-    resourceCost: {},
+    resourceCost: { wood: 10, stone: 5 },
     seconds: 20,
     effects: [{ target: { kind: 'unit', unitId: 'fantassin' }, bonus: { hp: 3, attack: 1 } }],
     description: 'Hommes d’armes : +3 PV, +1 dégâts',

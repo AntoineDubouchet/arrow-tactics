@@ -57,7 +57,7 @@ const harvest = (w: any, u: any, node: any) => w.issueCommand({ kind: 'harvest',
 
 check('donnees : Scierie = bois seul ; Camp de mineur = pierre + or extrait ; Baliste = tout ; Forge = rien ; couts, emprises et PV inchanges',
   JSON.stringify(getBuilding('sawmill').dropOff) === '["wood"]' && JSON.stringify(getBuilding('miner_camp').dropOff) === '["stone","minedGold"]' && JSON.stringify(getBuilding('ballista').dropOff) === '["wood","stone","minedGold"]' && !getBuilding('forge').dropOff
-  && getBuilding('sawmill').cost === 10 && getBuilding('sawmill').resourceCost!.wood === 8 && getBuilding('sawmill').footprintTilesX === 3 && getBuilding('sawmill').maxHp === 150 && getBuilding('miner_camp').cost === 10 && getBuilding('miner_camp').resourceCost!.stone === 4 && getBuilding('miner_camp').maxHp === 150);
+  && getBuilding('sawmill').cost === 5 && getBuilding('sawmill').resourceCost!.wood === 15 && getBuilding('sawmill').footprintTilesX === 3 && getBuilding('sawmill').maxHp === 150 && getBuilding('miner_camp').cost === 5 && getBuilding('miner_camp').resourceCost!.stone === 10 && getBuilding('miner_camp').maxHp === 150);
 
 // --- BOIS (Heros).
 {

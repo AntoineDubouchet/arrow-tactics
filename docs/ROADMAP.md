@@ -535,10 +535,10 @@ Inventaire unique, or physique et Héros permanent construits le 2026-11-02
 
 - tas d'or : fusion / disparition / aimant si accumulation (KI-47 ;
   ramassage au contact du Héros depuis le 2026-11-05, G42) ;
-- **coûts bois / pierre des bâtiments** (5 à 12) trop faibles par rapport
-  à un cargo de 10 (G44 : tout tient dans moins d'un trajet de Villageois)
-  : passe de rééquilibrage séparée, à mesurer contre les rendements de
-  `tests/sim/economie.mts` ;
+- ~~coûts bois / pierre des bâtiments trop faibles par rapport à un cargo
+  de 10~~ : recalés le 2026-11-05 (G45) ; reste à auditer : coût matière
+  des améliorations de bâtiments et de la Baliste (or seul), balance des
+  unités ;
 - Villageois autonomes (G42 ; limités aux sources visibles depuis G43) :
   affiner après playtest (rayon de recherche,
   pondération par distance, dépôt prioritaire, extension au ramassage des

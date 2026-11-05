@@ -45,7 +45,8 @@ mots possibles).
 
 ## Scripts
 
-`tests/sim/` : `camp.mts`, `camps-authored.mts`, `cargo.mts`, `economie.mts`
+`tests/sim/` : `camp.mts`, `camps-authored.mts`, `cargo.mts`, `couts.mts`
+(G45 : échelle des coûts, débit exact, refus sans ressources), `economie.mts`
 (G44 : mesure légère sur le camp de départ, temps à la source, cycle,
 rendement, Héros plus lent, répartition à 3 Villageois),
 `collecte.mts`, `depart-camp.mts`, `file-prod.mts`, `heros-niveaux.mts`,

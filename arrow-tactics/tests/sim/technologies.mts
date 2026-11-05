@@ -52,9 +52,9 @@ const hpPts = (e: any) => ({ hp: e.hp, max: e.stats.maxHp });
   const military = ['piquier', 'fantassin', 'archer', 'mage', 'oracle', 'vengeur', 'cavalier', 'sentinel'];
   check('unites militaires : Piquier, Homme d armes, Archer, Mage, Oracle, Vengeur, Cavalier, Sentinelle ; jamais Heros, Villageois ni neutres', military.every((u) => isMilitaryUnit(u)) && !isMilitaryUnit('hero') && !isMilitaryUnit('villageois') && !isMilitaryUnit('maraudeur'));
   const fw = getTechnology('forge_weapons'), fa = getTechnology('forge_armor');
-  check('Armes forgees I : Forge, 20 or / 10 bois / 5 pierre, 30 s, militaires +10 % degats ; Armures forgees I : 20 / 5 / 10, 30 s, +10 % PV',
-    fw.site === 'forge' && fw.goldCost === 20 && fw.resourceCost.wood === 10 && fw.resourceCost.stone === 5 && fw.seconds === 30 && fw.effects[0]!.target.kind === 'military' && fw.effects[0]!.bonus.attackPercent === 10
-    && fa.site === 'forge' && fa.goldCost === 20 && fa.resourceCost.wood === 5 && fa.resourceCost.stone === 10 && fa.seconds === 30 && fa.effects[0]!.bonus.hpPercent === 10 && Object.keys(TECHNOLOGIES).length === 3);
+  check('Armes forgees I : Forge, 20 or / 20 bois / 10 pierre (G45), 30 s, militaires +10 % degats ; Armures forgees I : 20 / 10 / 20, 30 s, +10 % PV',
+    fw.site === 'forge' && fw.goldCost === 20 && fw.resourceCost.wood === 20 && fw.resourceCost.stone === 10 && fw.seconds === 30 && fw.effects[0]!.target.kind === 'military' && fw.effects[0]!.bonus.attackPercent === 10
+    && fa.site === 'forge' && fa.goldCost === 20 && fa.resourceCost.wood === 10 && fa.resourceCost.stone === 20 && fa.seconds === 30 && fa.effects[0]!.bonus.hpPercent === 10 && Object.keys(TECHNOLOGIES).length === 3);
 }
 
 // ---- 2. Forge : aucune Forge, construction, Armes I (cout, duree, simulation continue), retroactif, futur, Heros / Villageois, Armures I, deux Forges.
@@ -70,7 +70,7 @@ const hpPts = (e: any) => ({ hp: e.hp, max: e.stats.maxHp });
   archer.hp = base.maxHp / 2;
   const t0 = T.w.tick;
   const id1 = PO.queueTechnologyOrder(T.run, T.w, T.ledger, forge, 0, 'forge_weapons');
-  check('Forge : Armes forgees I en file (recherche, 30 s), 20 or / 10 bois / 5 pierre debites', typeof id1 === 'number' && forge.productionOrders[0]?.kind === 'research' && forge.productionOrders[0]?.techId === 'forge_weapons' && forge.productionOrders[0]?.total === 30 && T.run.gold === 180 && T.run.resources.wood === 90 && T.run.resources.stone === 95, { gold: T.run.gold, res: T.run.resources, order: forge.productionOrders[0] });
+  check('Forge : Armes forgees I en file (recherche, 30 s), 20 or / 20 bois / 10 pierre debites (G45)', typeof id1 === 'number' && forge.productionOrders[0]?.kind === 'research' && forge.productionOrders[0]?.techId === 'forge_weapons' && forge.productionOrders[0]?.total === 30 && T.run.gold === 180 && T.run.resources.wood === 80 && T.run.resources.stone === 90, { gold: T.run.gold, res: T.run.resources, order: forge.productionOrders[0] });
   check('en recherche : statut « pending », une 2e commande de la meme technologie refusee', PO.isTechnologyPending(T.w, 'forge_weapons') && technologyStatusesAt('forge', T.run, 0, (id: string) => PO.isTechnologyPending(T.w, id))[0]!.state === 'pending' && PO.queueTechnologyOrder(T.run, T.w, T.ledger, forge, 0, 'forge_weapons') === null);
   T.runFor(10);
   check('la simulation continue pendant la recherche (10 s : 300 pas, 20 s restantes), Archer inchange pour l instant', Math.abs(T.w.tick - t0 - 300) <= 1 && Math.abs(forge.productionOrders[0]!.remaining - 20) < 0.05 && archer.stats.damage === base.damage && !isTechnologyAcquired(T.run.upgrades, 'forge_weapons'), { tick: T.w.tick - t0, rem: forge.productionOrders[0]?.remaining });
@@ -83,7 +83,7 @@ const hpPts = (e: any) => ({ hp: e.hp, max: e.stats.maxHp });
   // Armures I : fraction de PV conservee (Archer 3 PV = 30 interne : 10 / 30 -> 11 / 33).
   archer.hp = 10;
   const id2 = PO.queueTechnologyOrder(T.run, T.w, T.ledger, forge, 0, 'forge_armor');
-  check('Armures forgees I en file : 20 or / 5 bois / 10 pierre', typeof id2 === 'number' && T.run.gold === 160 && T.run.resources.wood === 85 && T.run.resources.stone === 85);
+  check('Armures forgees I en file : 20 or / 10 bois / 20 pierre (G45)', typeof id2 === 'number' && T.run.gold === 160 && T.run.resources.wood === 70 && T.run.resources.stone === 70);
   T.runFor(30.1);
   const expectedHp = Math.round(base.maxHp * 1.1);
   check('Armures forgees I acquise : Archer present PV max +10 % (30 -> 33), PV actuels a la meme fraction (10 -> 11), futur Archer idem ; Heros intact',
@@ -103,13 +103,13 @@ const hpPts = (e: any) => ({ hp: e.hp, max: e.stats.maxHp });
   T.runFor(5);
   forge.hp = 0; forge.alive = false;
   T.runFor(1);
-  check('Forge detruite pendant Armes forgees I : file perdue, AUCUN remboursement (160 or, 85 bois, 85 pierre), technologie non acquise ; Armures forgees I deja terminee reste acquise',
-    typeof id === 'number' && forge.productionOrders.length === 0 && T.run.gold === 160 && T.run.resources.wood === 85 && T.run.resources.stone === 85 && !isTechnologyAcquired(T.run.upgrades, 'forge_weapons') && isTechnologyAcquired(T.run.upgrades, 'forge_armor') && !PO.isTechnologyPending(T.w, 'forge_weapons'), { gold: T.run.gold, res: T.run.resources });
+  check('Forge detruite pendant Armes forgees I : file perdue, AUCUN remboursement (160 or, 70 bois, 70 pierre), technologie non acquise ; Armures forgees I deja terminee reste acquise',
+    typeof id === 'number' && forge.productionOrders.length === 0 && T.run.gold === 160 && T.run.resources.wood === 70 && T.run.resources.stone === 70 && !isTechnologyAcquired(T.run.upgrades, 'forge_weapons') && isTechnologyAcquired(T.run.upgrades, 'forge_armor') && !PO.isTechnologyPending(T.w, 'forge_weapons'), { gold: T.run.gold, res: T.run.resources });
   const rebuilt = T.spawnBuilding('forge', 10, -2);
   const statuses = technologyStatusesAt('forge', T.run, 0, (t: string) => PO.isTechnologyPending(T.w, t)).map((s: any) => s.def.id + ':' + s.state).join();
   const again = PO.queueTechnologyOrder(T.run, T.w, T.ledger, rebuilt, 0, 'forge_weapons');
   const cancelled = PO.cancelOrder(T.run, T.w, T.ledger, rebuilt.id, again!);
-  check('Forge reconstruite : Armures « Terminé », Armes a nouveau disponible ; annulation : or ET stock rendus', statuses === 'forge_weapons:available,forge_armor:done' && typeof again === 'number' && cancelled && T.run.gold === 160 && T.run.resources.wood === 85 && T.run.resources.stone === 85 && rebuilt.productionOrders.length === 0, { statuses, gold: T.run.gold, res: T.run.resources });
+  check('Forge reconstruite : Armures « Terminé », Armes a nouveau disponible ; annulation : or ET stock rendus', statuses === 'forge_weapons:available,forge_armor:done' && typeof again === 'number' && cancelled && T.run.gold === 160 && T.run.resources.wood === 70 && T.run.resources.stone === 70 && rebuilt.productionOrders.length === 0, { statuses, gold: T.run.gold, res: T.run.resources });
 }
 
 // ---- 4. Producteurs : Camp d'archerie, Sanctuaire, Ecurie, Caserne (niveau de run, retroactif, futur) ; deux Camps.

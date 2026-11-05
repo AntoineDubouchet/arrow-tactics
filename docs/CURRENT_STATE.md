@@ -308,7 +308,7 @@ dans l'éditeur.
     mention « par manche » ni « En attente : N » ;
   - **Forge** : PV, emprise et ses **technologies** (§14) : une ligne par
     technologie avec son état (« Terminé — effet », « En recherche ») ou un
-    bouton **« Rechercher : Armes forgées I — 20 or, 10 bois, 5 pierre ·
+    bouton **« Rechercher : Armes forgées I — 20 or, 20 bois, 10 pierre ·
     30 s »** ; un chantier n'a rien de tout cela. Plus d'écran « Ouvrir la
     Forge » (2026-11-05) ;
   - **Tour** : « Tour — Niv. N », PV, dégâts, portée, cadence (« 1 tir /
@@ -924,22 +924,28 @@ passe par le **cargo économique**, jamais par l'inventaire RPG, voir
   Héros sélectionné le garde) ;
 - seul le Héros ramasse et dépose, et seulement en bataille.
 
-**Coûts des bâtiments** (en plus de l'or) et **durées de construction** :
+**Coûts des bâtiments** et **durées de construction** (2026-11-05, G45 :
+coûts **provisoirement recalés autour d'un cargo Villageois de 10** — un
+trajet ≈ 10 bois en 23 s ou 10 pierre en 27 s ; petit bâtiment économique
+1 à 2 cargaisons, militaire standard 2 à 4, avancé 3 à 6 ; bois pour les
+bâtiments légers, pierre pour les lourds ; aucune prétention à une balance
+finale) :
 
-| Bâtiment | Bois | Pierre | Construction |
-|---|---|---|---|
-| Mine | 5 | — | 6 s |
-| Caserne | 10 | — | 8 s |
-| Camp d'archerie | 8 | — | 8 s |
-| Forge | 5 | 5 | 8 s |
-| Maison | 6 | — | 5 s |
-| Tour | 5 | 10 | 10 s |
-| Église | 10 | 10 | 12 s |
-| Scierie (10 or, 3 × 3, 15 PV ; point de collecte : bois) | 8 | — | 8 s |
-| Camp de mineur (10 or, 3 × 3, 15 PV ; point de collecte : pierre, or extrait) | 6 | 4 | 8 s |
-| Sanctuaire (25 or, 2 × 2, 20 PV) | 8 | 8 | 10 s |
-| Écurie (20 or, 3 × 3, 25 PV) | 12 | — | 10 s |
-| Palissade (par case de longueur) | 0,5 | — | 1,5 s |
+| Bâtiment | Or | Bois | Pierre | Construction |
+|---|---|---|---|---|
+| Maison | 0 | 10 | — | 5 s |
+| Scierie (3 × 3, 15 PV ; point de collecte : bois) | 5 | 15 | — | 8 s |
+| Camp de mineur (3 × 3, 15 PV ; point de collecte : pierre, or extrait) | 5 | 10 | 10 | 8 s |
+| Mine | 20 | 10 | 5 | 6 s |
+| Auberge | 10 | 20 | — | 8 s |
+| Caserne | 15 | 20 | 10 | 8 s |
+| Camp d'archerie | 15 | 25 | 5 | 8 s |
+| Forge | 10 | 15 | 20 | 8 s |
+| Tour | 15 | 10 | 25 | 10 s |
+| Sanctuaire (2 × 2, 20 PV) | 25 | 15 | 20 | 10 s |
+| Écurie (3 × 3, 25 PV) | 20 | 25 | 15 | 10 s |
+| Église | 35 | 15 | 25 | 12 s |
+| Palissade (par case de longueur) | — | 0,5 | — | 1,5 s |
 | Porte de palissade | 4 | — | 4 s |
 
 **Chantiers** : posés en temps réel depuis le bouton **Construire** (ci-dessous),
@@ -1469,7 +1475,7 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
 - **Ralliement** : proposé à tout bâtiment qui produit des unités par sa
   file (Église et Sanctuaire compris), plus seulement aux producteurs
   legacy.
-- **Auberge** (`blue_tavern`, 2 × 2, 15 or + 8 bois, 20 PV, 8 s) :
+- **Auberge** (`blue_tavern`, 2 × 2, 10 or + 20 bois depuis G45, 20 PV, 8 s) :
   producteur standard du **Villageois** (5 or, 8 s).
 - **Villageois** (première unité économique) : humain fragile (2,5 PV),
   **aucune attaque** (dégâts 0, aucune acquisition de cible ; ciblable et
@@ -2486,9 +2492,9 @@ valeurs **PROVISOIRES** :
 
 | Technologie | Site | Coût | Durée | Effet |
 |---|---|---|---|---|
-| Armes forgées I | Forge | 20 or, 10 bois, 5 pierre | 30 s | unités militaires : +10 % dégâts d'attaque |
-| Armures forgées I | Forge | 20 or, 5 bois, 10 pierre | 30 s | unités militaires : +10 % PV max |
-| Entraînement des hommes d’armes | Caserne Niv. 2 | 7 or | 20 s | Hommes d'armes : +3 PV, +1 dégâts (l'ancien niveau de Forge) |
+| Armes forgées I | Forge | 20 or, 20 bois, 10 pierre (G45) | 30 s | unités militaires : +10 % dégâts d'attaque |
+| Armures forgées I | Forge | 20 or, 10 bois, 20 pierre (G45) | 30 s | unités militaires : +10 % PV max |
+| Entraînement des hommes d’armes | Caserne Niv. 2 | 7 or, 10 bois, 5 pierre (G45) | 20 s | Hommes d'armes : +3 PV, +1 dégâts (l'ancien niveau de Forge) |
 
 - **Unités militaires** (`isMilitaryUnit`, `data/units.ts`) : toute unité
   de combat recrutable — Piquier, Homme d'armes, Archer, Mage, Oracle,

@@ -110,6 +110,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G42 | Passe gameplay : Villageois autonomes (idle > 1 s, ressource la moins travaillée), Tourbillon compatible avec le déplacement (10 tics / 5 s, 35 %, flash par tic), or de butin ramassé au contact du Héros, Porte de palissade refaite (sans arche, deux vrais vantaux), pierre + or garantis dans le camp de départ | Active (2026-11-05, valeurs provisoires) / Amendée par G43 (sources visibles seulement, récolte au contact, quantités 75 / 250 / 250, bosquet garanti) |
 | G43 | Passe corrective après l'autonomie : autonomie limitée aux ressources visibles, récolte au contact visuellement crédible, Villageois regardant sa source, animation worker descendante (plus d'estoc), arbre = 75 bois, gisements = 250 pierre / 250 or, camp de départ = bosquet garanti d'au moins 6 arbres + pierre + or | Active (2026-11-05, valeurs provisoires) |
 | G44 | Passe économie : cargo Villageois 10, temps par unité par ressource (bois 2 s, pierre 2,5 s, or 3 s), Héros ×1,25 plus lent, cadence visuelle depuis les données ; Mine et coûts inchangés | Active (2026-11-05, valeurs provisoires) |
+| G45 | Coûts des bâtiments et technologies recalés autour d'un cargo Villageois de 10 (Maison 10 bois sans or, économique 1 à 2 cargaisons, militaire 2 à 4, avancé 3 à 6 ; bois léger / pierre lourd / mixte militaire) ; Mine 10 bois + 5 pierre ; Palissade inchangée | Active (2026-11-05, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -2666,6 +2667,52 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `render/unitViews.ts`, `render/toonUnitRig.ts`, `main.ts`
   (`heroActionProgress`), `CURRENT_STATE.md` §6 bis, §6 nonies, §6
   undecies, `ARCHITECTURE.md` §13 decies.
+
+### G45 — Coûts recalés autour d'un cargo Villageois de 10
+
+- **Statut** : Active (2026-11-05). Valeurs **PROVISOIRES**, pas une
+  balance définitive : bois et pierre doivent compter comme de vraies
+  ressources RTS, l'or rester utile sans être la seule contrainte.
+- **Constat** (G44) : tout bâtiment coûtait 5 à 12 bois / pierre, moins
+  d'un trajet de Villageois (10 unités en 23 à 27 s) ; l'or était la seule
+  contrainte, Scierie et Camp de mineur sans enjeu.
+- **Échelle** : petit bâtiment économique 1 à 2 cargaisons de matière,
+  militaire standard 2 à 4, avancé / spécialisé 3 à 6 ; bois pour les
+  bâtiments légers (Maison, Auberge, Scierie, Camp d'archerie, Palissade),
+  pierre pour les lourds (Tour, Forge, Église, Sanctuaire), mixte pour le
+  militaire (Caserne, Écurie). Ordres de grandeur, pas des règles.
+- **Décisions** (`data/buildings.ts`, `data/technologies.ts`) : Maison
+  0 or + 10 bois ; Scierie 5 or + 15 bois ; Camp de mineur 5 or + 10 bois
+  + 10 pierre ; Mine 20 or + 10 bois + 5 pierre (une Mine passive ne coûte
+  pas moins de matière qu'une Maison) ; Auberge 10 or + 20 bois ; Caserne
+  15 or + 20 bois + 10 pierre ; Camp d'archerie 15 or + 25 bois + 5 pierre ;
+  Forge 10 or + 15 bois + 20 pierre ; Tour 15 or + 10 bois + 25 pierre ;
+  Sanctuaire 25 or + 15 bois + 20 pierre ; Écurie 20 or + 25 bois + 15
+  pierre ; Église 35 or + 15 bois + 25 pierre ; Armes forgées I 20 or + 20
+  bois + 10 pierre ; Armures forgées I 20 or + 10 bois + 20 pierre ;
+  Entraînement des hommes d'armes 7 or + 10 bois + 5 pierre. Palissade
+  inchangée (0,5 bois par case : l'enceinte de départ vaut 33 bois, un peu
+  plus d'un trajet). Rendements, cargo, autonomie, stats, vagues : rien.
+- **Début de partie mesuré** (G44, 3 Villageois autonomes dès le départ,
+  stock 20 or) : 1 min 20 bois / 20 pierre / 30 or → Maison et Scierie ;
+  2 min 50 / 40 / 50 → Caserne ou Forge en plus ; 5 min 125 / 110 / 110 →
+  Maison + Caserne + Forge + Tour laissent 70 bois / 55 pierre / 70 or :
+  l'ensemble Caserne + Forge + Sanctuaire + Tour + Écurie (85 bois, 90
+  pierre, 85 or) demande les cinq minutes complètes et des choix. Avec deux
+  Villageois seuls (pierre + or, 0 bois) seule la Mine ou la Tour reste
+  payable : le troisième Villageois (5 or) est la vraie première décision.
+- **Non touché, à auditer plus tard** : améliorations de bâtiments
+  (Caserne, Camp d'archerie, Mine, Tour, Sanctuaire, Écurie) et de la
+  Baliste payées en or seul (matière absente : ajouter un coût matière
+  demande un passage dans `run/productionOrders.ts`) ; coûts des unités
+  en or seul (Villageois 5, Homme d'armes 2, Archer 3) cohérents avec les
+  nouveaux prix, balance des unités plus tard.
+- **Filet de sécurité** : `run/buildingCosts.ts` (coût matière, payable,
+  débit exact ; purs) et `tests/sim/couts.mts` ; `collecte.mts`,
+  `technologies.mts`, `forge-jeu.cjs` (débits exacts) recalés.
+- **Sources** : `data/buildings.ts`, `data/technologies.ts`,
+  `run/buildingCosts.ts`, `main.ts`, `CURRENT_STATE.md` §6 bis, §6 nonies,
+  §14.
 
 ## H. Outils internes
 

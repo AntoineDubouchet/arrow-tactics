@@ -205,8 +205,10 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // la Forge). Remplace l'ancienne acquisition automatique
     // via le talent "Le temps, c'est de l'argent" (retiré, voir
     // data/talents.ts).
+    // G45 (2026-11-05) : une Mine passive ne coute pas moins de matiere qu'une
+    // Maison. 20 or, 5 bois avant.
     cost: 20,
-    resourceCost: { wood: 5 },
+    resourceCost: { wood: 10, stone: 5 },
     buildTime: 6,
     buildingModel: 'blue_mine',
     // 3 x 3 cases (2026-11-02, demande d'Antoine : la Mine paraissait trop
@@ -254,8 +256,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 2.7,
+    // Militaire standard, mixte (G45 ; 15 or, 10 bois avant).
     cost: 15,
-    resourceCost: { wood: 10 },
+    resourceCost: { wood: 20, stone: 10 },
     buildTime: 8,
     buildingModel: 'blue_barracks',
     footprintTilesX: 3,
@@ -285,8 +288,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 2.7,
+    // Militaire standard, bois (G45 ; 15 or, 8 bois avant).
     cost: 15,
-    resourceCost: { wood: 8 },
+    resourceCost: { wood: 25, stone: 5 },
     buildTime: 8,
     buildingModel: 'blue_archeryrange',
     footprintTilesX: 3,
@@ -315,8 +319,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // Modele d'environ 1,5 de haut une fois ajuste a l'empreinte 2x2 :
     // barre juste au-dessus du toit, comme la Mine.
     hpBarHeight: 1.7,
+    // Infrastructure technologique, pierre (G45 ; 10 or, 5 bois, 5 pierre avant).
     cost: 10,
-    resourceCost: { wood: 5, stone: 5 },
+    resourceCost: { wood: 15, stone: 20 },
     buildTime: 8,
     buildingModel: 'blue_blacksmith',
     footprintTilesX: 2,
@@ -338,8 +343,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 2.1,
-    cost: 5,
-    resourceCost: { wood: 6 },
+    // Maison : accessible vite, bois seul, sans or (G45 ; 5 or, 6 bois avant).
+    cost: 0,
+    resourceCost: { wood: 10 },
     buildTime: 5,
     buildingModel: 'blue_home_A',
     // 2026-11-03 (demande d'Antoine) : 1re Maison A, 2e B, 3e A...
@@ -365,8 +371,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 3.4,
-    cost: 20,
-    resourceCost: { wood: 5, stone: 10 },
+    // Defense lourde, pierre (G45 ; 20 or, 5 bois, 10 pierre avant).
+    cost: 15,
+    resourceCost: { wood: 10, stone: 25 },
     buildTime: 10,
     buildingModel: 'blue_tower_A',
     footprintTilesX: 2,
@@ -406,8 +413,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     // Modele ajuste a l'emprise 2 × 2 : 2,85 de haut (clocher), sous la
     // Caserne (3,14) ; barre juste au-dessus.
     hpBarHeight: 3.2,
+    // Support avance, pierre (G45 ; 35 or, 10 bois, 10 pierre avant).
     cost: 35,
-    resourceCost: { wood: 10, stone: 10 },
+    resourceCost: { wood: 15, stone: 25 },
     buildTime: 12,
     buildingModel: 'blue_church',
     footprintTilesX: 2,
@@ -427,8 +435,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 2.6,
+    // Structure magique avancee, pierre (G45 ; 25 or, 8 bois, 8 pierre avant).
     cost: 25,
-    resourceCost: { wood: 8, stone: 8 },
+    resourceCost: { wood: 15, stone: 20 },
     buildTime: 10,
     buildingModel: 'blue_shrine',
     footprintTilesX: 2,
@@ -450,8 +459,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 2.6,
-    cost: 15,
-    resourceCost: { wood: 8 },
+    // Acces aux Villageois, bois (G45 ; 15 or, 8 bois avant).
+    cost: 10,
+    resourceCost: { wood: 20 },
     buildTime: 8,
     buildingModel: 'blue_tavern',
     footprintTilesX: 2,
@@ -473,8 +483,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 2.6,
+    // Structure volumineuse, mixte (G45 ; 20 or, 12 bois avant).
     cost: 20,
-    resourceCost: { wood: 12 },
+    resourceCost: { wood: 25, stone: 15 },
     buildTime: 10,
     buildingModel: 'blue_stables',
     footprintTilesX: 3,
@@ -499,8 +510,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 2.4,
-    cost: 10,
-    resourceCost: { wood: 8 },
+    // Investissement logistique, bois (G45 ; 10 or, 8 bois avant).
+    cost: 5,
+    resourceCost: { wood: 15 },
     buildTime: 8,
     buildingModel: 'blue_lumbermill',
     footprintTilesX: 3,
@@ -519,8 +531,9 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     targetable: true,
     countsForDefeat: true,
     hpBarHeight: 2.4,
-    cost: 10,
-    resourceCost: { wood: 6, stone: 4 },
+    // Investissement logistique, mixte (G45 ; 10 or, 6 bois, 4 pierre avant).
+    cost: 5,
+    resourceCost: { wood: 10, stone: 10 },
     buildTime: 8,
     buildingModel: 'blue_workshop',
     footprintTilesX: 3,

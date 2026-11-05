@@ -57,7 +57,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   // 1. Forge batie ; aucun ecran modal de Forge n'existe plus.
   const forge = await build('Forge', 'forge', [[-4, 5], [4, 5], [-5, 3], [5, 3], [0, 6]]);
   const s1 = await stock();
-  check('menu Construire : Forge posee et batie par le Heros (10 or, 5 bois, 5 pierre debites) ; plus aucun ecran « unit-upgrade-shop » dans la page', !!forge && s1.gold === 190 && s1.wood === 95 && s1.stone === 95 && (await p.evaluate(() => document.querySelector('.screen-unit-upgrade-shop') === null)), { forge, s1 });
+  check('menu Construire : Forge posee et batie par le Heros (10 or, 15 bois, 20 pierre debites, G45) ; plus aucun ecran « unit-upgrade-shop » dans la page', !!forge && s1.gold === 190 && s1.wood === 85 && s1.stone === 80 && (await p.evaluate(() => document.querySelector('.screen-unit-upgrade-shop') === null)), { forge, s1 });
 
   // 2. Fiche de la Forge : deux recherches, cout et duree, aucune action « openForge ».
   const archer = await p.evaluate((b) => { const w = window.__world; const e = w.spawn('archer', 'player', b.x + 2, b.z + 2); e.order = { type: 'guard' }; return { id: e.id, dmg: e.stats.damage, max: e.stats.maxHp }; }, b);
@@ -65,8 +65,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const f1 = await fiche();
   const weapons = f1.actions.find((a) => a.a === 'research' && /Armes forgées I/.test(a.t));
   const armor = f1.actions.find((a) => a.a === 'research' && /Armures forgées I/.test(a.t));
-  check('fiche de la Forge : « Rechercher : Armes forgées I — 20 or, 10 bois, 5 pierre · 30 s » et « Armures forgées I — 20 or, 5 bois, 10 pierre · 30 s », actives ; aucune action « openForge »',
-    /Forge/.test(f1.title ?? '') && !!weapons && !weapons.off && /20 or, 10 bois, 5 pierre · 30 s/.test(weapons.t) && !!armor && !armor.off && /20 or, 5 bois, 10 pierre · 30 s/.test(armor.t) && !f1.actions.some((a) => a.a === 'openForge'), f1);
+  check('fiche de la Forge : « Rechercher : Armes forgées I — 20 or, 20 bois, 10 pierre · 30 s » et « Armures forgées I — 20 or, 10 bois, 20 pierre · 30 s » (G45), actives ; aucune action « openForge »',
+    /Forge/.test(f1.title ?? '') && !!weapons && !weapons.off && /20 or, 20 bois, 10 pierre · 30 s/.test(weapons.t) && !!armor && !armor.off && /20 or, 10 bois, 20 pierre · 30 s/.test(armor.t) && !f1.actions.some((a) => a.a === 'openForge'), f1);
 
   // 3. Rechercher Armes forgees I : paye, en file, la simulation continue.
   await p.click('.entity-info:not([hidden]) .entity-info-action[data-action="research"]:has-text("Armes forgées")'); await L.wait(p, 300);
@@ -75,8 +75,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const f2 = await fiche();
   const order = await p.evaluate((id) => window.__world.getById(id).productionOrders.map((o) => ({ kind: o.kind, techId: o.techId, total: o.total })), forge.id);
   await p.screenshot({ path: OUT + 'forge-recherche.png' });
-  check('« Rechercher » : 20 or, 10 bois, 5 pierre debites (190/95/95 -> 170/85/90) ; commande « research » de 30 s en file ; fiche « Armes forgées I : En recherche » + « 1. Armes forgées I — N s ✕ » ; la simulation CONTINUE (aucun ecran, tick qui avance)',
-    s2.gold === 170 && s2.wood === 85 && s2.stone === 90 && J(order) === J([{ kind: 'research', techId: 'forge_weapons', total: 30 }]) && t1 > t0 && f2.rows.some((r) => /Armes forgées I.*En recherche/.test(r)) && f2.actions.some((a) => a.a === 'cancelProduction' && /1\. Armes forgées I — \d+ s/.test(a.t)) && !(await p.evaluate(() => document.querySelector('.screen-overlay--visible') !== null)), { s2, order, t0, t1, f2 });
+  check('« Rechercher » : 20 or, 20 bois, 10 pierre debites (190/85/80 -> 170/65/70, G45) ; commande « research » de 30 s en file ; fiche « Armes forgées I : En recherche » + « 1. Armes forgées I — N s ✕ » ; la simulation CONTINUE (aucun ecran, tick qui avance)',
+    s2.gold === 170 && s2.wood === 65 && s2.stone === 70 && J(order) === J([{ kind: 'research', techId: 'forge_weapons', total: 30 }]) && t1 > t0 && f2.rows.some((r) => /Armes forgées I.*En recherche/.test(r)) && f2.actions.some((a) => a.a === 'cancelProduction' && /1\. Armes forgées I — \d+ s/.test(a.t)) && !(await p.evaluate(() => document.querySelector('.screen-overlay--visible') !== null)), { s2, order, t0, t1, f2 });
 
   // 4. Fin de la recherche : Terminé, Archer present ameliore, Heros inchange.
   let done = false;
