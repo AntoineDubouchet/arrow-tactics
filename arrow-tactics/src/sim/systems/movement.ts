@@ -12,8 +12,10 @@ import {
   STUCK_DURATION,
   TILE,
   UNSTICK_DURATION,
+  type ObstacleBounds,
   type ObstacleDef,
 } from '../../config/constants';
+import { HARVEST_STAND_GAP } from '../../data/hero';
 import { clamp } from '../../core/math';
 import { closestOnSegment } from '../../core/wallLine';
 import { bodyPathNearTerrainCliff, bodyPathNearWall, crossesTerrainCliff, findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, isMeleeAttack, obstaclesForUnit, segmentIntersectsBox, targetDistance, terrainObstacles } from '../geometry';
@@ -142,7 +144,7 @@ export function movementSystem(
   /** Recoit les fins d'ordres manuels du pas (voir sim/orders.ts). */
   orderEvents: OrderEndEvent[] = [],
   /** Sources de ressources (ordres de recolte du Heros). */
-  heroWork: HeroWorkContext = { nodes: new Map(), nodeAmounts: new Map(), depleted: [], canHarvest: () => false, piles: [], drops: [], chests: [], chestLocked: () => true, openChest: () => ({ itemId: null, dropId: null }) },
+  heroWork: HeroWorkContext = { nodes: new Map(), nodeAmounts: new Map(), depleted: [], canHarvest: () => false, isVisible: () => true, piles: [], drops: [], chests: [], chestLocked: () => true, openChest: () => ({ itemId: null, dropId: null }) },
   /** Marche des vagues vers le camp (null : marche neutre historique). */
   march: MarchContext | null = null,
 ): void {
@@ -284,7 +286,26 @@ export function movementSystem(
           e.steerZ = null;
           continue;
         }
-        const target = goal.target ?? ({ x: goal.x, z: goal.z, footprintObstacle: null } as unknown as Entity);
+        // Source bloquante (arbre, gisement) : point d'approche contre un de
+        // ses cotes, dans une case libre, le plus proche de l'unite
+        // (2026-11-05). Aucun cote libre (source enfermee) : l'ordre s'arrete
+        // tout de suite, proprement (ni centre bloque, ni coin, ni tour de
+        // la source, ni recalcul a chaque pas) ; un ordre manuel le signale
+        // (`unreachable`), une source choisie seule par un Villageois est
+        // abandonnee en silence et evitee a son prochain choix (workerSystem :
+        // autoNodeId garde, autoWorked faux).
+        const stand = goal.box ? harvestStandPoint(e, goal.box, teamGrid(e)) : null;
+        if (goal.box && stand === null) {
+          const auto = e.worker !== null && e.order.type === 'harvest' && e.worker.autoNodeId === e.order.nodeId;
+          if (auto) {
+            e.order = { type: 'guard' };
+            e.path = null;
+            e.steerX = null;
+            e.steerZ = null;
+          } else finishOrder(e, orderEvents, 'failed', 'unreachable');
+          continue;
+        }
+        const target = goal.target ?? ({ x: stand?.x ?? goal.x, z: stand?.z ?? goal.z, footprintObstacle: null } as unknown as Entity);
         pursueTargetWithPathfinding(e, target, teamObstacles(e), teamGrid(e), subDt, bodyClearanceFor(e));
         continue;
       }
@@ -802,6 +823,35 @@ function triggerUnstick(e: Entity, target: Entity, pool: Entity[], obstacles: Ob
 /** Avance directement vers (aimX, aimZ), sans aucun contournement — partagee
  *  par pursueTowards (dernier pas vers la cible/le coin) et
  *  pursueTargetWithPathfinding (pas vers le prochain point de cheminement). */
+/**
+ * Point d'approche d'une source bloquante (2026-11-05, recolte au contact) :
+ * pour chaque case de chaque COTE de l'emprise (cases entieres), le point
+ * au milieu de la case voisine, a (rayon + HARVEST_STAND_GAP) du bord ; parmi
+ * les cases voisines libres de la grille, la plus proche de l'unite (egalite
+ * : premiere dans l'ordre nord, sud, ouest, est). Jamais un coin (la
+ * diagonale se bloque contre l'angle et oscille), jamais le centre. null si
+ * aucune case voisine n'est libre (source enfermee) : aucun point de travail
+ * valide, l'appelant abandonne l'ordre (pas de repli).
+ */
+function harvestStandPoint(e: Entity, box: ObstacleBounds, grid: PathGrid): { x: number; z: number } | null {
+  const standoff = e.stats.radius + HARVEST_STAND_GAP;
+  const best = { x: 0, z: 0, d: Number.POSITIVE_INFINITY };
+  const consider = (x: number, z: number) => {
+    if (isTileBlockedAt(grid, x, z)) return;
+    const d = Math.hypot(x - e.x, z - e.z);
+    if (d < best.d) { best.x = x; best.z = z; best.d = d; }
+  };
+  for (let cx = Math.floor(box.minX) + 0.5; cx < box.maxX; cx += 1) {
+    consider(cx, box.minZ - standoff);
+    consider(cx, box.maxZ + standoff);
+  }
+  for (let cz = Math.floor(box.minZ) + 0.5; cz < box.maxZ; cz += 1) {
+    consider(box.minX - standoff, cz);
+    consider(box.maxX + standoff, cz);
+  }
+  return Number.isFinite(best.d) ? { x: best.x, z: best.z } : null;
+}
+
 function moveStraightTowards(e: Entity, aimX: number, aimZ: number, subDt: number): void {
   const dx = aimX - e.x;
   const dz = aimZ - e.z;

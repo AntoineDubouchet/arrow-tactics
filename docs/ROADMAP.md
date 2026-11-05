@@ -485,8 +485,10 @@ extrait ; G33). À voir aussi :
 - ~~gros rochers bloquants ou non (KI-41)~~ : bloquants depuis le
   2026-11-03 (G25) ;
 - ouvriers / récolte par d'autres unités que le Héros : Auberge et
-  Villageois faits le 2026-11-03 (G28, modèle dédié G32) ; à suivre :
-  gestes de travail dédiés (KI-64), construction par les Villageois ;
+  Villageois faits le 2026-11-03 (G28, modèle dédié G32 ; coups de hache /
+  pioche du Héros prêtés le 2026-11-05, G43) ; à suivre :
+  gestes de ramassage / dépôt dédiés (KI-64), construction par les
+  Villageois ;
 - amélioration de l'Écurie et du Sanctuaire plus parlante que +5 PV
   (G26) ;
 - ~~éditeur : génération procédurale (graine) et vue globale (G27)~~ :
@@ -533,7 +535,8 @@ Inventaire unique, or physique et Héros permanent construits le 2026-11-02
 
 - tas d'or : fusion / disparition / aimant si accumulation (KI-47 ;
   ramassage au contact du Héros depuis le 2026-11-05, G42) ;
-- Villageois autonomes (G42) : affiner après playtest (rayon de recherche,
+- Villageois autonomes (G42 ; limités aux sources visibles depuis G43) :
+  affiner après playtest (rayon de recherche,
   pondération par distance, dépôt prioritaire, extension au ramassage des
   tas de bois / pierre, sources épuisées) ;
 - contrôle Héros + armée, groupes (une unité sélectionnée reçoit les ordres : voulu) ;

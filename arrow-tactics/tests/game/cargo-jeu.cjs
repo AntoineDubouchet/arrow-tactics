@@ -90,7 +90,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const chop = await p.evaluate((id) => { const u = window.__world.getById(id); const v = window.__uv.views.get(id); return { working: u.worker.working, tool: v.userData.toonTool, anim: window.__uv.riggedActionState.get(id) ?? null, cargo: u.cargo.wood }; }, vil.id);
   await L.setView(p, { targetX: tree.bx, targetZ: tree.z, viewHeight: 7, yawDeg: 45, pitchDeg: 35 }); await L.wait(p, 300);
   await p.screenshot({ path: OUT + 'villageois-coupe.png' });
-  const vs = await p.evaluate(([x, z]) => window.__toScreen(x, z, window.__S.surfaceY(x, z) + 0.6), [tree.bx, tree.z + 0.3]);
+  // Le Villageois a rejoint son point d'approche au bord de l'arbre (G43) : rectangle de selection autour de sa position reelle.
+  const vs = await p.evaluate((id) => { const u = window.__world.getById(id); return window.__toScreen(u.x, u.z, window.__S.surfaceY(u.x, u.z) + 0.6); }, vil.id);
   await p.mouse.move(vs.x - 40, vs.y - 50); await p.mouse.down(); await p.mouse.move(vs.x + 40, vs.y + 40, { steps: 6 }); await p.mouse.up(); await L.wait(p, 400);
   const vsheet = await sheetRows();
   check('Villageois coupe : hache visible, geste d attaque (chop), bois dans le cargo ; fiche « Transport : N / 5 — Bois N »', chop.working === 'chop' && chop.tool === 'axe' && chop.anim === 'chop' && chop.cargo >= 1 && new RegExp(`Transport ${chop.cargo}|Transport \\d / 5`).test(vsheet), { chop, vsheet: vsheet.slice(0, 200) });

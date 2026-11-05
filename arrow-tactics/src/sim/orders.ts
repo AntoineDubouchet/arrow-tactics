@@ -134,7 +134,10 @@ export type OrderEndReason = 'arrived' | 'target-lost' | 'unreachable' | 'no-pro
  *  que l'acceptation ou le refus d'une commande au moment de l'appliquer. */
 export interface OrderEndEvent {
   entityId: number;
-  order: 'move' | 'attack';
+  /** `harvest` (2026-11-05) : seulement un ordre MANUEL de recolte termine
+   *  faute de point de travail (source enfermee, `unreachable`) ; une source
+   *  choisie seule par un Villageois est abandonnee sans evenement. */
+  order: 'move' | 'attack' | 'harvest';
   outcome: 'completed' | 'failed';
   reason: OrderEndReason;
 }
@@ -232,7 +235,7 @@ export function orderMadeNoProgress(entity: Entity, remaining: number, dt: numbe
  *  Garde sur place et un evenement est ajoute pour l'interface. */
 export function finishOrder(entity: Entity, events: OrderEndEvent[], outcome: OrderEndEvent['outcome'], reason: OrderEndReason): void {
   const type = entity.order.type;
-  if (type === 'move' || type === 'attack') {
+  if (type === 'move' || type === 'attack' || (type === 'harvest' && reason === 'unreachable')) {
     events.push({ entityId: entity.id, order: type, outcome, reason });
   }
   entity.order = { type: 'guard' };

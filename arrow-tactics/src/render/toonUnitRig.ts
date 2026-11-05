@@ -50,6 +50,10 @@ interface ClipRole {
   clip: string;
   timeScale: number;
   loop: boolean;
+  /** Clip pris dans le GLB d'une AUTRE unite humaine (meme squelette du
+   *  pack : memes noms d'os), quand le sien ne l'a pas (2026-11-05 : gestes
+   *  de travail du Heros pour le Villageois). */
+  from?: HumanToonKind;
   /** Recadencage en deux segments (vitesse 1) : l'instant `release` du clip
    *  tombe a `releaseAt` s, la fin du clip a `endAt` s. */
   retime?: { release: number; releaseAt: number; endAt: number };
@@ -187,11 +191,15 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
   },
   // Villageois (2026-11-03, Atelier d'Antoine : tete WK A x0,8, corps
   // barbare D, bras et jambes WK A, ni epauliere ni arme) : peon economique,
-  // clips Spearman ; son estoc sert de coup de hache / de pioche (outils
-  // `tool_axe` / `tool_pick` du GLB, visibles seulement au travail,
-  // setWorkerTool). Le set n'a aucun geste accroupi : ramassage et depot
-  // restent sur le repos (pas de coup de lance a vide, KI-64). Aucune
-  // attaque en jeu (data/units.ts).
+  // clips Spearman pour le repos et la course. Gestes de travail (2026-11-05,
+  // decision d'Antoine : plus d'estoc de lance) : les clips du dossier Worker
+  // du Heros, pretes a ce rig (memes os) — `workingA` coup vertical debout
+  // par-dessus la tete (hache : outil leve, coup vers le tronc), `workingB`
+  // coup penche vers le sol (pioche : coup descendant vers le gisement) ;
+  // cadence 0,65 (clip de 0,9 s -> environ 1,4 s par coup, une unite
+  // recoltee toutes les 1,5 s). Outils `tool_axe` / `tool_pick` du GLB,
+  // visibles seulement au travail (setWorkerTool). Ramassage et depot
+  // restent sur le repos (KI-64). Aucune attaque en jeu (data/units.ts).
   villageois: {
     file: 'human_villager.glb',
     textures: 'wk',
@@ -200,8 +208,8 @@ const HUMAN_TOON_UNITS: Record<HumanToonKind, ToonUnitDef> = {
       ...COMMON_ROLES,
       walk: loop('run', 1.1),
       attack: once('attack'),
-      chop: loop('attack', 1.1),
-      mine: loop('attack', 1.1),
+      chop: { ...loop('workingA', 0.65), from: 'hero' },
+      mine: { ...loop('workingB', 0.65), from: 'hero' },
       gather: loop('idle'),
       deposit: loop('idle'),
     },
@@ -441,8 +449,8 @@ async function loadPrototype(kind: ToonUnitKind): Promise<void> {
   const clips = new Map(gltf.animations.map((clip) => [clip.name, clip]));
   const roleClips = new Map<string, THREE.AnimationClip>();
   for (const [name, role] of Object.entries(def.roles)) {
-    const clip = clips.get(role.clip);
-    if (!clip) throw new Error(`Clip ${role.clip} absent de ${def.file}`);
+    const clip = role.from ? (await clipsOfFile(HUMAN_TOON_UNITS[role.from].file)).get(role.clip) : clips.get(role.clip);
+    if (!clip) throw new Error(`Clip ${role.clip} absent de ${role.from ? HUMAN_TOON_UNITS[role.from].file : def.file}`);
     const resolved = role.retime ? retimeClip(clip, role.retime) : clip;
     // Sort sur un clip deja pris par un autre role (garde du Heros) : clip
     // clone, pour une action propre (boucle et cadence independantes).
@@ -457,6 +465,19 @@ async function loadPrototype(kind: ToonUnitKind): Promise<void> {
     hand.add(marker);
   }
   prototypes[kind] = { scene: gltf.scene, clips, roleClips };
+}
+
+/** Clips d'un GLB du pack, par nom, pour les roles pretes entre unites
+ *  (ClipRole.from) ; un chargement par fichier (navigateur : meme cache
+ *  que le prototype). */
+const fileClips = new Map<string, Promise<Map<string, THREE.AnimationClip>>>();
+function clipsOfFile(file: string): Promise<Map<string, THREE.AnimationClip>> {
+  let pending = fileClips.get(file);
+  if (!pending) {
+    pending = new GLTFLoader().loadAsync(`${DIR}/${file}`).then((gltf) => new Map(gltf.animations.map((clip) => [clip.name, clip])));
+    fileClips.set(file, pending);
+  }
+  return pending;
 }
 
 /**

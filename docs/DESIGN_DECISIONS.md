@@ -107,7 +107,8 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G39 | Générateur : gisements avant la mise en forme des forêts, aucun passage d'une case (KI-65) | Active |
 | G40 | Passe de modernisation 1 : retrait du legacy de la boucle en manches (placement, Boutique, parchemins, fin de manche, agrandissement, quota par manche, 4 talents), tests dans le dépôt | Active (2026-11-04) |
 | G41 | Passe de modernisation 2 : Forge = technologies militaires globales, améliorations d'unité = bâtiment producteur (rétroactives), recherches en temps réel par la file, Baliste depuis sa fiche, or libre, plus de pas d'ouverture ni de déblocage par victoire, plus de soin de l'armée | Active (2026-11-05, valeurs provisoires) |
-| G42 | Passe gameplay : Villageois autonomes (idle > 1 s, ressource la moins travaillée), Tourbillon compatible avec le déplacement (10 tics / 5 s, 35 %, flash par tic), or de butin ramassé au contact du Héros, Porte de palissade refaite (sans arche, deux vrais vantaux), pierre + or garantis dans le camp de départ | Active (2026-11-05, valeurs provisoires) |
+| G42 | Passe gameplay : Villageois autonomes (idle > 1 s, ressource la moins travaillée), Tourbillon compatible avec le déplacement (10 tics / 5 s, 35 %, flash par tic), or de butin ramassé au contact du Héros, Porte de palissade refaite (sans arche, deux vrais vantaux), pierre + or garantis dans le camp de départ | Active (2026-11-05, valeurs provisoires) / Amendée par G43 (sources visibles seulement, récolte au contact, quantités 75 / 250 / 250, bosquet garanti) |
+| G43 | Passe corrective après l'autonomie : autonomie limitée aux ressources visibles, récolte au contact visuellement crédible, Villageois regardant sa source, animation worker descendante (plus d'estoc), arbre = 75 bois, gisements = 250 pierre / 250 or, camp de départ = bosquet garanti d'au moins 6 arbres + pierre + or | Active (2026-11-05, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -2500,7 +2501,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   pierre et or) ; le Tourbillon frappe plus souvent et moins fort (total
   350 % au lieu de 375 %) et ne stoppe plus le Héros ; l'or se ramasse en
   passant ; deux gisements de plus près de la Baliste au départ (25 or et
-  40 pierre en plus, à portée immédiate).
+  40 pierre en plus, à portée immédiate ; 250 / 250 depuis G43).
 - **Filet de sécurité** : `tests/sim/villageois-autonomie.mts`,
   `tests/sim/or-butin.mts`, `tests/sim/tourbillon.mts` (mis à jour : 10
   tics, lancement en marchant), `tests/sim/depart-camp.mts` (gisements
@@ -2520,6 +2521,95 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `config/startingBase.ts`, `editor/editorState.ts`, `main.ts`,
   `CURRENT_STATE.md` §6 bis, §6 nonies, §6 decies, §6 octies, §6
   duodecies, `ARCHITECTURE.md` §13 decies, §13 sedecies.
+
+### G43 — Passe corrective du 2026-11-05 : autonomie visible, récolte au contact, gestes de travail, quantités, bosquet du camp
+
+- **Statut** : Active (2026-11-05). Valeurs **PROVISOIRES**.
+- **Décisions d'Antoine** (2026-11-05) :
+  - **autonomie des Villageois limitée aux ressources visibles** : un
+    Villageois inactif ne choisit qu'une source actuellement visible, avec
+    la même vérité que le jeu (brouillard de guerre du rendu, résolu par
+    l'orchestration dans `World.visibility`), sans second système de
+    vision ni « radar économique » ; une ressource sans source visible ne
+    participe pas au minimum ; une fois affecté, perdre la vision ne fait
+    pas lâcher le travail ; ordres du joueur toujours prioritaires ; les
+    ressources du camp attirent les Villageois naturellement (visibilité,
+    compte, distance), sans priorité artificielle ;
+  - **récolte au contact visuellement crédible** : le Villageois travaille
+    presque collé au bord de la source (bord du corps à ≤ 0,3 case du bord
+    géométrique de l'arbre 1 × 1 ou du gisement 2 × 2), via un point
+    d'approche sur un **côté** de la source (jamais le coin, jamais le
+    centre), sans frapper de loin, sans entrer dans le rocher, sans
+    oscillation ; la portée du Héros (0,7) n'est pas touchée (portée
+    centralisée par unité dans `workGoal`) ;
+  - **le Villageois regarde toujours sa source pendant le travail** : cap
+    du rendu calculé vers la source au début du geste et gardé, sans
+    tremblement ; ni direction de marche, ni `forwardDir`, ni animation ne
+    l'écrasent ;
+  - **animation worker descendante, plus d'estoc de lance** : hache = outil
+    levé puis coup vers le tronc, pioche = coup descendant vers le
+    gisement ; clips retenus : `workingA` (coup vertical debout) et
+    `workingB` (coup penché vers le sol) du GLB du Héros, prêtés au rig du
+    Villageois (même squelette, 29 os ciblés tous présents) ; cadence 0,65
+    pour suivre le rythme de récolte (≈ 1,4 s par coup, 1 unité / 1,5 s) ;
+    outils inchangés (mains vides hors travail, hache / pioche retirées à
+    la fin, sac de cargo indépendant) ; aucune chaîne Blender ;
+  - **arbre = 75 bois**, **gisement de pierre = 250**, **gisement d'or =
+    250** (`HARVEST_NODE_KINDS`, seule source de vérité ; tas au sol et
+    règles d'épuisement inchangés) ;
+  - **StartingBase = bosquet garanti d'au moins 6 arbres + pierre + or** :
+    7 arbres groupés (amas irrégulier) près d'un bord intérieur, hors
+    cour, porte, axe principal, Baliste, Auberge, Maisons, gisements et
+    places d'apparition ; dérivés du preset `basic-camp` (ni codés dans
+    `main.ts`, ni sérialisés), identiques en run, en « Tester le
+    scénario » et dans l'aperçu de l'éditeur, où ils suivent le Départ ;
+    validation et générateur réservent leurs cases ; navigation du camp
+    préservée (aucun passage d'une case).
+- **Choix de la passe** :
+  - `World.visibility` (null = tout visible) posée par `main.ts` avant
+    `world.step` (`fogActive() ? fogOfWar.isVisible : null`),
+    `HeroWorkContext.isVisible`, filtre dans `chooseWork` ;
+  - `WORKER_HARVEST_REACH` = 0,3 ; `HARVEST_STAND_GAP` = 0,15 ;
+    `workGoal` rend `box`, `harvestStandPoint` dans `movementSystem` ;
+    le Héros profite aussi du point d'approche (il n'oscille plus en
+    diagonale) avec sa portée inchangée ; **aucun repli** : une source sans
+    côté libre n'a aucun point de travail, l'ordre s'arrête au premier pas
+    (manuel : événement `unreachable`, message « Aucun accès à cette
+    ressource » ; autonome : abandon silencieux, source évitée, autre
+    source choisie) ; ramassage et dépôt restent sur la pose de repos
+    (décision d'Antoine, polish animation worker en parking) ;
+  - `UnitViews.setWorkTargetResolver` + `renderedFacing` ; `ClipRole.from`
+    + `clipsOfFile` dans `toonUnitRig.ts` ;
+  - bosquet : `preset.trees` = (−2, −8) (−1, −8) (0, −8) (1, −8) (−2, −7)
+    (−1, −7) (0, −7) en local (deux rangs décalés, 4 + 3), à 2 cases de la
+    Maison A et du gisement de pierre, ≈ 1,6 case de l'enceinte ;
+    `startingBaseObstacles` remplace `startingBaseDepositObstacles`.
+- **Changements de ressenti signalés** : les Villageois n'explorent plus
+  « à l'aveugle » (sans source visible, ils attendent) ; ils coupent et
+  minent collés à la source, face à elle, avec de vrais coups de hache /
+  pioche ; les sources durent beaucoup plus longtemps (×3,75 pour le bois,
+  ×6,25 pierre, ×10 or : 525 bois + 250 pierre + 250 or disponibles dans
+  l'enceinte dès le départ) ; le camp de départ est plus boisé.
+- **Filet de sécurité** : `tests/sim/villageois-autonomie.mts` (sections 7
+  à 9 : visibilité, portée, quantités / décompte / épuisement / tas),
+  `tests/sim/depart-camp.mts` (bosquet : géométrie 4 rotations, 12 graines,
+  chaque source atteinte, aucun passage d'une case) ; en jeu :
+  `tests/game/recolte-jeu.cjs` (contact, orientation sur plusieurs côtés,
+  clips `workingA` / `workingB`, outils, cadence, captures),
+  `tests/game/depart-jeu.cjs` et `tests/game/editeur-procedural.cjs`
+  (bosquet en run, aperçu, déplacement du Départ, sauvegarde, « Tester le
+  scénario »).
+- **À ne pas faire** : ne pas faire choisir une source invisible à un
+  Villageois ; ne pas créer un second système de vision côté simulation ;
+  ne pas réduire `HARVEST_REACH` du Héros ; ne pas coder le bosquet dans
+  `main.ts` ni l'écrire dans une `MapDef` ; ne pas dupliquer 75 / 250 /
+  250 hors de `data/resources.ts`.
+- **Sources** : `sim/world.ts`, `sim/systems/workers.ts`,
+  `sim/systems/hero.ts`, `sim/systems/movement.ts`, `data/hero.ts`,
+  `data/resources.ts`, `render/unitViews.ts`, `render/toonUnitRig.ts`,
+  `config/startingBase.ts`, `editor/editorState.ts`, `main.ts`,
+  `CURRENT_STATE.md` §6 bis, §6 nonies, §6 duodecies, §16,
+  `ARCHITECTURE.md` §13 sedecies, `EDITOR.md`, `KNOWN_ISSUES.md` KI-64.
 
 ## H. Outils internes
 

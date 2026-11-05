@@ -223,6 +223,12 @@ export class World {
    *  (outils de depart, Forge). Par defaut : les outils de depart (hache et
    *  pioche, 2026-11-04). */
   harvestPermissions: HarvestPermissions = STARTING_HARVEST_PERMISSIONS;
+  /** Visibilite du camp du joueur, deja RESOLUE par l'orchestration depuis
+   *  le brouillard de guerre du jeu (main.ts, avant chaque pas) : la
+   *  simulation ne sait pas d'ou elle vient. null = tout visible (aucun
+   *  brouillard : tests, « Tester le scénario »). Lue par l'autonomie des
+   *  Villageois (2026-11-05). */
+  visibility: ((x: number, z: number) => boolean) | null = null;
   /** Renforts ennemis de la vague en cours (mini-vagues du Mode survie),
    *  null hors Mode survie (« Tester le scénario ») — voir
    *  sim/systems/enemyReinforcements.ts. */
@@ -1048,6 +1054,7 @@ export class World {
       nodeAmounts: this.resourceNodeAmounts,
       depleted: this.depletedThisStep,
       canHarvest: (resource) => canHarvestResource(this.harvestPermissions, resource),
+      isVisible: (x, z) => this.visibility === null || this.visibility(x, z),
       piles: this.resourcePiles,
       drops: this.itemDrops,
       chests: this.chests,

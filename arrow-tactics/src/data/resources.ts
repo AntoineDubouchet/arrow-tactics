@@ -41,7 +41,7 @@ export type HarvestResource = 'wood' | 'stone' | 'gold';
  *  affiche ; a 0 : source retiree, cases liberees (World.depleteResourceNode).
  *  Toute unite extraite va dans le cargo (cargoResourceOf). PROVISOIRE. */
 export interface HarvestNodeKind {
-  /** Nom affiche a la selection (« Arbre — 20 bois »). */
+  /** Nom affiche a la selection (« Arbre — 75 bois »). */
   name: string;
   /** Unite affichee (« bois », « pierre », « or »). */
   unit: string;
@@ -53,13 +53,17 @@ export interface HarvestNodeKind {
   working: 'chop' | 'mine';
 }
 
+// Quantites (2026-11-05, decision d'Antoine, valeurs PROVISOIRES de
+// confort : 75 / 250 / 250, contre 20 / 40 / 25 avant) : SEULE source de
+// verite pour les sources persistantes (arbres, gros gisements), lue par la
+// simulation (World.setMap), le generateur, le camp de depart et l'editeur ;
+// les petits tas au sol (MapDef.resourcePiles) ont leurs propres quantites.
 export const HARVEST_NODE_KINDS: Readonly<Record<HarvestResource, HarvestNodeKind>> = {
-  wood: { name: 'Arbre', unit: 'bois', amount: 20, tool: 'axe', working: 'chop' },
-  stone: { name: 'Gisement de pierre', unit: 'pierre', amount: 40, tool: 'pickaxe', working: 'mine' },
-  // Or (2026-11-02) : plus rare que la pierre (25 or) ; transporte comme le
-  // reste (minedGold) depuis le 2026-11-03. Pioche ordinaire depuis le
-  // 2026-11-05 (plus de Forge requise).
-  gold: { name: 'Gisement d’or', unit: 'or', amount: 25, tool: 'pickaxe', working: 'mine' },
+  wood: { name: 'Arbre', unit: 'bois', amount: 75, tool: 'axe', working: 'chop' },
+  stone: { name: 'Gisement de pierre', unit: 'pierre', amount: 250, tool: 'pickaxe', working: 'mine' },
+  // Or (2026-11-02) : transporte comme le reste (minedGold) depuis le
+  // 2026-11-03. Pioche ordinaire depuis le 2026-11-05 (plus de Forge requise).
+  gold: { name: 'Gisement d’or', unit: 'or', amount: 250, tool: 'pickaxe', working: 'mine' },
 };
 
 /** Bois total d'un arbre (arbre isole ou bosquet). PROVISOIRE. */

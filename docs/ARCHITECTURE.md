@@ -1595,15 +1595,18 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   `startingBaseRotationFor(origin, preset, isOpen)` (porte vers le côté le
   plus dégagé) ; zone réservée en **disque** (`StartingBaseDisc`,
   `startingBaseReservedAt`, `reservedCells`, `reservedContainsCell`,
-  `reservedOverlapsDisc`), `bounds` = boîte englobante ; gisements
-  garantis (2026-11-05 : `preset.deposits` → `layout.deposits`,
-  `startingBaseDepositObstacles(layout)` = obstacles `rock` 2 × 2 ordinaires,
-  `ore: 'gold'` pour l'or) ;
-  `expandStartingBase(map)` (enceinte ajoutée à `MapDef.walls` et gisements
-  à `MapDef.obstacles` à la consommation, comme `expandMapCamps` ; rien
-  n'est sérialisé). Éditeur : `editorStartMarker` (`main.ts`) affiche les
-  deux rochers (`userData.startDeposit`) ; `startPlacementIssue` compte
-  leurs cases comme occupées.
+  `reservedOverlapsDisc`), `bounds` = boîte englobante ; gisements et
+  bosquet garantis (2026-11-05 : `preset.deposits` → `layout.deposits`,
+  `preset.trees` → `layout.trees` (centres de cases entières, ≥ 6),
+  `startingBaseObstacles(layout)` = obstacles ordinaires `rock` 2 × 2
+  (`ore: 'gold'` pour l'or) et `tree` 1 × 1, quantités de
+  `data/resources.ts`) ;
+  `expandStartingBase(map)` (enceinte ajoutée à `MapDef.walls`, gisements
+  et arbres à `MapDef.obstacles` à la consommation, comme `expandMapCamps` ;
+  rien n'est sérialisé). Éditeur : `editorStartMarker` (`main.ts`) affiche
+  les rochers (`userData.startDeposit`) et les arbres
+  (`userData.startTree`) ; `startPlacementIssue` compte leurs cases comme
+  occupées.
   `WallLineDef.openGates` → `World.spawnWallLine(…, { openGates })`
   (`spawnMapWalls`). Consommateurs : `survivalMapFor` (murs) ;
   `applyStartingBaseToRun` (`main.ts` : bâtiments → `RunState.buildings`
@@ -1637,12 +1640,45 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   `chooseWork`) ; état dans `WorkerState` (`idleSeconds`, `autoRetryIn`,
   `autoNodeId`, `autoWorked`) ; constantes `WORKER_IDLE_SECONDS` (1) et
   `WORKER_AUTO_RETRY_SECONDS` (5) dans `data/hero.ts`. Inactif = ordre
-  `guard`, aucun geste, `cargo.returnTo` nul. Choix : ressource la moins
+  `guard`, aucun geste, `cargo.returnTo` nul. Choix : parmi les sources
+  valides **et visibles** (`HeroWorkContext.isVisible(x, z)`, 2026-11-05,
+  G43), ressource la moins
   travaillée (recolte / dépôt / tas dont la boucle revient à une source),
-  puis source valide la plus proche, puis id ; ordre `harvest` posé
+  puis source visible valide la plus proche, puis id ; ordre `harvest` posé
   directement avec `resetNavigation` (exportée de `sim/orders.ts`). Aucun
   pathfinding spéculatif : un échec (rien récolté) écarte la source au
   prochain essai, après `WORKER_AUTO_RETRY_SECONDS`.
+- **Visibilité résolue par l'orchestration** (G43) : `World.visibility`
+  (`((x, z) => boolean) | null`, null = tout visible) est posée par
+  `main.ts` avant chaque `world.step` à partir du brouillard de guerre du
+  rendu (`fogActive()` → `fogOfWar.isVisible`), comme
+  `harvestPermissions` ; `World.heroWork()` l'expose en `isVisible`. La
+  simulation ne connaît ni `render/fogOfWar.ts` ni l'origine de la
+  visibilité ; sans brouillard (tests, « Tester le scénario »), tout est
+  visible. Aucun second système de vision.
+- **Récolte au contact** (G43) : `workGoal` (`sim/systems/hero.ts`) rend
+  aussi `box` (cases bloquantes de la source) et une tolérance par unité
+  (`WORKER_HARVEST_REACH` 0,3 pour un Villageois, `HARVEST_REACH` 0,7 pour
+  le Héros, `data/hero.ts`) ; `movementSystem` vise `harvestStandPoint`
+  (`sim/systems/movement.ts`) : milieu d'une case libre contre un côté de
+  la boîte, à `rayon + HARVEST_STAND_GAP` (0,15) du bord, la plus proche de
+  l'unité (jamais un coin, jamais le centre : plus d'oscillation en
+  diagonale). Aucun côté libre (source enfermée) : aucun point de travail,
+  l'ordre s'arrête au premier pas — ordre manuel (Héros ou Villageois) :
+  `finishOrder` avec `OrderEndEvent` `harvest` / `failed` / `unreachable`,
+  message « Aucun accès à cette ressource » (`main.ts`, après `world.step`) ;
+  source choisie seule par un Villageois : retour en Garde sans événement,
+  `autoNodeId` gardé et `autoWorked` faux, donc évitée au choix suivant
+  (`workerSystem`), qui a lieu aussitôt après 1 s d'inactivité.
+- **Orientation et gestes de travail** (G43, rendu) :
+  `UnitViews.setWorkTargetResolver` (posé par `main.ts` : position de la
+  source de l'ordre `harvest` dans `World.resourceNodes`) ; `renderedFacing`
+  vise cette source dès que l'unité est à l'arrêt en `chop` / `mine` (cap
+  fixe, virage progressif, ni `forwardDir` ni animation ne l'écrasent).
+  `ClipRole.from` (`render/toonUnitRig.ts`) prête un clip du GLB d'une
+  autre unité humaine du pack (mêmes os) : le Villageois joue `workingA`
+  (hache) et `workingB` (pioche) du GLB du Héros à 0,65 ; `clipsOfFile`
+  charge et met en cache les animations d'un fichier une seule fois.
 - **Or de butin au contact** : `heroWorkSystem` (`sim/systems/hero.ts`),
   avant `workGoal` : tout tas `gold` à `rayon + PICKUP_REACH` est vidé,
   événement `lootGold` (`World.cargoEvents`, crédité par `main.ts`

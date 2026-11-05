@@ -891,16 +891,21 @@ passe par le **cargo économique**, jamais par l'inventaire RPG, voir
   remplit le sac (1 unité / 1,5 s, piles de 5), jamais le stock ; sac plein :
   seulement ce qui entre, rien n'est perdu (la source garde le reste) ; un
   arbre étant bloquant, sa portée se mesure jusqu'à sa case ;
-- **gros gisements de pierre** (2026-11-02) : **40 pierre** chacun
-  (`STONE_DEPOSIT_AMOUNT`, provisoire ; inépuisables avant), même logique que
-  les arbres (`HARVEST_NODE_KINDS`, `data/resources.ts`). Sélection :
-  « **Gisement de pierre — 40 pierre** » (quantité restante). À 0 : extraction
+- **gros gisements de pierre** (2026-11-02) : **250 pierre** chacun
+  (`STONE_DEPOSIT_AMOUNT`, provisoire ; 40 jusqu'au 2026-11-05, G43 ;
+  inépuisables avant), même logique que
+  les arbres (`HARVEST_NODE_KINDS`, `data/resources.ts`, **seule source de
+  vérité** des quantités : simulation, générateur, camp de départ et
+  éditeur la lisent ; les petits tas au sol gardent leurs propres
+  quantités). Sélection :
+  « **Gisement de pierre — 250 pierre** » (quantité restante). À 0 : extraction
   arrêtée, rocher retiré, **gravats** décoratifs à sa place. Depuis le
   2026-11-03, les gros gisements (pierre et or) **bloquent** le déplacement
   et la construction comme les arbres ; épuisés, leurs cases sont libérées
   (pathfinding recalculé, construction possible). KI-41 est remplacé ;
 - **arbres** (2026-11-02) : chaque arbre (arbre isolé ou bosquet) vaut
-  **20 bois** en tout (`TREE_WOOD_AMOUNT`, provisoire), décomptés par la
+  **75 bois** en tout (`TREE_WOOD_AMOUNT`, provisoire ; 20 jusqu'au
+  2026-11-05, G43), décomptés par la
   simulation à chaque unité coupée (`World.resourceNodeAmounts`). **À 0,
   l'arbre est abattu** (décision d'Antoine) : la coupe s'arrête définitivement,
   l'arbre disparaît et une **souche** décorative le remplace (une par case
@@ -910,8 +915,8 @@ passe par le **cargo économique**, jamais par l'inventaire RPG, voir
   aux vagues aussi. Une case partagée par deux arbres reste bloquée tant que
   l'autre est debout. **Sélection** : clic gauche sur un arbre
   exploré (tronc ou feuillage) → **anneau jaune** autour (même anneau que le
-  dépôt et les tas) et « **Arbre — 20 bois** » (bois restant) ; gisement
-  exploré : même anneau, « **Gisement de pierre — 40 pierre** » ; un second clic, un clic
+  dépôt et les tas) et « **Arbre — 75 bois** » (bois restant) ; gisement
+  exploré : même anneau, « **Gisement de pierre — 250 pierre** » ; un second clic, un clic
   ailleurs ou une nouvelle sélection d'unités le retire (le clic droit du
   Héros sélectionné le garde) ;
 - seul le Héros ramasse et dépose, et seulement en bataille.
@@ -1421,14 +1426,15 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   Mine inchangée (versement toutes les
   60 s). Toutes les dépenses lisent le même or.
 - **Gisement d'or** : gros rocher (« Rocher E ») veiné d'or, 2 × 2,
-  **25 or** (`HARVEST_NODE_KINDS.gold`), extrait à la pioche, 1 or / 1,5 s
+  **250 or** (`HARVEST_NODE_KINDS.gold` ; 25 jusqu'au 2026-11-05, G43),
+  extrait à la pioche, 1 or / 1,5 s
   **crédité directement** (`World.goldMinedEvents`, `creditMinedGold`),
   jamais porté. Étiquette « Gisement d'or — N or ». Épuisé : gravats, cases
   libérées. Carte procédurale : 6 gisements d'or (anneau 26 à 44 cases du
   centre) et 26 de pierre, chacun avec un bloc 4 × 4 libre autour.
   Éditeur : « Gisement d'or (2×2) » (`ore: 'gold'` sur un `rock`).
-- **Gisement de pierre** : nouveau visuel « Rocher E » KayKit (40 pierre,
-  inchangé). Les gros gisements **bloquent** déplacement et construction
+- **Gisement de pierre** : nouveau visuel « Rocher E » KayKit (250 pierre
+  depuis le 2026-11-05, G43). Les gros gisements **bloquent** déplacement et construction
   (cellules `terrainResource`, `config/resourceNodes.ts`), y compris dans
   l'éditeur.
 - **Forge = technologies militaires** (2026-11-05, G41 ; G37 tranchée) :
@@ -1467,11 +1473,24 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   tuable), vitesse 2,2, population 1 ; ni XP, ni mana, ni équipement.
   Modèle dédié `human_villager` (2026-11-03, Atelier d'Antoine : tête WK A,
   corps barbare D, bras et jambes WK A, ni épaulière ni arme, clips
-  Spearman) : **mains vides** au repos et en marche ; **hache** en main
-  pendant la coupe, **pioche** pendant le minage (pierre, or), retirées dès
-  la fin du travail ; l'estoc du set sert de coup de hache / de pioche ;
-  ramassage d'un tas et dépôt sur la pose de repos (aucun geste dédié,
-  KI-64). Se sélectionne et se commande comme une unité. **Clic droit**
+  Spearman au repos et en marche) : **mains vides** au repos et en marche ;
+  **hache** en main pendant la coupe, **pioche** pendant le minage (pierre,
+  or), retirées dès la fin du travail. **Gestes de travail** (2026-11-05,
+  G43) : plus d'estoc de lance ; les clips du dossier Worker du Héros sont
+  prêtés au rig du Villageois (mêmes os) — `workingA`, coup vertical
+  debout par-dessus la tête, pour la **hache** ; `workingB`, coup penché
+  vers le sol, pour la **pioche** ; cadence 0,65 (un coup d'environ
+  1,4 s pour une unité toutes les 1,5 s : ni rafale, ni outil figé).
+  Pendant le geste, le Villageois **regarde sa source** (cap du rendu
+  vers l'arbre ou le gisement, figé, sans oscillation ; la direction de
+  marche ne reprend qu'au départ). Ramassage d'un tas et dépôt restent sur
+  la pose de repos (KI-64). **Récolte au contact** (G43) : il rejoint un
+  point d'approche au milieu d'une case libre contre un **côté** de la
+  source (jamais un coin, jamais le centre bloqué) et travaille quand le
+  bord de son corps est à moins de **0,3** case du bord géométrique de
+  l'arbre (1 × 1) ou du gisement (2 × 2) (`WORKER_HARVEST_REACH` ; le
+  Héros garde sa portée de 0,7). Se sélectionne et se commande comme une
+  unité. **Clic droit**
   sur un arbre, un gisement de pierre ou d'or : récolte (bois, pierre et or
   dès le départ, comme le Héros) ; deux Villageois sont présents dès le
   départ (camp de départ, §6 duodecies) ; sur un tas de bois / pierre :
@@ -1479,16 +1498,31 @@ Depuis le 2026-11-03 (valeurs PROVISOIRES) :
   collecte qui accepte ce qu'il porte : dépôt.
   **Autonomie** (2026-11-05, G42, `sim/systems/workers.ts`) : un Villageois
   réellement inactif — en Garde, sans ordre du joueur, sans boucle de cargo
-  — pendant plus de **1 s** se choisit seul une source : la ressource
-  (bois, pierre, or) la **moins travaillée** par les autres Villageois
+  — pendant plus de **1 s** se choisit seul une source, **parmi les
+  sources actuellement visibles** (2026-11-05, G43 : le brouillard de
+  guerre du jeu, résolu par `main.ts` dans `World.visibility` avant chaque
+  pas ; sans brouillard, tout est visible ; aucun radar économique, rien
+  n'est révélé) : la ressource
+  (bois, pierre, or) qui a au moins une source visible valide et est la
+  **moins travaillée** par les autres Villageois
   (comptés en récolte, en dépôt ou en retour vers une source de cette
-  ressource ; jamais le Héros ni un Villageois libre) ; à égalité, la
-  source valide la plus proche, puis l'identifiant le plus bas (aucun
-  hasard). Il garde ensuite son cycle sans rééquilibrage ; tout ordre du
+  ressource ; jamais le Héros ni un Villageois libre ; une ressource sans
+  source visible ne participe pas) ; à égalité, la
+  source visible valide la plus proche, puis l'identifiant le plus bas
+  (aucun hasard). La visibilité ne compte qu'au choix : une source qui
+  repasse dans le brouillard ne fait pas lâcher le travail en cours. Les
+  ressources du camp de départ (bosquet, pierre, or) attirent les
+  Villageois naturellement (visibles, proches, peu travaillées), sans
+  priorité artificielle. Il garde ensuite son cycle sans rééquilibrage ; tout ordre du
   joueur reste prioritaire, et il redevient autonome 1 s après la fin d'un
   ordre manuel (un Stop compris). Sans source valide, ou si la source
   choisie n'a rien donné (injoignable) : il reste inactif et réessaie
-  5 s plus tard, en évitant cette source.
+  5 s plus tard, en évitant cette source. **Source enfermée** (aucun côté
+  libre, donc aucun point de travail) : abandon immédiat dès le premier
+  pas, retour en Garde, source évitée et autre source visible choisie
+  aussitôt après 1 s ; sur un ordre manuel (Villageois ou Héros), l'ordre
+  s'arrête proprement avec le message « Aucun accès à cette ressource »,
+  sans tic de récolte ni tour de la source.
   Cargo de **5** (§6 undecies) : plein → dépôt automatique au point de
   collecte le plus proche (Scierie pour le bois, Camp de mineur pour la
   pierre et l'or, Baliste sinon) → retour à la source. Source
@@ -1727,15 +1761,22 @@ valeurs **provisoires**) :
   enceinte **arrondie** de **Palissade V2** : dodécagone de rayon 10,5
   cases (diamètre 21, environ 330 cases dedans, 25 pièces) avec une
   **porte ouverte** de 2,4 cases au milieu d'un côté ; le milieu du camp
-  reste libre pour les constructions suivantes. **Gisements garantis**
-  (2026-11-05, G42) : un **gisement de pierre** (nord-est, derrière
-  l'Auberge) et un **gisement d'or** (sud-ouest, dans la cour) dans
+  reste libre pour les constructions suivantes. **Gisements et bosquet
+  garantis** (2026-11-05, G42 puis G43) : un **gisement de pierre**
+  (nord-est, derrière l'Auberge), un **gisement d'or** (sud-ouest, dans la
+  cour) et un **bosquet de 7 arbres** (au nord, côté opposé à la porte,
+  entre la Maison A et la pierre : deux rangs décalés, à 2 cases des
+  bâtiments et gisements, à environ 1,6 case de l'enceinte, sans case
+  enclavée ni passage d'une case, 525 bois en tout) dans
   l'enceinte, vers la périphérie, hors bâtiments, Baliste, porte, places
-  d'apparition et axe de la porte, à plus d'une case des murs ; gisements
-  ordinaires (quantités, cargo, épuisement, gravats identiques à ceux de la
-  carte), dérivés du preset comme le reste et ajoutés à la carte à sa
-  consommation (jamais écrits dans une `MapDef`) ; l'éditeur les affiche
-  et les déplace avec le Départ. Tout est terminé, à pleins PV et **gratuit** (stock
+  d'apparition et axe de la porte, la cour restant libre pour construire ;
+  sources
+  ordinaires (quantités, cargo, épuisement, gravats et souches identiques à
+  celles de la
+  carte), dérivées du preset comme le reste et ajoutées à la carte à sa
+  consommation (jamais écrites dans une `MapDef`) ; l'éditeur les affiche
+  et les déplace avec le Départ ; vérifié sur 12 graines (chaque arbre et
+  gisement atteint depuis la cour). Tout est terminé, à pleins PV et **gratuit** (stock
   de départ inchangé). Les bâtiments sont des bâtiments possédés ordinaires
   (fiche, amélioration, réparation, destruction) : l'Auberge produit des
   Villageois, les Maisons donnent leur population (Pop. 2 / 9) et la
@@ -2502,7 +2543,8 @@ méta-progression à zéro, après confirmation. Les réglages sont conservés.
 Accessible depuis le menu principal ; le détail d'usage est dans
 `EDITOR.md`. **2026-11-04, suite** (G38) : le **Départ Survie** porte le
 camp de départ (preset `basic-camp`) : camp dérivé affiché dans l'éditeur
-(gisements garantis compris depuis le 2026-11-05 : deux rochers qui
+(gisements et bosquet garantis compris depuis le 2026-11-05 : deux rochers
+et sept arbres qui
 suivent le Départ, jamais sauvegardés), emprise complète validée (eau,
 relief, arbres, gisements, objets, camps neutres), porte orientée
 automatiquement, aperçu de l'emprise au

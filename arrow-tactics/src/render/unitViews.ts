@@ -114,6 +114,14 @@ export class UnitViews {
    *  reel, se garde a l'arret, se tourne vers la cible en combat ; virage
    *  progressif (FACING_TURN_SPEED). */
   private readonly facing = new Map<number, number>();
+  /** Position de la source travaillee par une entite (ordre `harvest`),
+   *  fournie par l'orchestration (main.ts, World.resourceNodes) : cap du
+   *  rendu vers elle pendant un geste de recolte (2026-11-05). */
+  private workTargetOf: ((entity: Entity) => { x: number; z: number } | null) | null = null;
+
+  setWorkTargetResolver(resolver: (entity: Entity) => { x: number; z: number } | null): void {
+    this.workTargetOf = resolver;
+  }
   /** Tourbillon (2026-11-03) : angle de rotation VISUELLE ajoute a
    *  l'orientation (rendu seulement, temps reel) ; retire a la fin de
    *  l'effet, l'unite reprend aussitot son orientation normale. */
@@ -764,9 +772,11 @@ export class UnitViews {
   }
 
   /** Cap rendu (2026-11-01, plus de marche a reculons) : vers la cible
-   *  pendant une attaque, un sort ou a l'arret ; sinon dans le sens du
-   *  deplacement reel du dernier pas ; a l'arret sans cible, le dernier cap.
-   *  Virage progressif ; `dt` nul (pause) : cap fige. */
+   *  pendant une attaque, un sort ou a l'arret ; vers la source pendant un
+   *  geste de recolte (chop / mine, 2026-11-05 : cap fixe, la source est
+   *  immobile, aucune oscillation) ; sinon dans le sens du deplacement reel
+   *  du dernier pas ; a l'arret sans cible, le dernier cap. Virage
+   *  progressif ; `dt` nul (pause) : cap fige. */
   private renderedFacing(entity: Entity, byId: Map<number, Entity>, dt: number): number {
     const current = this.facing.get(entity.id);
     const dx = entity.x - entity.prevX;
@@ -776,8 +786,11 @@ export class UnitViews {
     const target = targetId !== null ? byId.get(targetId) : undefined;
     const rigged = this.riggedActionState.get(entity.id);
     const attacking = entity.pendingAttack !== null || entity.cast !== null || (this.attackAnim.get(entity.id) ?? 0) > 0 || rigged === 'attack' || rigged === 'attackAlt';
+    const working = entity.hero?.working ?? entity.worker?.working ?? null;
+    const workTarget = (working === 'chop' || working === 'mine') && this.workTargetOf ? this.workTargetOf(entity) : null;
     let desired: number | undefined;
-    if (target && (attacking || !moving)) desired = this.computeFacing(entity, byId);
+    if (workTarget && !moving) desired = Math.atan2(-(workTarget.x - entity.x), -(workTarget.z - entity.z));
+    else if (target && (attacking || !moving)) desired = this.computeFacing(entity, byId);
     else if (moving) desired = Math.atan2(-dx, -dz);
     if (current === undefined) {
       const first = desired ?? this.computeFacing(entity, byId);

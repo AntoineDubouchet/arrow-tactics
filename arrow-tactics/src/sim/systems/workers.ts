@@ -17,13 +17,17 @@ import { workGoal, type HeroWorkContext } from './hero';
  * inactif — en Garde, sans ordre du joueur, sans boucle de cargo (recolte,
  * depot, retour), sans geste — pendant plus de WORKER_IDLE_SECONDS se
  * choisit seul une source a recolter :
- *  - la ressource (bois, pierre, or) la MOINS travaillee par les autres
- *    Villageois du camp (compte : harvest, deposit ou pickup dont la boucle
- *    revient a une source de cette ressource ; jamais le Heros ni un
- *    Villageois libre) ;
- *  - a egalite, celle dont une source valide (quantite > 0, outil) est la
- *    plus proche ; a egalite encore, l'identifiant de source le plus bas.
- *    Aucun hasard : deterministe.
+ *  - parmi les ressources (bois, pierre, or) qui ont au moins une source
+ *    valide ET VISIBLE (quantite > 0, outil, HeroWorkContext.isVisible :
+ *    le brouillard de guerre du jeu, 2026-11-05 ; une ressource sans source
+ *    visible ne participe pas au minimum, l'autonomie ne revele rien),
+ *    la MOINS travaillee par les autres Villageois du camp (compte :
+ *    harvest, deposit ou pickup dont la boucle revient a une source de
+ *    cette ressource ; jamais le Heros ni un Villageois libre) ;
+ *  - a egalite, celle dont une source visible valide est la plus proche ;
+ *    a egalite encore, l'identifiant de source le plus bas. Aucun hasard :
+ *    deterministe. La visibilite ne compte qu'au CHOIX : une source qui
+ *    repasse dans le brouillard ne fait pas lacher le travail en cours.
  * Une fois affecte, il garde son cycle (plein -> depot -> retour) jusqu'a
  * redevenir inactif : aucun reequilibrage permanent. Tout ordre du joueur
  * reste prioritaire (il n'est jamais annule ici) ; un ordre manuel termine
@@ -96,7 +100,7 @@ function workedResource(e: Entity, work: HeroWorkContext): NodeResource | null {
 }
 
 /** Source a recolter pour le Villageois inactif `e` (voir en-tete), ou null
- *  sans aucune source valide. `avoid` : source a ne pas reprendre. */
+ *  sans aucune source valide et visible. `avoid` : source a ne pas reprendre. */
 export function chooseWork(e: Entity, entities: readonly Entity[], work: HeroWorkContext, avoid: number | null = null): number | null {
   const counts = new Map<NodeResource, number>(WORK_RESOURCES.map((r) => [r, 0]));
   for (const o of entities) {
@@ -107,7 +111,7 @@ export function chooseWork(e: Entity, entities: readonly Entity[], work: HeroWor
   // Source valide la plus proche de chaque ressource (egalite : id le plus bas).
   const nearest = new Map<NodeResource, { id: number; d: number }>();
   for (const n of work.nodes.values()) {
-    if (n.id === avoid || (work.nodeAmounts.get(n.id) ?? 1) <= 0 || !work.canHarvest(n.resource)) continue;
+    if (n.id === avoid || (work.nodeAmounts.get(n.id) ?? 1) <= 0 || !work.canHarvest(n.resource) || !work.isVisible(n.x, n.z)) continue;
     const d = Math.hypot(n.x - e.x, n.z - e.z);
     const best = nearest.get(n.resource);
     if (!best || d < best.d - 1e-9 || (Math.abs(d - best.d) <= 1e-9 && n.id < best.id)) nearest.set(n.resource, { id: n.id, d });

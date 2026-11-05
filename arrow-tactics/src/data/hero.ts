@@ -120,6 +120,17 @@ export type { ResourceKind } from '../config/resourceNodes';
  *  PROVISOIRE. */
 export const HARVEST_INTERVAL = 1.5;
 export const HARVEST_REACH = 0.7;
+/** Portee de travail du VILLAGEOIS (2026-11-05, decision d'Antoine : il doit
+ *  etre visuellement au contact du bord de la ressource) : distance du bord
+ *  de son corps (rayon) au bord geometrique de la source (cases bloquees de
+ *  l'arbre ou du gisement). Le Heros garde HARVEST_REACH. PROVISOIRE. */
+export const WORKER_HARVEST_REACH = 0.3;
+/** Point d'approche d'une source bloquante (arbre, gisement) : l'unite vise
+ *  une position au milieu d'une case libre contre un COTE de la source, le
+ *  bord de son corps a cette distance du bord geometrique (< portees
+ *  ci-dessus : elle s'arrete au contact sans jamais viser le coin ni le
+ *  centre bloque, aucune oscillation). 2026-11-05. PROVISOIRE. */
+export const HARVEST_STAND_GAP = 0.15;
 
 /** Construction : portee de travail du Heros autour de l'emprise d'un
  *  chantier, et PV d'un chantier a sa pose (fraction des PV max ; le reste

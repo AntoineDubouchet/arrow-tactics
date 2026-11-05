@@ -557,8 +557,10 @@ export class EditorState {
         for (let cx = Math.floor(r.minX); cx < Math.ceil(r.maxX); cx++) for (let cz = Math.floor(r.minZ); cz < Math.ceil(r.maxZ); cz++) occupied.add(cellKey(cx, cz));
       }
       for (const line of layout.walls) for (const seg of segmentWallLine(line, getWallType(line.type).segmentLength)) for (const w of wallLineCells(seg)) occupied.add(cellKey(w.x, w.z));
-      // Gisements garantis (2026-11-05) : emprise 2 x 2 derivee du Depart.
+      // Gisements (emprise 2 x 2) et bosquet (1 x 1) garantis, derives du
+      // Depart (2026-11-05).
       for (const d of layout.deposits) for (const dx of [-1, 0]) for (const dz of [-1, 0]) occupied.add(cellKey(Math.round(d.x) + dx, Math.round(d.z) + dz));
+      for (const t of layout.trees) occupied.add(cellKey(Math.floor(t.x), Math.floor(t.z)));
       for (const c of reservedCells(layout.reserved)) {
         if (!this.hasCellAt(c.x, c.z)) return 'camp de départ hors de la carte';
         if (this.isWaterCell(c.x, c.z)) return 'eau dans l’emprise du camp de départ';

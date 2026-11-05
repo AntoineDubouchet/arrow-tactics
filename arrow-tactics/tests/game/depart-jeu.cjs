@@ -17,7 +17,15 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
     window.__hero = () => window.__world.entities.find((e) => e.hero);
     window.__SB = await import(urls.find((n) => n.includes('/src/config/startingBase.ts')));
     window.__layout = window.__SB.startingBaseLayoutOf((window.__maps ?? []).at(-1));
+    window.__RES = await import(urls.find((n) => n.includes('/src/data/resources.ts')));
+    // Villageois du camp (autonomes depuis le 2026-11-05, G42 ; sources du camp visibles et proches, G43) tenus
+    // inactifs : les quantites des sources et le stock ne doivent bouger que par le test (ordres manuels respectes).
+    const w = window.__world; const vils = w.entities.filter((e) => e.worker && e.alive);
+    w.issueCommand({ kind: 'stop', entityIds: vils.map((e) => e.id) });
+    for (const e of vils) { e.worker.autoRetryIn = 1e9; e.cargo.wood = e.cargo.stone = e.cargo.minedGold = 0; }
   });
+  const NB_TREES = await p.evaluate(() => window.__SB.getStartingBasePreset('basic-camp').trees.length);
+  const GOLD_AMOUNT = await p.evaluate(() => window.__RES.HARVEST_NODE_KINDS.gold.amount);
   const camp = await p.evaluate(() => {
     const w = window.__world; const L = window.__layout; const h = window.__hero();
     const b = (id) => w.entities.filter((e) => e.alive && e.team === 'player' && e.unitId === id);
@@ -29,15 +37,18 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
       houses: b('house').map((e) => e.footprintObstacle?.buildingModel), houseBuilt: b('house').every((e) => e.construction === null),
       villagers: w.entities.filter((e) => e.alive && e.unitId === 'villageois').length,
       walls: walls.length, gates: walls.filter((e) => e.wall.door).map((e) => e.wall.door.open),
-      // Gisements garantis du camp (2026-11-05) : sources dans l'enceinte.
+      // Gisements et bosquet garantis du camp (2026-11-05) : sources dans l'enceinte (1 or, 1 pierre, >= 6 arbres).
       deposits: [...w.resourceNodes.values()].filter((n) => Math.hypot(n.x - L.origin.x, n.z - L.origin.z) < 10).map((n) => n.resource).sort(),
+      // Quantites initiales (75 / 250 / 250, data/resources.ts) : les Villageois autonomes ont pu entamer une source
+      // d'une ou deux unites avant d'etre arretes.
+      amounts: Object.fromEntries([...w.resourceNodes.values()].filter((n) => Math.hypot(n.x - L.origin.x, n.z - L.origin.z) < 10).map((n) => [n.resource, w.resourceNodeAmounts.get(n.id)])),
       hero: { x: +h.x.toFixed(2), z: +h.z.toFixed(2), inside: h.x > L.bounds.minX && h.x < L.bounds.maxX && h.z > L.bounds.minZ && h.z < L.bounds.maxZ },
       pop: document.querySelector('.economy-hud-item--pop')?.textContent ?? '', stock: window.arrowEconomy.stock(),
       cam: { dx: +(v.targetX - h.x).toFixed(2), dz: +(v.targetZ - h.z).toFixed(2) },
     };
   });
-  check('run reelle : 1 Baliste, 1 Auberge, 2 Maisons terminees (A puis B), 2 Villageois, enceinte arrondie de 25 pieces dont 1 porte OUVERTE ; Heros dans le camp ; Pop. 2 / 9 ; stock de depart inchange (0 bois, 0 pierre, 20 or) ; camera centree sur le Heros',
-    camp.layout && J(camp.deposits) === J(['gold', 'stone']) && camp.ballista === 1 && camp.tavern === 1 && J(camp.houses) === J(['blue_home_A', 'blue_home_B']) && camp.houseBuilt && camp.villagers === 2 && camp.walls === 25 && J(camp.gates) === '[true]' && camp.hero.inside && /2\s*\/\s*9/.test(camp.pop) && camp.stock.wood === 0 && camp.stock.stone === 0 && camp.stock.gold === 20 && Math.hypot(camp.cam.dx, camp.cam.dz) < 1.5, camp);
+  check(`run reelle : 1 Baliste, 1 Auberge, 2 Maisons terminees (A puis B), 2 Villageois, enceinte arrondie de 25 pieces dont 1 porte OUVERTE ; 1 or (250) + 1 pierre (250) + ${NB_TREES} arbres (75, >= 6) dans l enceinte ; Heros dans le camp ; Pop. 2 / 9 ; stock de depart inchange (0 bois, 0 pierre, 20 or) ; camera centree sur le Heros`,
+    camp.layout && NB_TREES >= 6 && J(camp.deposits) === J(['gold', 'stone', ...Array(NB_TREES).fill('wood')]) && 250 - camp.amounts.gold <= 3 && 250 - camp.amounts.stone <= 3 && 75 - camp.amounts.wood <= 3 && camp.ballista === 1 && camp.tavern === 1 && J(camp.houses) === J(['blue_home_A', 'blue_home_B']) && camp.houseBuilt && camp.villagers === 2 && camp.walls === 25 && J(camp.gates) === '[true]' && camp.hero.inside && /2\s*\/\s*9/.test(camp.pop) && camp.stock.wood === 0 && camp.stock.stone === 0 && camp.stock.gold === 20 && Math.hypot(camp.cam.dx, camp.cam.dz) < 1.5, camp);
   const o = camp.layout.origin;
   await L.wait(p, 800);
   await L.setView(p, { targetX: o.x, targetZ: o.z, viewHeight: 32, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 900);
@@ -87,7 +98,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
 
   // Clic droit sur un gisement d'or (Heros selectionne) : recolte directe, sans Forge ni message (2026-11-05, G37).
   // Heros pose a 3 cases du gisement (vue degagee : le plus proche du camp peut etre masque par des arbres).
-  const gold = await p.evaluate(() => { const w = window.__world; const h = window.__hero(); const g = [...w.resourceNodes.values()].filter((n) => n.resource === 'gold').sort((a, b) => Math.hypot(a.x - h.x, a.z - h.z) - Math.hypot(b.x - h.x, b.z - h.z))[0]; w.issueCommand({ kind: 'stop', entityIds: [h.id] }); h.x = h.prevX = g.x + 3; h.z = h.prevZ = g.z; return { x: g.x, z: g.z, id: g.id }; });
+  const gold = await p.evaluate(() => { const w = window.__world; const h = window.__hero(); const g = [...w.resourceNodes.values()].filter((n) => n.resource === 'gold').sort((a, b) => Math.hypot(a.x - h.x, a.z - h.z) - Math.hypot(b.x - h.x, b.z - h.z))[0]; w.issueCommand({ kind: 'stop', entityIds: [h.id] }); h.x = h.prevX = g.x + 3; h.z = h.prevZ = g.z; return { x: g.x, z: g.z, id: g.id, reste: w.resourceNodeAmounts.get(g.id) }; });
   await p.keyboard.press('Space'); await L.wait(p, 300);
   await L.setView(p, { targetX: gold.x, targetZ: gold.z, viewHeight: 12, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 500);
   const gs = await p.evaluate((g) => window.__toScreen(g.x, g.z, window.__S.surfaceY(g.x, g.z) + 0.6), gold);
@@ -95,7 +106,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await p.mouse.move(gs.x, gs.y); await L.wait(p, 100); await p.mouse.click(gs.x, gs.y, { button: 'right' }); await L.wait(p, 300);
   let mined = null;
   for (let i = 0; i < 40; i++) { await L.wait(p, 300); mined = await p.evaluate((g) => { const h = window.__hero(); return { order: h.order.type, gold: h.cargo.minedGold, reste: window.__world.resourceNodeAmounts.get(g.id), forges: window.__world.entities.filter((x) => x.alive && x.unitId === 'forge').length, msg: document.querySelector('.wave-indicator-notice')?.textContent ?? '' }; }, gold); if (mined.gold >= 1) break; }
-  check('clic droit sur un gisement d or sans Forge : le Heros l extrait (ordre de recolte, or dans le cargo, gisement decompte), aucun message « il faut une Forge »', mined.forges === 0 && mined.gold >= 1 && mined.reste === 25 - mined.gold && !/Forge|prospecteur/.test(mined.msg) && !/Forge|prospecteur/.test(noticesBefore), mined);
+  check('clic droit sur un gisement d or sans Forge : le Heros l extrait (ordre de recolte, or dans le cargo, gisement decompte), aucun message « il faut une Forge »', mined.forges === 0 && mined.gold >= 1 && mined.reste === gold.reste - mined.gold && gold.reste <= GOLD_AMOUNT && !/Forge|prospecteur/.test(mined.msg) && !/Forge|prospecteur/.test(noticesBefore), mined);
 
   // Ennemi devant la porte ouverte : n'entre pas.
   const foe = await p.evaluate((e) => { const w = window.__world; const L = window.__layout; const f = w.spawn('maraudeur', 'enemy', e.x, e.z); f.order = { type: 'move', x: L.origin.x, z: L.origin.z + 2 }; return f.id; }, exitPt);

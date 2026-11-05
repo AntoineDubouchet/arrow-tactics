@@ -225,7 +225,7 @@ import { getSpell } from './data/spells';
 import { INITIAL_EXPLORED_RADIUS } from './data/vision';
 import { REPAIR_FULL_SECONDS, CHEST_OPEN_SECONDS, CONSTRUCTION_START_HP_FRACTION, HARVEST_INTERVAL, HERO_LEVELS, HERO_UNIT_ID, PICKUP_SECONDS } from './data/hero';
 import { campLayoutOf, expandMapCamps } from './data/campLayout';
-import { expandStartingBase, startingBaseDepositObstacles, startingBaseLayoutOf, type StartingBaseDisc, type StartingBaseLayout } from './config/startingBase';
+import { expandStartingBase, startingBaseObstacles, startingBaseLayoutOf, type StartingBaseDisc, type StartingBaseLayout } from './config/startingBase';
 import { CAMP_KINDS, getCampKind } from './data/camps';
 import { campSpecOf } from './run/camps';
 import { isChestLocked, type Chest } from './sim/systems/camps';
@@ -247,6 +247,10 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
 const world = new World();
 const unitViews = new UnitViews();
+// Cap du rendu vers la source pendant un geste de recolte (2026-11-05) : la
+// position de la source de l'ordre `harvest`, lue ici (le rendu ne connait
+// pas World).
+unitViews.setWorkTargetResolver((e) => (e.order.type === 'harvest' ? world.resourceNodes.get(e.order.nodeId) ?? null : null));
 const combatOverlay = new CombatOverlay(renderer);
 const projectiles = new Projectiles();
 const playerArrowView = new PlayerArrowView();
@@ -2632,12 +2636,14 @@ function editorStartMarker(x: number, z: number, layout: StartingBaseLayout | nu
     const type = getWallType(line.type);
     segmentWallLine(line, type.segmentLength).forEach((s, i) => root.add(buildWallPieceView(s, line.gates?.includes(i) === true)));
   }
-  // Gisements garantis (2026-11-05) : memes rochers que ceux de la carte,
-  // derives du Depart (ils le suivent), jamais des objets de l'editeur.
-  for (const o of startingBaseDepositObstacles(layout)) {
+  // Gisements et bosquet garantis (2026-11-05) : memes rochers et arbres
+  // que ceux de la carte, derives du Depart (ils le suivent), jamais des
+  // objets de l'editeur.
+  for (const o of startingBaseObstacles(layout)) {
     const mesh = buildObstacleMesh(o, assets);
     placeObstacleMesh(mesh, o);
-    mesh.userData['startDeposit'] = o.ore ?? 'stone';
+    if (o.kind === 'tree') mesh.userData['startTree'] = true;
+    else mesh.userData['startDeposit'] = o.ore ?? 'stone';
     root.add(mesh);
   }
   for (const u of [{ unitId: HERO_UNIT_ID, ...layout.hero }, ...layout.units]) {
@@ -6493,8 +6499,15 @@ let lastRealTime = performance.now();
 
 const loop = new Loop(
   (dt) => {
+    // Visibilite du camp du joueur pour la simulation (autonomie des
+    // Villageois, 2026-11-05) : le brouillard de guerre du jeu, resolu ici ;
+    // sans brouillard (test de l'editeur), tout est visible.
+    world.visibility = fogActive() ? (x, z) => fogOfWar!.isVisible(x, z) : null;
     world.step(dt);
     handleCargoEvents();
+    // Ordre manuel de recolte sans aucun point de travail (source enfermee,
+    // 2026-11-05) : l'unite s'est arretee seule, feedback discret.
+    if (world.orderEvents.some((ev) => ev.order === 'harvest' && ev.reason === 'unreachable')) waveIndicator.flash('Aucun accès à cette ressource');
     logPathDiagnostics();
     stepSurvivalWaves();
     // Ordres acceptes pendant CE pas : commandResults est remplace a chaque

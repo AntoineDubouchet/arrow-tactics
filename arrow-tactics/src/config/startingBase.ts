@@ -27,17 +27,19 @@ import type { MapDef, WallLineDef } from './mapDef';
  * lui-meme, seule la porte tourne. Zone reservee = disque de `radius` +
  * STARTING_BASE_MARGIN, identique pour toute rotation.
  *
- * GISEMENTS GARANTIS (2026-11-05, decision d'Antoine) : le preset place dans
- * l'enceinte au moins un gisement de pierre et un gisement d'or (`deposits`),
- * vers la peripherie interieure, hors batiments, Baliste, porte, places
+ * GISEMENTS ET BOSQUET GARANTIS (2026-11-05, decision d'Antoine) : le preset
+ * place dans l'enceinte au moins un gisement de pierre, un gisement d'or
+ * (`deposits`) et un bosquet d'au moins six arbres groupes (`trees`), vers
+ * la peripherie interieure, hors batiments, Baliste, porte, places
  * d'apparition et axe de la porte, a plus d'une case de l'enceinte (aucun
- * passage d'une case, KI-65). Ce sont des gisements ORDINAIRES (obstacles
- * `rock` 2 x 2, pierre ou `ore: 'gold'`) : memes quantites, meme cargo, meme
- * epuisement et memes gravats que ceux de la carte. Derives du preset comme
- * le reste (une seule source de verite) : ajoutes a la carte a sa consommation
- * (expandStartingBase : run, « Tester le scénario »), jamais ecrits dans une
- * MapDef ni sauvegardes ; l'editeur les montre dans son apercu et les deplace
- * avec le Depart.
+ * passage d'une case, KI-65), en laissant la cour libre pour construire. Ce
+ * sont des sources ORDINAIRES (obstacles `rock` 2 x 2, pierre ou `ore:
+ * 'gold'` ; `tree` 1 x 1) : memes quantites (data/resources.ts), meme cargo,
+ * meme epuisement et memes gravats que celles de la carte. Derives du preset
+ * comme le reste (une seule source de verite) : ajoutes a la carte a sa
+ * consommation (expandStartingBase : run, « Tester le scénario »), jamais
+ * ecrits dans une MapDef ni sauvegardes ; l'editeur les montre dans son
+ * apercu et les deplace avec le Depart.
  */
 export interface StartingBasePreset {
   id: string;
@@ -54,6 +56,9 @@ export interface StartingBasePreset {
   /** Gisements garantis dans l'enceinte : centre relatif de l'emprise 2 x 2
    *  (demi-cases impaires : l'emprise tombe sur des cases entieres). */
   deposits: readonly { resource: 'stone' | 'gold'; dx: number; dz: number }[];
+  /** Bosquet garanti : centres relatifs d'arbres 1 x 1 (entiers depuis la
+   *  Baliste, elle-meme centree sur une case), au moins six, groupes. */
+  trees: readonly { dx: number; dz: number }[];
 }
 
 /** Marge (cases) autour de l'enceinte reservee au camp de depart : ni camp,
@@ -88,6 +93,15 @@ export const STARTING_BASE_PRESETS: Readonly<Record<string, StartingBasePreset>>
     deposits: [
       { resource: 'stone', dx: 4.5, dz: -5.5 },
       { resource: 'gold', dx: -4.5, dz: 5.5 },
+    ],
+    // Bosquet de 7 arbres au nord (cote oppose a la porte), entre la Maison A
+    // et le gisement de pierre, a 2 cases d'eux et a ~1,6 case de l'enceinte
+    // (comme les gisements) : amas compact de deux rangs decales, sans case
+    // libre enclavee ni passage d'une case (KI-65) ; la cour reste libre.
+    // PROVISOIRE.
+    trees: [
+      { dx: -2, dz: -8 }, { dx: -1, dz: -8 }, { dx: 0, dz: -8 }, { dx: 1, dz: -8 },
+      { dx: -2, dz: -7 }, { dx: -1, dz: -7 }, { dx: 0, dz: -7 },
     ],
   },
 };
@@ -127,6 +141,8 @@ export interface StartingBaseLayout {
   hero: { x: number; z: number };
   /** Gisements garantis (centre monde de l'emprise 2 x 2). */
   deposits: { resource: 'stone' | 'gold'; x: number; z: number }[];
+  /** Arbres du bosquet garanti (centre monde, case entiere). */
+  trees: { x: number; z: number }[];
   /** Boite englobante de l'enceinte (sans marge). */
   bounds: StartingBaseRect;
   /** Zone reservee : enceinte + STARTING_BASE_MARGIN. */
@@ -200,6 +216,7 @@ export function startingBaseLayoutAt(origin: { x: number; z: number }, presetId:
     units: p.units.map((u) => ({ unitId: u.unitId, ...at(u.dx, u.dz) })),
     hero: at(p.hero.dx, p.hero.dz),
     deposits: p.deposits.map((d) => ({ resource: d.resource, ...at(d.dx, d.dz) })),
+    trees: p.trees.map((t) => at(t.dx, t.dz)),
     bounds: { minX: origin.x - r, maxX: origin.x + r, minZ: origin.z - r, maxZ: origin.z + r },
     reserved: startingBaseReservedAt(origin, presetId),
   };
@@ -262,16 +279,21 @@ export function startingBaseLayoutOf(map: Pick<MapDef, 'ballista' | 'survivalRul
   return startingBaseLayoutAt(map.ballista, preset, map.startingBase?.rotation ?? 0);
 }
 
-/** Gisements garantis d'un camp derive, sous forme d'obstacles ordinaires
- *  de carte (`rock` 2 x 2, `ore: 'gold'` pour l'or ; coin = centre - 1) :
- *  memes sources que les gisements generes (config/resourceNodes.ts). */
-export function startingBaseDepositObstacles(layout: StartingBaseLayout): ObstacleDef[] {
-  return layout.deposits.map((d) => ({ kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: Math.round(d.x - 1), cornerZ: Math.round(d.z - 1), ...(d.resource === 'gold' ? { ore: 'gold' as const } : {}) }));
+/** Gisements et bosquet garantis d'un camp derive, sous forme d'obstacles
+ *  ordinaires de carte (`rock` 2 x 2, `ore: 'gold'` pour l'or, coin =
+ *  centre - 1 ; `tree` 1 x 1 au centre de sa case) : memes sources que
+ *  celles generees (config/resourceNodes.ts, quantites de data/resources.ts). */
+export function startingBaseObstacles(layout: StartingBaseLayout): ObstacleDef[] {
+  return [
+    ...layout.deposits.map((d): ObstacleDef => ({ kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: Math.round(d.x - 1), cornerZ: Math.round(d.z - 1), ...(d.resource === 'gold' ? { ore: 'gold' as const } : {}) })),
+    ...layout.trees.map((t): ObstacleDef => ({ kind: 'tree', tilesX: 1, tilesZ: 1, x: t.x, z: t.z })),
+  ];
 }
 
 /** Carte prete pour le jeu : l'enceinte du camp de depart est ajoutee aux
- *  murs concrets (World / spawnMapWalls) et ses gisements garantis aux
- *  obstacles (sources de ressources, plateau), une fois, a la consommation ;
+ *  murs concrets (World / spawnMapWalls), ses gisements et son bosquet
+ *  garantis aux obstacles (sources de ressources, plateau), une fois, a la
+ *  consommation ;
  *  les batiments et les unites de depart sont crees par l'orchestration
  *  (run : batiments possedes et armee ; « Tester le scénario » : batiments
  *  de scenario). La carte d'origine n'est pas modifiee ; rien n'est
@@ -279,5 +301,5 @@ export function startingBaseDepositObstacles(layout: StartingBaseLayout): Obstac
 export function expandStartingBase(map: MapDef): MapDef {
   const layout = startingBaseLayoutOf(map);
   if (!layout) return map;
-  return { ...map, obstacles: [...map.obstacles, ...startingBaseDepositObstacles(layout)], walls: [...(map.walls ?? []), ...layout.walls] };
+  return { ...map, obstacles: [...map.obstacles, ...startingBaseObstacles(layout)], walls: [...(map.walls ?? []), ...layout.walls] };
 }

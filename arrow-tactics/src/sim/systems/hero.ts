@@ -16,6 +16,7 @@ import {
   CHEST_REACH,
   CONSTRUCTION_START_HP_FRACTION,
   HARVEST_REACH,
+  WORKER_HARVEST_REACH,
   HERO_XP_SHARE_RADIUS,
   heroLevelForXp,
   heroRespawnDelay,
@@ -109,9 +110,14 @@ export interface HeroWorkContext {
   nodeAmounts: Map<number, number>;
   /** Sources arrivees a 0 pendant ce pas (World : source retiree). */
   depleted: number[];
-  /** Outil disponible pour une source (Forge terminee,
-   *  World.harvestPermissions). */
+  /** Outil disponible pour une source (World.harvestPermissions). */
   canHarvest(resource: HarvestResource): boolean;
+  /** Point actuellement VISIBLE par le camp du joueur (World.visibility,
+   *  resolu par l'orchestration depuis le brouillard de guerre du jeu ; sans
+   *  brouillard : toujours vrai). Lu par l'autonomie des Villageois
+   *  (sim/systems/workers.ts) : une nouvelle source choisie seule doit etre
+   *  visible ; jamais relu pendant un travail en cours. */
+  isVisible(x: number, z: number): boolean;
   piles: readonly ResourcePile[];
   drops: readonly ItemDrop[];
   /** Coffres (World.chests), verrou (camp pas nettoye) et ouverture (tirage
@@ -121,10 +127,12 @@ export interface HeroWorkContext {
   openChest(chest: Chest): { itemId: string | null; dropId: number | null };
 }
 
-/** But du travail d'un Heros (source, chantier, tas, depot) et portee de
- *  contact, ou null (pas d'ordre de travail, cible disparue). Lu par
- *  movementSystem. */
-export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<number, Entity>): { x: number; z: number; reached: boolean; target: Entity | null } | null {
+/** But du travail d'un Heros ou d'un Villageois (source, chantier, tas,
+ *  depot) et portee de contact, ou null (pas d'ordre de travail, cible
+ *  disparue). `box` : cases bloquantes de la source (arbre, gisement), pour
+ *  que movementSystem vise un point d'approche sur un de ses cotes
+ *  (2026-11-05) plutot que son centre impraticable. Lu par movementSystem. */
+export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<number, Entity>): { x: number; z: number; reached: boolean; target: Entity | null; box?: ObstacleBounds } | null {
   const order = e.order;
   if (!isWorkOrder(order)) return null;
   if (order.type === 'cast') {
@@ -145,9 +153,12 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
     const extracting = worker !== null && worker.workTimer > 0 && worker.working === HARVEST_NODE_KINDS[node.resource].working;
     if (!work.canHarvest(node.resource) && !extracting) return null;
     // Arbre (cases bloquantes, 2026-11-02) : portee mesuree jusqu'a ses cases,
-    // le Heros ne pouvant plus en approcher le centre.
+    // le Heros ne pouvant plus en approcher le centre. Villageois
+    // (2026-11-05) : portee courte (WORKER_HARVEST_REACH), au contact visuel
+    // du bord de la source ; le Heros garde la sienne.
     const reach = node.block ? distanceToBox(e, node.block) : Math.hypot(node.x - e.x, node.z - e.z);
-    return { x: node.x, z: node.z, reached: reach <= e.stats.radius + HARVEST_REACH, target: null };
+    const tolerance = e.worker ? WORKER_HARVEST_REACH : HARVEST_REACH;
+    return { x: node.x, z: node.z, reached: reach <= e.stats.radius + tolerance, target: null, ...(node.block ? { box: node.block } : {}) };
   }
   if (order.type === 'pickupItem') {
     const drop = work.drops[order.dropId];

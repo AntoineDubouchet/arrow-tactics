@@ -67,7 +67,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-59 | Écurie : modèle KayKit 2 × 3 ajusté à l'emprise 3 × 3, un peu petit et plat ; gisement d'or : pépites procédurales | Limite assumée (visuels provisoires) |
 | KI-60 | Maison B : variante seulement pour les Maisons posées en jeu ; une Maison de scénario de l'éditeur reste A | Limite assumée |
 | KI-62 | Tourbillon : rotation du modèle entier (5 tours/s), sans clip dédié (arme et jambes figées dans le clip courant) ; VFX procédural provisoire (arcs, cercle de zone) | Limite assumée (prototype) |
-| KI-64 | Villageois : clips Spearman, estoc en guise de coup de hache / pioche ; ramassage et dépôt sur la pose de repos, sans geste de travail dédié | Limite assumée (assets) |
+| KI-64 | Villageois : coupe et minage sur les clips Worker du Héros depuis le 2026-11-05 (G43) ; ramassage et dépôt toujours sur la pose de repos, sans geste accroupi dédié | Limite assumée (assets), réduite |
 | KI-66 | Pathfinding : la grille A* ignore le rayon des corps ; un passage d'une case (posé à la main dans l'éditeur : gisement, arbre, baril contre un obstacle ou une falaise) paraît praticable et le Héros y oscille ; le générateur n'en produit plus (G39) | Limite assumée |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
@@ -593,7 +593,7 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 - **Statut** : limite assumée (2026-11-03).
 - **Constat** : tout obstacle `rock` d'une carte dessinée devient un
-  gisement de pierre bloquant (40 pierre) ; le générateur place
+  gisement de pierre bloquant (250 pierre depuis G43) ; le générateur place
   autrement ses gisements (bloc 4 × 4 libre, 6 d'or), donc une graine
   donne une autre carte qu'avant.
 - **À retenir** : **les anciennes graines ne garantissent plus exactement
@@ -618,12 +618,18 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
 
 ### KI-64 — Villageois : gestes empruntés au Piquier
 
-- **Statut** : limite assumée (assets), réduite le 2026-11-03 (G33).
-- **Constat** : le set Spearman n'a ni coup de hache, ni coup de pioche, ni
-  geste accroupi : l'estoc (ralenti) sert de coup de hache et de pioche ;
-  le ramassage d'un tas et le dépôt jouent la pose de repos (plus d'estoc
-  à vide). Un futur set d'ouvrier remplacerait les rôles `chop` / `mine` /
-  `gather` / `deposit` du kit `villageois`.
+- **Statut** : limite assumée (assets), réduite le 2026-11-03 (G33) puis
+  le 2026-11-05 (G43).
+- **Constat** : le set Spearman du Villageois n'a ni coup de hache, ni coup
+  de pioche, ni geste accroupi. Depuis le 2026-11-05, la coupe et le
+  minage jouent les clips Worker du GLB du Héros (`workingA` coup vertical,
+  `workingB` coup penché, prêtés au rig : mêmes os ; `ClipRole.from`) ;
+  plus d'estoc de lance. Reste : le ramassage d'un tas et le dépôt jouent
+  la pose de repos. Un futur set d'ouvrier dédié (ou `workingC` du Héros,
+  1,33 s, non retenu) remplacerait les rôles `gather` / `deposit` du kit
+  `villageois`. Une source sans aucun côté libre n'est pas travaillée :
+  abandon immédiat (autonomie : source évitée ; ordre manuel : « Aucun
+  accès à cette ressource »).
 
 ### KI-57 — Palissade : rendu sur relief
 

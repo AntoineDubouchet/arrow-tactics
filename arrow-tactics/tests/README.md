@@ -56,7 +56,9 @@ niveaux de producteurs rétroactifs, Caserne, Baliste depuis sa fiche,
 file unique, annulation, destruction pendant une recherche, deux Forges,
 Héros et Villageois exclus), `villageois-autonomie.mts` (G42 : travail
 autonome après 1 s, ressource la moins travaillée, ordre manuel
-prioritaire, aucune source, source épuisée, cycle, déterminisme) et
+prioritaire, aucune source, source épuisée, cycle, déterminisme ; G43 :
+sources visibles seulement, portée au contact, quantités 75 / 250 / 250,
+décompte, épuisement, tas inchangés) et
 `or-butin.mts` (G42 : or de butin ramassé au contact du Héros, jamais par
 un Villageois, or extrait = cargo).
 
@@ -70,6 +72,9 @@ la run continue ; Baliste détruite → « Partie terminée », retour au menu),
 `porte-jeu.cjs` (G42 : structure de la porte refaite, ouverture /
 fermeture, captures extérieur / intérieur / ouverte / trois-quarts) et
 `tourbillon-jeu.cjs` (G42 : flash de dégâts par cible à chaque tic,
-lancement pendant un déplacement).
+lancement pendant un déplacement) et `recolte-jeu.cjs` (G43 : récolte au
+contact depuis plusieurs côtés, Villageois face à sa source, clips
+`workingA` / `workingB`, outils, cadence, captures hache / pioche pierre /
+pioche or).
 `lib.cjs` est la bibliothèque commune (lancement, ouverture de la Survie,
 caméra, captures).
