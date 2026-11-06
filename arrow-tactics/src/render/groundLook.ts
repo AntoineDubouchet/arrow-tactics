@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GROUND_TEXTURES, WATER_SURFACE_IDS } from '../config/groundSurfaces';
 import { GROUND_SURFACES, type GroundSurfaceId } from './groundSurfaces';
+import { Rng } from '../core/rng';
 import { lookSurfaceTint } from './look';
 import { groundTextureUrl } from './textures';
 
@@ -48,6 +49,15 @@ import { groundTextureUrl } from './textures';
  *   plus variee (ton rare terreux plutot que clair, deux tons principaux un
  *   peu plus ecartes) ; le reste identique. Va avec `?surfaceBlend=organic`.
  *
+ * - `meadow` (2026-11-06, demande d'Antoine, direction officielle) : `rich`, l'herbe
+ *   plus profonde et moins jaune (`GROUND_LOOK_PARAMS.meadow.base`), et quatre variantes
+ *   de la meme herbe en taches irregulieres et un peu allongees, au pixel, en coordonnees
+ *   monde : `grass` (sans multiplicateur), `grassDark` (nappes et petits amas),
+ *   `grassDry` (plus clair et sec, plus rare), `grassEarth` (rares zones terreuses).
+ *   Decalees selon la graine, attenuees autour du noyau du camp (setGroundVariation).
+ *   Va avec les touffes instanciees (render/grassTufts.ts). `?groundLook=rich` rend le sol
+ *   d'avant, sans touffes.
+ *
  * Direction retenue (Antoine, 2026-10-30) : `living`, avec `?look=stylized`
  * (combinaison de reference). Le defaut reste `baseline` ; les autres
  * valeurs restent comme temoins de debug.
@@ -61,8 +71,8 @@ import { groundTextureUrl } from './textures';
  * touches. Deterministe (hash de positions monde, jamais Math.random ; seule
  * l'animation de l'eau et de la lave suit l'horloge, rendu seulement).
  */
-export type GroundLook = 'baseline' | 'macro' | 'layered' | 'living' | 'rich' | 'organic';
-export const GROUND_LOOKS: readonly GroundLook[] = ['baseline', 'macro', 'layered', 'living', 'rich', 'organic'];
+export type GroundLook = 'baseline' | 'macro' | 'layered' | 'living' | 'rich' | 'organic' | 'meadow';
+export const GROUND_LOOKS: readonly GroundLook[] = ['baseline', 'macro', 'layered', 'living', 'rich', 'organic', 'meadow'];
 let groundLook: GroundLook = 'baseline';
 
 /** Matiere appliquee aux plateaux construits ensuite (main.ts : `?groundLook=`). */
@@ -76,10 +86,10 @@ export function currentGroundLook(): GroundLook {
   return groundLook;
 }
 
-/** `living`, `rich` ou `organic` (meme base : herbes unifiees, etats, accents ;
+/** `living`, `rich`, `organic` ou `meadow` (meme base : herbes unifiees, etats, accents ;
  *  palette Surface simplifiee de l'editeur, editor/editorUI.ts). */
 export function groundLookIsLiving(): boolean {
-  return groundLook === 'living' || groundLook === 'rich' || groundLook === 'organic';
+  return groundLook === 'living' || groundLook === 'rich' || groundLook === 'organic' || groundLook === 'meadow';
 }
 
 type Rgb = readonly [number, number, number];
@@ -175,12 +185,27 @@ export const GROUND_LOOK_PARAMS = {
   /** `organic` : herbe de `rich` un peu plus variee (vert plus franc, olive plus chaud, ton rare terreux au lieu de
    *  clair, un peu plus rare) ; les autres matieres comme `rich`. */
   organicGrass: { tones: [[0.86, 0.99, 0.8], [1.15, 1.05, 0.74], [1.14, 0.93, 0.78]] as const, shape: [4.2, 0.08, 0.75, 0.035] as const, cut: [0.03, 0.03, 0.42] as const },
+  /** `meadow` (valeurs PROVISOIRES, lineaires) : `base` multiplie la teinte du preset `?look=`
+   *  (variante `grass`, vert plus profond, moins jaune). `tones` : `grassDark`, `grassDry`,
+   *  `grassEarth`, multiplicateurs de `grass`. `shape` : taille des taches (cases), douceur du
+   *  bord, part de `grassEarth`, mouchetis. `cut` : seuils des trois champs. `calm` : autour du
+   *  centre du camp, part des variations gardee au centre, rayons (cases) ou elles reviennent.
+   *  `macro` et `accents` : grandes zones et accents `living`, moins jaunes que ceux de `rich`. */
+  meadow: {
+    base: [0.74, 0.83, 0.95] as Rgb,
+    tones: [[0.75, 0.84, 0.84], [1.15, 1.1, 0.86], [1.32, 1.03, 0.88]] as const,
+    shape: [6.5, 0.05, 0.75, 0.022] as const,
+    cut: [0.16, 0.32, 0.56] as const,
+    calm: [0.35, 6.5, 12.5] as const,
+    macro: { light: 0.2, dry: [0.1, 0.05, -0.06] as Rgb, accent: [0, 0, 0] as Rgb },
+    accents: [[1.1, 1.03, 0.84, 0], [1.1, 1.1, 1.02, 0], [1.24, 1.03, 1.0, 0]] as const,
+  },
 };
 
 /** Famille de plaques (`rich`, `organic`) d'une matiere dessinee. */
 function richOf(id: GroundSurfaceId): { tones: readonly (readonly [number, number, number])[]; shape: readonly [number, number, number, number]; cut: readonly [number, number, number] } | null {
   const R = GROUND_LOOK_PARAMS.rich;
-  if (GRASS_FAMILY.includes(id)) return groundLook === 'organic' ? GROUND_LOOK_PARAMS.organicGrass : R.grass;
+  if (GRASS_FAMILY.includes(id)) return groundLook === 'meadow' ? GROUND_LOOK_PARAMS.meadow : groundLook === 'organic' ? GROUND_LOOK_PARAMS.organicGrass : R.grass;
   if (DIRT_FAMILY.includes(id)) return R.dirt;
   return id in R ? R[id as keyof typeof R] : null;
 }
@@ -227,7 +252,12 @@ export function groundSurfaceDef(id: GroundSurfaceId): SurfaceRender {
  *  sinon celui de la surface. */
 export function groundLookTint(id: GroundSurfaceId): Rgb {
   if (groundLookIsLiving()) {
-    if (GRASS_FAMILY.includes(id)) return lookSurfaceTint('grass');
+    if (GRASS_FAMILY.includes(id)) {
+      const t = lookSurfaceTint('grass');
+      if (groundLook !== 'meadow') return t;
+      const b = GROUND_LOOK_PARAMS.meadow.base;
+      return [t[0] * b[0], t[1] * b[1], t[2] * b[2]];
+    }
     if (DIRT_FAMILY.includes(id)) return lookSurfaceTint(MAIN_DIRT);
   }
   return lookSurfaceTint(id);
@@ -268,7 +298,7 @@ const ZERO: Rgb = [0, 0, 0];
 export function groundMacro(id: GroundSurfaceId, x: number, z: number): Rgb {
   if (groundLook === 'baseline') return ONE;
   const P = GROUND_LOOK_PARAMS;
-  const k = GRASS_FAMILY.includes(id) ? P.grass : DIRT_FAMILY.includes(id) ? P.dirt : groundLookIsLiving() && MINERALS.includes(id) ? P.mineral : null;
+  const k = GRASS_FAMILY.includes(id) ? (groundLook === 'meadow' ? P.meadow.macro : P.grass) : DIRT_FAMILY.includes(id) ? P.dirt : groundLookIsLiving() && MINERALS.includes(id) ? P.mineral : null;
   if (!k) return ONE;
   let light = 0;
   for (const f of P.light) light += f.weight * field(x, z, f);
@@ -424,6 +454,32 @@ vec3 groundPatches( vec2 p ) {
 	return k * ( 1.0 + m * groundPatchShape.w );
 }
 #endif
+#ifdef GROUND_MEADOW
+uniform vec2 groundMeadowOffset;
+uniform vec4 groundMeadowCalm;
+// Variantes de la prairie : chaque champ est deforme (aucun axe, aucune case) et etire le long
+// de son propre axe (taches allongees, jamais rondes), avec une grande echelle et une petite
+// (nappes et petits amas). Autour du centre du camp, les variations s'effacent (groundMeadowCalm :
+// centre, rayons ; groundPatchCut.w : part gardee au centre).
+vec3 groundMeadow( vec2 world ) {
+	vec2 q = ( world + groundMeadowOffset ) / groundPatchShape.x;
+	vec2 w = vec2( groundNoise( q * 0.7, 41u ), groundNoise( q * 0.7 + 5.3, 42u ) ) * 0.7;
+	vec2 a = mat2( 0.82, 0.57, -0.57, 0.82 ) * ( q + w ) * vec2( 0.7, 1.2 );
+	vec2 b = mat2( 0.34, -0.94, 0.94, 0.34 ) * ( q - w ) * vec2( 0.95, 1.6 );
+	float dark = groundNoise( a, 43u ) * 0.6 + groundNoise( a * 2.7 + w, 44u ) * 0.4;
+	float dry = groundNoise( b, 45u ) * 0.6 + groundNoise( b * 3.1 - w, 46u ) * 0.4;
+	vec2 e = mat2( -0.6, 0.8, -0.8, -0.6 ) * ( q + w * 0.6 ) * vec2( 2.0, 3.4 );
+	float earth = groundNoise( e, 47u ) * 0.5 + groundNoise( e * 2.3 - w, 48u ) * 0.3 + groundNoise( q * 0.9 - w, 50u ) * 0.3;
+	float keep = groundPatchCut.w;
+	if ( groundMeadowCalm.w > 0.0 ) keep = mix( keep, 1.0, smoothstep( groundMeadowCalm.z, groundMeadowCalm.w, distance( world, groundMeadowCalm.xy ) ) );
+	else keep = 1.0;
+	float s = groundPatchShape.y;
+	vec3 k = mix( vec3( 1.0 ), groundPatchColors[ 0 ], smoothstep( groundPatchCut.x - s, groundPatchCut.x + s, dark ) * keep );
+	k *= mix( vec3( 1.0 ), groundPatchColors[ 1 ], smoothstep( groundPatchCut.y - s, groundPatchCut.y + s, dry ) * keep );
+	k *= mix( vec3( 1.0 ), groundPatchColors[ 2 ], smoothstep( groundPatchCut.z - s, groundPatchCut.z + s, earth ) * keep * keep * groundPatchShape.z );
+	return k * ( 1.0 + groundNoise( world * 1.7, 49u ) * groundPatchShape.w );
+}
+#endif
 // Pentagone convexe irregulier de rayon ~r autour de l'origine (distance signee).
 float groundPolygon( vec2 e, float r, inout uint s ) {
 	float phi = groundRand( s ) * 6.28318;
@@ -448,7 +504,9 @@ vec3 groundLiving( vec3 tex ) {
 	k *= mix( vec3( 1.0 ), groundStateColors[ 0 ], dense * groundGain.y );
 	k *= mix( vec3( 1.0 ), groundStateColors[ 1 ], dry * groundGain.y );
 	k *= mix( vec3( 1.0 ), groundStateColors[ 2 ], wear * groundGain.y );
-#ifdef GROUND_PATCHES
+#if defined( GROUND_MEADOW )
+	k *= groundMeadow( p );
+#elif defined( GROUND_PATCHES )
 	k *= groundPatches( p );
 #endif
 	// Accents : au plus un par maille d'un reseau tourne (polygone doux, parfois
@@ -502,6 +560,22 @@ const livingShared = {
   groundGain: { value: new THREE.Vector2(1, 1) },
 };
 
+/** Variantes de `meadow` de la carte affichee, partagees par tous ses materiaux. */
+const meadowShared = {
+  groundMeadowOffset: { value: new THREE.Vector2() },
+  groundMeadowCalm: { value: new THREE.Vector4() },
+};
+
+/** Variantes de `meadow` pour la carte affichee (main.ts) : taches decalees selon la graine
+ *  (meme graine, memes taches), attenuees autour de `campCenter` (null : nulle part). */
+export function setGroundVariation(seed: number, campCenter: { x: number; z: number } | null): void {
+  const rng = new Rng((seed ^ 0x51ed270b) >>> 0);
+  meadowShared.groundMeadowOffset.value.set(rng.next() * 512, rng.next() * 512);
+  const [, inner, outer] = GROUND_LOOK_PARAMS.meadow.calm;
+  if (campCenter) meadowShared.groundMeadowCalm.value.set(campCenter.x, campCenter.z, inner, outer);
+  else meadowShared.groundMeadowCalm.value.set(0, 0, 0, 0);
+}
+
 /** `layered` : seconde lecture de la texture du materiau (herbes et terres
  *  seulement), dans le meme repere monde que la premiere (UV), tournee et
  *  agrandie, melangee a la premiere. `living` : la meme, puis etats de
@@ -545,14 +619,16 @@ export function applyGroundLayer(material: THREE.MeshLambertMaterial, id: Ground
   livingShared.groundAccentSize.value.set(...L.accentSize);
   const grass = GRASS_FAMILY.includes(id);
   // Minerales : ni etats ni accents (presence nulle) ; leur couleur moyenne pour `groundTexMean`.
-  const rich = groundLook === 'rich' || groundLook === 'organic' ? richOf(groundRenderSurface(id)) : null;
+  const meadow = groundLook === 'meadow' && grass;
+  const rich = groundLook === 'rich' || groundLook === 'organic' || groundLook === 'meadow' ? richOf(groundRenderSurface(id)) : null;
   const uniforms = {
     ...livingShared,
+    ...(meadow ? meadowShared : {}),
     groundStateColors: { value: (grass ? [L.dense, L.dry, L.wear] : [ONE, ONE, ONE]).map((v) => new THREE.Vector3(...v)) },
-    groundAccentColors: { value: (grass ? L.grassAccents : L.dirtAccents).map((v) => new THREE.Vector4(...v)) },
+    groundAccentColors: { value: (meadow ? GROUND_LOOK_PARAMS.meadow.accents : grass ? L.grassAccents : L.dirtAccents).map((v) => new THREE.Vector4(...v)) },
     groundAccentPresence: { value: new THREE.Vector2(...(grass ? L.grassPresence : mineral ? [0, 0] : L.dirtPresence)) },
     groundTexMean: { value: new THREE.Vector3(...TEXTURE_MEAN[groundRenderSurface(id)]!) },
-    ...(rich ? { groundPatchColors: { value: rich.tones.map((v) => new THREE.Vector3(...v)) }, groundPatchShape: { value: new THREE.Vector4(...rich.shape) }, groundPatchCut: { value: new THREE.Vector4(...rich.cut, 0) } } : {}),
+    ...(rich ? { groundPatchColors: { value: rich.tones.map((v) => new THREE.Vector3(...v)) }, groundPatchShape: { value: new THREE.Vector4(...rich.shape) }, groundPatchCut: { value: new THREE.Vector4(...rich.cut, meadow ? GROUND_LOOK_PARAMS.meadow.calm[0] : 0) } } : {}),
   };
   // Lus par les outils de laboratoire (reglage a chaud).
   material.userData['groundLiving'] = uniforms;
@@ -561,7 +637,7 @@ export function applyGroundLayer(material: THREE.MeshLambertMaterial, id: Ground
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec3 groundState;\nvarying vec3 vGroundState;\nvarying vec2 vGroundXZ;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvGroundState = groundState;\n\tvGroundXZ = ( modelMatrix * vec4( transformed, 1.0 ) ).xz;');
-    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>${rich ? '\n#define GROUND_PATCHES' : ''}${LIVING_FRAGMENT_HEAD}`).replace(
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>${rich ? '\n#define GROUND_PATCHES' : ''}${meadow ? '\n#define GROUND_MEADOW' : ''}${LIVING_FRAGMENT_HEAD}`).replace(
       '#include <map_fragment>',
       `#ifdef USE_MAP
 	${layer}
@@ -570,7 +646,7 @@ export function applyGroundLayer(material: THREE.MeshLambertMaterial, id: Ground
 #endif`,
     );
   };
-  material.customProgramCacheKey = () => `ground-living-${scale}-${angle}-${weight}${rich ? '-rich' : ''}`;
+  material.customProgramCacheKey = () => `ground-living-${scale}-${angle}-${weight}${rich ? '-rich' : ''}${meadow ? '-meadow' : ''}`;
 }
 
 /** Horloge des liquides (secondes, rendu seulement), partagee par tous leurs

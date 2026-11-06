@@ -110,8 +110,8 @@ import { buildCellGridLines, setTerrainRenderMode, TERRAIN_RENDER_MODES } from '
 import { ChunkedTerrainView } from './render/terrainChunks';
 import { HILL_SHAPES, setHillShape } from './render/hillShape';
 import { setSurfaceBlendMode, setSurfaceBorder, SURFACE_BLEND_MODES, SURFACE_BORDERS, surfaceBlendSubdivisions } from './render/surfaceBlend';
-import { LOOK_PRESETS, lookSettings, setLookPreset } from './render/look';
-import { GROUND_LOOKS, setGroundLook, setGroundSwatchLight } from './render/groundLook';
+import { LOOK_PRESETS, lookSettings, MEADOW_ATMOSPHERE, setLookPreset } from './render/look';
+import { GROUND_LOOKS, setGroundLook, setGroundSwatchLight, setGroundVariation } from './render/groundLook';
 import { RELIEF_LOOKS, setReliefLook, setReliefShadows } from './render/reliefLook';
 import { activeTerrain, intersectSculptSurface, intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
 import { reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, type ReliefBrushSize, type ReliefDelta, type SlopeDirection, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
@@ -166,7 +166,7 @@ import {
   type OrderLedger,
 } from './run/productionOrders';
 import { getTechnology } from './data/technologies';
-import { FogOfWar, type VisionSource } from './render/fogOfWar';
+import { FOG_GRID_MARGIN, FogOfWar, type VisionSource } from './render/fogOfWar';
 import { DepotTargetRing, ResourcePileViews, type DepotRingTarget } from './render/resourcePiles';
 import { randomSeed, Rng } from './core/rng';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp, getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
@@ -368,12 +368,22 @@ function gameTerrain(): TerrainHeightField {
   return resolveMapHeightField(currentMap);
 }
 
+let groundVariationMap: MapDef | null | undefined;
+
 /** Surface active du rendu (render/terrainSurface.ts) : le brouillon dans
  *  l'editeur, sinon la carte en jeu (y compris pendant « Tester le
  *  scénario »). Appelee a chaque frame et apres chaque changement de carte
  *  ou de relief, avant de (re)construire des meshes poses au sol. */
 function syncActiveTerrain(): void {
   setActiveTerrain(inEditorMode && editorState ? editorState.heightField() : gameTerrain());
+  // Brume atmospherique : en jeu seulement, l'editeur reste un outil net sur fond noir.
+  renderer.setAtmosphereActive(!inEditorMode);
+  // Variantes de l'herbe (render/groundLook.ts) : celles de la carte en jeu, neutres dans l'editeur.
+  const variationMap = inEditorMode ? null : currentMap;
+  if (variationMap !== groundVariationMap) {
+    groundVariationMap = variationMap;
+    setGroundVariation(variationMap?.generator?.seed ?? 0, variationMap ? startingBaseLayoutOf(variationMap)?.origin ?? null : null);
+  }
 }
 
 // Limite du deplacement de la camera en jeu : le point vise reste a moins de
@@ -396,7 +406,8 @@ renderer.setTargetConstraint((x, z) => {
 // `?surfaceBlend=irregular`, `?relief=baseline`, `?surfaceBorder=off` rendent
 // l'ancien rendu). `?hills=organic` reste experimental, jamais par defaut.
 // Le fond reste noir (render/renderer.ts).
-const OFFICIAL_LOOK = { look: 'stylized', groundLook: 'rich', surfaceBlend: 'organic', relief: 'hybrid', surfaceBorder: 'marquee' } as const;
+// 2026-11-06 (demande d'Antoine) : `meadow` remplace `rich` (prairie et touffes) ; `?groundLook=rich` rend le sol d'avant.
+const OFFICIAL_LOOK = { look: 'stylized', groundLook: 'meadow', surfaceBlend: 'organic', relief: 'hybrid', surfaceBorder: 'marquee' } as const;
 
 // Sol : herbe classique par defaut ; `?sol=<palette>` pour comparer les
 // variantes visuelles (render/groundSurfaces.ts : variee, stylisee, pixel,
@@ -441,7 +452,7 @@ if (lookPreset) {
   setLookPreset(lookPreset);
   renderer.applyLook(lookSettings());
 }
-// Matiere du sol : `rich` par defaut (OFFICIAL_LOOK) ; `baseline` (ancien rendu), `?groundLook=macro`,
+// Matiere du sol : `meadow` par defaut (OFFICIAL_LOOK) ; `baseline` (ancien rendu), `?groundLook=macro`,
 // `layered`, `living` (render/groundLook.ts ; `living` = direction
 // retenue), `rich` et `organic` (en comparaison). Purement visuel, avant toute
 // construction de plateau.
@@ -450,6 +461,9 @@ const groundLookParam = new URLSearchParams(location.search).get('groundLook') ?
 const groundLook = GROUND_LOOKS.find((l) => l === groundLookParam);
 if (groundLook) setGroundLook(groundLook);
 setGroundSwatchLight(renderer.groundIrradiance());
+// Brume atmospherique du rendu `meadow` (render/look.ts). `?atmosphere=clear` : comparaison de
+// developpement, sans brume ; jamais un reglage du joueur. Rien en `rich` et dans les autres temoins.
+if (groundLook === 'meadow' && new URLSearchParams(location.search).get('atmosphere') !== 'clear') renderer.enableAtmosphere(MEADOW_ATMOSPHERE);
 // Habillage du relief : `hybrid` par defaut (OFFICIAL_LOOK) ; `baseline` (ancien rendu), `?relief=roche`,
 // `?relief=massif` et `?relief=hybrid` (render/reliefLook.ts), en
 // comparaison ; `&reliefShadows=on|off` force les ombres du relief. Purement
@@ -710,6 +724,7 @@ async function rebuildGameBoardVisuals(): Promise<void> {
 
   // Grille masquee en jeu ; les zones de territoire restent affichees.
   renderer.scene.remove(board.group);
+  board.tufts?.dispose();
   board = await createBoard(currentMap);
   board.gridLines.visible = false;
   renderer.scene.add(board.group);
@@ -1425,7 +1440,7 @@ function startNewRun(heroId: string = selectedHeroId): void {
   currentRun.mapSeed = survivalBaseMap.generator?.seed ?? 0;
   // Brouillard de guerre (Survie Hero RTS) : rien d'explore au lancement.
   fogOfWar?.dispose();
-  fogOfWar = usesHeroRtsRules(survivalBaseMap) ? new FogOfWar(survivalBaseMap.width, survivalBaseMap.height) : null;
+  fogOfWar = usesHeroRtsRules(survivalBaseMap) ? new FogOfWar(survivalBaseMap.width + 2 * FOG_GRID_MARGIN, survivalBaseMap.height + 2 * FOG_GRID_MARGIN) : null;
   heroCameraLock = false;
   resourcePileViews.clear();
   // Baliste native (Mode survie) : creee directement a sa place dans le camp de
@@ -3854,7 +3869,10 @@ async function testScenario(): Promise<void> {
   world.setMap(currentMap);
   syncActiveTerrain();
 
-  if (testBoard) renderer.scene.remove(testBoard.group);
+  if (testBoard) {
+    renderer.scene.remove(testBoard.group);
+    testBoard.tufts?.dispose();
+  }
   testBoard = await createBoard(testMap);
   testBoard.gridLines.visible = false;
   testBoard.zones.visible = false;
@@ -3912,6 +3930,7 @@ function returnToEditorAfterTest(): void {
 
   if (testBoard) {
     renderer.scene.remove(testBoard.group);
+    testBoard.tufts?.dispose();
     testBoard = null;
   }
 
@@ -6161,6 +6180,28 @@ function repaintSettlementGround(): void {
   const dirt = settlementGroundCells([...settlementSites.values()], (x, z) => inMap.has(cellKey(x, z)) && !isWaterTile(x + 0.5, z + 0.5));
   for (const key of dirt) painted.set(key, SETTLEMENT_SURFACE);
   board.terrain.updateSurfaces(painted);
+  board.tufts?.clearCells(dirt);
+}
+
+/** Touffes d'herbe (render/grassTufts.ts) retirees sous tout batiment, chantier, mur ou porte
+ *  apparu sur le plateau affiche, y compris ceux du camp de depart. Purement visuel, une fois par
+ *  entite ; une touffe retiree ne repousse pas. */
+let tuftsClearedBoard: Board | null = null;
+let tuftsClearedEntities = new WeakSet<Entity>();
+
+function updateGrassTufts(): void {
+  const shown = inTestMode ? testBoard : board;
+  if (inEditorMode || !shown?.tufts) return;
+  if (tuftsClearedBoard !== shown) {
+    tuftsClearedBoard = shown;
+    tuftsClearedEntities = new WeakSet();
+  }
+  for (const e of world.entities) {
+    if (!e.isBuilding || tuftsClearedEntities.has(e)) continue;
+    tuftsClearedEntities.add(e);
+    if (e.wall) shown.tufts.clearWall(e.wall.ax, e.wall.az, e.wall.bx, e.wall.bz, e.wall.door !== null);
+    else if (e.footprintObstacle) shown.tufts.clearFootprint(obstacleBounds(e.footprintObstacle));
+  }
 }
 
 /** Nouvelle run : plus aucune terre battue des batiments de la precedente
@@ -7148,6 +7189,7 @@ const loop = new Loop(
     updateHeroUi();
     attackOrderFeedback.sync(realDt, (id) => world.getById(id), (id) => unitViews.getPosition(id));
     updateSettlementGround(realDt);
+    updateGrassTufts();
     spellTargetFeedback.sync(realDt, (id) => world.getById(id), (id) => unitViews.getPosition(id));
     // VFX de Provocation (Sentinelle, 2026-08-14) — voir render/tauntVfx.ts.
     // Meme resolution de position que les cristaux de givre ci-dessus, pour

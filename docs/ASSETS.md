@@ -272,6 +272,10 @@ ligne), sauf 4 versions différentes **non remplacées** : ponts A/B et moulin
 - Elles forment 46 bâtiments : 18 familles × 2 couleurs + 10 neutres. Une
   famille peut regrouper plusieurs pièces, par exemple un toit ou les pales
   d'un moulin.
+- **Reflet réduit au chargement** (2026-11-06) : les `.mtl` exportés de Blender
+  donnent `Ks 0.5` et `Ns 250` (`specular` 0,214 et `shininess` 250 en Phong) ; un
+  pan de toit entier passait au blanc à certains angles. `loadBuildingPart`
+  impose 0,06 et 80 (`render/assetLibrary.ts`), fichiers intacts.
 - **Utilisés en jeu** :
   - `blue_tower_base` : la tour de la Baliste ;
   - `blue_mine` : le bâtiment gameplay Mine ;

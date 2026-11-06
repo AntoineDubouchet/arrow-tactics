@@ -2439,15 +2439,46 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   preset compris) : stylized 0,6 / 0,45 / 2,1 → 0,552 / 0,414 / 1,932.
   Luminance moyenne de la vue du camp : −3,8 % (mesurée). Couleurs, ombres et
   matériaux inchangés ; l'éditeur partage ce rendu ;
+- **Terrain herbeux avec variantes organiques et touffes instanciées**
+  (2026-11-06, purement visuel) : `groundLook=meadow` remplace `rich` par
+  défaut. Herbe plus profonde et moins jaune ; variantes `grassDark`,
+  `grassDry` et `grassEarth` en taches irrégulières au pixel
+  (`render/groundLook.ts`), décalées par la graine, atténuées autour du noyau
+  du camp. Environ 3 400 touffes et plantes basses low-poly sur la carte de
+  Survie (`render/grassTufts.ts`), en trois tailles de brins : présence
+  continue sur tout le terrain valide, 2 draw calls, déterministes (RNG à
+  graine), 75 % dessinées au dézoom maximal, absentes sous les bâtiments,
+  chantiers, murs, ressources, chemins et abords des portes, clairsemées dans
+  la cour centrale ; pas dans l'éditeur. Aucune incidence sur la carte, la
+  navigation ou les collisions. `?groundLook=rich` rend le sol d'avant, sans
+  touffes ni brume ;
+- **Brume atmosphérique** (2026-11-06, purement visuelle, sans rapport avec le
+  brouillard de guerre) : `THREE.Fog` du rendu `meadow` (début et fin fixés,
+  fondu en courbe douce), gris-vert froid `#9db2a8` (`render/look.ts`). Début
+  et fin comptés en profondeur de vue depuis le point visé (+6 et +70 cases),
+  la caméra étant à 120 unités : à zoom 28, rien jusqu'au point visé, environ
+  4 % au mur du fond du camp, 30 % en haut de l'écran (36 % au dézoom
+  maximal). Le fond prend la même couleur ; le
+  brouillard de guerre lui applique ses trois états comme au sol (grille
+  élargie de 24 cases autour de la carte, `FOG_GRID_MARGIN`) : il ne dessine
+  jamais la silhouette d'une carte inexplorée. Les matériaux non éclairés
+  (anneaux, barres, effets) et le fantôme de construction restent hors brume.
+  Éditeur : ni brume ni fond assorti, fond noir. `?atmosphere=clear` compare
+  sans brume (développement seulement) ;
+- **Reflet des bâtiments** (2026-11-06) : `specular` 0,06 et `shininess` 80
+  au chargement des `.obj` (0,214 et 250 venant des `.mtl`) : plus de pan de
+  toit blanc à certains angles (`render/assetLibrary.ts`) ;
 - **Direction graphique officielle par défaut** (2026-11-02, choix
-  d'Antoine) : `look=stylized`, `groundLook=rich`, `surfaceBlend=organic`,
+  d'Antoine) : `look=stylized`, `groundLook=rich` (`meadow` depuis le
+  2026-11-06), `surfaceBlend=organic`,
   `relief=hybrid`, `surfaceBorder=marquee`, sans aucun paramètre d'URL
   (`main.ts`, `OFFICIAL_LOOK`), en jeu comme dans l'éditeur, carte générée
   comprise (mêmes surfaces, frontières, eau, relief : aucun chemin propre à
   une arène). Chaque paramètre reste une surcharge de laboratoire :
   `?look=baseline&groundLook=baseline&surfaceBlend=irregular&relief=baseline&surfaceBorder=off`
   rend l'ancien rendu. `?hills=organic` reste expérimental, jamais par
-  défaut. Fond noir. Les « par défaut » des paragraphes suivants décrivent
+  défaut. Fond noir (couleur de la brume en jeu depuis le 2026-11-06). Les
+  « par défaut » des paragraphes suivants décrivent
   les valeurs d'avant cette date.
 - **Rendu du terrain** (`render/terrainStylized.ts`, 2026-10-29) : par
   défaut `faceted-plus`, en jeu comme dans l'éditeur (arène du Mode survie

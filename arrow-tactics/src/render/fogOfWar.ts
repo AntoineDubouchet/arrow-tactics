@@ -18,6 +18,11 @@ export const FOG_VISIBLE = 2;
 /** Rayons de vision : data/vision.ts (partages avec la vision gameplay). */
 export { VISION_RADIUS } from '../data/vision';
 
+/** Marge (cases) de la grille autour de la carte : le fond sous brume y suit la vision, de part et
+ *  d'autre du bord (assez large pour tout rayon de VISION_RADIUS). Hors de la carte, jamais lue par
+ *  le jeu ni par une unite. */
+export const FOG_GRID_MARGIN = 24;
+
 export interface VisionSource {
   x: number;
   z: number;
@@ -137,6 +142,7 @@ export class FogOfWarPass {
         projectionInverse: { value: new THREE.Matrix4() },
         cameraWorld: { value: new THREE.Matrix4() },
         fogRect: { value: new THREE.Vector4() },
+        fogBackground: { value: false },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -151,13 +157,19 @@ export class FogOfWarPass {
         uniform mat4 projectionInverse;
         uniform mat4 cameraWorld;
         uniform vec4 fogRect;
+        uniform bool fogBackground;
         varying vec2 vUv;
         void main() {
           vec4 color = texture2D(tColor, vUv);
           float depth = texture2D(tDepth, vUv).x;
-          if (depth < 1.0) {
+          if (depth < 1.0 || fogBackground) {
             vec4 view = projectionInverse * vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
             vec3 world = (cameraWorld * vec4(view.xyz / view.w, 1.0)).xyz;
+            // Fond sous brume : traite comme le sol sur sa ligne de vue (plan y = 0).
+            if (depth >= 1.0) {
+              vec3 forward = (cameraWorld * vec4(0.0, 0.0, -1.0, 0.0)).xyz;
+              world -= forward * (world.y / forward.y);
+            }
             vec2 fogUv = (world.xz - fogRect.xy) / fogRect.zw;
             bool inside = fogUv.x >= 0.0 && fogUv.x <= 1.0 && fogUv.y >= 0.0 && fogUv.y <= 1.0;
             float seen = inside ? texture2D(tFog, fogUv).r : 0.0;
@@ -176,7 +188,9 @@ export class FogOfWarPass {
     this.scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material));
   }
 
-  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, fog: FogOfWar): void {
+  /** `background` : fond clair de la brume atmospherique, soumis aux trois etats comme le sol, pour
+   *  qu'il ne dessine jamais la silhouette d'une carte encore inexploree. Sinon, fond intact. */
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, fog: FogOfWar, background = false): void {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     if (!this.target || this.target.width !== size.x || this.target.height !== size.y) {
       this.target?.dispose();
@@ -189,6 +203,7 @@ export class FogOfWarPass {
     u['tColor']!.value = this.target.texture;
     u['tDepth']!.value = this.target.depthTexture;
     u['tFog']!.value = fog.texture;
+    u['fogBackground']!.value = background;
     (u['projectionInverse']!.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
     (u['cameraWorld']!.value as THREE.Matrix4).copy(camera.matrixWorld);
     (u['fogRect']!.value as THREE.Vector4).set(fog.minX, fog.minZ, fog.width, fog.height);

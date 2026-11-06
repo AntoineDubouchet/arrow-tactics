@@ -1237,6 +1237,12 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     `surfaceBlend=organic`, `relief=hybrid`, `surfaceBorder=marquee`
     (`main.ts`, `OFFICIAL_LOOK`) ; les paramètres restent des surcharges de
     laboratoire ; `hills=organic` reste expérimental, jamais par défaut.
+    **Décidé** (Antoine, 2026-11-06) : `groundLook=meadow` remplace `rich` comme
+    rendu par défaut (herbe plus profonde, variantes organiques, touffes
+    instanciées, brume atmosphérique en jeu avec fond assorti) ; `rich` reste
+    disponible comme comparaison et débogage, sans touffes ni brume, et
+    `?atmosphere=clear` compare sans brume. L'éditeur garde un fond noir, sans
+    brume ni touffes, pour rester un outil lisible. Valeurs **provisoires**.
     **En comparaison** (2026-10-31) : `surfaceBlend=organic` (mêmes
     frontières que `lisiere`, transition douce choisie par couple de
     matières) et `groundLook=organic` (`rich`, herbe un peu plus variée).

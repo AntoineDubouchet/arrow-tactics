@@ -84,6 +84,20 @@ export const LOOK_SETTINGS: Readonly<Record<LookPreset, LookSettings>> = {
   },
 };
 
+/** Brume atmospherique : couleur, et debut et fin du fondu en cases de profondeur de vue,
+ *  comptees depuis le point vise par la camera (renderer.ts). */
+export interface AtmosphereSettings {
+  color: number;
+  near: number;
+  far: number;
+}
+
+/** Brume de prairie fraiche du rendu `meadow` (2026-11-06, demande d'Antoine, valeurs PROVISOIRES) :
+ *  gris-vert froid et desature, aussi couleur du fond. A zoom 28, la vue couvre environ -23 a +29
+ *  cases de profondeur. Fondu en courbe douce (smoothstep de THREE.Fog) : rien jusqu'au point vise,
+ *  environ 4 % au mur du fond du camp, 30 % en haut de l'ecran (36 % au dezoom maximal). */
+export const MEADOW_ATMOSPHERE: AtmosphereSettings = { color: 0x9db2a8, near: 6, far: 70 };
+
 let look: LookPreset = 'baseline';
 
 /** Preset applique aux plateaux construits ensuite (main.ts : `?look=`). */

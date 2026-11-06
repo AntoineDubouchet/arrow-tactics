@@ -97,6 +97,8 @@ function makeGhostTransparent(mesh: THREE.Group): void {
       c.transparent = true;
       c.opacity = 0.5;
       c.depthWrite = false;
+      // Toujours net, meme en haut de l'ecran sous la brume atmospherique.
+      (c as THREE.MeshPhongMaterial).fog = false;
       return c;
     });
     m.material = Array.isArray(m.material) ? cloned : cloned[0]!;

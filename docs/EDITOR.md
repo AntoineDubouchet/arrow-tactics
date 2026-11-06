@@ -413,7 +413,10 @@ surface lue par la simulation.
     (unité, bâtiment, mur, Baliste) et **transparente aux tirs** ;
   - **Expérimental** : Terre strates, dessinée pour les flancs. Sur le dessus
     d'une case, elle forme des rayures (infobulle).
-  - Rendu `?groundLook=living` (direction retenue), `rich` et `organic` : palette
+  - Rendu par défaut `meadow` (2026-11-06) : mêmes couleurs de sol qu'en jeu,
+    mais ni touffes, ni brume atmosphérique, sur fond noir : l'éditeur reste un
+    outil lisible. « Tester le scénario » montre les touffes et la brume du jeu.
+  - Rendu `?groundLook=living` (direction retenue), `rich`, `organic` et `meadow` : palette
     simplifiée, Par défaut puis Herbe, Herbe dense, Prairie claire, Terre
     battue, Pavés, Sable, Sol rocheux, Sol volcanique, Lave, puis une
     section **Eau** (toutes les variantes d'eau). La lave est animée mais ne

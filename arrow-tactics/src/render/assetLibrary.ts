@@ -447,6 +447,13 @@ function loadBuildingMaterials(fileBase: string): Promise<MtlMaterials> {
   return pending;
 }
 
+/** Reflet des batiments (2026-11-06, demande d'Antoine, valeurs PROVISOIRES) : les .mtl exportes de
+ *  Blender donnent Ks 0,5 et Ns 250 (0,214 et 250 une fois charges). Camera orthographique et soleil
+ *  directionnel : l'angle est le meme sur toute une face plate, un pan de toit entier passait donc au
+ *  blanc a certains angles, quelle que soit la distance. Un leger lustre reste. */
+const BUILDING_SPECULAR = 0.06;
+const BUILDING_SHININESS = 80;
+
 /** Charge une PIECE individuelle (.obj + son .mtl) — voir loadBuildingFamily
  *  pour le regroupement de plusieurs pieces en un seul batiment. Une
  *  instance FRAICHE d'OBJLoader par appel (voir CLAUDE.md, lecon deja tiree
@@ -465,6 +472,8 @@ async function loadBuildingPart(fileBase: string): Promise<THREE.Group> {
     if (!mesh.isMesh) return;
     const material = mesh.material as THREE.MeshPhongMaterial;
     if (material.map) material.map.colorSpace = THREE.SRGBColorSpace;
+    material.specular.setScalar(BUILDING_SPECULAR);
+    material.shininess = BUILDING_SHININESS;
   });
   return part;
 }

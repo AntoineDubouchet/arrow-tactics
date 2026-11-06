@@ -2,7 +2,14 @@ import * as THREE from 'three';
 import { FogOfWarPass, type FogOfWar } from './fogOfWar';
 import { BOARD_H, BOARD_W, CAMERA } from '../config/constants';
 import { clamp, degToRad } from '../core/math';
-import { createBackgroundVeil, type LookSettings } from './look';
+import { createBackgroundVeil, type AtmosphereSettings, type LookSettings } from './look';
+
+/** Distance camera -> point vise. En orthographique elle n'affecte pas la taille : on la garde
+ *  grande pour que rien ne soit jamais coupe par le plan proche. Sert aussi de zero a la brume. */
+const CAMERA_DISTANCE = 120;
+/** Brume neutralisee : debut hors de portee du plan lointain. L'objet Fog reste en place, pour ne
+ *  recompiler aucun shader en entrant dans l'editeur ou en en sortant. */
+const ATMOSPHERE_OFF_NEAR = 1e6;
 
 /** Marges en pixels CSS entre les bords de la fenetre et la zone libre. */
 export interface ViewportInsets {
@@ -55,6 +62,10 @@ export class Renderer {
   readonly renderer: THREE.WebGLRenderer;
   private fog: FogOfWar | null = null;
   private fogPass: FogOfWarPass | null = null;
+  /** Brume atmospherique (enableAtmosphere), sans rapport avec le brouillard de guerre : purement
+   *  visuelle, elle ne lit ni n'ecrit aucune donnee de vision. */
+  private atmosphere: AtmosphereSettings | null = null;
+  private atmosphereActive = false;
 
   /** Reglages de camera modifiables au clavier pour trouver le bon angle. */
   yawDeg = CAMERA.yawDeg;
@@ -96,7 +107,9 @@ export class Renderer {
     // (montagnes, foret, horizon) derriere la carte ronde ; lecture plus
     // nette du brouillard et du bord de la carte. L'ancienne image
     // (public/textures/sky_background.png, 2026-08-10) reste dans le depot,
-    // simplement plus chargee. Jeu et editeur partagent ce rendu.
+    // simplement plus chargee. Jeu et editeur partagent ce rendu. Depuis le
+    // 2026-11-06, sous la brume atmospherique, le jeu prend la couleur de la
+    // brume (setAtmosphereActive) ; l'editeur et les temoins restent en noir.
     this.scene.background = new THREE.Color(0x000000);
 
     // Lumiere d'ambiance froide par le haut, chaude par le sol : les cubes
@@ -388,9 +401,7 @@ export class Renderer {
     this.camera.near = 0.1;
     this.camera.far = 400;
 
-    // En orthographique la distance n'affecte pas la taille : on la garde grande
-    // pour que rien ne soit jamais coupe par le plan proche.
-    const distance = 120;
+    const distance = CAMERA_DISTANCE;
     const yaw = degToRad(this.yawDeg);
     const pitch = degToRad(this.pitchDeg);
     const horizontal = Math.cos(pitch) * distance;
@@ -410,8 +421,35 @@ export class Renderer {
     if (fog && !this.fogPass) this.fogPass = new FogOfWarPass();
   }
 
+  /**
+   * Brume atmospherique lineaire (THREE.Fog), une fois au demarrage et avant tout rendu, a activer
+   * ensuite par setAtmosphereActive. Sans appel : ni brume, ni shader avec brouillard, fond noir.
+   * Les materiaux non eclaires (anneaux, fantomes au sol, barres, effets, etincelles) en sont exclus,
+   * tous d'un coup : ce sont des reperes de jeu ou de la lumiere, et sur un melange additif la
+   * couleur de brume dessinerait un halo gris.
+   */
+  enableAtmosphere(settings: AtmosphereSettings): void {
+    this.atmosphere = settings;
+    this.scene.fog = new THREE.Fog(settings.color, ATMOSPHERE_OFF_NEAR, ATMOSPHERE_OFF_NEAR * 2);
+    for (const name of ['basic', 'dashed', 'points', 'sprite'] as const) {
+      const shader = THREE.ShaderLib[name];
+      shader.fragmentShader = shader.fragmentShader.replace('#include <fog_fragment>', '');
+    }
+  }
+
+  /** Brume et fond assortis (jeu), ou fond noir sans brume (editeur). Appel gratuit si rien ne change. */
+  setAtmosphereActive(active: boolean): void {
+    const settings = this.atmosphere;
+    const fog = this.scene.fog;
+    if (!settings || !(fog instanceof THREE.Fog) || active === this.atmosphereActive) return;
+    this.atmosphereActive = active;
+    fog.near = active ? CAMERA_DISTANCE + settings.near : ATMOSPHERE_OFF_NEAR;
+    fog.far = active ? CAMERA_DISTANCE + settings.far : ATMOSPHERE_OFF_NEAR * 2;
+    (this.scene.background as THREE.Color).set(active ? settings.color : 0x000000);
+  }
+
   render(): void {
-    if (this.fog && this.fogPass) this.fogPass.render(this.renderer, this.scene, this.camera, this.fog);
+    if (this.fog && this.fogPass) this.fogPass.render(this.renderer, this.scene, this.camera, this.fog, this.atmosphereActive);
     else this.renderer.render(this.scene, this.camera);
   }
 }

@@ -7,6 +7,8 @@ import { FLAT_TERRAIN, resolveMapHeightField, type TerrainHeightField } from '..
 import { resolveMapTerritory, type TerritoryCell, type TerritoryTeam } from '../config/territory';
 import { ensureModels, loadEnvironmentAssets, obstacleModelKeys } from './assetLibrary';
 import { box } from './meshHelpers';
+import { currentGroundLook } from './groundLook';
+import { GrassTufts } from './grassTufts';
 import { hillHeightAt } from './hillShape';
 import { buildObstacleMesh, placeObstacleMesh } from './obstacleFactory';
 import { buildCellGridLines } from './terrainCells';
@@ -38,6 +40,8 @@ export interface Board {
    *  d'un seul tenant) : surfaces repeintes a chaud, morceaux touches
    *  seulement (terre battue du village, render/settlementGround.ts). */
   terrain: ChunkedTerrainView;
+  /** Touffes d'herbe instanciees (render/grassTufts.ts), en `?groundLook=meadow` ; sinon null. */
+  tufts: GrassTufts | null;
 }
 
 /**
@@ -130,7 +134,10 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
   // avec les petits tas de bois a ramasser (MapDef.resourcePiles).
   if (!map.generator) scatterDecoration(group, cells, field);
 
-  return { group, gridLines, zones, obstacles, decor, terrain };
+  const tufts = currentGroundLook() === 'meadow' ? new GrassTufts(map, cells, field) : null;
+  if (tufts) group.add(tufts.group);
+
+  return { group, gridLines, zones, obstacles, decor, terrain, tufts };
 }
 
 /** Hauteur des zones au-dessus du sol (sous la grille, a 0.012). */
@@ -212,7 +219,9 @@ const WOOD_DEBRIS_DENSITY = 7 / REFERENCE_AREA / 3;
  * (createGrassTexture, voir textures.ts — desormais une vraie image PNG,
  * plus un canvas procedural, voir CLAUDE.md 2026-08-14) est un mecanisme
  * totalement DIFFERENT (une texture appliquee au sol, pas des objets 3D
- * scatter) — non concernee par cette demande, laissee telle quelle.
+ * scatter) — non concernee par cette demande, laissee telle quelle. Les touffes
+ * de render/grassTufts.ts (2026-11-06, demande d'Antoine) sont une autre chose :
+ * quelques triangles instancies, jamais des cubes, jamais sur les obstacles.
  */
 /** Marge (cases) autour d'un debris : ses planches ne depassent jamais de
  *  leur case vers une case absente. */
