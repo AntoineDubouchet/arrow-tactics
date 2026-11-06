@@ -7,12 +7,15 @@ import { getWallType, wallGateCost, wallLineCost } from '../data/walls';
  * construction de base (or, bois, pierre), proportionnellement aux PV
  * manquants : reparer 20 % des PV coute 10 % du prix. Or arrondi au demi
  * superieur, bois et pierre a l'unite la plus proche. Paye d'avance sur le
- * stock ; la partie non utilisee est rendue (repairRefund). La Baliste, jamais
- * construite, a un cout de base propre.
+ * stock ; la partie non utilisee est rendue (repairRefund). La Baliste et
+ * l'Hotel de ville, jamais construits, ont un cout de base propre.
  */
 export const REPAIR_COST_FRACTION = 0.5;
-/** Cout de base de la Baliste pour la reparation (PROVISOIRE). */
-const BALLISTA_REPAIR_BASE = { gold: 30, wood: 10, stone: 10 };
+/** Cout de base des batiments preconstruits pour la reparation (PROVISOIRE). */
+const PRECONSTRUCTED_REPAIR_BASE: Readonly<Record<string, RepairCost>> = {
+  ballista: { gold: 30, wood: 10, stone: 10 },
+  townhall: { gold: 30, wood: 20, stone: 20 },
+};
 
 export interface RepairCost {
   gold: number;
@@ -21,7 +24,8 @@ export interface RepairCost {
 }
 
 export function repairBaseCost(buildingId: string, wallLengthTiles?: number): RepairCost {
-  if (buildingId === 'ballista') return { ...BALLISTA_REPAIR_BASE };
+  const preconstructed = PRECONSTRUCTED_REPAIR_BASE[buildingId];
+  if (preconstructed) return { ...preconstructed };
   const def = getBuilding(buildingId);
   // Piece de mur V2 : son prix reel (longueur du segment, ou porte).
   if (def.wallPiece) {

@@ -49,9 +49,9 @@ function cachedTeamList(obstacles: ObstacleDef[], key: string, isPassage: (o: Ob
  *  contournement, collision, ruee de Charge) : tous, sauf l'eau
  *  (`terrainWater`) pour une unite qui la traverse
  *  (UnitStats.canTraverseWater) et les portes de mur V2 qu'elle peut
- *  franchir (ouvertes et alliees, sim/relations.ts canUnitPassGate) : une
- *  porte ouverte reste un obstacle pour les hostiles. Liste en cache par
- *  tableau et par camp ; une porte qui s'ouvre ou se ferme remplace
+ *  franchir (baties et alliees, sim/relations.ts canUnitPassGate) : une
+ *  porte reste un obstacle pour les hostiles. Liste en cache par
+ *  tableau et par camp ; une porte qui s'acheve remplace
  *  World.obstacles. Renvoie le tableau d'origine s'il n'y a rien a retirer. */
 export function obstaclesForUnit(obstacles: ObstacleDef[], unit: { team: string }, crossesWater = false): ObstacleDef[] {
   return cachedTeamList(obstacles, (crossesWater ? 'water:' : 'land:') + unit.team, (o) => (crossesWater && o.terrainWater === true) || (o.door !== undefined && canUnitPassGate(unit, o.door)));

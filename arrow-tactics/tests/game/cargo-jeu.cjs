@@ -56,7 +56,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   // Camp de depart (graine 12345 : rotation 0, porte au sud) : le Heros attend devant la porte, hors de portee de
   // depot ; le depot instantane a portee rendrait l'ordre invisible si le Heros restait colle a la Baliste.
   const ball = await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'ballista'); return { x: b.x, z: b.z }; });
-  await p.evaluate((b) => { const h = window.__hero(); h.x = h.prevX = b.x - 1; h.z = h.prevZ = b.z + 8; h.cargo.wood = 2; h.order = { type: 'guard' }; h.cargo.returnTo = null; }, ball);
+  await p.evaluate(() => { const h = window.__hero(); const c = window.__world.entities.find((e) => e.unitId === 'townhall'); h.x = h.prevX = c.x; h.z = h.prevZ = c.z + 8.5; h.cargo.wood = 2; h.order = { type: 'guard' }; h.cargo.returnTo = null; });
   await L.setView(p, { targetX: ball.x, targetZ: ball.z, viewHeight: 14, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 400);
   const bs = await p.evaluate((b) => window.__toScreen(b.x, b.z, window.__S.surfaceY(b.x, b.z) + 1.5), ball);
   await p.mouse.move(bs.x, bs.y); await L.wait(p, 100); await p.mouse.click(bs.x, bs.y, { button: 'right' }); await L.wait(p, 200);

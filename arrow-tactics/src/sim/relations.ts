@@ -9,10 +9,11 @@ export function areAllied(a: string, b: string): boolean {
   return a === b;
 }
 
-/** Une unite franchit une porte de mur V2 seulement si la porte est OUVERTE
- *  et si l'unite est alliee a son proprietaire. Fermee : elle bloque tout le
- *  monde ; ouverte : elle bloque toujours les hostiles ; detruite : plus
- *  d'emprise du tout (breche). */
-export function canUnitPassGate(unit: { team: string }, gate: { owner: string; open: boolean }): boolean {
-  return gate.open && areAllied(unit.team, gate.owner);
+/** Une unite franchit une porte de mur V2 si elle est alliee a son proprietaire et
+ *  si la porte est batie (2026-11-06, portes automatiques : une porte fermee s'ouvre
+ *  devant un allie, sim/systems/doors.ts, donc ses chemins passent par elle). Elle
+ *  bloque toujours les hostiles, ouverte ou fermee ; un chantier bloque tout le
+ *  monde ; detruite : plus d'emprise du tout (breche). */
+export function canUnitPassGate(unit: { team: string }, gate: { owner: string; built: boolean }): boolean {
+  return gate.built && areAllied(unit.team, gate.owner);
 }

@@ -1,6 +1,6 @@
-// Tests cibles SANS NAVIGATEUR de la porte de palissade alliee : fermee (allie, ennemi bloques), ouverte (Heros et
+// Tests cibles SANS NAVIGATEUR de la porte de palissade alliee : fermee (s'ouvre devant l'allie, ennemi bloque), ouverte (Heros et
 // unite du joueur passent, ennemi et vague bloques, contournement si une route existe), ennemi qui detruit la porte,
-// breche, fermeture differee (allie dans l'ouverture ; un hostile devant la porte (il la frappe) ne la retient pas), determinisme.
+// breche, fermeture differee (allie dans l'ouverture ; un hostile devant la porte (il la frappe) ne la retient pas), portes automatiques, determinisme.
 // Usage : node --import ../ts-register.mjs porte-alliee.mts (ou npm run test:sim)
 const SRC = new URL('../../src/', import.meta.url).href;
 const { World } = await import(SRC + 'sim/world.ts');
@@ -31,16 +31,18 @@ const setup = (seed: number, open: boolean, tough: boolean) => {
 };
 
 // ---- Relation generique.
-check('relation : canUnitPassGate = porte ouverte ET unite alliee du proprietaire (areAllied, aucun camp code en dur)',
-  R.canUnitPassGate({ team: 'player' }, { owner: 'player', open: true }) && !R.canUnitPassGate({ team: 'enemy' }, { owner: 'player', open: true }) && !R.canUnitPassGate({ team: 'player' }, { owner: 'player', open: false }) && R.canUnitPassGate({ team: 'enemy' }, { owner: 'enemy', open: true }) && R.areAllied('faction-x', 'faction-x'));
+check('relation : canUnitPassGate = porte batie ET unite alliee du proprietaire (areAllied, aucun camp code en dur)',
+  R.canUnitPassGate({ team: 'player' }, { owner: 'player', built: true }) && !R.canUnitPassGate({ team: 'enemy' }, { owner: 'player', built: true }) && !R.canUnitPassGate({ team: 'player' }, { owner: 'player', built: false }) && R.canUnitPassGate({ team: 'enemy' }, { owner: 'enemy', built: true }) && R.areAllied('faction-x', 'faction-x'));
 
-// ---- 1. Porte fermee + allie : bloque.
+// ---- 1. Porte fermee + allie : son chemin passe par elle, elle s'ouvre avant le contact.
 {
   const { w, pts, gate } = setup(3, false, true);
   const u = w.spawn('fantassin', 'player', 0, 0);
   w.issueCommand({ kind: 'move', entityIds: [u.id], x: 14, z: 0 });
-  let out = false; run(w, 8, () => { if (!inside(pts, u.x, u.z)) out = true; });
-  check('1. porte fermee + allie (Homme d armes) : reste enferme, emprise de la porte dans les obstacles', !out && w.obstacles.includes(gate.footprintObstacle) && !gate.wall.door.open, { x: +u.x.toFixed(2) });
+  const contact = u.stats.radius + gate.footprintObstacle.line.halfWidth;
+  let out = false; let crossedClosed = false;
+  run(w, 8, () => { if (!inside(pts, u.x, u.z)) out = true; if (!gate.wall.door.open && W.distanceToSegment(u.x, u.z, gate.wall) < contact) crossedClosed = true; });
+  check('1. porte fermee + allie (Homme d armes) : elle s ouvre avant le contact, il sort, emprise de la porte dans les obstacles', out && !crossedClosed && w.obstacles.includes(gate.footprintObstacle) && gate.wall.door.open, { x: +u.x.toFixed(2), crossedClosed });
 }
 // ---- 2. Porte fermee + ennemi : bloque.
 {
@@ -76,7 +78,7 @@ for (const [n, kind] of [['3', 'hero'], ['4', 'fantassin']] as const) {
   const wave = [0, 1, 2, 3, 4, 5].map((i) => w.spawn('maraudeur', 'enemy', 16 + (i % 3), -2.5 + i));
   let entered = false, hitsWall = false;
   run(w, 30, () => { if (wave.some((e: any) => e.alive && inside(pts, e.x, e.z))) entered = true; if (wave.some((e: any) => walls.some((p: any) => p.id === e.targetId))) hitsWall = true; });
-  check('6. porte ouverte + vague (6 maraudeurs, porte sur leur trajet) : aucun ne passe, ils frappent la porte / la palissade', !entered && hitsWall && gate.wall.door.open, { entered, hitsWall });
+  check('6. porte ouverte + vague (6 maraudeurs, porte sur leur trajet) : elle se ferme, aucun ne passe, ils frappent la porte / la palissade', !entered && hitsWall && !gate.wall.door.open, { entered, hitsWall });
 }
 // ---- 7 et 8. L'ennemi detruit la porte ouverte ; breche : tout le monde passe.
 {
@@ -124,6 +126,52 @@ for (const [n, kind] of [['3', 'hero'], ['4', 'fantassin']] as const) {
   check('9. fermeture : allie dans l ouverture -> attente (sans poussee) ; libre -> fermee ; un hostile plaque contre la porte ne la retient pas ; un autre camp ne peut pas la commander',
     waits && closed && pressed && closedDespiteHostile && refusedEnemy, { waits, closed, pressed, closedDespiteHostile, refusedEnemy });
 }
+// ---- 11. Portes automatiques.
+{
+  const { w, pts, gate } = setup(21, true, true);
+  const door = gate.wall.door;
+  const list = w.obstacles;
+  const foe = w.spawn('maraudeur', 'enemy', gate.x + 9, gate.z);
+  foe.order = { type: 'guard' }; foe.stats.moveSpeed = 0; foe.stats.damage = 0;
+  run(w, 0.3);
+  const openFar = door.open;
+  foe.x = foe.prevX = gate.x + 4;
+  run(w, 0.2);
+  const closesNear = !door.open;
+  w.setDoorWanted(gate.id, true, 'player');
+  run(w, 0.2);
+  const manualLoses = !door.open;
+  check('11a. hostile a 9 cases : porte ouverte ; a 4 cases : elle se ferme ; rouverte a la main, elle se referme', openFar && closesNear && manualLoses, { openFar, closesNear, manualLoses });
+
+  // Allie qui approche, hostile toujours la : l'allie passe en premier, puis elle se referme.
+  const ally = w.spawn('fantassin', 'player', gate.x - 6, gate.z);
+  ally.stats.maxHp = 1e9; ally.hp = 1e9;
+  w.issueCommand({ kind: 'move', entityIds: [ally.id], x: gate.x + 6, z: gate.z + 3 });
+  const contact = ally.stats.radius + gate.footprintObstacle.line.halfWidth;
+  let openedAt = -1; let crossedClosed = false; let foeInside = false;
+  run(w, 8, () => {
+    const d = W.distanceToSegment(ally.x, ally.z, gate.wall);
+    if (door.open && openedAt < 0) openedAt = d;
+    if (!door.open && d < contact) crossedClosed = true;
+    if (inside(pts, foe.x, foe.z)) foeInside = true;
+  });
+  const passed = !inside(pts, ally.x, ally.z);
+  check('11b. allie qui approche, hostile tout pres : elle s ouvre a moins de 2,5 cases et avant le contact, il passe, l hostile non, puis elle se referme', passed && !crossedClosed && !foeInside && openedAt <= 2.6 && openedAt >= contact && !door.open, { passed, crossedClosed, foeInside, openedAt: +openedAt.toFixed(2), open: door.open });
+
+  // Allie immobile pres de la porte : il ne la retient pas.
+  w.issueCommand({ kind: 'move', entityIds: [ally.id], x: gate.x - 1.8, z: gate.z });
+  run(w, 5);
+  w.issueCommand({ kind: 'stop', entityIds: [ally.id] });
+  run(w, 1);
+  const idleCloses = !door.open;
+  // Hostile parti : elle reste comme elle est.
+  foe.hp = 0;
+  run(w, 1);
+  const staysClosed = !door.open;
+  check('11c. allie immobile a cote, hostile proche : fermee ; hostile parti : elle reste fermee', idleCloses && staysClosed, { idleCloses, staysClosed });
+  check('11d. ouvrir ou fermer ne remplace pas la liste d obstacles : aucune grille A* a refaire', w.obstacles === list);
+}
+
 // ---- Pathfinding : ligne ouverte avec porte ouverte -> l'allie passe par la porte, l'ennemi contourne.
 {
   const make = () => { const w = new World(17); w.setMap(flatMap()); const pieces = w.spawnWallLine('player', 'palisade', { ax: 0, az: -9, bx: 0, bz: 9 }); const g = w.replaceWallSegmentWithGate(pieces[4].id)!; g.construction = null; for (const p of [...pieces, g]) { p.stats.maxHp = 1e9; p.hp = 1e9; } w.setDoorWanted(g.id, true, 'player'); w.step(DT); return { w, g }; };

@@ -1,25 +1,31 @@
-import type { ObstacleDef } from './constants';
+import { CAMERA, type ObstacleDef } from './constants';
 import type { MapDef, WallLineDef } from './mapDef';
 
 /**
  * Camp de depart du joueur (2026-11-04, demande d'Antoine) : la partie
  * commence dans un petit camp PRECONSTRUIT organise autour du Depart Survie
- * (la Baliste principale). La carte ne decrit que le Depart (MapDef.ballista)
- * et le preset (MapDef.startingBase) ; batiments, enceinte, porte et unites
- * de depart sont DERIVES ici, par la meme fonction pour le generateur (zone
+ * (son centre, ou se trouve l'Hotel de ville depuis G50). La carte ne decrit
+ * que le Depart (MapDef.ballista) et le preset (MapDef.startingBase) ;
+ * batiments, Baliste, enceinte, porte et unites de depart sont DERIVES ici,
+ * par la meme fonction pour le generateur (zone
  * reservee), l'editeur (apercu, validation), la vraie run et « Tester le
  * scénario » — meme philosophie que les camps neutres (data/campLayout.ts).
  * Dans config/ (et non data/) : le generateur (config/maps) en a besoin ;
  * identifiants de batiments et d'unites en chaines, sans import de data/.
  *
- * Repere LOCAL d'un preset : origine au centre de la Baliste, cour vers +z.
+ * NOYAU COMPACT (2026-11-06, G50, decision d'Antoine) : l'Hotel de ville au centre
+ * exact, et tout pres de lui, sans se toucher, la Baliste, l'Auberge et les deux
+ * Maisons, en petit village un peu irregulier. La Baliste reste le depot universel
+ * et sa destruction la condition de defaite (decision ouverte : DESIGN_DECISIONS).
+ *
+ * Repere LOCAL d'un preset : origine au centre du camp, cour vers +z.
  * `rotation` (quarts de tour) tourne tout le camp ; le generateur et l'editeur
  * choisissent la rotation qui tourne la cour vers le cote le plus degage
  * (startingBaseRotationFor). Valeurs PROVISOIRES.
  *
  * Enceinte ARRONDIE (addendum du 2026-11-04) : un polygone regulier de
  * `sides` cotes inscrit dans le cercle de rayon `radius` (cases), centre sur
- * la Baliste, lu comme un enclos rond. QUATRE PORTES (2026-11-06, G48, decision
+ * le centre du camp, lu comme un enclos rond. QUATRE PORTES (2026-11-06, G48, decision
  * d'Antoine) : les cotes centres sur +z, +x, -z et -x portent chacun une porte
  * de Palissade V2 (ligne dediee de `gateLength` cases, posee ouverte, le joueur
  * les ferme une par une), flanquee de deux bouts de mur. `sides` multiple de
@@ -27,9 +33,9 @@ import type { MapDef, WallLineDef } from './mapDef';
  * reservee = disque de `radius` + STARTING_BASE_MARGIN, identique pour toute
  * rotation.
  *
- * Batiments a position flottante (G48) : pousses vers l'enceinte, entre les
- * axes des portes, pour liberer la cour. Gisements et arbres restent sur la
- * grille (ce sont des sources de carte, cases entieres).
+ * Batiments a position flottante (G48) : la cour libre est la couronne entre le
+ * noyau et l'enceinte. Gisements et arbres restent sur la grille (ce sont des
+ * sources de carte, cases entieres).
  *
  * GISEMENTS ET BOSQUET GARANTIS (2026-11-05, decision d'Antoine) : le preset
  * place dans l'enceinte au moins un gisement de pierre, un gisement d'or
@@ -49,8 +55,13 @@ export interface StartingBasePreset {
   id: string;
   name: string;
   /** Batiments TERMINES (data/buildings.ts) : centre relatif, direction de
-   *  la facade (vers la cour) et variante visuelle (Maison A / B). */
-  buildings: readonly { buildingId: string; dx: number; dz: number; faceX: number; faceZ: number; modelVariant?: number }[];
+   *  la facade (vers la cour) et variante visuelle (Maison A / B). `faceCamera` :
+   *  facade vers la camera initiale, quelle que soit la rotation du camp
+   *  (startingBaseFaceCameraRotationY) ; `faceX` / `faceZ` sont alors ignores. */
+  buildings: readonly { buildingId: string; dx: number; dz: number; faceX: number; faceZ: number; modelVariant?: number; faceCamera?: boolean }[];
+  /** Baliste principale, relative au centre (decalage entier : elle reste centree
+   *  sur une case, comme le Depart). */
+  ballista: { dx: number; dz: number };
   /** Enceinte polygonale (voir en-tete) : type de mur V2 (data/walls.ts). */
   enclosure: { type: string; sides: number; radius: number; gateLength: number };
   /** Unites de depart en plus du Heros (data/units.ts), relatives. */
@@ -60,11 +71,11 @@ export interface StartingBasePreset {
   /** Gisements garantis dans l'enceinte : centre relatif de l'emprise 2 x 2
    *  (demi-cases impaires : l'emprise tombe sur des cases entieres). */
   deposits: readonly { resource: 'stone' | 'gold'; dx: number; dz: number }[];
-  /** Bosquet garanti : centres relatifs d'arbres 1 x 1 (entiers depuis la
-   *  Baliste, elle-meme centree sur une case), au moins six, groupes. */
+  /** Bosquet garanti : centres relatifs d'arbres 1 x 1 (entiers depuis le centre,
+   *  lui-meme centre sur une case), au moins six, groupes. */
   trees: readonly { dx: number; dz: number }[];
   /** Ressource proche garantie HORS de l'enceinte (generateur) : un gisement
-   *  d'or a `distance` cases de la Baliste, visible au depart. */
+   *  d'or a `distance` cases du centre, visible au depart. */
   nearbyGold: { distance: number };
 }
 
@@ -74,26 +85,35 @@ export const STARTING_BASE_MARGIN = 2;
 
 export const STARTING_BASE_PRESETS: Readonly<Record<string, StartingBasePreset>> = {
   /** Camp de depart (2026-11-05, G46 : nettement agrandi, rayon 10,5 -> 15 ;
-   *  G48 : 4 portes) : Baliste au centre, deux Maisons au nord-ouest et
-   *  l'Auberge au sud-est, poussees vers l'enceinte entre les axes des portes ;
-   *  cour au sud ou apparaissent le Heros et deux Villageois ; enceinte de
-   *  Palissade V2 en dodecagone de rayon 15 (apotheme 14,5, diametre 30, environ
-   *  650 cases dedans), une porte ouverte de 2,4 cases au milieu des cotes nord,
-   *  est, sud et ouest. Grande cour centrale libre pour construire. */
+   *  G48 : 4 portes ; G50 : noyau compact) : Hotel de ville au centre, Baliste au
+   *  nord-ouest, Maisons au sud-ouest et au nord-est, Auberge au sud-est, a pres
+   *  d'une ou deux cases de lui et hors des axes des portes ; le Heros et deux
+   *  Villageois au sud ; enceinte de Palissade V2 en dodecagone de rayon 15
+   *  (apotheme 14,5, diametre 30, environ 650 cases dedans), une porte ouverte de
+   *  2,4 cases au milieu des cotes nord, est, sud et ouest. Toute la couronne autour
+   *  du noyau reste libre pour construire. Positions PROVISOIRES. */
   'basic-camp': {
     id: 'basic-camp',
     name: 'Petit camp',
     buildings: [
-      { buildingId: 'house', dx: -9.7, dz: -6.3, faceX: 1, faceZ: 0, modelVariant: 0 },
-      { buildingId: 'house', dx: -6.1, dz: -9.7, faceX: 0, faceZ: 1, modelVariant: 1 },
-      { buildingId: 'tavern', dx: 9.6, dz: 6.4, faceX: -1, faceZ: 0 },
+      { buildingId: 'townhall', dx: 0, dz: 0, faceX: 0, faceZ: 1, faceCamera: true },
+      { buildingId: 'house', dx: -5, dz: 4, faceX: 1, faceZ: 0, modelVariant: 0 },
+      { buildingId: 'house', dx: 5, dz: -4, faceX: 0, faceZ: 1, modelVariant: 1 },
+      { buildingId: 'tavern', dx: 4, dz: 5, faceX: 0, faceZ: 1 },
     ],
+    // Nord-ouest : a peu pres aussi loin du bosquet, de la pierre et de l'or qu'au
+    // centre (depot universel : ni gain ni perte caches, ecarts mesures dans
+    // DESIGN_DECISIONS). Noyau en tourniquet, decalages ENTIERS : deux cases entre
+    // l'Hotel de ville et chaque voisin sur l'axe qui les separe, avec un centre de
+    // case au milieu, pour que le Heros y passe et qu'A* y voie le meme passage,
+    // dans les quatre rotations (un couloir plus etroit fait hesiter la navigation).
+    ballista: { dx: -4, dz: -5 },
     enclosure: { type: 'palisade', sides: 12, radius: 15, gateLength: 2.4 },
     units: [
-      { unitId: 'villageois', dx: -2.5, dz: 3.5 },
-      { unitId: 'villageois', dx: 2.5, dz: 3.5 },
+      { unitId: 'villageois', dx: -1.6, dz: 4.8 },
+      { unitId: 'villageois', dx: 1.6, dz: 4.8 },
     ],
-    hero: { dx: 0, dz: 3 },
+    hero: { dx: 0, dz: 3.4 },
     // Pierre a l'est-nord-est, or au sud-ouest : entre les axes des portes,
     // a l'ecart des places d'apparition, vers la peripherie interieure (coins a
     // ~12,7 cases du centre, ~2 cases libres devant l'enceinte). PROVISOIRE.
@@ -110,9 +130,9 @@ export const STARTING_BASE_PRESETS: Readonly<Record<string, StartingBasePreset>>
     ],
     // Or proche garanti (2026-11-05, G46 : au moins deux gisements d'or
     // visibles au depart, celui de l'enceinte et un second dehors) : centre
-    // a cette distance de la Baliste, hors murs (>= rayon + 2), jamais devant
-    // une porte (G48), dans la vision initiale de la Baliste
-    // (data/vision.ts VISION_RADIUS.ballista 21 > 18,5 + 1,5). Pose par le
+    // a cette distance du centre, hors murs (>= rayon + 2), jamais devant
+    // une porte (G48), dans la vision initiale de l'Hotel de ville
+    // (data/vision.ts VISION_RADIUS.townhall 21 > 18,5 + 1,5). Pose par le
     // generateur (config/maps/proceduralSurvival.ts) ; une carte dessinee
     // sans or visible dehors recoit un avertissement de l'editeur.
     nearbyGold: { distance: 18.5 },
@@ -148,7 +168,9 @@ export interface StartingBaseLayout {
   preset: string;
   rotation: number;
   origin: { x: number; z: number };
-  buildings: { buildingId: string; x: number; z: number; rotationY: number; modelVariant?: number }[];
+  buildings: { buildingId: string; x: number; z: number; rotationY: number; modelVariant?: number; faceCamera?: boolean }[];
+  /** Baliste principale (mapDef.ts, resolveBallistaOrigin). */
+  ballista: { x: number; z: number };
   walls: WallLineDef[];
   units: { unitId: string; x: number; z: number }[];
   hero: { x: number; z: number };
@@ -225,8 +247,33 @@ export function inGateApproach(x: number, z: number, radius: number, halfWidth: 
   return Math.min(Math.abs(x), Math.abs(z)) <= halfWidth && along >= radius - 1 && along <= reach;
 }
 
-/** Camp de depart `presetId` autour du Depart `origin` (centre de la
- *  Baliste), tourne de `rotation` quarts de tour. Pur et deterministe. */
+/** Biais (degres) de la facade par rapport a la camera de la Survie : CHOIX ARTISTIQUE
+ *  d'Antoine (2026-11-06), a ne pas corriger vers 0. Vu de trois-quarts, porte du cote
+ *  camera et vers la droite de l'ecran, le batiment montre sa facade et son volume. */
+const FACE_CAMERA_DIAGONAL_DEG = 27;
+
+/**
+ * Rotation Y qui tourne la facade d'un batiment vers la camera de jeu initiale, en
+ * leger biais (2026-11-06, decision d'Antoine). Sans decalage de modele : la grande
+ * porte et l'escalier de `blue_townhall` sont en +Z local (rendu de ses quatre cotes,
+ * et sa marche basse depasse en +Z), la convention de `faceX` / `faceZ`. La camera est
+ * orthographique : la face vue ne depend que de son pivot, jamais de son point
+ * vise (le Heros), et frameRunCamera le remet toujours a CAMERA.survivalYawDeg au
+ * lancement. Deterministe, independant de la rotation du camp.
+ */
+export function startingBaseFaceCameraRotationY(): number {
+  return ((CAMERA.survivalYawDeg + FACE_CAMERA_DIAGONAL_DEG) * Math.PI) / 180;
+}
+
+/** Baliste du camp `presetId` autour du Depart `origin`. */
+export function startingBaseBallistaAt(origin: { x: number; z: number }, presetId: string, rotation = 0): { x: number; z: number } {
+  const b = getStartingBasePreset(presetId).ballista;
+  const v = rotate(b.dx, b.dz, rotation);
+  return { x: origin.x + v.x, z: origin.z + v.z };
+}
+
+/** Camp de depart `presetId` autour du Depart `origin` (centre du camp, Hotel de
+ *  ville), tourne de `rotation` quarts de tour. Pur et deterministe. */
 export function startingBaseLayoutAt(origin: { x: number; z: number }, presetId: string, rotation = 0): StartingBaseLayout {
   const p = getStartingBasePreset(presetId);
   const at = (dx: number, dz: number) => {
@@ -240,8 +287,9 @@ export function startingBaseLayoutAt(origin: { x: number; z: number }, presetId:
     origin: { x: origin.x, z: origin.z },
     buildings: p.buildings.map((b) => {
       const face = rotate(b.faceX, b.faceZ, rotation);
-      return { buildingId: b.buildingId, ...at(b.dx, b.dz), rotationY: Math.atan2(face.x, face.z), ...(b.modelVariant !== undefined ? { modelVariant: b.modelVariant } : {}) };
+      return { buildingId: b.buildingId, ...at(b.dx, b.dz), rotationY: b.faceCamera ? startingBaseFaceCameraRotationY() : Math.atan2(face.x, face.z), ...(b.modelVariant !== undefined ? { modelVariant: b.modelVariant } : {}), ...(b.faceCamera ? { faceCamera: true } : {}) };
     }),
+    ballista: startingBaseBallistaAt(origin, presetId, rotation),
     walls: enclosureLines(p.enclosure).map((w) => {
       const a = at(w.ax, w.az);
       const b = at(w.bx, w.bz);

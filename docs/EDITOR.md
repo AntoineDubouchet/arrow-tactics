@@ -139,8 +139,9 @@ L'éditeur n'a jamais de brouillard de guerre : toute la carte est visible
   2026-11-05 ; 10,5 et 25 avant) avec quatre portes
   ouvertes, une par côté (G48), Héros et deux Villageois dans la cour). Un seul par carte : l'outil pose la Baliste au clic (emprise 3 × 3
   calée sur la grille) et **remplace** l'ancien départ ; l'outil revient à
-  Sélection, départ sélectionné. L'**aperçu** montre la Baliste, l'**emprise
-  réservée** du camp (disque : enceinte + 2 cases, rayon 12,5, vert /
+  Sélection, départ sélectionné. Depuis G50, le Départ est le centre du camp, sous l'**Hôtel de ville**, et
+  la Baliste suit à sa place dans le noyau (cliquer sur l'un ou l'autre sélectionne le Départ). L'**aperçu** montre la Baliste, l'**emprise
+  réservée** du camp (disque : enceinte + 2 cases, rayon 17, vert /
   rouge) et l'enceinte. Le
   camp dérivé est **affiché** sous le marqueur (bâtiments, palissade, 4 portes,
   Héros, Villageois et, depuis le 2026-11-05, les **deux gisements

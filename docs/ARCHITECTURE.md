@@ -1852,6 +1852,34 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
 - **Feedback** : `OrderEndEvent` couvre tous les ordres de travail ; `flashUnreachableOrders`
   (`main.ts`), un message à la fois, 3 s au moins entre deux.
 
+## 13 unvicies. Passe du 2026-11-06 (G50) : noyau de départ, stands de récolte, raccourcis
+
+- **Départ ≠ Baliste** : `MapDef.ballista` reste le **Départ Survie**, centre du camp et de
+  l'Hôtel de ville. La vraie Baliste vient du preset (`StartingBasePreset.ballista`,
+  `StartingBaseLayout.ballista`, `startingBaseBallistaAt`), et `resolveBallistaOrigin`
+  (`config/mapDef.ts`) reste la source unique : run, « Tester le scénario » et l'éditeur la
+  lisent. Restent sur le centre : anneau des vagues, cadrage, exploration initiale, or proche.
+  Le but de marche des vagues (`assaultGoal`) est l'entité Baliste.
+- **Décalages entiers** dans le noyau : une emprise bloque toute case qu'elle touche
+  (`buildPathGrid`), et un couloir étroit que la ligne droite accepte mais pas A* fait osciller
+  entre les deux (G49 l'arrête, mais l'ordre est perdu) : deux cases avec un centre de case au
+  milieu, dans les quatre rotations (`tests/sim/noyau-depart.mts`).
+- **Stands** : `sim/harvestStands.ts`. État par unité (`WeakMap<Entity, HarvestReservation>`,
+  comme `NavState`), aucune table par monde : les prises se relisent sur les entités à chaque
+  choix. `syncHarvestReservations` (une fois par pas, `movementSystem`) libère tout ce qui n'a plus
+  lieu d'être. `workGoal` (`sim/systems/hero.ts`) ne déclare une source bloquante atteinte qu'à son
+  emplacement ; `settleOnHarvestStand` finit le placement ; `applySeparationPair` ancre
+  (`isHarvestAnchored`). Choix : `usableStands` puis `walkDistances` (une inondation, aucun A*,
+  seulement s'il reste une place). `nav.stand` n'est qu'un point d'approche avant la
+  réservation. Plus de place : `findRedirectHarvestSource` (une inondation, aucun A*, ordre manuel), sinon
+  `abandonOrder` ; aucune attente depuis G52. `harvestSourceSaturated` : `chooseWork`, `nextNode`, ce report.
+- **Raccourcis** : `activateProductionHotkey` (`main.ts`, avant le `switch` du clavier) lit
+  l'action `produceUnit` de `currentEntityInfo()` (`hotkey`) et passe par `onEntityInfoAction` :
+  aucune seconde voie de production, aucune règle par bâtiment.
+- **Fiche Héros** : `HeroCardInfo` (`kind: 'hero'`, `run/entityInfo.ts`), sans bloc PV au panneau.
+- **Tas** : `placePile(..., placed)`, `PILE_DRAWS` : le budget décide des tas posés, les tirages et
+  `pileCells` restent ceux de l'ancien budget (camps et or proche lisent `pileCells`).
+
 ## 14. Audio
 
 - `audio/` contient un moteur complet : `AudioManager` (bus, budget de voix,

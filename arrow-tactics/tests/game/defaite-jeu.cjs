@@ -27,6 +27,12 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   check('Heros tue, Baliste vivante : aucun ecran de fin, le Heros revient a pleins PV pres de la Baliste, la simulation continue',
     !dead.alive && dead.respawn > 0 && noEnd && back.alive && back.hp === back.max && back.dist < 6 && back.tick > dead.tick, { dead, back });
 
+  // 1 bis. Hotel de ville detruit (G50) : pas la defaite, la condition reste la Baliste.
+  const tickHall = await p.evaluate(() => { const h = window.__world.entities.find((e) => e.unitId === 'townhall'); h.hp = 0; return window.__world.tick; });
+  await L.wait(p, 800);
+  const hallGone = await p.evaluate(() => ({ alive: window.__world.entities.find((e) => e.unitId === 'townhall')?.alive ?? false, tick: window.__world.tick, ballista: window.__world.entities.find((e) => e.unitId === 'ballista').alive }));
+  check('Hotel de ville detruit, Baliste vivante : aucun ecran de fin, la simulation continue', !hallGone.alive && hallGone.ballista && !(await overlay('game-over')) && hallGone.tick > tickHall, hallGone);
+
   // 2. Baliste detruite : defaite.
   await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'ballista'); b.hp = 0; });
   let ended = false;

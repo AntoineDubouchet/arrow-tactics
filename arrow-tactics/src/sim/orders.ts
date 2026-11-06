@@ -31,8 +31,10 @@ export type UnitOrder =
   | { type: 'attack'; targetEntityId: number }
   | { type: 'guard' }
   /** Heros : recolter la source `nodeId` (World.resourceNodes), au contact,
-   *  jusqu'a un autre ordre. */
-  | { type: 'harvest'; nodeId: number }
+   *  jusqu'a un autre ordre. `redirectFrom` : ordre reporte d'une source sans place
+   *  (sim/harvestStands.ts), source visee par le joueur : les reports suivants
+   *  restent autour d'elle. */
+  | { type: 'harvest'; nodeId: number; redirectFrom?: { x: number; z: number } }
   /** Heros : construire le chantier `targetEntityId`, au contact. `auto` :
    *  enchainement automatique, abandonne sans message s'il echoue. */
   | { type: 'build'; targetEntityId: number; auto?: true }
@@ -127,8 +129,9 @@ export interface MoveDestination {
 
 /** Raison de la fin d'un ordre manuel. `completed` : arrivee, cible tuee ou
  *  disparue. `failed` : destination ou cible inaccessible (aucune route), ou
- *  aucun progres pendant la fenetre de mesure. */
-export type OrderEndReason = 'arrived' | 'target-lost' | 'unreachable' | 'no-progress';
+ *  aucun progres pendant la fenetre de mesure. `no-work-stand` (G50) : source
+ *  accessible, mais tous ses emplacements de travail restent pris. */
+export type OrderEndReason = 'arrived' | 'target-lost' | 'unreachable' | 'no-progress' | 'no-work-stand';
 
 /** Fin d'un ordre manuel pendant le dernier pas (voir World.orderEvents) —
  *  l'unite est passee en Garde. Distinct de CommandResult, qui ne concerne
@@ -237,7 +240,7 @@ export function orderMadeNoProgress(entity: Entity, remaining: number, dt: numbe
  *  Garde sur place et un evenement est ajoute pour l'interface. */
 export function finishOrder(entity: Entity, events: OrderEndEvent[], outcome: OrderEndEvent['outcome'], reason: OrderEndReason): void {
   const type = entity.order.type;
-  if (type === 'move' || type === 'attack' || (isWorkOrder(entity.order) && reason === 'unreachable')) {
+  if (type === 'move' || type === 'attack' || (isWorkOrder(entity.order) && (reason === 'unreachable' || reason === 'no-work-stand'))) {
     events.push({ entityId: entity.id, order: entity.order.type as OrderEndEvent['order'], outcome, reason });
   }
   entity.order = { type: 'guard' };

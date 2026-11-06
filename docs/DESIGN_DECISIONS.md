@@ -115,6 +115,9 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G47 | Loot portable + slot vide = auto-équipement ; clic droit inventaire = équiper / déséquiper ; une icône par EquipmentSlot ; Héros désélectionnable, HUD RPG indépendant de la sélection RTS ; ProductionOrders affiche une barre commune à celle des actions ; bâtiment producteur + clic droit terrain = ralliement ; DamageType reste physical / magic, DamageSchool magique ; effet d'arme = toutes les N attaques réussies, K déclenchements déterministes ; Feu à chaque coup devient N = 1 / K = 1 / fire | Active (2026-11-05, valeurs provisoires) |
 | G48 | Map, navigation et génération restent en grille ; placement joueur des bâtiments continu ; navigation dérivée de l'empreinte continue ; rotation par pas de 15° ; fin d'un chantier : le constructeur cherche un autre chantier allié proche ; camp de départ à 4 portes ouvertes, une par côté ; mort du Héros : VFX blanc héroïque montant vers le ciel | Active (2026-11-06, valeurs provisoires) |
 | G49 | Aucune unité ne reste indéfiniment dans une boucle de navigation : point de travail verrouillé, watchdog (1,5 s, 0,2 case ; premier blocage : récupération, second : abandon), A* limité ; rejet sans recherche d'une destination sans route | Active (2026-11-06, valeurs provisoires) |
+| G50 | Hôtel de ville central préconstruit, Baliste dans le noyau (défaite inchangée) ; Maison +5 ; producteurs A Z E R ; stands de récolte réservés ; Héros seul : portrait + nom ; tas / 2 | Active (2026-11-06, valeurs provisoires) / Ouverte (bâtiment principal de défaite) |
+| G51 | Portes automatiques : un allié qui approche ouvre, sinon un hostile proche ferme | Active (2026-11-06, valeurs provisoires) |
+| G52 | Finalisation : Baliste portée 22,6 ; surplus manuel reporté aussitôt sur une source voisine du même type ; caméra de Survie à 28 ; Hôtel de ville de trois-quarts (27°) ; portes sans boutons | Active (2026-11-06, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -2936,6 +2939,109 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Sources** : `sim/workStand.ts`, `sim/pathfinding.ts`, `sim/orders.ts`, `sim/world.ts`,
   `sim/systems/movement.ts`, `sim/systems/hero.ts`, `config/constants.ts`, `main.ts`,
   `CURRENT_STATE.md` §6, `ARCHITECTURE.md` §13 vicies, `KNOWN_ISSUES.md` KI-66, KI-73.
+
+### G50 — Passe du 2026-11-06 : noyau de départ, Maison +5, A Z E R, stands de récolte, fiche du Héros, tas / 2
+
+- **Statut** : Active (2026-11-06). Valeurs **PROVISOIRES**.
+- **Décisions d'Antoine** (2026-11-06) :
+  - **Hôtel de ville** = nouveau bâtiment central préconstruit : cœur visuel, architecture prête
+    pour plus tard, sans production, technologie, niveau, ressource passive ni nouveau menu ;
+  - **Baliste déplacée** dans le noyau de bâtiments, condition de défaite inchangée
+    provisoirement ; elle garde le dépôt universel, l'Hôtel de ville n'en est pas un ;
+  - **Maison = +5 population**, coût inchangé (G45) ;
+  - **producteurs : A Z E R** selon l'ordre réel des unités, même action que le bouton ;
+    R : placement > producteur à 4 unités > caméra ;
+  - **récolte multi-Villageois = stands réservés**, pas de compétition pour le même point, le
+    watchdog ne sert pas de solution normale ;
+  - **fiche contextuelle du Héros = portrait + nom**, le HUD RPG porte les statistiques ;
+  - **tas de bois et de pierre procéduraux = quantité de spawns divisée par deux**.
+- **Hôtel de ville de trois-quarts** (décision d'Antoine, 2026-11-06, capture fournie, **choix artistique, à
+  ne pas ramener à 0°**), sans toucher au reste du camp : caméra de la Survie à 18°, bâtiment à 45° monde, soit
+  27° de biais, porte du côté caméra. Une caméra orthographique voit la même face où qu'elle
+  vise. Un carré tourné de 45° occupe un losange : collision et navigation le suivent, c'est voulu.
+- **Décision provisoire confirmée par Antoine** : la Baliste reste l'unique bâtiment dont la destruction
+  provoque la défaite. **Décision ouverte pour plus tard** : **Hôtel de ville ou Baliste comme bâtiment
+  principal à défendre ?** L'Hôtel de ville n'a encore ni production, ni technologie, ni dépôt, ni fonction
+  économique, ni capacité défensive.
+- **Choix de la passe** (à valider ou corriger) :
+  - noyau en tourniquet, voir `CURRENT_STATE.md` §6 duodecies : Baliste au nord-ouest, le côté qui
+    change le moins les trajets vers le bosquet, la pierre et l'or ;
+  - Hôtel de ville : 30 PV, vision 21, réparation 30 or, 20 bois, 20 pierre ;
+  - une unité de la boucle de récolte traverse un Villageois ancré (KI-75) : un ancré bloquant
+    provoquait 2 à 19 blocages en 60 s, car les chemins ne voient pas les corps ;
+  - réservation à 6 cases de la source, travail à 0,2 case de son emplacement ;
+  - un ordre automatique renonce tout de suite, sans attendre ;
+  - raccourci conservé pour une unité pas encore débloquée (rang dans la liste complète) ;
+  - tirages et cases de l'ancien budget conservés à la génération, pour que les gisements et
+    les camps ne bougent pas : sans cela, 9 graines sur 12 déplaçaient un camp, et 4 l'or proche.
+- **Changements d'équilibrage et de ressenti signalés** :
+  - population : 2 / 15 au départ (2 / 9), chaque Maison vaut 2,5 fois plus pour le même coût ;
+  - trajets au dépôt (cycle complet, un Villageois, graine 12345) : bois 23,8 → 22,8 s, pierre
+    29,5 → 31,2 s, or 34,4 → 36,5 s ;
+  - la Baliste décentrée de 6,4 cases, portée portée à 22,6 (voir G52) ; les vagues marchent vers elle, donc de biais ;
+  - aire libre : 501 cases (526), répartie autour du noyau au lieu d'une cour centrale ;
+  - 4 Villageois au plus sur un arbre, 8 sur un gisement : en bosquet serré, un arbre en a parfois
+    moins (3 à 1) : le surplus se reporte aussitôt sur les arbres voisins (G52) ;
+  - moins de bois et de pierre au sol : début de partie plus dépendant de la récolte ;
+  - A et E ne zooment plus quand un producteur est sélectionné (la molette reste).
+- **Corrections d'écarts signalés en G48** : rayon réservé **17** (12,5 restait écrit dans
+  `CURRENT_STATE.md` et `EDITOR.md`) ; une vague repoussée ne donne plus d'or depuis G46
+  (`GAME_DESIGN.md` §3, `CURRENT_STATE.md` §6 quinquies).
+- **Filet de sécurité** : `tests/sim/farm-stands.mts`, `tests/sim/noyau-depart.mts`,
+  `tests/game/noyau-jeu.cjs`.
+- **À ne pas faire** : ne pas viser le même point pour deux unités ; ne pas relancer de recherche
+  pendant l'attente d'un emplacement ; ne pas décaler le noyau d'une fraction de case ;
+  ne pas écrire de règle de raccourci par bâtiment ; ne pas poser un dépôt ou une production sur
+  l'Hôtel de ville sans nouvelle décision.
+- **Sources** : `config/startingBase.ts`, `config/mapDef.ts`, `config/maps/proceduralSurvival.ts`,
+  `data/buildings.ts`, `data/production.ts`, `data/hero.ts`, `data/vision.ts`, `sim/harvestStands.ts`,
+  `sim/systems/movement.ts`, `sim/systems/hero.ts`, `sim/systems/workers.ts`, `sim/systems/cargo.ts`,
+  `run/buildingRepair.ts`, `run/entityInfo.ts`, `ui/entityInfoPanel.ts`, `editor/editorState.ts`, `main.ts`,
+  `CURRENT_STATE.md` §2, §6, §6 duodecies, `ARCHITECTURE.md` §13 unvicies, `KNOWN_ISSUES.md` KI-75, KI-76.
+
+### G51 — Portes automatiques (2026-11-06)
+
+- **Statut** : Active. Valeurs **PROVISOIRES**.
+- **Décision d'Antoine** : un adversaire proche d'une porte alliée la ferme ; un allié qui
+  approche d'une porte alliée fermée l'ouvre.
+- **Choix de la passe** (à valider ou corriger) :
+  - l'allié gagne si les deux conditions sont vraies : un hostile ne franchit jamais une porte,
+    même ouverte, alors qu'un allié laissé dehors resterait coincé ;
+  - 2,5 cases pour l'allié, 5 pour l'hostile ; un allié immobile ne retient pas la porte ;
+  - sans personne, la porte reste comme elle est ; elle ne se rouvre pas au départ de l'ennemi ;
+  - boutons Ouvrir / Fermer retirés depuis (G52).
+- **Changement de ressenti signalé** : l'état ouvert ou fermé devient visuel pour le combat et les
+  trajets. Les hostiles étaient déjà bloqués par une porte ouverte, et un allié n'est plus jamais
+  bloqué par la sienne : **fermer une porte ne sert plus à garder ses unités à l'intérieur**.
+- **À ne pas faire** : ne pas refaire dépendre les chemins de l'état ouvert ou fermé (une unité ne se
+  dirigerait plus vers une porte fermée) ; ne pas remplacer `World.obstacles` à chaque ouverture.
+- **Sources** : `sim/systems/doors.ts`, `sim/relations.ts`, `sim/world.ts`, `data/walls.ts`,
+  `CURRENT_STATE.md` §6 octies.
+
+### G52 — Finalisation avant commit (2026-11-06)
+
+- **Statut** : Active. Valeurs **PROVISOIRES**.
+- **Décisions d'Antoine** :
+  - **Baliste** : portée 18 → 22,5, 23 au plus, la plus petite valeur suffisante. Retenu : **22,6** (ennemi
+    contre le bout de palissade le plus lointain : 22,58 cases). Dégâts, cadence, acquisition, vision,
+    améliorations et projectiles inchangés ;
+  - **surplus manuel** : plus d'attente de 8 s, report immédiat sur une source proche du même type, jamais
+    d'un type à l'autre ; rien : fin d'ordre, message unique, Garde, autonomie après 1 s ;
+  - **caméra de Survie** : hauteur de vue ≈ 28 au lancement et au reset, pivot 18°, inclinaison et suivi conservés ;
+  - **Hôtel de ville** : biais de ≈ 27°, **choix artistique** ;
+  - **portes** : entièrement automatiques, boutons retirés, aucun verrou pour l'instant ;
+  - **défaite** : la Baliste seule, la question de l'Hôtel de ville reste ouverte pour plus tard.
+- **Choix de la passe** (à valider ou corriger) :
+  - portée de report mesurée depuis la source visée par le joueur (8 cases), et limite à pied de 16 cases :
+    à vol d'oiseau, un arbre derrière la palissade restait à portée et aurait fait sortir du camp ;
+  - le Héros suit la même règle de report qu'un Villageois ;
+  - Espace revient au cadrage complet, en gardant le suivi ; le clic sur le portrait recentre sans changer le zoom ;
+  - `World.setDoorWanted` reste, pour les tests seulement.
+- **À ne pas faire** : ne pas remettre d'attente sur une source pleine ; ne pas ramener l'Hôtel de ville
+  face caméra ; ne pas réaligner sa collision sur la grille ; ne pas rajouter de bouton de porte sans
+  vraie décision de verrouillage.
+- **Sources** : `config/constants.ts`, `sim/harvestStands.ts`, `sim/systems/movement.ts`, `sim/orders.ts`, `data/hero.ts`,
+  `render/renderer.ts`, `main.ts`, `CURRENT_STATE.md` §5, §6, §6 duodecies.
 
 ## H. Outils internes
 

@@ -5,6 +5,7 @@ import type { CargoState, Entity } from '../entity';
 
 /** Tache a reprendre apres un depot automatique. */
 export type CargoReturnTo = CargoState['returnTo'];
+import { harvestSourceSaturated } from '../harvestStands';
 import { areAllied } from '../relations';
 import type { HeroWorkContext } from './hero';
 
@@ -127,8 +128,9 @@ function resumeOrder(e: Entity, work: HeroWorkContext): Entity['order'] | null {
 }
 
 /** Source `nodeId` finie : la plus proche du meme type a
- *  WORKER_NEXT_NODE_RADIUS cases (Villageois seulement), sinon null. */
-function nextNode(e: Entity, work: HeroWorkContext, nodeId: number): number | null {
+ *  WORKER_NEXT_NODE_RADIUS cases (Villageois seulement), qui a encore un
+ *  emplacement de travail (G50), sinon null. */
+function nextNode(e: Entity, work: HeroWorkContext, nodeId: number, entities: readonly Entity[]): number | null {
   if (!e.worker) return null;
   const old = work.nodes.get(nodeId);
   if (!old || !work.canHarvest(old.resource)) return null;
@@ -137,7 +139,7 @@ function nextNode(e: Entity, work: HeroWorkContext, nodeId: number): number | nu
   for (const n of work.nodes.values()) {
     if (n.id === old.id || n.resource !== old.resource || (work.nodeAmounts.get(n.id) ?? 1) <= 0) continue;
     const d = Math.hypot(n.x - old.x, n.z - old.z);
-    if (d <= best) {
+    if (d <= best && !(n.block && harvestSourceSaturated(e, n.id, entities, work))) {
       best = d;
       next = n.id;
     }
@@ -149,7 +151,7 @@ function nextNode(e: Entity, work: HeroWorkContext, nodeId: number): number | nu
  *  pas vide (retour vers la source voisine du Villageois s'il y en a une),
  *  sinon source voisine, sinon Garde. */
 function afterSource(e: Entity, work: HeroWorkContext, entities: readonly Entity[], nodeId: number, events: CargoEvent[], lostTool: boolean): void {
-  const next = lostTool ? null : nextNode(e, work, nodeId);
+  const next = lostTool ? null : nextNode(e, work, nodeId, entities);
   const returnTo = next !== null ? ({ kind: 'node', nodeId: next } as const) : null;
   if (cargoTotal(e.cargo!) > 0 && goDeposit(e, entities, returnTo, events)) return;
   e.cargo!.returnTo = null;

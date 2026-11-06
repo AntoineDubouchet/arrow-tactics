@@ -44,7 +44,7 @@ export interface WallPieceState {
    *  joueur. Une fermeture attend qu'aucun corps n'occupe l'ouverture
    *  (sim/systems/doors.ts). Meme objet que ObstacleDef.door de l'emprise.
    *  null pour un segment. */
-  door: { owner: Team; open: boolean; wantOpen: boolean } | null;
+  door: { owner: Team; open: boolean; wantOpen: boolean; built: boolean } | null;
 }
 
 /**

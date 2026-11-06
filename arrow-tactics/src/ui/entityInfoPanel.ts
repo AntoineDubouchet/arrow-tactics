@@ -95,6 +95,18 @@ export class EntityInfoPanel {
     const team = el('div', 'entity-info-team');
     team.textContent = TEAM_LABELS[vm.team];
     header.append(title, team);
+    // Heros (G50) : portrait et nom seulement, pas de PV ni de statistiques.
+    if (vm.kind === 'hero') {
+      team.remove();
+      const portrait = el('div', 'entity-info-portrait');
+      if (vm.portrait) {
+        const img = document.createElement('img');
+        img.src = vm.portrait;
+        img.alt = '';
+        portrait.appendChild(img);
+      }
+      header.prepend(portrait);
+    }
 
     const hp = el('div', 'entity-info-hp');
     const hpLine = el('div', 'entity-info-row');
@@ -122,7 +134,7 @@ export class EntityInfoPanel {
       }
       this.root.appendChild(list);
     }
-    this.root.appendChild(hp);
+    if (vm.kind !== 'hero') this.root.appendChild(hp);
 
     const rows = this.buildRows(this.root, vm.rows);
     const sectionRows = vm.sections.map((section) => {
@@ -201,6 +213,7 @@ function structureKey(vm: EntityInfoViewModel): string {
     vm.kind,
     vm.team,
     vm.kind === 'group' ? vm.composition.length : 0,
+    vm.kind === 'hero' ? vm.portrait : null,
     vm.rows.map((r) => r.label),
     vm.sections.map((s) => [s.title, s.rows.map((r) => r.label)]),
     vm.status !== null,

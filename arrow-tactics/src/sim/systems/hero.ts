@@ -8,6 +8,7 @@ import { getBuilding } from '../../data/buildings';
 import { applyDamageToEntity, type DamageType } from '../damage';
 import { targetDistance } from '../geometry';
 import { cachedPathGrid } from '../pathfinding';
+import { harvestReservationOf } from '../harvestStands';
 import { chooseWorkStand, distanceToSite } from '../workStand';
 import { areAllied } from '../relations';
 import {
@@ -18,6 +19,7 @@ import {
   CHEST_REACH,
   CONSTRUCTION_START_HP_FRACTION,
   HARVEST_REACH,
+  HARVEST_STAND_REACH,
   WORKER_HARVEST_REACH,
   HERO_XP_RANGE,
   heroLevelForXp,
@@ -129,6 +131,8 @@ export interface HeroWorkContext {
   openChest(chest: Chest): { itemId: string | null; dropId: number | null };
   /** Chantier que l'unite peut rejoindre a pied (World, canReachSite). */
   canReachSite(e: Entity, site: Entity): boolean;
+  /** Emplacements de travail de la source pour le corps de `e` (G50). */
+  harvestStandCapacity(e: Entity, nodeId: number): number;
 }
 
 /** But du travail d'un Heros ou d'un Villageois (source, chantier, tas,
@@ -156,13 +160,17 @@ export function workGoal(e: Entity, work: HeroWorkContext, byId: ReadonlyMap<num
     const worker = e.hero ?? e.worker;
     const extracting = worker !== null && worker.workTimer > 0 && worker.working === HARVEST_NODE_KINDS[node.resource].working;
     if (!work.canHarvest(node.resource) && !extracting) return null;
-    // Arbre (cases bloquantes, 2026-11-02) : portee mesuree jusqu'a ses cases,
-    // le Heros ne pouvant plus en approcher le centre. Villageois
-    // (2026-11-05) : portee courte (WORKER_HARVEST_REACH), au contact visuel
-    // du bord de la source ; le Heros garde la sienne.
-    const reach = node.block ? distanceToBox(e, node.block) : Math.hypot(node.x - e.x, node.z - e.z);
+    // Source bloquante (arbre, gisement ; 2026-11-06, G50) : au travail seulement a
+    // SON emplacement reserve (sim/harvestStands.ts), jamais sur la seule distance a
+    // la source, Heros compris.
+    if (node.block) {
+      const stand = harvestReservationOf(e);
+      return { x: node.x, z: node.z, reached: stand !== null && stand.resourceNodeId === node.id && Math.hypot(stand.x - e.x, stand.z - e.z) <= HARVEST_STAND_REACH, target: null, box: node.block };
+    }
+    // Source sans emprise : portee mesuree jusqu'a son centre. Villageois
+    // (2026-11-05) : portee courte (WORKER_HARVEST_REACH) ; le Heros garde la sienne.
     const tolerance = e.worker ? WORKER_HARVEST_REACH : HARVEST_REACH;
-    return { x: node.x, z: node.z, reached: reach <= e.stats.radius + tolerance, target: null, ...(node.block ? { box: node.block } : {}) };
+    return { x: node.x, z: node.z, reached: Math.hypot(node.x - e.x, node.z - e.z) <= e.stats.radius + tolerance, target: null };
   }
   if (order.type === 'pickupItem') {
     const drop = work.drops[order.dropId];
@@ -250,7 +258,7 @@ export function canReachSite(e: Entity, site: Entity, obstacles: ObstacleDef[], 
 }
 
 /** Distance du centre de `e` a un rectangle (0 a l'interieur). */
-function distanceToBox(e: { x: number; z: number }, b: ObstacleBounds): number {
+export function distanceToBox(e: { x: number; z: number }, b: ObstacleBounds): number {
   const dx = Math.max(b.minX - e.x, 0, e.x - b.maxX);
   const dz = Math.max(b.minZ - e.z, 0, e.z - b.maxZ);
   return Math.hypot(dx, dz);

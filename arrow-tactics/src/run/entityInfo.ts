@@ -73,7 +73,7 @@ export interface EntityInfoAction {
    *  `research` : technologie (payload : id) a la file du site inspecte
    *  (Forge, Caserne). `upgradeBallista` : niveau suivant de la Baliste a sa
    *  file. `toggleBallistaMode` : bascule la Baliste AUTO / MANUEL. */
-  id: 'upgradeBuilding' | 'research' | 'upgradeBallista' | 'toggleBallistaMode' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding' | 'toggleDoor';
+  id: 'upgradeBuilding' | 'research' | 'upgradeBallista' | 'toggleBallistaMode' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding';
   /** `buildStructure` : batiment a poser ; `produceUnit` : unite a produire
    *  (fiche d'un batiment) ; `research` : technologie. */
   payload?: string;
@@ -83,6 +83,8 @@ export interface EntityInfoAction {
   /** Ordre courant d'une file de production (2026-11-05, G47) : barre
    *  commune a celle de l'action du Heros (0..1, secondes restantes). */
   progress?: { progress: number; remaining: number };
+  /** `produceUnit` (G50) : touche qui fait la meme chose que le bouton. */
+  hotkey?: string;
 }
 
 export interface EntityInfoStatus {
@@ -121,7 +123,15 @@ export interface BallistaInfo extends EntityInfoCommon {
   kind: 'ballista';
 }
 
-export type EntityInfoViewModel = UnitInfo | GroupInfo | BuildingInfo | BallistaInfo;
+/** Heros seul selectionne (2026-11-06, G50, decision d'Antoine) : portrait et nom,
+ *  rien d'autre ; le HUD RPG porte ses barres et ses statistiques. */
+export interface HeroCardInfo extends EntityInfoCommon {
+  kind: 'hero';
+  /** Vignette (render/toonThumbnail.ts) ; null tant qu'elle n'est pas prete. */
+  portrait: string | null;
+}
+
+export type EntityInfoViewModel = UnitInfo | GroupInfo | BuildingInfo | BallistaInfo | HeroCardInfo;
 
 // --- Mise en forme ---------------------------------------------------------
 
@@ -296,6 +306,10 @@ function buildUnitInfo(source: UnitInfoSource): UnitInfo {
  *  compris (Entity.level, data/unitLevels.ts : production pour le joueur,
  *  vague pour un ennemi, carte pour un garde de camp, progression pour le
  *  Heros). */
+export function heroCardInfo(entity: Entity, heroName: string, portrait: string | null): HeroCardInfo {
+  return { kind: 'hero', title: heroName, team: entity.team, portrait, hp: hpOf(entity.hp, entity.stats.maxHp), rows: [], sections: [], status: null };
+}
+
 export function battleUnitInfo(entity: Entity, battleElapsedSeconds: number): UnitInfo {
   const info = buildUnitInfo({
     unitId: entity.unitId,

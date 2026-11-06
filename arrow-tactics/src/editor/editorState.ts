@@ -50,7 +50,7 @@ import {
 import { buildingFootprintTiles } from '../data/buildings';
 import { getWallType } from '../data/walls';
 import { campFacingFrom } from '../data/campLayout';
-import { DEFAULT_STARTING_BASE_PRESET, reservedCells, reservedOverlapsDisc, startingBaseLayoutAt, startingBaseRotationFor, STARTING_BASE_PRESETS, type StartingBaseLayout } from '../config/startingBase';
+import { DEFAULT_STARTING_BASE_PRESET, reservedCells, reservedOverlapsDisc, startingBaseBallistaAt, startingBaseLayoutAt, startingBaseRotationFor, STARTING_BASE_PRESETS, type StartingBaseLayout } from '../config/startingBase';
 import { getCampKind } from '../data/camps';
 import { VISION_RADIUS } from '../data/vision';
 import { planWallLine, segmentBoxDistance, segmentWallLine, wallLineCells, wallSegmentAt, type WallLinePlan, type WallPlacementContext, type WallPoint, type WallSegment } from '../core/wallLine';
@@ -464,16 +464,28 @@ export class EditorState {
     return obstacleBounds(computeBallistaObstacle({ x, z }));
   }
 
-  /** Vrai si le point (x, z) est dans l'empreinte de la Baliste actuelle
-   *  (bord exclu). */
-  isInsideBallista(x: number, z: number): boolean {
-    const b = this.ballistaBoundsAt(this.ballista.x, this.ballista.z);
-    return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ;
+  /** Emprise de la vraie Baliste du camp de depart, decalee du Depart (G50), ou null
+   *  sans camp : le Depart est alors la Baliste. */
+  private campBallistaBounds(): ObstacleBounds | null {
+    const preset = this.startingPreset();
+    if (!preset || !this.ballistaExplicit) return null;
+    const b = startingBaseBallistaAt(this.ballista, preset, this.startingBase?.rotation ?? 0);
+    return this.ballistaBoundsAt(b.x, b.z);
   }
 
-  /** Vrai si la case (x, z) est sous l'empreinte de la Baliste actuelle. */
+  /** Vrai si le point (x, z) est dans l'empreinte du Depart ou de la Baliste
+   *  actuelle (bord exclu). */
+  isInsideBallista(x: number, z: number): boolean {
+    const inside = (b: ObstacleBounds): boolean => x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ;
+    const camp = this.campBallistaBounds();
+    return inside(this.ballistaBoundsAt(this.ballista.x, this.ballista.z)) || (camp !== null && inside(camp));
+  }
+
+  /** Vrai si la case (x, z) est sous l'empreinte du Depart ou de la Baliste actuelle. */
   private isCellUnderBallista(x: number, z: number): boolean {
-    return boundsOverlap({ minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 }, this.ballistaBoundsAt(this.ballista.x, this.ballista.z));
+    const cell = { minX: x, maxX: x + 1, minZ: z, maxZ: z + 1 };
+    const camp = this.campBallistaBounds();
+    return boundsOverlap(cell, this.ballistaBoundsAt(this.ballista.x, this.ballista.z)) || (camp !== null && boundsOverlap(cell, camp));
   }
 
   /** Vrai si la Baliste peut etre centree en (x, z) : toutes les cases sous
@@ -552,13 +564,15 @@ export class EditorState {
       const level = this.elevationAt(Math.floor(x), Math.floor(z)).level;
       const sources = resourceNodeCellKeys(this.obstacles);
       const walls = this.wallPieces();
-      // Cases que le camp occupe (Maisons, Auberge, palissade) : une unite
+      // Cases que le camp occupe (batiments, Baliste, palissade) : une unite
       // n'y est refusee que la ; ailleurs dans l'emprise, elle reste libre.
       const occupied = new Set<string>();
       for (const b of layout.buildings) {
         const r = buildingBoundsAt(b.buildingId, b.x, b.z);
         for (let cx = Math.floor(r.minX); cx < Math.ceil(r.maxX); cx++) for (let cz = Math.floor(r.minZ); cz < Math.ceil(r.maxZ); cz++) occupied.add(cellKey(cx, cz));
       }
+      const tower = this.ballistaBoundsAt(layout.ballista.x, layout.ballista.z);
+      for (let cx = Math.floor(tower.minX); cx < Math.ceil(tower.maxX); cx++) for (let cz = Math.floor(tower.minZ); cz < Math.ceil(tower.maxZ); cz++) occupied.add(cellKey(cx, cz));
       for (const line of layout.walls) for (const seg of segmentWallLine(line, getWallType(line.type).segmentLength)) for (const w of wallLineCells(seg)) occupied.add(cellKey(w.x, w.z));
       // Gisements (emprise 2 x 2) et bosquet (1 x 1) garantis, derives du
       // Depart (2026-11-05).
@@ -742,7 +756,7 @@ export class EditorState {
         if (o.kind !== 'rock' || o.ore !== 'gold') return false;
         const c = obstacleCenter(o);
         const d = Math.hypot(c.x - L.origin.x, c.z - L.origin.z);
-        return d >= r + 1.5 && d + 1.5 <= VISION_RADIUS.ballista;
+        return d >= r + 1.5 && d + 1.5 <= VISION_RADIUS.townhall;
       });
       if (!goldOutside) warnings.push("Aucun gisement d'or visible hors de l'enceinte au départ (le générateur en garantit un).");
     }
@@ -1489,6 +1503,8 @@ export class EditorState {
     if (this.boundsTouchWater(r)) return false;
     if (this.buildings.some((b) => b.id !== ignoreBuildingId && boundsOverlap(r, buildingBoundsAt(b.buildingId, b.x, b.z)))) return false;
     if (boundsOverlap(r, this.ballistaBoundsAt(this.ballista.x, this.ballista.z))) return false;
+    const campBallista = this.campBallistaBounds();
+    if (campBallista && boundsOverlap(r, campBallista)) return false;
     if (this.obstacles.some((o) => isBlockingMapObstacle(o) && boundsOverlap(r, obstacleBounds(o)))) return false;
     // Sources debout (arbres, gros gisements, 2026-11-02) : bloquantes en jeu.
     const sources = resourceNodeCellKeys(this.obstacles);
@@ -1521,7 +1537,7 @@ export class EditorState {
       isWater: (x, z) => this.isWaterCell(Math.floor(x), Math.floor(z)),
       crossesCliff: (s) => cliffs.some((b) => segmentBoxDistance(s, b) === 0),
       obstacles: [...trees, ...this.obstacles.filter(isBlockingMapObstacle).map(obstacleBounds)],
-      buildings: [...this.buildings.map((b) => buildingBoundsAt(b.buildingId, b.x, b.z)), this.ballistaBoundsAt(this.ballista.x, this.ballista.z)],
+      buildings: [...this.buildings.map((b) => buildingBoundsAt(b.buildingId, b.x, b.z)), this.ballistaBoundsAt(this.ballista.x, this.ballista.z), ...(this.campBallistaBounds() ? [this.campBallistaBounds()!] : [])],
       walls: this.wallPieces().map((p) => p.segment),
       bodies: this.units.map((u) => ({ x: u.x, z: u.z, r: getUnit(u.unitId).stats.radius })),
     };

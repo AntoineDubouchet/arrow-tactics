@@ -1,16 +1,19 @@
 import type { Entity } from '../entity';
 import { distanceToSegment } from '../../core/wallLine';
+import { DOOR_ALLY_OPEN_RANGE, DOOR_ENEMY_CLOSE_RANGE } from '../../data/walls';
 import { areAllied } from '../relations';
 
 /**
- * Portes des murs V2 (2026-11-02, Entity.wall.door) : ouvertes ou fermees sur
- * demande de leur camp (World.setDoorWanted), au pas fixe, avant tout
- * deplacement. La simulation est la seule source de verite du passage ; le
+ * Portes des murs V2 (2026-11-02, Entity.wall.door) : entierement automatiques
+ * (doorDemandSystem) ; le joueur n'a plus de bouton, World.setDoorWanted ne sert plus
+ * qu'aux tests. Au pas fixe, avant tout deplacement. La simulation est la seule source de verite ; le
  * rendu anime les battants d'apres `door.open`.
  *
- * - Ouverture : immediate ; l'emprise reste dans World.obstacles, mais le
- *   proprietaire et ses allies la franchissent (sim/relations.ts,
- *   canUnitPassGate) ; elle bloque toujours les hostiles.
+ * - Passage : l'emprise reste dans World.obstacles ; le proprietaire et ses allies
+ *   franchissent une porte batie (sim/relations.ts, canUnitPassGate), elle bloque
+ *   toujours les hostiles. L'etat ouvert ou ferme ne change donc plus les chemins :
+ *   seule la fin du chantier remplace la liste d'obstacles (onChange).
+ * - Ouverture : immediate.
  * - Fermeture : seulement quand aucun corps n'occupe l'ouverture (unite
  *   alliee du proprietaire, seule a pouvoir s'y trouver, dont le cercle
  *   entre dans la capsule) ; sinon elle ATTEND, sans jamais ecraser ni
@@ -22,10 +25,13 @@ export function doorSystem(entities: readonly Entity[], halfWidthOf: (door: Enti
   for (const e of entities) {
     const door = e.wall?.door;
     if (!door || !e.alive || e.construction) continue;
+    if (!door.built) {
+      door.built = true;
+      onChange();
+    }
     if (door.wantOpen === door.open) continue;
     if (door.wantOpen) {
       door.open = true;
-      onChange();
       continue;
     }
     const w = e.wall!;
@@ -33,6 +39,35 @@ export function doorSystem(entities: readonly Entity[], halfWidthOf: (door: Enti
     const occupied = entities.some((u) => u.alive && !u.isBuilding && areAllied(u.team, door.owner) && distanceToSegment(u.x, u.z, w) < u.stats.radius + hw - 1e-3);
     if (occupied) continue;
     door.open = false;
-    onChange();
+  }
+}
+
+/**
+ * Portes automatiques (2026-11-06, decision d'Antoine), apres les deplacements du pas
+ * (Entity.prevX, prevZ) ; doorSystem applique au pas suivant. Une unite alliee qui se
+ * rapproche d'une porte (DOOR_ALLY_OPEN_RANGE) l'ouvre ; sinon, un hostile proche
+ * (DOOR_ENEMY_CLOSE_RANGE) la ferme. L'allie passe en premier : un hostile ne franchit
+ * jamais une porte, meme ouverte, alors qu'un allie laisse dehors resterait coince.
+ * Sans personne : elle reste comme elle est. Deterministe.
+ */
+export function doorDemandSystem(entities: readonly Entity[]): void {
+  for (const e of entities) {
+    const door = e.wall?.door;
+    if (!door || !e.alive || e.construction) continue;
+    const w = e.wall!;
+    let allyApproaching = false;
+    let enemyNear = false;
+    for (const u of entities) {
+      if (!u.alive || u.isBuilding) continue;
+      const d = distanceToSegment(u.x, u.z, w);
+      if (!areAllied(u.team, door.owner)) {
+        if (d <= DOOR_ENEMY_CLOSE_RANGE) enemyNear = true;
+      } else if (d <= DOOR_ALLY_OPEN_RANGE && d < distanceToSegment(u.prevX, u.prevZ, w) - 1e-4) {
+        allyApproaching = true;
+        break;
+      }
+    }
+    if (allyApproaching) door.wantOpen = true;
+    else if (enemyNear) door.wantOpen = false;
   }
 }

@@ -135,6 +135,18 @@ export const WORKER_HARVEST_REACH = 0.3;
  *  ci-dessus : elle s'arrete au contact sans jamais viser le coin ni le
  *  centre bloque, aucune oscillation). 2026-11-05. PROVISOIRE. */
 export const HARVEST_STAND_GAP = 0.15;
+/** Emplacement de travail reserve (2026-11-06, G50, valeurs PROVISOIRES) :
+ *  distance a la source ou l'unite reserve le sien ; distance a l'emplacement pour
+ *  travailler. */
+export const HARVEST_RESERVE_RANGE = 6;
+export const HARVEST_STAND_REACH = 0.2;
+/** Ordre manuel sur une source sans place (2026-11-06, decision d'Antoine) : une
+ *  autre source du meme type, a cette distance de la source visee, et a cette distance
+ *  a pied de l'unite (cases orthogonales : un arbre juste derriere la palissade reste
+ *  trop loin). Sinon, l'ordre s'arrete : « Aucun emplacement de travail disponible ».
+ *  PROVISOIRE. */
+export const HARVEST_REDIRECT_RANGE = 8;
+export const HARVEST_REDIRECT_MAX_WALK = 16;
 
 /** Construction : portee de travail du Heros autour de l'emprise d'un
  *  chantier, et PV d'un chantier a sa pose (fraction des PV max ; le reste

@@ -35,10 +35,12 @@ const STAKE_SPACING = 0.17;
 const STAKE_HEIGHT = 1.05;
 const POST_RADIUS = 0.13;
 const POST_HEIGHT = 1.3;
-const GATE_POST_HEIGHT = 1.42;
-/** Vantail : pieux un peu plus fins et plus courts que ceux du mur. */
+/** Porte nettement plus haute que le mur (2026-11-06, demande d'Antoine : on ne la
+ *  distinguait pas ; 1,42 et 0,95 avant). Rendu seulement. */
+const GATE_POST_HEIGHT = 2.2;
+/** Vantail : pieux un peu plus fins que ceux du mur. */
 const LEAF_STAKE_RADIUS = 0.07;
-const LEAF_STAKE_HEIGHT = 0.95;
+const LEAF_STAKE_HEIGHT = 1.6;
 const WOOD = new THREE.Color(0x9a6a3a);
 const WOOD_DARK = new THREE.Color(0x6e4826);
 const WOOD_TIP = new THREE.Color(0xc89a62);
@@ -166,8 +168,8 @@ function buildDoorLeaf(width: number, name: string, dir: 1 | -1): THREE.Group {
     addStake(out, x, 0, 0, LEAF_STAKE_RADIUS, h, tint, WOOD_TIP);
   }
   const inner = -LEAF_STAKE_RADIUS - 0.03;
-  for (const y of [0.28, 0.64]) addRail(out, dir * 0.03, y, dir * (width - 0.03), y, inner, 0.065, WOOD_DARK);
-  addRail(out, dir * 0.06, 0.22, dir * (width - 0.06), 0.72, inner - 0.005, 0.055, WOOD_DARK);
+  for (const y of [0.295, 0.675]) addRail(out, dir * 0.03, y * LEAF_STAKE_HEIGHT, dir * (width - 0.03), y * LEAF_STAKE_HEIGHT, inner, 0.065, WOOD_DARK);
+  addRail(out, dir * 0.06, 0.23 * LEAF_STAKE_HEIGHT, dir * (width - 0.06), 0.76 * LEAF_STAKE_HEIGHT, inner - 0.005, 0.055, WOOD_DARK);
   const mesh = new THREE.Mesh(out.build(), woodMaterial());
   mesh.castShadow = true;
   mesh.receiveShadow = true;

@@ -72,6 +72,9 @@ const PROPS: readonly { model: string; scale: number }[] = [
   { model: 'stump_round', scale: 0.37 },
 ];
 
+/** Tirages de tas d'une carte (voir la generation des petits tas, G50). */
+const PILE_DRAWS = { nearWood: 10, nearStone: 6, farWood: 16, farStone: 13 } as const;
+
 /** Bruit de valeur lisse, deterministe (graine, coordonnees continues). */
 function hash2(seed: number, x: number, z: number): number {
   let h = (seed ^ Math.imul(x | 0, 374761393) ^ Math.imul(z | 0, 668265263)) >>> 0;
@@ -683,11 +686,16 @@ export function generateSurvivalMap(seed: number): MapDef {
   // trois fois plus rares (2026-11-02, demande d'Antoine : il faut explorer),
   // toujours sur une case RELIEE au camp. Garantie de depart : des tas
   // proches (9 a 18 cases, hors de la plaine du camp) jusqu'a au moins
-  // NEAR_WOOD bois et NEAR_STONE pierre (Mine, Caserne, Forge) ; le reste
-  // disperse, un peu plus fourni au loin. Valeurs PROVISOIRES.
+  // NEAR_WOOD bois et NEAR_STONE pierre ; le reste disperse, un peu plus fourni
+  // au loin. Deux fois moins de tas (2026-11-06, G50, decision d'Antoine) : les
+  // budgets reduits decident des tas poses (`placed`), jamais une suppression apres
+  // coup, donc meme dispersion ; quantite par tas inchangee. Les tirages de l'ancien
+  // budget continuent et gardent leur case reservee, pendant la generation seulement :
+  // une graine garde exactement ses arbres, ses gisements et ses camps, seuls les
+  // tas changent. Valeurs PROVISOIRES.
   const resourcePiles: ResourcePileDef[] = [];
   const pileCells = new Set<string>();
-  const placePile = (resource: ResourcePileDef['resource'], dMin: number, dMax: number, minAmount?: number): number => {
+  const placePile = (resource: ResourcePileDef['resource'], dMin: number, dMax: number, minAmount: number | undefined, placed: boolean): number => {
     for (let attempt = 0; attempt < 80; attempt++) {
       const a = rng.next() * Math.PI * 2;
       const d = dMin + rng.next() * (dMax - dMin);
@@ -696,19 +704,22 @@ export function generateSurvivalMap(seed: number): MapDef {
       if (!reached.has(k) || ramps.has(k) || hill.has(k) || occupied.has(k) || pileCells.has(k) || nearStartZone(x, z)) continue;
       const far = d > 24;
       const amount = minAmount !== undefined ? minAmount + Math.floor(rng.next() * 2) : (far ? 2 : 1) + Math.floor(rng.next() * 3);
-      resourcePiles.push({ x: x + 0.3 + rng.next() * 0.4, z: z + 0.3 + rng.next() * 0.4, resource, amount });
+      const pile = { x: x + 0.3 + rng.next() * 0.4, z: z + 0.3 + rng.next() * 0.4, resource, amount };
+      if (placed) resourcePiles.push(pile);
       pileCells.add(k);
       return amount;
     }
     return 0;
   };
-  const NEAR_WOOD = 10;
-  const NEAR_STONE = 6;
-  for (let wood = 0, i = 0; wood < NEAR_WOOD && i < 8; i++) wood += placePile('wood', 9, 18, 3);
-  for (let stone = 0, i = 0; stone < NEAR_STONE && i < 8; i++) stone += placePile('stone', 9, 18, 3);
-  // ~35 tas en tout (111 avant le 2026-11-02 : au moins trois fois plus rares).
-  for (let i = 0; i < 16; i++) placePile('wood', 12, MAP_RADIUS - 1.5);
-  for (let i = 0; i < 13; i++) placePile('stone', 12, MAP_RADIUS - 1.5);
+  const NEAR_WOOD = 5;
+  const NEAR_STONE = 3;
+  for (let wood = 0, i = 0; wood < PILE_DRAWS.nearWood && i < 8; i++) wood += placePile('wood', 9, 18, 3, wood < NEAR_WOOD);
+  for (let stone = 0, i = 0; stone < PILE_DRAWS.nearStone && i < 8; i++) stone += placePile('stone', 9, 18, 3, stone < NEAR_STONE);
+  // ~18 tas en tout (~36 avant G50, 111 avant le 2026-11-02).
+  const FAR_WOOD_PILES = 7;
+  const FAR_STONE_PILES = 6;
+  for (let i = 0; i < PILE_DRAWS.farWood; i++) placePile('wood', 12, MAP_RADIUS - 1.5, undefined, i < FAR_WOOD_PILES);
+  for (let i = 0; i < PILE_DRAWS.farStone; i++) placePile('stone', 12, MAP_RADIUS - 1.5, undefined, i < FAR_STONE_PILES);
 
   // ---- Camps neutres (2026-11-02) : apres tout le reste, sans tirer dans
   // `rng` (le terrain d'une graine existante ne bouge pas hors des camps).
@@ -941,7 +952,8 @@ function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: 
       level: generatedCampLevel(site),
       facing: Math.atan2(C.z, C.x),
     });
-    // Un peu de bois et de pierre a cote (PROVISOIRE) : cases reliees, libres.
+    // Un tas a cote (PROVISOIRE ; un de chaque par camp avant G50), bois puis pierre
+    // d'un camp a l'autre : cases reliees, libres, celle de l'autre reste reservee.
     const ring = disc(cx, cz, CAMP_RADIUS + 0.5, CAMP_RADIUS + 3)
       .filter((k) => g.reached.has(k) && !g.occupied.has(k) && !g.pileCells.has(k) && !g.ramps.has(k) && !g.hill.has(k))
       .sort((u, v) => hash2(seed + 149, ...(u.split(',').map(Number) as [number, number])) - hash2(seed + 149, ...(v.split(',').map(Number) as [number, number])));
@@ -949,7 +961,7 @@ function placeCamps(seed: number, g: CampGrid, obstacles: ObstacleDef[], piles: 
       const k = ring.shift();
       if (!k) break;
       const [x, z] = k.split(',').map(Number) as [number, number];
-      piles.push({ x: x + 0.5, z: z + 0.5, resource, amount });
+      if (resource === (camps.length % 2 === 1 ? 'wood' : 'stone')) piles.push({ x: x + 0.5, z: z + 0.5, resource, amount });
       g.pileCells.add(k);
     }
   }

@@ -24,15 +24,16 @@ import {
   type ObstacleBounds,
   type ObstacleDef,
 } from '../../config/constants';
-import { HARVEST_STAND_GAP } from '../../data/hero';
+import { HARVEST_RESERVE_RANGE } from '../../data/hero';
 import { clamp } from '../../core/math';
 import { closestOnSegment } from '../../core/wallLine';
 import { bodyPathNearStructure, bodyPathNearTerrainCliff, crossesTerrainCliff, findBlockingObstacle, getObstacleBoundsList, getShrunkObstacleBoundsList, isMeleeAttack, obstaclesForUnit, segmentIntersectsBox, targetDistance, terrainObstacles } from '../geometry';
 import { forwardDir, type Entity } from '../entity';
 import { finishOrder, isWorkOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
-import { workGoal, type HeroWorkContext } from './hero';
+import { distanceToBox, workGoal, type HeroWorkContext } from './hero';
 import { pushCircleOutOfOrientedBox } from '../../core/orientedBox';
-import { cachedPathGrid, findPath, isTileBlockedAt, nearestReachableTile, pathSearchStats, sameWalkRegion, type PathGrid } from '../pathfinding';
+import { cachedPathGrid, findPath, isTileBlockedAt, nearestFreeTileAt, nearestReachableTile, pathSearchStats, sameWalkRegion, type PathGrid } from '../pathfinding';
+import { findRedirectHarvestSource, harvestReservationOf, harvestStandSlots, isHarvestAnchored, releaseHarvestStand, reserveHarvestStand, syncHarvestReservations } from '../harvestStands';
 import { bodyFitsAt, chooseWorkStand, freeTileNear, type WorkStand } from '../workStand';
 import { SpatialGrid } from '../spatialGrid';
 
@@ -161,21 +162,26 @@ function routedPath(e: Entity, grid: PathGrid, obstacles: ObstacleDef[], x: numb
   return path;
 }
 
+/** Ordre que l'unite s'est donne seule : source choisie par un Villageois,
+ *  enchainement de chantiers. */
+function isAutomaticOrder(e: Entity): boolean {
+  const order = e.order;
+  return (e.worker !== null && order.type === 'harvest' && e.worker.autoNodeId === order.nodeId) || (order.type === 'build' && order.auto === true);
+}
+
 /** Abandon d'un ordre qui ne peut plus aboutir : Garde. Un ordre automatique
- *  (source choisie seule par un Villageois, enchainement de chantiers) s'arrete
- *  en silence, un ordre manuel le signale (`unreachable`). */
-function abandonOrder(e: Entity, orderEvents: OrderEndEvent[]): void {
+ *  s'arrete en silence, un ordre manuel le signale (`reason`). */
+function abandonOrder(e: Entity, orderEvents: OrderEndEvent[], reason: 'unreachable' | 'no-work-stand' = 'unreachable'): void {
   const st = navOf(e);
   st.stand = null;
   st.standKey = null;
-  const order = e.order;
-  const auto = (e.worker !== null && order.type === 'harvest' && e.worker.autoNodeId === order.nodeId) || (order.type === 'build' && order.auto === true);
-  if (auto) {
+  releaseHarvestStand(e);
+  if (isAutomaticOrder(e)) {
     e.order = { type: 'guard' };
     e.path = null;
     e.steerX = null;
     e.steerZ = null;
-  } else finishOrder(e, orderEvents, 'failed', 'unreachable');
+  } else finishOrder(e, orderEvents, 'failed', reason);
 }
 
 /** Route restante vers (x, z) : le long du chemin s'il y en a un, a vol d'oiseau
@@ -283,6 +289,7 @@ function navigationWatchdog(e: Entity, byId: Map<number, Entity>, dt: number, in
   if (st.stand) st.failedStands.push({ x: st.stand.x, z: st.stand.z });
   st.stand = null;
   st.standKey = null;
+  releaseHarvestStand(e);
   st.bestRemaining = Infinity;
   st.noGainSeconds = 0;
 }
@@ -354,7 +361,7 @@ export function movementSystem(
   /** Recoit les fins d'ordres manuels du pas (voir sim/orders.ts). */
   orderEvents: OrderEndEvent[] = [],
   /** Sources de ressources (ordres de recolte du Heros). */
-  heroWork: HeroWorkContext = { canReachSite: () => false, nodes: new Map(), nodeAmounts: new Map(), depleted: [], canHarvest: () => false, isVisible: () => true, piles: [], drops: [], chests: [], chestLocked: () => true, openChest: () => ({ itemId: null, dropId: null }) },
+  heroWork: HeroWorkContext = { canReachSite: () => false, harvestStandCapacity: () => 0, nodes: new Map(), nodeAmounts: new Map(), depleted: [], canHarvest: () => false, isVisible: () => true, piles: [], drops: [], chests: [], chestLocked: () => true, openChest: () => ({ itemId: null, dropId: null }) },
   /** Marche des vagues vers le camp (null : marche neutre historique). */
   march: MarchContext | null = null,
 ): void {
@@ -400,6 +407,7 @@ export function movementSystem(
   const terrainGrid = (): PathGrid => cachedPathGrid(terrain, boardWidth, boardHeight);
 
   pathSearchBudget = MAX_PATH_SEARCHES_PER_STEP;
+  syncHarvestReservations(entities, heroWork);
   updateStuckState(movable, byId, dt, teamObstacles, teamGrid, orderEvents, march);
 
   // Rayon max une seule fois (les rayons ne changent pas pendant la
@@ -493,6 +501,7 @@ export function movementSystem(
       if (isWorkOrder(e.order) && e.tauntSourceId === null) {
         const goal = workGoal(e, heroWork, byId);
         if (!goal || goal.reached) {
+          if (goal) settleOnHarvestStand(e, subDt);
           e.path = null;
           e.steerX = null;
           e.steerZ = null;
@@ -520,7 +529,10 @@ export function movementSystem(
         if (nav.stand && nav.standObstacles !== here) {
           nav.standObstacles = here;
           const from = freeTileNear(teamGrid(e), here, e.x, e.z);
-          if (!bodyFitsAt(nav.stand.x, nav.stand.z, e.stats.radius, here) || !from || !sameWalkRegion(teamGrid(e), from.x, from.z, nav.stand.routeX, nav.stand.routeZ)) nav.stand = null;
+          if (!bodyFitsAt(nav.stand.x, nav.stand.z, e.stats.radius, here) || !from || !sameWalkRegion(teamGrid(e), from.x, from.z, nav.stand.routeX, nav.stand.routeZ)) {
+            nav.stand = null;
+            releaseHarvestStand(e);
+          }
         }
         if (standKey !== null && (nav.standKey !== standKey || nav.stand === null)) {
           if (nav.standRetry > 0) continue;
@@ -533,6 +545,33 @@ export function movementSystem(
             abandonOrder(e, orderEvents);
             continue;
           }
+        }
+        // Emplacement de recolte (2026-11-06, G50) : reserve pres de la source, le
+        // plus proche a pied (sim/harvestStands.ts). Avant, nav.stand n'est qu'un
+        // point d'approche. Rien de libre, sans attendre : un ordre manuel se reporte
+        // sur une source voisine du meme type ; sinon l'ordre s'arrete, avec un message
+        // s'il est manuel (un Villageois autonome se choisit ensuite une autre source).
+        if (onSource && order.type === 'harvest' && harvestReservationOf(e) === null && distanceToBox(e, goal.box!) <= HARVEST_RESERVE_RANGE) {
+          const chosen = reserveHarvestStand(e, order.nodeId, goal.box!, movable, here, teamGrid(e), nav.failedStands);
+          if (!chosen) {
+            const from = order.redirectFrom ?? { x: goal.x, z: goal.z };
+            const next = isAutomaticOrder(e) ? null : findRedirectHarvestSource(e, order.nodeId, from, movable, heroWork, here, teamGrid(e));
+            if (next === null) {
+              abandonOrder(e, orderEvents, 'no-work-stand');
+              continue;
+            }
+            e.order = { type: 'harvest', nodeId: next, redirectFrom: from };
+            nav.stand = null;
+            nav.standKey = null;
+            e.path = null;
+            e.steerX = null;
+            e.steerZ = null;
+            continue;
+          }
+          nav.stand = chosen;
+          nav.standKey = standKey;
+          nav.standObstacles = here;
+          e.path = null;
         }
         const stand = standKey !== null ? nav.stand : null;
         const target = stand ? ({ x: stand.x, z: stand.z, footprintObstacle: null } as unknown as Entity) : goal.target ?? ({ x: goal.x, z: goal.z, footprintObstacle: null } as unknown as Entity);
@@ -699,10 +738,43 @@ function applySeparationPair(a: Entity, b: Entity, i: number, subDt: number): vo
   const overlap = (minDist - d) / d;
   const push = overlap * SEPARATION_STRENGTH * subDt * 0.5;
 
-  a.x -= dx * push;
-  a.z -= dz * push;
-  b.x += dx * push;
-  b.z += dz * push;
+  // Unite ancree a son emplacement de recolte (G50) : c'est l'autre qui s'ecarte.
+  // Sauf une unite de la boucle de recolte, qui ne fait que passer (vers son
+  // emplacement, vers le depot) : les chemins ne voient pas les corps, et une
+  // unite immobile sur la route la bloquerait contre la source.
+  const aAnchored = isHarvestAnchored(a);
+  const bAnchored = isHarvestAnchored(b);
+  if (aAnchored && bAnchored) return;
+  if ((aAnchored && passesHarvestWorkers(b)) || (bAnchored && passesHarvestWorkers(a))) return;
+  if (!aAnchored) {
+    const share = bAnchored ? 2 : 1;
+    a.x -= dx * push * share;
+    a.z -= dz * push * share;
+  }
+  if (!bAnchored) {
+    const share = aAnchored ? 2 : 1;
+    b.x += dx * push * share;
+    b.z += dz * push * share;
+  }
+}
+
+/** Vrai pour une unite en route dans la boucle de recolte : sa source, le depot. */
+function passesHarvestWorkers(e: Entity): boolean {
+  return e.cargo !== null && (e.order.type === 'deposit' || e.order.type === 'harvest');
+}
+
+/** Unite arrivee a portee de son emplacement de recolte : finit de s'y placer (sans
+ *  depasser le point), pour que le voisin ait sa place et qu'elle y reste ancree. */
+function settleOnHarvestStand(e: Entity, subDt: number): void {
+  const stand = harvestReservationOf(e);
+  if (!stand) return;
+  const dx = stand.x - e.x;
+  const dz = stand.z - e.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 1e-4) return;
+  const step = Math.min(d, e.stats.moveSpeed * subDt);
+  e.x += (dx / d) * step;
+  e.z += (dz / d) * step;
 }
 
 /**
@@ -1065,21 +1137,11 @@ function triggerUnstick(e: Entity, target: Entity, pool: Entity[], obstacles: Ob
  * le centre. Vide si aucune case voisine n'est libre (source enfermee).
  */
 function harvestStandPoints(e: Entity, box: ObstacleBounds, grid: PathGrid): { x: number; z: number }[] {
-  const standoff = e.stats.radius + HARVEST_STAND_GAP;
-  const points: { x: number; z: number; d: number; i: number }[] = [];
-  const consider = (x: number, z: number) => {
-    if (isTileBlockedAt(grid, x, z)) return;
-    points.push({ x, z, d: Math.hypot(x - e.x, z - e.z), i: points.length });
-  };
-  for (let cx = Math.floor(box.minX) + 0.5; cx < box.maxX; cx += 1) {
-    consider(cx, box.minZ - standoff);
-    consider(cx, box.maxZ + standoff);
-  }
-  for (let cz = Math.floor(box.minZ) + 0.5; cz < box.maxZ; cz += 1) {
-    consider(box.minX - standoff, cz);
-    consider(box.maxX + standoff, cz);
-  }
-  return points.sort((a, b) => a.d - b.d || a.i - b.i).map((p) => ({ x: p.x, z: p.z }));
+  return harvestStandSlots(box, e.stats.radius)
+    .filter((p) => !isTileBlockedAt(grid, p.x, p.z))
+    .map((p) => ({ x: p.x, z: p.z, d: Math.hypot(p.x - e.x, p.z - e.z), i: p.slot }))
+    .sort((a, b) => a.d - b.d || a.i - b.i)
+    .map((p) => ({ x: p.x, z: p.z }));
 }
 
 /**
@@ -1091,7 +1153,9 @@ function harvestStandPoints(e: Entity, box: ObstacleBounds, grid: PathGrid): { x
  * coupee de l'unite).
  */
 function reachableHarvestStand(e: Entity, box: ObstacleBounds, obstacles: ObstacleDef[], grid: PathGrid): WorkStand | null {
-  const start = freeTileNear(grid, obstacles, e.x, e.z);
+  // Unite poussee dans un obstacle : la case libre la plus proche, quoi qu'il arrive
+  // (meme regle que chooseWorkStand ; la collision l'en ressort).
+  const start = freeTileNear(grid, obstacles, e.x, e.z) ?? nearestFreeTileAt(grid, e.x, e.z);
   for (const p of harvestStandPoints(e, box, grid)) {
     if (findBlockingObstacle(e.x, e.z, p.x, p.z, obstacles) === null || (start && sameWalkRegion(grid, start.x, start.z, p.x, p.z))) return { x: p.x, z: p.z, routeX: p.x, routeZ: p.z };
   }

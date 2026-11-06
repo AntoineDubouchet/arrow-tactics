@@ -24,7 +24,7 @@ import {
   SURVIVAL_FIRST_WAVE_DELAY_SECONDS,
   SURVIVAL_NEXT_WAVE_DELAY_SECONDS,
 } from './config/constants';
-import { PRODUCTION_QUEUE_MAX, producibleUnits, unitProductionSeconds } from './data/production';
+import { PRODUCTION_HOTKEYS, PRODUCTION_QUEUE_MAX, productionHotkey, producibleUnits, unitProductionSeconds } from './data/production';
 import { teamVision, visionRadiusOf } from './sim/vision';
 import {
   BALLISTA_PLACEMENT_TILES,
@@ -186,6 +186,7 @@ import {
   battleBuildingInfo,
   battleGroupInfo,
   battleUnitInfo,
+  heroCardInfo,
   heroSheetInfo,
   ownedBuildingInfo,
   type EntityInfoViewModel,
@@ -952,9 +953,11 @@ function setupTestBattle(): void {
   clearScenarioBuildingMeshes();
   // Camp de depart (2026-11-04) : memes batiments que la vraie run, termines,
   // en batiments de scenario (Maison B comprise).
-  const startingBuildings: (MapBuildingPlacement & { modelVariant?: number })[] = (startingBase?.buildings ?? []).map((b) => ({ buildingId: b.buildingId, team: 'player', x: b.x, z: b.z, rotationY: b.rotationY, modelVariant: b.modelVariant }));
-  for (const placed of [...startingBuildings, ...((currentMap.buildings ?? []) as (MapBuildingPlacement & { modelVariant?: number })[])]) {
-    const obstacle = gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0, placed.modelVariant);
+  const startingBuildings: (MapBuildingPlacement & { modelVariant?: number; faceCamera?: boolean })[] = (startingBase?.buildings ?? []).map((b) => ({ buildingId: b.buildingId, team: 'player', x: b.x, z: b.z, rotationY: b.rotationY, modelVariant: b.modelVariant, ...(b.faceCamera ? { faceCamera: true } : {}) }));
+  for (const placed of [...startingBuildings, ...((currentMap.buildings ?? []) as (MapBuildingPlacement & { modelVariant?: number; faceCamera?: boolean })[])]) {
+    const aligned = gameplayBuildingObstacle(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0, placed.modelVariant);
+    // Tourne d'un angle quelconque (Hotel de ville) : sa collision tourne avec lui, comme en run.
+    const obstacle = placed.faceCamera ? { ...aligned, footprint: buildingContinuousFootprint(placed.buildingId, placed.x, placed.z, placed.rotationY ?? 0) } : aligned;
     const entity = world.spawnBuilding(getBuilding(placed.buildingId), placed.team, placed.x, placed.z, obstacle);
     const mesh = buildObstacleMesh(obstacle, environmentAssets);
     renderer.scene.add(mesh);
@@ -1054,11 +1057,11 @@ function layoutFormation(unitIds: string[], frontZ: number, rowStep: number, per
  * a 6 emplacements) — voir layoutFormation pour la logique melee/distance.
  */
 function computeArmyFormation(unitIds: string[], map: MapDef): { x: number; z: number }[] {
-  // Survie Hero RTS : en rangs au sud de la Baliste, centre du camp ; avec un
-  // camp de depart (2026-11-04), le Heros et les unites du preset a leurs
-  // places (cour du camp), les autres en rangs.
+  // Survie Hero RTS : en rangs au sud du centre du camp ; avec un camp de depart
+  // (2026-11-04), le Heros et les unites du preset a leurs places, les autres en
+  // rangs, devant l'Hotel de ville (G50).
   if (usesHeroRtsRules(map) && map.ballista) {
-    const formation = layoutFormation(unitIds, map.ballista.z + 2.5, TILE, 6).map((p) => ({ x: p.x + map.ballista!.x - 0.5, z: p.z }));
+    const formation = layoutFormation(unitIds, map.ballista.z + 3.5, TILE, 6).map((p) => ({ x: p.x + map.ballista!.x - 0.5, z: p.z }));
     const base = startingBaseLayoutOf(map);
     if (!base) return formation;
     const slots = [...base.units];
@@ -1425,12 +1428,13 @@ function startNewRun(heroId: string = selectedHeroId): void {
   fogOfWar = usesHeroRtsRules(survivalBaseMap) ? new FogOfWar(survivalBaseMap.width, survivalBaseMap.height) : null;
   heroCameraLock = false;
   resourcePileViews.clear();
-  // Baliste native (Mode survie) : creee directement a la position definie
-  // par la carte (MapDef.ballista), sans placement par le joueur.
+  // Baliste native (Mode survie) : creee directement a sa place dans le camp de
+  // depart (G50), derivee de la carte, sans placement par le joueur.
   currentRun.ballistaPosition = resolveBallistaOrigin(survivalBaseMap);
   // Abords du camp deja explores (terrain memorise, pas visible), un peu
-  // au-dela de la vision de la Baliste (data/vision.ts).
-  fogOfWar?.exploreDisc(currentRun.ballistaPosition.x, currentRun.ballistaPosition.z, INITIAL_EXPLORED_RADIUS);
+  // au-dela de la vision de l'Hotel de ville (data/vision.ts), autour du centre.
+  const campCentre = survivalBaseMap.ballista ?? currentRun.ballistaPosition;
+  fogOfWar?.exploreDisc(campCentre.x, campCentre.z, INITIAL_EXPLORED_RADIUS);
   resetRunViews();
   // currentMap est un module partage entre runs : une nouvelle carte
   // generee (ou le retour d'un test de l'editeur) exige de reconstruire le
@@ -1456,11 +1460,16 @@ function startNewRun(heroId: string = selectedHeroId): void {
  *  carte courante entiere dans la zone visible, entre les marges du HUD
  *  (l'arene du Mode survie, 21 × 36, depasse le zoom par defaut). */
 function frameRunCamera(): void {
-  renderer.resetCamera();
-  // Survie Hero RTS : le camp (plaine centrale), pas toute la carte.
-  const ballista = usesHeroRtsRules(currentMap) ? currentMap.ballista : undefined;
-  const box = ballista ? { minX: ballista.x - 11, maxX: ballista.x + 11, minZ: ballista.z - 9, maxZ: ballista.z + 9 } : computeMapCellBounds(resolveMapCells(currentMap));
-  renderer.frameBox({ ...box, height: 2 }, CAMERA.gameFrameMarginsPx);
+  // Survie Hero RTS : cadrage large fixe, sur le centre du camp (followHero le
+  // recentre ensuite sur le Heros), pas toute la carte.
+  const campCentre = usesHeroRtsRules(currentMap) ? currentMap.ballista : undefined;
+  if (campCentre) {
+    renderer.resetCamera(CAMERA.survivalYawDeg, CAMERA.survivalViewHeight);
+    renderer.setViewState({ ...renderer.getViewState(), targetX: campCentre.x, targetZ: campCentre.z });
+    return;
+  }
+  renderer.resetCamera(CAMERA.survivalYawDeg);
+  renderer.frameBox({ ...computeMapCellBounds(resolveMapCells(currentMap)), height: 2 }, CAMERA.gameFrameMarginsPx);
 }
 
 // --- Brouillard de guerre (2026-11-01, Hero RTS) ----------------------------
@@ -1582,12 +1591,17 @@ function openHeroSelect(): void {
   heroSelect.show(HEROES.map(heroChoice), selectedHeroId);
 }
 
-/** Portrait du HUD : Heros de la run courante. */
+/** Portrait du Heros de la run courante : HUD et fiche contextuelle. */
+let heroPortraitUrl: string | null = null;
+
 function refreshHeroPortrait(): void {
   heroHud.setPortrait(null);
+  heroPortraitUrl = null;
   const id = currentRun.hero.heroId;
   void heroPortrait(getHero(id))?.then((url) => {
-    if (currentRun.hero.heroId === id) heroHud.setPortrait(url);
+    if (currentRun.hero.heroId !== id) return;
+    heroHud.setPortrait(url);
+    heroPortraitUrl = url;
   }).catch(() => undefined);
 }
 
@@ -2144,8 +2158,6 @@ function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
   // Reparation (2026-11-02) : tout batiment allie bati et endommage, Baliste
   // comprise (sa fiche est de type 'ballista' : oubliee jusqu'au 2026-11-03).
   const repair = info.kind === 'building' || info.kind === 'ballista' ? repairAction() : null;
-  // Porte de palissade : Ouvrir / Fermer (2026-11-02).
-  const door = info.kind === 'building' ? doorAction() : null;
   if (info.kind === 'ballista') {
     // Baliste (2026-11-05) : son amelioration (deja dans `info`) et sa file.
     const ballista = ballistaEntityId !== null ? world.getById(ballistaEntityId) : undefined;
@@ -2154,8 +2166,7 @@ function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
   }
   const inspected = info.kind === 'building' ? inspectedOwnedBuilding() : null;
   if (!inspected || inspected.entity.construction) {
-    const extra = [...(door ? [door] : []), ...(repair ? [repair] : [])];
-    return extra.length > 0 ? { ...info, actions: [...(info.actions ?? []), ...extra] } : info;
+    return repair ? { ...info, actions: [...(info.actions ?? []), repair] } : info;
   }
   const { entity, owned } = inspected;
   const level = buildingLevelOf(currentRun.upgrades, owned);
@@ -2166,7 +2177,9 @@ function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
   for (const unitId of producibleUnits(owned.buildingId, level)) {
     const cost = getUnit(unitId).cost;
     const enabled = currentRun.gold >= cost && !full;
-    actions.push({ id: 'produceUnit', payload: unitId, label: `Produire : ${getUnit(unitId).name} — ${formatGold(cost)} or · ${unitProductionSeconds(unitId)} s`, enabled, hint: full ? `File pleine (${PRODUCTION_QUEUE_MAX})` : enabled ? undefined : 'Or insuffisant' });
+    // Raccourci (G50) : affiche sur le bouton, meme action (activateProductionHotkey).
+    const hotkey = productionHotkey(owned.buildingId, unitId) ?? undefined;
+    actions.push({ id: 'produceUnit', payload: unitId, ...(hotkey ? { hotkey } : {}), label: `${hotkey ? `[${hotkey}] ` : 'Produire : '}${getUnit(unitId).name} — ${formatGold(cost)} or · ${unitProductionSeconds(unitId)} s`, enabled, hint: full ? `File pleine (${PRODUCTION_QUEUE_MAX})` : enabled ? undefined : 'Or insuffisant' });
   }
   actions.push(...queuedOrderActions(entity, level));
   // Point de ralliement (2026-11-02) : batiment producteur (toute unite
@@ -2298,6 +2311,26 @@ function produceAtInspectedBuilding(unitId: string): void {
   if (!inspected || inspected.entity.construction) return;
   if (queueUnitOrder(currentRun, world, orderLedger, inspected.entity, buildingLevelOf(currentRun.upgrades, inspected.owned), unitId) === null) return;
   entityInfoSelectionKey = '';
+}
+
+/**
+ * Raccourcis de production A, Z, E, R (2026-11-06, G50, decision d'Antoine) : le
+ * bouton correspondant de la fiche du producteur selectionne, donc memes regles
+ * (ressources, paiement, file, niveau, unlocks). Vrai si la touche est consommee :
+ * le bouton existe, meme grise. Sinon la touche garde son role (zoom A / E, R de la
+ * camera) : jamais en placement, en ciblage (ralliement, sort), dans l'editeur, ni
+ * sous un ecran, l'inventaire ou une recompense. Selection de plusieurs batiments :
+ * le batiment principal, comme le bouton. Un appui maintenu n'agit qu'une fois.
+ */
+function activateProductionHotkey(event: KeyboardEvent): boolean {
+  const key = event.key.toUpperCase();
+  if (!PRODUCTION_HOTKEYS.includes(key) || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return false;
+  if (inEditorMode || !inBattlePhase() || pauseMenuOpen || screens.hasVisibleOverlay() || heroInventory.isOpen() || waveRewardPanel.isVisible()) return false;
+  if (buildingPlacementMode || wallPlacement || rallyTargeting || spellTargeting) return false;
+  const action = currentEntityInfo()?.actions?.find((a) => a.id === 'produceUnit' && a.hotkey === key);
+  if (!action) return false;
+  if (action.enabled && !event.repeat) onEntityInfoAction(action.id, action.payload);
+  return true;
 }
 
 /** Annule une commande de la file du batiment inspecte (Baliste comprise) :
@@ -2482,12 +2515,6 @@ function onEntityInfoAction(id: EntityInfoAction['id'], payload?: string): void 
   }
   if (id === 'repairBuilding') {
     startRepairOfInspected();
-    return;
-  }
-  if (id === 'toggleDoor') {
-    const e = inspectedPlayerBuilding();
-    if (e) world.setDoorWanted(e.id, payload === 'open', RUN_OWNER_TEAM);
-    entityInfoSelectionKey = '';
     return;
   }
   if (inBattlePhase() && (id === 'upgradeBuilding' || id === 'research' || id === 'upgradeBallista')) {
@@ -3627,9 +3654,10 @@ function refreshEditorObjects(): void {
   }
 
   // Baliste du brouillon : le modele (partage avec le jeu, voir
-  // ballistaPlatform) suit la position de l'editeur, la seule enregistree ;
+  // ballistaPlatform) suit la position de l'editeur, la seule enregistree (dans le
+  // noyau du camp de depart, G50) ;
   // sans Depart Survie pose (carte vierge), il n'y a rien a montrer.
-  repositionBallista(editorState.ballista);
+  repositionBallista(editorState.startingBaseLayout?.ballista ?? editorState.ballista);
   ballistaPlatform.visible = editorState.ballistaExplicit;
 
   const selectedObstacle = editorState.selectedObstacle;
@@ -5237,10 +5265,10 @@ function currentEntityInfoBase(): EntityInfoViewModel | null {
   }
   const units = aliveEntities(battleSelection.ids);
   if (units.length === 0) return null;
-  // Heros seul selectionne : pas de fiche (2026-11-02, demande d'Antoine) ;
-  // ses statistiques sont dans son inventaire (touche I). Dans un groupe,
-  // la fiche du groupe reste.
-  if (units.length === 1 && units[0]!.hero) return null;
+  // Heros seul selectionne (2026-11-06, G50, decision d'Antoine ; aucune fiche depuis
+  // le 2026-11-02) : portrait et nom ; ses statistiques sont dans son HUD et son
+  // inventaire (touche I). Dans un groupe, la fiche du groupe reste.
+  if (units.length === 1 && units[0]!.hero) return heroCardInfo(units[0]!, getHero(units[0]!.hero.heroId).name, heroPortraitUrl);
   return units.length === 1 ? battleUnitInfo(units[0]!, world.time) : battleGroupInfo(units);
 }
 
@@ -6058,11 +6086,11 @@ const UNREACHABLE_FLASH_TICKS = 90;
  *  hors d'atteinte, 2026-11-06, G49) : l'unite s'est arretee seule, feedback
  *  discret, une fois. Les ordres automatiques n'emettent aucun evenement. */
 function flashUnreachableOrders(): void {
-  const failed = world.orderEvents.find((ev) => ev.outcome === 'failed' && ev.reason === 'unreachable' && world.getById(ev.entityId)?.team === 'player');
+  const failed = world.orderEvents.find((ev) => ev.outcome === 'failed' && (ev.reason === 'unreachable' || ev.reason === 'no-work-stand') && world.getById(ev.entityId)?.team === 'player');
   if (!failed || world.tick - lastUnreachableFlashTick < UNREACHABLE_FLASH_TICKS) return;
   lastUnreachableFlashTick = world.tick;
   const site = failed.order === 'build' || failed.order === 'repair';
-  waveIndicator.flash(failed.order === 'harvest' ? 'Aucun accès à cette ressource' : site ? 'Impossible d’atteindre le chantier' : failed.order === 'attack' ? 'Impossible d’atteindre la cible' : 'Impossible d’atteindre la destination');
+  waveIndicator.flash(failed.reason === 'no-work-stand' ? 'Aucun emplacement de travail disponible' : failed.order === 'harvest' ? 'Aucun accès à cette ressource' : site ? 'Impossible d’atteindre le chantier' : failed.order === 'attack' ? 'Impossible d’atteindre la cible' : 'Impossible d’atteindre la destination');
 }
 
 /** Cases existantes de `currentMap` (resolveMapCells), recalculees quand la
@@ -6169,7 +6197,6 @@ let buildingPlacementMode: BuildingPlacementMode | null = null;
 
 /** Camp du joueur de la run : proprietaire des bâtiments possedes et de la
  *  Baliste. */
-const RUN_OWNER_TEAM: Team = 'player';
 
 /** Derniere position (sol) connue du fantome de placement — memorisee a
  *  chaque appel de updateBuildingPlacementGhost pour pouvoir rafraichir
@@ -6628,15 +6655,6 @@ function confirmWallPlacement(event: MouseEvent): void {
 function payWallCost(cost: { wood: number; stone: number }): void {
   currentRun.resources.wood = Math.max(0, currentRun.resources.wood - cost.wood);
   currentRun.resources.stone = Math.max(0, currentRun.resources.stone - cost.stone);
-}
-
-/** Action « Ouvrir / Fermer » de la fiche d'une porte bâtie du joueur. */
-function doorAction(): EntityInfoAction | null {
-  const e = inspectedPlayerBuilding();
-  const door = e?.wall?.door;
-  if (!e || !door || e.construction) return null;
-  if (door.open && !door.wantOpen) return { id: 'toggleDoor', payload: 'open', label: 'Fermeture en attente — passage occupé', enabled: true, hint: 'La porte se ferme dès que l’ouverture est libre. Clic : la laisser ouverte' };
-  return door.wantOpen ? { id: 'toggleDoor', payload: 'close', label: 'Fermer la porte', enabled: true, hint: 'Fermée : personne ne passe' } : { id: 'toggleDoor', payload: 'open', label: 'Ouvrir la porte', enabled: true, hint: 'Ouverte : vos unités passent, les ennemis restent bloqués' };
 }
 
 /** Deplacement d'unites sur la grille de l'editeur, pret a etre affiche
@@ -7565,6 +7583,8 @@ window.addEventListener('keydown', (event) => {
     }
   }
 
+  if (activateProductionHotkey(event)) return;
+
   switch (event.key) {
     case 'ArrowLeft':
       renderer.adjustYaw(-5);
@@ -7596,8 +7616,10 @@ window.addEventListener('keydown', (event) => {
       } else if (buildingPlacementMode) {
         // Pose d'un batiment : rotation de 15° (2026-11-06, G48).
         rotateBuildingPlacement(1);
-      } else {
+      } else if (inTestMode) {
         renderer.resetCamera();
+      } else {
+        renderer.resetCamera(CAMERA.survivalYawDeg, CAMERA.survivalViewHeight);
       }
       break;
     case ' ':
@@ -7617,8 +7639,12 @@ window.addEventListener('keydown', (event) => {
       event.preventDefault();
       if (document.activeElement instanceof HTMLButtonElement) document.activeElement.blur();
       if (inEditorMode || inTestMode) resetEditorCamera();
-      // Espace (2026-11-02) : retour au Heros (selection, centrage, suivi).
-      else followHero();
+      // Espace (2026-11-02) : retour au Heros (selection, centrage, suivi), sur le
+      // cadrage de la Survie (2026-11-06 : pivot, inclinaison et zoom par defaut).
+      else {
+        frameRunCamera();
+        followHero();
+      }
       break;
     case 'Delete':
     case 'Backspace':

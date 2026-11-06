@@ -1,5 +1,5 @@
 // Tests EN JEU du camp de depart (2026-11-04), run reelle graine 12345 : Baliste, Auberge, 2 Maisons (A, B), 2
-// Villageois, enceinte de Palissade V2 et porte OUVERTE ; population 2 / 9 ; stock de depart inchange ; camera sur le
+// Villageois, enceinte de Palissade V2 et porte OUVERTE ; population 2 / 15 ; stock de depart inchange ; camera sur le
 // Heros ; production d'un Villageois a l'Auberge (fiche) ; Heros et Villageois sortent par la porte ; recolte libre
 // (bois, pierre) sans Forge ; clic droit sur un gisement d'or : recolte directe, sans Forge (2026-11-05) ; ennemi bloque par la porte
 // ouverte ; Baliste detruite = defaite. Captures. Usage : npm run test:game (ou VITE_BASE=http://localhost:5174/ node tests/game/depart-jeu.cjs)
@@ -47,8 +47,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
       cam: { dx: +(v.targetX - h.x).toFixed(2), dz: +(v.targetZ - h.z).toFixed(2) },
     };
   });
-  check(`run reelle : 1 Baliste, 1 Auberge, 2 Maisons terminees (A puis B), 2 Villageois, enceinte arrondie de 36 pieces dont 4 portes OUVERTES (G48) ; 1 or (250) + 1 pierre (250) + ${NB_TREES} arbres (75, >= 6) dans l enceinte ; Heros dans le camp ; Pop. 2 / 9 ; stock de depart inchange (0 bois, 0 pierre, 20 or) ; camera centree sur le Heros`,
-    camp.layout && NB_TREES >= 6 && J(camp.deposits) === J(['gold', 'stone', ...Array(NB_TREES).fill('wood')]) && 250 - camp.amounts.gold <= 3 && 250 - camp.amounts.stone <= 3 && 75 - camp.amounts.wood <= 3 && camp.ballista === 1 && camp.tavern === 1 && J(camp.houses) === J(['blue_home_A', 'blue_home_B']) && camp.houseBuilt && camp.villagers === 2 && camp.walls === 36 && J(camp.gates) === '[true,true,true,true]' && camp.hero.inside && /2\s*\/\s*9/.test(camp.pop) && camp.stock.wood === 0 && camp.stock.stone === 0 && camp.stock.gold === 20 && Math.hypot(camp.cam.dx, camp.cam.dz) < 1.5, camp);
+  check(`run reelle : 1 Baliste, 1 Auberge, 2 Maisons terminees (A puis B), 2 Villageois, enceinte arrondie de 36 pieces dont 4 portes OUVERTES (G48) ; 1 or (250) + 1 pierre (250) + ${NB_TREES} arbres (75, >= 6) dans l enceinte ; Heros dans le camp ; Pop. 2 / 15 ; stock de depart inchange (0 bois, 0 pierre, 20 or) ; camera centree sur le Heros`,
+    camp.layout && NB_TREES >= 6 && J(camp.deposits) === J(['gold', 'stone', ...Array(NB_TREES).fill('wood')]) && 250 - camp.amounts.gold <= 3 && 250 - camp.amounts.stone <= 3 && 75 - camp.amounts.wood <= 3 && camp.ballista === 1 && camp.tavern === 1 && J(camp.houses) === J(['blue_home_A', 'blue_home_B']) && camp.houseBuilt && camp.villagers === 2 && camp.walls === 36 && J(camp.gates) === '[true,true,true,true]' && camp.hero.inside && /2\s*\/\s*15/.test(camp.pop) && camp.stock.wood === 0 && camp.stock.stone === 0 && camp.stock.gold === 20 && Math.hypot(camp.cam.dx, camp.cam.dz) < 1.5, camp);
   const o = camp.layout.origin;
   await L.wait(p, 800);
   await L.setView(p, { targetX: o.x, targetZ: o.z, viewHeight: 32, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 900);
@@ -70,7 +70,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   let villagers = 2;
   for (let i = 0; i < 40 && villagers < 3; i++) { await L.wait(p, 400); villagers = await p.evaluate(() => window.__world.entities.filter((e) => e.alive && e.unitId === 'villageois').length); }
   const pop2 = await p.evaluate(() => document.querySelector('.economy-hud-item--pop')?.textContent ?? '');
-  check('fiche de l Auberge : produire un Villageois -> 3e Villageois sorti, Pop. 3 / 9', !!prod && villagers === 3 && /3\s*\/\s*9/.test(pop2), { actions, villagers, pop2 });
+  check('fiche de l Auberge : produire un Villageois -> 3e Villageois sorti, Pop. 3 / 15', !!prod && villagers === 3 && /3\s*\/\s*15/.test(pop2), { actions, villagers, pop2 });
 
   // Sortie par la porte : Heros et les 2 Villageois de depart.
   const exitPt = await p.evaluate(() => { const L = window.__layout; const g = L.walls.find((w) => w.gates); const mx = (g.ax + g.bx) / 2, mz = (g.az + g.bz) / 2; const dx = mx - L.origin.x, dz = mz - L.origin.z; const n = Math.hypot(dx, dz); return { x: mx + (dx / n) * 5, z: mz + (dz / n) * 5 }; });
@@ -110,9 +110,9 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
 
   // Ennemi devant la porte ouverte : n'entre pas.
   const foe = await p.evaluate((e) => { const w = window.__world; const L = window.__layout; const f = w.spawn('maraudeur', 'enemy', e.x, e.z); f.order = { type: 'move', x: L.origin.x, z: L.origin.z + 2 }; return f.id; }, exitPt);
-  let entered = false;
-  for (let i = 0; i < 20; i++) { await L.wait(p, 300); const s = await p.evaluate((id) => { const L = window.__layout; const f = window.__world.getById(id); const gate = window.__world.entities.find((x) => x.wall?.door); return { inside: f.alive && f.x > L.bounds.minX + 0.4 && f.x < L.bounds.maxX - 0.4 && f.z > L.bounds.minZ + 0.4 && f.z < L.bounds.maxZ - 0.4, gate: gate?.alive && gate.wall.door.open }; }, foe); if (s.inside && s.gate) entered = true; }
-  check('Maraudeur devant la porte ouverte : n entre pas dans le camp (porte alliee)', !entered);
+  let entered = false; let closedSeen = false;
+  for (let i = 0; i < 20; i++) { await L.wait(p, 300); const s = await p.evaluate((id) => { const L = window.__layout; const f = window.__world.getById(id); const gate = window.__world.entities.find((x) => x.wall?.door); return { inside: f.alive && f.x > L.bounds.minX + 0.4 && f.x < L.bounds.maxX - 0.4 && f.z > L.bounds.minZ + 0.4 && f.z < L.bounds.maxZ - 0.4, gate: gate?.alive && gate.wall.door.open }; }, foe); if (s.inside) entered = true; if (!s.gate) closedSeen = true; }
+  check('Maraudeur devant la porte : elle se ferme d elle-meme, il n entre pas dans le camp', !entered && closedSeen, { entered, closedSeen });
 
   // Baliste detruite : defaite (regle inchangee).
   await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'ballista'); b.hp = 0; });

@@ -329,9 +329,27 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintTilesZ: 2,
     description: 'Technologies militaires : Armes forgées, Armures forgées',
   },
-  // Maison : +2 de population maximale tant qu'elle existe (voir
-  // data/population.ts). Cout et PV PROVISOIRES, non encore fixes par le
-  // design : a reequilibrer.
+  // Hotel de ville (2026-11-06, G50, decision d'Antoine) : coeur visuel du camp de
+  // depart, preconstruit (aucun cout, jamais au menu Construire). Bati, selectionnable,
+  // reparable, ni production, ni technologie, ni niveau, ni ressource passive, ni depot
+  // pour l'instant. Sa destruction n'est pas la defaite (la Baliste, decision ouverte).
+  // Emprise 4 x 4, modele KayKit. PV et emprise PROVISOIRES.
+  townhall: {
+    id: 'townhall',
+    displayName: 'Hôtel de ville',
+    maxHp: 30 * HP_PER_PIP,
+    radius: 2.0,
+    targetable: true,
+    countsForDefeat: true,
+    hpBarHeight: 3.4,
+    buildingModel: 'blue_townhall',
+    footprintTilesX: 4,
+    footprintTilesZ: 4,
+    description: 'Cœur du camp',
+  },
+  // Maison : +5 de population maximale tant qu'elle existe (2026-11-06, G50 ; +2
+  // avant ; voir data/population.ts). Cout et PV PROVISOIRES, non encore fixes par
+  // le design : a reequilibrer.
   house: {
     id: 'house',
     displayName: 'Maison',
@@ -354,13 +372,13 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     footprintTilesX: 2,
     footprintTilesZ: 2,
     modelScale: 0.8,
-    populationBonus: 2,
+    populationBonus: 5,
   },
   // Tour defensive : tire automatiquement des fleches sur l'unite ennemie la
   // plus proche a portee (sim/systems/buildingAttack.ts). Valeurs de
   // PLAYTEST, a reequilibrer :
   //  - portee 12 (8 a l'origine, +50 %) : defense de moyenne portee, au-dela
-  //    des Archers (6) mais en deca de la Baliste (18, PLAYER_ARROW_RANGE) ;
+  //    des Archers (6) mais en deca de la Baliste (22,6, PLAYER_ARROW_RANGE) ;
   //  - 1 tir / 2,5 s : plus lent qu'un Archer (2,0 s) et que la Baliste
   //    (2,31 s), compense par des degats eleves (4, contre 1,2 et 2) ;
   //  - fleche a 18 cases/s : ~0,7 s de vol a portee max.
@@ -566,7 +584,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     radius: 0.25,
     targetable: true,
     countsForDefeat: false,
-    hpBarHeight: 1.7,
+    hpBarHeight: 2.5,
     blocksShots: false,
     wallPiece: { wallType: 'palisade', role: 'gate' },
     editorGroup: 'Murs',

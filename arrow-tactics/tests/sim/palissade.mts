@@ -150,13 +150,13 @@ const inside = (pts: { x: number; z: number }[], x: number, z: number) => { let 
   const seg = pieces.slice().sort((a: any, b: any) => Math.hypot(a.x - 6, a.z) - Math.hypot(b.x - 6, b.z))[0];
   const gate = w.replaceWallSegmentWithGate(seg.id)!;
   const ajout = gate && gate.wall.door && gate.construction !== null && !seg.alive && gate.wall.index === seg.wall.index && Math.abs(gate.wall.ax - seg.wall.ax) < 1e-9;
-  const refusChantier = (() => { w.setDoorWanted(gate.id, true, 'player'); w.step(DT); return gate.wall.door.open === false; })();
+  const refusChantier = (() => { w.setDoorWanted(gate.id, true, 'player'); w.step(DT); return gate.wall.door.open === false && gate.wall.door.built === false; })();
   gate.construction = null;
   w.setDoorWanted(gate.id, false, 'player');
   const u = w.spawn('fantassin', 'player', 0, 0);
   w.issueCommand({ kind: 'move', entityIds: [u.id], x: 14, z: 0 });
   for (let i = 0; i < 30 * 6; i++) w.step(DT);
-  const fermee = inside(pts, u.x, u.z) && w.obstacles.includes(gate.footprintObstacle);
+  const fermee = !inside(pts, u.x, u.z) && gate.wall.door.open && w.obstacles.includes(gate.footprintObstacle);
   w.setDoorWanted(gate.id, true, 'player');
   w.step(DT);
   const ouverte = gate.wall.door.open && w.obstacles.includes(gate.footprintObstacle);
@@ -175,7 +175,7 @@ const inside = (pts: { x: number; z: number }[], x: number, z: number) => { let 
   w.issueCommand({ kind: 'move', entityIds: [u.id], x: 14, z: 0 });
   for (let i = 0; i < 30 * 4; i++) w.step(DT);
   const fermeApres = gate.wall.door.open === false && w.obstacles.includes(gate.footprintObstacle);
-  check('porte : remplace un segment (meme geometrie, chantier) ; chantier jamais ouvert ; fermee -> l allie reste enferme ; ouverte -> passage pour son camp (emprise gardee pour les hostiles), il sort ; fermeture demandee avec une unite dans l ouverture -> attend ; ouverture libre -> se ferme',
+  check('porte : remplace un segment (meme geometrie, chantier) ; chantier jamais ouvert ; fermee -> elle s ouvre devant l allie, il sort ; ouverte -> passage pour son camp (emprise gardee pour les hostiles), il sort ; fermeture demandee avec une unite dans l ouverture -> attend ; ouverture libre -> se ferme',
     ajout && refusChantier && fermee && ouverte && traverse && attend && fermeApres, { ajout, refusChantier, fermee, ouverte, traverse, attend, fermeApres, gateHp: gate.stats.maxHp, segHp: seg.stats.maxHp });
 }
 

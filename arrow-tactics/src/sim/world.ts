@@ -36,7 +36,7 @@ import { PRODUCTION_QUEUE_MAX } from '../data/production';
 import { buildingAttackSystem, type BuildingAttackEvent, type BuildingProjectile } from './systems/buildingAttack';
 import { combatSystem, type CombatEvent } from './systems/combat';
 import { deathSystem } from './systems/death';
-import { doorSystem } from './systems/doors';
+import { doorDemandSystem, doorSystem } from './systems/doors';
 import { segmentWallLine, wallLength, wallSegmentObstacle, type WallSegment } from '../core/wallLine';
 import { getWallType, wallPieceBuildTime, wallPieceMaxHp } from '../data/walls';
 import {
@@ -48,6 +48,7 @@ import {
   type EnemyReinforcementState,
 } from './systems/enemyReinforcements';
 import { movementSystem, type PathFailure } from './systems/movement';
+import { harvestStandCapacity } from './harvestStands';
 import { cachedPathGrid, isReachable, reachableTiles } from './pathfinding';
 import { obstaclesForUnit, terrainObstacles } from './geometry';
 import { targetingSystem } from './systems/targeting';
@@ -726,7 +727,7 @@ export class World {
     // Porte : son etat est partage par l'entite et son emprise (toujours
     // dans World.obstacles ; ouverte, elle ne laisse passer que les allies).
     const opened = gate && open && !construction;
-    const door = gate ? { owner: team, open: opened, wantOpen: opened } : null;
+    const door = gate ? { owner: team, open: opened, wantOpen: opened, built: !construction } : null;
     if (door) footprint.door = door;
     const e = this.spawnBuilding(def, team, (s.ax + s.bx) / 2, (s.az + s.bz) / 2, footprint, hp, maxHp, undefined, site);
     e.wall = { wallType, lineId, index, ax: s.ax, az: s.az, bx: s.bx, bz: s.bz, door };
@@ -1061,6 +1062,12 @@ export class World {
       chestLocked: (chest) => isChestLocked(chest, this.camps),
       openChest: (chest) => this.lootChest(chest),
       canReachSite: (e, site) => canReachSite(e, site, obstaclesForUnit(this.obstacles, e, e.stats.canTraverseWater === true), this.boardWidth, this.boardHeight),
+      harvestStandCapacity: (e, nodeId) => {
+        const box = this.resourceNodes.get(nodeId)?.block;
+        if (!box) return Infinity;
+        const obstacles = obstaclesForUnit(this.obstacles, e, e.stats.canTraverseWater === true);
+        return harvestStandCapacity(box, e.stats.radius, obstacles, cachedPathGrid(obstacles, this.boardWidth, this.boardHeight));
+      },
     };
   }
 
@@ -1292,6 +1299,7 @@ export class World {
     if (hasHero) heroSpellSystem(this.entities, this.abilityEvents, dt, this.heroEvents);
     this.pathFailures = [];
     movementSystem(this.entities, dt, this.obstacles, this.boardWidth, this.boardHeight, this.orderEvents, this.heroWork(), this.assaultGoal ? { goal: this.assaultGoal, failures: this.pathFailures } : null);
+    doorDemandSystem(this.entities);
     // Tourbillon (2026-11-03) : frappes a la position du pas, AVANT le travail
     // (un Tourbillon lance pendant ce pas ne compte pas ce pas).
     if (hasHero) heroWhirlwindSystem(this.entities, dt, this.heroEvents);

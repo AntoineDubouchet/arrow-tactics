@@ -31,7 +31,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await p.evaluate(() => window.arrowEconomy.set({ gold: 100, wood: 100, stone: 100 }));
   const setView = (x, z, h = 16) => L.setView(p, { targetX: x, targetZ: z, viewHeight: h, yawDeg: 45, pitchDeg: 55 });
   const stock = () => p.evaluate(() => window.arrowEconomy.stock());
-  const base = await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'ballista'); return { x: b.x, z: b.z }; });
+  // Centre du camp (Hotel de ville, G50).
+  const base = await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'townhall'); return { x: b.x, z: b.z }; });
   const houses = () => p.evaluate(() => window.__world.entities.filter((e) => e.alive && e.unitId === 'house' && e.team === 'player').map((e) => ({ id: e.id, x: e.x, z: e.z, site: !!e.construction })));
   const placeHouse = async (x, z, shift) => {
     const st = await p.evaluate(() => { const b = document.querySelector('.build-menu-button'); const r = b.getBoundingClientRect(); return { disabled: b.disabled, open: b.classList.contains('build-menu-button--open'), over: document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.className, builders: window.arrowInspection.builders(), placing: window.arrowInspection.placing(), heroAlive: !!window.__hero()?.alive }; });

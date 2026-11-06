@@ -31,18 +31,19 @@ const gateMid = (g: any) => ({ x: (g.ax + g.bx) / 2, z: (g.az + g.bz) / 2 });
     const angles = gates.map((g: any) => { const m = gateMid(g); return (Math.round((Math.atan2(m.x - 0.5, m.z - 0.5) * 180) / Math.PI) + 360) % 360; }).sort((a: number, b: number) => a - b);
     const lens = gates.map((g: any) => +Math.hypot(g.bx - g.ax, g.bz - g.az).toFixed(3));
     const rects = [
-      ...L.buildings.map((b: any) => { const t = buildingFootprintTiles(b.buildingId); return { minX: b.x - t.tilesX / 2, maxX: b.x + t.tilesX / 2, minZ: b.z - t.tilesZ / 2, maxZ: b.z + t.tilesZ / 2 }; }),
+      { minX: L.ballista.x - 1.5, maxX: L.ballista.x + 1.5, minZ: L.ballista.z - 1.5, maxZ: L.ballista.z + 1.5 },
+      ...L.buildings.filter((b: any) => b.buildingId !== 'townhall').map((b: any) => { const t = buildingFootprintTiles(b.buildingId); return { minX: b.x - t.tilesX / 2, maxX: b.x + t.tilesX / 2, minZ: b.z - t.tilesZ / 2, maxZ: b.z + t.tilesZ / 2 }; }),
       ...L.deposits.map((d: any) => ({ minX: d.x - 1, maxX: d.x + 1, minZ: d.z - 1, maxZ: d.z + 1 })),
       ...L.trees.map((t: any) => ({ minX: t.x - 0.5, maxX: t.x + 0.5, minZ: t.z - 0.5, maxZ: t.z + 0.5 })),
     ];
-    // Axe centre -> au-dela de la porte : aucun batiment ni ressource a moins de 2 cases.
-    const axisGap = Math.min(...gates.flatMap((g: any) => { const m = gateMid(g); return rects.map((q: any) => segmentBoxDistance({ ax: L.origin.x, az: L.origin.z, bx: m.x, bz: m.z }, q)); }));
+    // Axe bord de l'Hotel de ville -> porte : aucun batiment ni ressource a moins de 2 cases.
+    const axisGap = Math.min(...gates.flatMap((g: any) => { const m = gateMid(g); const len = Math.hypot(m.x - L.origin.x, m.z - L.origin.z); return rects.map((q: any) => segmentBoxDistance({ ax: L.origin.x + ((m.x - L.origin.x) / len) * 2, az: L.origin.z + ((m.z - L.origin.z) / len) * 2, bx: m.x, bz: m.z }, q)); }));
     const pieces = L.walls.flatMap((w: any) => segmentWallLine(w, getWallType(w.type).segmentLength).map((s: any, i: number) => ({ s, gate: w.gates?.includes(i) ?? false })));
     // Les bouts de mur rejoignent les portes : chaque extremite de porte est aussi l'extremite d'un bout de mur.
     const joined = gates.every((g: any) => [[g.ax, g.az], [g.bx, g.bz]].every(([x, z]) => L.walls.some((w: any) => w !== g && ((w.ax === x && w.az === z) || (w.bx === x && w.bz === z)))));
     rows.push({ r, gates: gates.length, open: gates.every((g: any) => g.openGates === true), angles, lens, axisGap: +axisGap.toFixed(2), doorPieces: pieces.filter((p: any) => p.gate).length, joined, type: gates.every((g: any) => g.type === 'palisade') });
   }
-  check('4 rotations : exactement 4 portes de palissade, ouvertes, a 0° / 90° / 180° / 270°, 2,4 cases, 4 pieces-portes, raccordees aux murs ; axes centre -> porte a >= 2 cases de tout batiment et ressource', rows.every((q) => q.gates === 4 && q.open && q.type && q.angles.join() === '0,90,180,270' && q.lens.every((l: number) => l === ENC.gateLength) && q.doorPieces === 4 && q.joined && q.axisGap >= 2), rows);
+  check('4 rotations : exactement 4 portes de palissade, ouvertes, a 0° / 90° / 180° / 270°, 2,4 cases, 4 pieces-portes, raccordees aux murs ; axes Hotel de ville -> porte a >= 2 cases de tout batiment et ressource', rows.every((q) => q.gates === 4 && q.open && q.type && q.angles.join() === '0,90,180,270' && q.lens.every((l: number) => l === ENC.gateLength) && q.doorPieces === 4 && q.joined && q.axisGap >= 2), rows);
   // La rotation fait suivre les portes, et le camp reste le meme a un quart de tour pres.
   const at = (r: number) => SB.startingBaseLayoutAt({ x: 0.5, z: 0.5 }, 'basic-camp', r);
   const moved = at(0).buildings.map((b: any) => [b.x, b.z]).join() !== at(1).buildings.map((b: any) => [b.x, b.z]).join();
@@ -64,7 +65,7 @@ for (const seed of SEEDS) {
   const mkWorld = () => {
     const w = new World(seed);
     w.setMap(map);
-    w.spawnBuilding(getBuilding('ballista'), 'player', L.origin.x, L.origin.z, computeBallistaObstacle(L.origin));
+    w.spawnBuilding(getBuilding('ballista'), 'player', L.ballista.x, L.ballista.z, computeBallistaObstacle(L.ballista));
     for (const b of L.buildings) { const t = buildingFootprintTiles(b.buildingId); w.spawnBuilding(getBuilding(b.buildingId), 'player', b.x, b.z, { kind: 'building', tilesX: t.tilesX, tilesZ: t.tilesZ, x: b.x, z: b.z, rotationY: b.rotationY, footprint: buildingContinuousFootprint(b.buildingId, b.x, b.z, b.rotationY) }); }
     for (const line of L.walls) w.spawnWallLine('player', line.type, line, { gates: line.gates, openGates: line.openGates });
     for (const d of map.destructibles ?? []) w.addDestructible(d.kind, d.x, d.z);
@@ -132,14 +133,14 @@ for (const seed of SEEDS) {
     w.issueCommand({ kind: 'move', entityIds: [h.id], x: to.x, z: to.z });
     let near = Infinity; let done = false;
     for (let i = 0; i < 30 * 40 && !done; i++) { w.step(DT); const d = Math.hypot(h.x - g.x, h.z - g.z); if (Math.hypot(h.x - L.origin.x, h.z - L.origin.z) > APOTHEM + 0.2 && d < near) near = d; done = Math.hypot(h.x - to.x, h.z - to.z) <= 1 ; }
-    row.porteFermee = { arrive: done, ferme: g.wall.door.open === false };
+    row.porteFermee = { arrive: done, ouverte: g.wall.door.open === true };
     const w2 = mkWorld();
     for (const e of w2.entities) if (e.wall?.door) w2.setDoorWanted(e.id, false, 'player');
     w2.step(DT);
     const h2 = w2.spawnHero('player', L.origin.x, L.origin.z + 4, { xp: 0, level: 1, deaths: 0 });
     w2.issueCommand({ kind: 'move', entityIds: [h2.id], x: L.origin.x, z: L.origin.z + 22 });
     for (let i = 0; i < 30 * 8; i++) w2.step(DT);
-    row.enferme = Math.hypot(h2.x - L.origin.x, h2.z - L.origin.z) < APOTHEM;
+    row.sorti = Math.hypot(h2.x - L.origin.x, h2.z - L.origin.z) > APOTHEM;
   }
   // Ennemi : n'entre par aucune porte ouverte.
   {
@@ -161,7 +162,7 @@ check('couloirs des portes : aucun arbre ni gisement', summary.every((r) => r.co
 for (const kind of ['hero', 'villageois', 'cavalier']) {
   check(`${kind} : sort depuis la cour par CHACUNE des 4 portes, dans son axe (< 1,3 case du centre de la porte au franchissement)`, summary.every((r) => r.sorties[kind].length === 4 && r.sorties[kind].every((s: any) => s.arrived && s.lateral !== null && s.lateral < 1.3)), summary.map((r) => [r.seed, r.sorties[kind]]));
 }
-check('porte fermee : le Heros sort par une autre et rejoint le point juste derriere ; 4 portes fermees : il reste enferme', summary.every((r) => r.porteFermee.arrive && r.porteFermee.ferme && r.enferme), summary.map((r) => [r.seed, r.porteFermee, r.enferme]));
+check('porte fermee : elle s ouvre devant le Heros, qui rejoint le point juste derriere ; 4 portes fermees : il sort quand meme', summary.every((r) => r.porteFermee.arrive && r.porteFermee.ouverte && r.sorti), summary.map((r) => [r.seed, r.porteFermee, r.sorti]));
 check('ennemi devant chacune des 4 portes ouvertes : n entre par aucune', summary.every((r) => !r.ennemiEntre), summary.map((r) => [r.seed, r.ennemiEntre]));
 
 console.log(failures ? failures + ' ECHEC(S)' : 'tout OK');

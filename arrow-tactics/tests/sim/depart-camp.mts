@@ -40,7 +40,7 @@ const insideCamp = (o: any, x: number, z: number, m = 0) => Math.hypot(x - o.x, 
   const L0 = SB.startingBaseLayoutAt({ x: 0.5, z: 0.5 }, 'basic-camp', 0);
   for (let r = 0; r < 4; r++) {
     const L = SB.startingBaseLayoutAt({ x: 0.5, z: 0.5 }, 'basic-camp', r);
-    const ballista = { minX: -1, maxX: 2, minZ: -1, maxZ: 2 };
+    const ballista = { minX: L.ballista.x - 1.5, maxX: L.ballista.x + 1.5, minZ: L.ballista.z - 1.5, maxZ: L.ballista.z + 1.5 };
     const rects = L.buildings.map(rectOf);
     const noOverlap = rects.every((a: any, i: number) => !overlap(a, ballista) && rects.every((b: any, j: number) => i === j || !overlap(a, b)));
     const inBounds = rects.every((q: any) => [[q.minX, q.minZ], [q.maxX, q.minZ], [q.minX, q.maxZ], [q.maxX, q.maxZ]].every(([x, z]) => insideCamp(L.origin, x!, z!)));
@@ -82,7 +82,7 @@ const insideCamp = (o: any, x: number, z: number, m = 0) => Math.hypot(x - o.x, 
     res.every((q) => q.depOk), res.map((q) => [q.r, q.depOk, q.deposits]));
   check('bosquet garanti, 4 rotations : >= 6 arbres 1 x 1 groupes, dans l enceinte, sans chevauchement (Baliste, batiments, gisements, entre eux), a >= 2 cases des batiments et gisements, hors places, loin des axes des 4 portes, a >= 1 case des murs',
     res.every((q) => q.treeOk), res.map((q) => [q.r, q.treeOk, q.trees]));
-  check('preset basic-camp, 4 rotations : 2 Maisons (A, B) + 1 Auberge sans chevauchement (ni Baliste), dans l enceinte, a >= 1,5 case des murs ; Heros et 2 Villageois dans la cour, hors emprises ; 4 portes ouvertes ; 36 pieces (dodecagone de rayon 15, 20 lignes)',
+  check('preset basic-camp, 4 rotations : Hotel de ville, 2 Maisons (A, B) + 1 Auberge sans chevauchement (ni Baliste), dans l enceinte, a >= 1,5 case des murs ; Heros et 2 Villageois dans la cour, hors emprises ; 4 portes ouvertes ; 36 pieces (dodecagone de rayon 15, 20 lignes)',
     res.every((q) => q.noOverlap && q.inBounds && q.clearance >= 1.5 && q.peopleOk && q.gates === 4 && q.open && q.pieces === 36 && L0.walls.length === 20 && JSON.stringify(q.houses) === '[0,1]' && q.tavern === 1 && q.villagers === 2), res);
 }
 
@@ -122,17 +122,17 @@ for (const seed of SEEDS) {
   const campNodes = [...w.resourceNodes.values()].filter((n: any) => insideCamp(L.origin, n.x, n.z));
   row.sourcesCamp = campNodes.map((n: any) => n.resource).sort();
   // Or proche garanti (G46) : un gisement d'or HORS de l'enceinte dont les 4 cases sont dans la vision initiale de la
-  // Baliste (VISION_RADIUS.ballista depuis l'origine, centres de cases a < rayon - 0,5), a >= 1 case des murs.
-  row.orProche = raw.obstacles.filter((o: any) => o.kind === 'rock' && o.ore === 'gold').filter((o: any) => { const cs = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([dx, dz]) => Math.hypot(o.cornerX + dx + 0.5 - L.origin.x, o.cornerZ + dz + 0.5 - L.origin.z)); return Math.min(...cs) > ENC.radius + 1 && Math.max(...cs) < VISION_RADIUS.ballista - 0.5; }).length;
+  // Hotel de ville (VISION_RADIUS.townhall depuis l'origine, centres de cases a < rayon - 0,5), a >= 1 case des murs.
+  row.orProche = raw.obstacles.filter((o: any) => o.kind === 'rock' && o.ore === 'gold').filter((o: any) => { const cs = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([dx, dz]) => Math.hypot(o.cornerX + dx + 0.5 - L.origin.x, o.cornerZ + dz + 0.5 - L.origin.z)); return Math.min(...cs) > ENC.radius + 1 && Math.max(...cs) < VISION_RADIUS.townhall - 0.5; }).length;
   // Cour libre : cases a plus d'une case des murs, hors Baliste, batiments, gisements, bosquet (constructibles).
   { const blocked = new Set<string>(); const block = (minX: number, maxX: number, minZ: number, maxZ: number) => { for (let z = Math.floor(minZ); z < Math.ceil(maxZ); z++) for (let x = Math.floor(minX); x < Math.ceil(maxX); x++) blocked.add(x + ',' + z); };
-    block(L.origin.x - 1.5, L.origin.x + 1.5, L.origin.z - 1.5, L.origin.z + 1.5);
+    block(L.ballista.x - 1.5, L.ballista.x + 1.5, L.ballista.z - 1.5, L.ballista.z + 1.5);
     for (const b of L.buildings) { const t = buildingFootprintTiles(b.buildingId); block(b.x - t.tilesX / 2, b.x + t.tilesX / 2, b.z - t.tilesZ / 2, b.z + t.tilesZ / 2); }
     for (const d of L.deposits) block(d.x - 1, d.x + 1, d.z - 1, d.z + 1);
     for (const t of L.trees) block(t.x - 0.5, t.x + 0.5, t.z - 0.5, t.z + 0.5);
     let free = 0; for (let z = Math.floor(L.origin.z - 16); z <= L.origin.z + 16; z++) for (let x = Math.floor(L.origin.x - 16); x <= L.origin.x + 16; x++) if (insideCamp(L.origin, x + 0.5, z + 0.5, 1) && !blocked.has(x + ',' + z)) free++;
     row.courLibre = free; }
-  w.spawnBuilding(getBuilding('ballista'), 'player', L.origin.x, L.origin.z, computeBallistaObstacle(L.origin));
+  w.spawnBuilding(getBuilding('ballista'), 'player', L.ballista.x, L.ballista.z, computeBallistaObstacle(L.ballista));
   for (const b of L.buildings) { const { tilesX, tilesZ } = buildingFootprintTiles(b.buildingId); w.spawnBuilding(getBuilding(b.buildingId), 'player', b.x, b.z, { kind: 'building', x: b.x, z: b.z, tilesX, tilesZ }); }
   for (const line of L.walls) w.spawnWallLine('player', line.type, line, { gates: line.gates, openGates: line.openGates });
   for (const d of map.destructibles ?? []) w.addDestructible(d.kind, d.x, d.z);
@@ -199,20 +199,20 @@ for (const seed of SEEDS) {
   const gate = w.entities.find((e: any) => e.wall?.door);
   let entered = false;
   for (let i = 0; i < 30 * 8; i++) { w.step(DT); if (gate?.alive && insideCamp(L.origin, foe.x, foe.z, 0.4)) entered = true; }
-  row.ennemiBloque = !entered && gate?.wall.door.open === true;
+  row.ennemiBloque = !entered && gate?.wall.door.open === false;
   summary.push(row);
 }
 console.log('GRAINES', JSON.stringify(summary));
 check('chaque graine : camp de depart present, zone reservee entierement dans la carte, sans eau, relief, obstacle, tas, ni camp neutre a moins de 5 cases',
   summary.every((r) => r.zone && r.zone.horsCarte === 0 && r.zone.eau === 0 && r.zone.relief === 0 && r.zone.obstacles === 0 && r.zone.tas === 0 && r.zone.camps === 0), summary.map((r) => [r.seed, r.zone]));
-check('population au depart : 2 Villageois sur 9 (5 + 2 Maisons x 2)', summary.every((r) => r.pop?.used === 2 && r.pop?.max === 9), summary.map((r) => r.pop));
+check('population au depart : 2 Villageois sur 15 (5 + 2 Maisons x 5, G50)', summary.every((r) => r.pop?.used === 2 && r.pop?.max === 15), summary.map((r) => r.pop));
 check('Heros : sort par la porte ouverte ; 2 Villageois aussi', summary.every((r) => r.sortieHeros && r.sortieVillageois), summary.map((r) => [r.seed, r.sortieHeros, r.sortieVillageois]));
 check('Heros : rejoint le petit et le grand camp neutres depuis la sortie (vrai deplacement)', summary.every((r) => r.camps?.length === 2 && r.camps.every(Boolean)), summary.map((r) => [r.seed, r.camps]));
 check('Heros : atteint le pied de CHAQUE gisement (pierre et or) depuis la sortie', summary.every((r) => r.gisements && r.gisements.split('/')[0] === r.gisements.split('/')[1]), summary.map((r) => [r.seed, r.gisements, r.ratees]));
 check('aucun passage d une case contre un gisement (KI-65)', summary.every((r) => r.passagesUneCase === 0), summary.map((r) => [r.seed, r.passagesUneCase]));
-check('ennemi (Maraudeur) a la porte ouverte : n entre jamais tant qu elle tient', summary.every((r) => r.ennemiBloque), summary.map((r) => [r.seed, r.ennemiBloque]));
+check('ennemi (Maraudeur) a la porte : elle se ferme, il n entre jamais tant qu elle tient', summary.every((r) => r.ennemiBloque), summary.map((r) => [r.seed, r.ennemiBloque]));
 const NB_TREES = SB.getStartingBasePreset('basic-camp').trees.length;
-check('or proche garanti (G46, chaque graine) : au moins 1 gisement d or hors de l enceinte, entierement dans la vision initiale de la Baliste (21) ; cour libre constructible >= 500 cases (241 avant, rayon 10,5)', summary.every((r) => r.orProche >= 1 && r.courLibre >= 500), summary.map((r) => [r.seed, r.orProche, r.courLibre]));
+check('or proche garanti (G46, chaque graine) : au moins 1 gisement d or hors de l enceinte, entierement dans la vision initiale de l Hotel de ville (21) ; cour libre constructible >= 500 cases (241 avant, rayon 10,5)', summary.every((r) => r.orProche >= 1 && r.courLibre >= 500), summary.map((r) => [r.seed, r.orProche, r.courLibre]));
 check(`gisements et bosquet garantis du camp (chaque graine) : aucun dans la carte brute, 2 + ${NB_TREES} ajoutes a la consommation (expandStartingBase, avec les 20 lignes de murs) ; dans le monde : 1 pierre + 1 or + ${NB_TREES} arbres (>= 6) dans l enceinte`, NB_TREES >= 6 && summary.every((r) => r.gisementsCamp?.brut === 0 && r.gisementsCamp?.monde === 2 + NB_TREES && r.gisementsCamp?.murs === 20 && r.sourcesCamp?.join() === ['gold', 'stone', ...Array(NB_TREES).fill('wood')].join()), summary.map((r) => [r.seed, r.gisementsCamp, r.sourcesCamp]));
 check(`sources du camp : toutes atteintes par le Heros depuis la cour (${2 + NB_TREES}), aucun passage d une case autour (KI-65)`, summary.every((r) => r.campAtteints === `${2 + NB_TREES}/${2 + NB_TREES}` && r.campPassagesUneCase === 0), summary.map((r) => [r.seed, r.campAtteints, r.campPassagesUneCase]));
 console.log('PERF generation moyenne', (genMs / SEEDS.length).toFixed(1), 'ms ; rotations', JSON.stringify(summary.map((r) => r.rotation)));

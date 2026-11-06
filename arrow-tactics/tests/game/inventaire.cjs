@@ -28,7 +28,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await p.mouse.move(Math.max(hp.x, ap.x) + 60, Math.max(hp.y, ap.y) + 60, { steps: 8 }); await p.mouse.up(); await L.wait(p, 500);
   const ficheGroupe = await fiche();
   check('Heros seul selectionne : aucune fiche ; unite seule et groupe (Heros + Homme d armes) : fiche affichee ; HUD : bouton « Inventaire (I) » (le Soin est dans la barre d action)',
-    ficheHeros === null && ficheUnite !== null && /Homme/.test(ficheUnite) && ficheGroupe !== null && heroSel.hud.some((b) => b.t === 'InventaireI'),
+    ficheHeros === 'Paladin' && ficheUnite !== null && /Homme/.test(ficheUnite) && ficheGroupe !== null && heroSel.hud.some((b) => b.t === 'InventaireI'),
     J({ ficheHeros, ficheUnite, ficheGroupe, hud: heroSel.hud }));
 
   // ---- Inventaire : touche I, contenu, mise a jour en direct, partie qui continue, I / Echap / bouton.

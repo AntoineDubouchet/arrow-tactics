@@ -11,8 +11,10 @@
  * pas tirer. 2026-11-05 (G46) : Baliste 21, pour que le camp agrandi
  * (enceinte de rayon 15) garde 6 cases de vue au-dela de ses murs et voie
  * le gisement d'or proche garanti (config/startingBase.ts nearbyGold).
+ * 2026-11-06 (G50) : l'Hotel de ville, au centre du camp, voit aussi loin : le camp
+ * voit ses abords et cet or de la meme facon, la Baliste etant decalee.
  */
-export const VISION_RADIUS = { unit: 6, ballista: 21, hero: 9, building: 4, tower: 18, site: 3 } as const;
+export const VISION_RADIUS = { unit: 6, ballista: 21, townhall: 21, hero: 9, building: 4, tower: 18, site: 3 } as const;
 
 /** Disque deja EXPLORE (terrain memorise, pas visible) autour du camp au
  *  lancement d'une run (2026-11-02, brouillard du rendu seulement) : un peu

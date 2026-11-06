@@ -1,6 +1,6 @@
 // Mesure economique LEGERE (2026-11-05, G44) sur le camp de depart reel (graine 12345), sans navigateur : un Villageois
 // reste 20 s (bois) / 25 s (pierre) / 30 s (or) a sa source avant de rentrer (cargo 10 x temps par unite), cycle
-// complet sous 35 s dans le camp, rendement 12 a 35 unites / min ; le Heros recolte plus lentement qu'un Villageois (x 1,25) ;
+// complet sous 38 s dans le camp, rendement 12 a 35 unites / min ; le Heros recolte plus lentement qu'un Villageois (x 1,25) ;
 // 3 Villageois autonomes se repartissent sur bois, pierre et or et chacun rapporte ; 2 minutes simulees au plus.
 // Les valeurs restent PROVISOIRES : ce test garde les ordres de grandeur, pas une balance.
 // Usage : node --import ../ts-register.mjs economie.mts (ou npm run test:sim)
@@ -24,7 +24,7 @@ const map = SB.expandStartingBase(expandMapCamps(raw));
 function camp(nVil: number, withHero: boolean) {
   const w = new World(seed);
   w.setMap(map);
-  w.spawnBuilding(getBuilding('ballista'), 'player', L.origin.x, L.origin.z, computeBallistaObstacle(L.origin));
+  w.spawnBuilding(getBuilding('ballista'), 'player', L.ballista.x, L.ballista.z, computeBallistaObstacle(L.ballista));
   for (const b of L.buildings) { const { tilesX, tilesZ } = buildingFootprintTiles(b.buildingId); w.spawnBuilding(getBuilding(b.buildingId), 'player', b.x, b.z, { kind: 'building', x: b.x, z: b.z, tilesX, tilesZ }); }
   for (const line of L.walls) w.spawnWallLine('player', line.type, line, { gates: line.gates, openGates: line.openGates });
   const hero = withHero ? w.spawnHero('player', L.hero.x, L.hero.z, { xp: 0, level: 1, deaths: 0 }) : null;
@@ -59,8 +59,8 @@ function loop(w: any, u: any, node: any, seconds: number) {
     const node = nodes.filter((n: any) => n.resource === r).sort((a: any, b: any) => Math.hypot(a.x - v.x, a.z - v.z) - Math.hypot(b.x - v.x, b.z - v.z))[0];
     rows[r] = { ...loop(w, v, node, 120), expected: CARGO_CAPACITY.villageois * HARVEST_NODE_KINDS[r].seconds };
   }
-  check(`1 Villageois (cargo ${CARGO_CAPACITY.villageois}) : reste ${rows.wood.expected} s a l arbre, ${rows.stone.expected} s a la pierre, ${rows.gold.expected} s a l or (+/- 1 s), cycle complet < 35 s dans le camp, 12 a 35 unites / min`,
-    (['wood', 'stone', 'gold'] as const).every((r) => Math.abs(rows[r].atSource - rows[r].expected) <= 1 && rows[r].cycle < 35 && rows[r].perMin >= 12 && rows[r].perMin <= 35), rows);
+  check(`1 Villageois (cargo ${CARGO_CAPACITY.villageois}) : reste ${rows.wood.expected} s a l arbre, ${rows.stone.expected} s a la pierre, ${rows.gold.expected} s a l or (+/- 1 s), cycle complet < 38 s dans le camp (Baliste dans le noyau depuis G50), 12 a 35 unites / min`,
+    (['wood', 'stone', 'gold'] as const).every((r) => Math.abs(rows[r].atSource - rows[r].expected) <= 1 && rows[r].cycle < 38 && rows[r].perMin >= 12 && rows[r].perMin <= 35), rows);
 }
 
 // ---- 2. Heros : plus lent qu'un Villageois sur la meme source (HERO_HARVEST_FACTOR), stats de combat intactes.

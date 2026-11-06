@@ -92,7 +92,7 @@ viennent frapper le joueur pendant qu'il construit.
 5. **Vagues** : à intervalles réguliers, une vague ennemie marche sur le
    camp. L'armée produite, les murs, la Baliste et le Héros la reçoivent
    automatiquement ; le joueur intervient (ordres, sorts, tir de la
-   Baliste) quand c'est utile. Une vague repoussée rapporte un peu d'or et
+   Baliste) quand c'est utile. Une vague repoussée rapporte un choix d'équipement et
    laisse le jeu continuer ; la Baliste détruite termine la run.
 6. Retour à l'exploration et à l'économie, face à une vague suivante plus
    exigeante.
@@ -402,6 +402,12 @@ Constat uniquement, sans plan d'action (voir `ROADMAP.md`) :
 ## 15. Questions de design ouvertes
 
 Aucune de ces questions n'est tranchée.
+
+**Cœur de la base**
+
+- Hôtel de ville ou Baliste comme bâtiment principal à défendre ? Aujourd'hui, la Baliste, déplacée
+  dans le noyau du camp, à côté de l'Hôtel de ville (`DESIGN_DECISIONS.md` G50). Ce que
+  l'Hôtel de ville deviendra (production, niveaux, technologies) reste à décider.
 
 **Survie et difficulté**
 

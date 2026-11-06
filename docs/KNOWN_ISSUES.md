@@ -548,6 +548,27 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   au chargement et à la sauvegarde). Une carte de survie dessinée passe
   aujourd'hui par le JSON.
 
+### KI-75 — Récolte : une unité de la boucle traverse un Villageois au travail
+
+- **Constat** (G50) : un Villageois ou le Héros en route vers son emplacement, ou vers le dépôt,
+  n'est pas repoussé par une unité ancrée à son emplacement : il la traverse un instant.
+- **Pourquoi** : les chemins A* ne voient pas les corps. Une unité ancrée bloquante sur la route
+  coinçait le passant contre la source (2 à 19 blocages en 60 s, mesuré), et l'ordre s'abandonnait.
+- **Impact** : visuel, une fraction de seconde, surtout pour un emplacement de l'autre côté de la
+  source : la plus proche à pied est choisie d'abord. Aucun chevauchement entre deux
+  unités au travail. Non observé comme une gêne, mais à regarder en jeu.
+- **Piste** : une approche finale qui contourne les emplacements occupés.
+
+### KI-76 — Tas proches : garantie de départ faible
+
+- **Constat** (G50, déjà vrai à d58bd14) : les tas « proches » sont visés à 9–18 cases du centre, mais
+  la zone réservée au camp fait 17 cases : seul un anneau d'une case reste, et beaucoup de tirages
+  échouent. Bois au sol à moins de 22 cases du centre, 12 graines : 4 à 21 avant G50, 1 à 11 depuis.
+- **Impact** : faible, le bosquet et les gisements du camp suffisent pour démarrer, mais
+  `NEAR_WOOD` et `NEAR_STONE` promettent plus qu'ils ne donnent.
+- **Piste** : décaler l'anneau au-delà de la zone réservée. Non fait : cela changerait les tirages,
+  donc les cartes de chaque graine.
+
 ### KI-74 — Montée de niveau : particules sous le pixel
 
 - **Statut** : Confirmé par lecture du code et par le même défaut observé sur la mort du

@@ -206,6 +206,13 @@ export const CAMERA = {
    *  directement sur son panneau de debug, capture d'ecran fournie : pivot
    *  45°, inclinaison 28°, zoom 20). */
   yawDeg: 45,
+  /** Pivot en Survie : debut de partie, R et Espace (2026-11-06, demande d'Antoine,
+   *  17,6° mesures sur sa capture, inclinaison inchangee). L'editeur garde yawDeg. */
+  survivalYawDeg: 18,
+  /** Cadrage de la Survie : debut de partie, R et Espace (2026-11-06, decision
+   *  d'Antoine) : le camp de rayon 15 se lit d'un coup d'oeil. L'editeur garde
+   *  viewHeight. */
+  survivalViewHeight: 28,
   pitchDeg: 28,
   /** Hauteur de monde visible a l'ecran, en unites. Plus petit = plus zoome. */
   viewHeight: 20,
@@ -437,7 +444,7 @@ export interface ObstacleDef {
   /** Porte d'un mur V2 (2026-11-02) : proprietaire et etat, MEME objet que
    *  Entity.wall.door. Son emprise reste toujours dans World.obstacles :
    *  sim/relations.ts (canUnitPassGate) decide quelles unites la franchissent
-   *  (ouverte : proprietaire et allies ; fermee : personne). */
+   *  (batie : proprietaire et allies, ouverte ou fermee ; chantier : personne). */
   door?: WallDoorState;
   /** Graine d'aspect figée (orientation sans rotationY, forme d'un rocher,
    *  hauteur d'un arbre). Absente : dérivée de la position, voir
@@ -451,6 +458,8 @@ export interface ObstacleDef {
 export interface WallDoorState {
   owner: string;
   open: boolean;
+  /** Vrai une fois la porte batie : un chantier bloque tout le monde. */
+  built: boolean;
 }
 
 /** Capsule d'une piece de mur V2 (ObstacleDef.line) : segment de A a B et
@@ -908,8 +917,11 @@ export const PLAYER_ARROW_HIT_RADIUS = 0.63;
  *  (AUTO). Valeur FIXE, independante de la taille de la carte : la moitie de
  *  la profondeur de l'arene du Mode survie (36 cases) — depuis sa position
  *  (z = 15,5), elle porte 2,5 cases au-dela du milieu du terrain et reste a
- *  6,5 cases de la zone de depart ennemie. */
-export const PLAYER_ARROW_RANGE = 18;
+ *  6,5 cases de la zone de depart ennemie. 22,6 depuis le 2026-11-06 (18 avant,
+ *  decision d'Antoine : 22,5 a 23 au plus, la plus petite valeur suffisante,
+ *  PROVISOIRE) : depuis sa place dans le noyau du camp, a 6,4 cases du centre, elle
+ *  atteint un ennemi contre le bout de palissade le plus lointain (22,58 cases). */
+export const PLAYER_ARROW_RANGE = 22.6;
 /** Distance (en cases) entre la baliste du joueur et le coin (+X, +Z) du
  *  plateau — la position elle-meme est calculee depuis la taille REELLE du
  *  plateau (voir config/mapDef.ts, computePlayerArrowOrigin), pas une

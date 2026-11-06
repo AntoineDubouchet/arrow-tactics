@@ -1,4 +1,5 @@
 import { BALLISTA_TOWER_FOOTPRINT, BOARD_H, BOARD_W, PLACEMENT_ROWS, PLAYER_ARROW_CORNER_INSET, TILE, type ObstacleDef } from './constants';
+import { startingBaseLayoutOf } from './startingBase';
 import type { SurfaceCellDef } from './groundSurfaces';
 import type { ResourcePileDef } from './resourceNodes';
 import type { TerrainElevationCellDef } from './terrainElevation';
@@ -118,8 +119,10 @@ export interface MapDef {
    *  contrairement a enemyUnits, qui est la position REELLE de depart. */
   playerUnits: MapUnitPlacement[];
   enemyUnits: MapUnitPlacement[];
-  /** Centre de la Baliste, en coordonnees monde (meme convention que
-   *  computePlayerArrowOrigin et que l'origine de computeBallistaObstacle),
+  /** Depart Survie : centre du camp de depart (Hotel de ville depuis G50), et
+   *  centre de la Baliste sans camp de depart (voir resolveBallistaOrigin), en
+   *  coordonnees monde (meme convention que computePlayerArrowOrigin et que l'origine
+   *  de computeBallistaObstacle),
    *  pose dans l'editeur de maps. OPTIONNEL : absent sur toute map anterieure
    *  et tant que la Baliste n'a pas ete deplacee dans l'editeur — repli
    *  computePlayerArrowOrigin(map), voir resolveBallistaOrigin. Sert a
@@ -466,12 +469,15 @@ export function computePlayerArrowOrigin(map: Pick<MapDef, 'width' | 'height'>):
   return { x: halfW - PLAYER_ARROW_CORNER_INSET, z: halfH - PLAYER_ARROW_CORNER_INSET };
 }
 
-/** Position de la Baliste d'une map : celle posee dans l'editeur
- *  (MapDef.ballista) si presente, sinon le repli historique du coin
+/** Position de la Baliste d'une map : avec un camp de depart (2026-11-06, G50), sa
+ *  place dans le noyau, a cote de l'Hotel de ville ; sans camp, le Depart pose dans
+ *  l'editeur (MapDef.ballista) si present, sinon le repli historique du coin
  *  (computePlayerArrowOrigin). SOURCE UNIQUE pour l'editeur, "Tester le
  *  scenario" et le depart d'une run du Mode survie (startNewRun, sur
  *  SURVIVAL_BASE_MAP) : le joueur ne place plus la tour. */
-export function resolveBallistaOrigin(map: Pick<MapDef, 'width' | 'height' | 'ballista'>): { x: number; z: number } {
+export function resolveBallistaOrigin(map: Pick<MapDef, 'width' | 'height' | 'ballista' | 'survivalRules' | 'startingBase'>): { x: number; z: number } {
+  const base = startingBaseLayoutOf(map);
+  if (base) return { ...base.ballista };
   return map.ballista ? { x: map.ballista.x, z: map.ballista.z } : computePlayerArrowOrigin(map);
 }
 

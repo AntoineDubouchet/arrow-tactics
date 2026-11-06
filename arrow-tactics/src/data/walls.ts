@@ -65,6 +65,11 @@ export const WALL_TYPES: Readonly<Record<string, WallTypeDef>> = {
 
 export const DEFAULT_WALL_TYPE = 'palisade';
 
+/** Portes automatiques (2026-11-06, sim/systems/doors.ts), distances a la porte en
+ *  cases, PROVISOIRES : un allie qui approche l'ouvre, un hostile proche la ferme. */
+export const DOOR_ALLY_OPEN_RANGE = 2.5;
+export const DOOR_ENEMY_CLOSE_RANGE = 5;
+
 export function getWallType(id: string): WallTypeDef {
   const def = WALL_TYPES[id];
   if (!def) throw new Error(`Mur inconnu : ${id}`);

@@ -133,7 +133,7 @@ const DEG15 = Math.PI / 12;
   if (await p.evaluate(() => !!document.querySelector('.screen-pause.screen-overlay--visible'))) { await p.keyboard.press('Escape'); await L.wait(p, 150); }
   await clickEntity(vil, 0.6);
   const builders = await p.evaluate(() => window.arrowInspection.builders());
-  const spot = await p.evaluate((v) => ({ x: v.x + 3.43, z: v.z - 2.71 }), vil);
+  const spot = await p.evaluate((v) => ({ x: v.x + 3.43, z: v.z + 3.71 }), vil);
   const knownT = (await p.evaluate(() => window.__sites('house'))).map((h) => h.id);
   await openMenu('Maison');
   const ptV = await moveTo(spot.x, spot.z);

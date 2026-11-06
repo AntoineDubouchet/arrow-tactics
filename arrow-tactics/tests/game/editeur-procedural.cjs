@@ -172,12 +172,12 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   check('carte vierge toujours disponible (aucun element, aucun panneau) ; rechargement : memes elements, meme carte reenregistree', blank2.features === 0 && /Départ Survie absent/.test(blank2.info ?? '') && blank.features === 0 && reloaded.camps === sv.camps.length && reloaded.piles === sv.resourcePiles.length && concrete(reSaved) === concrete(sv), { blank2, reloaded });
 
   // 6. Tester le scenario : meme pipeline (camps, tas, barils en jeu).
-  fs.writeFileSync(OUT + 'gen-12345-test.json', JSON.stringify({ ...sv, playerUnits: [{ unitId: 'fantassin', x: 2.5, z: 2.5 }], enemyUnits: [{ unitId: 'maraudeur', x: 30.5, z: 30.5 }] }));
+  fs.writeFileSync(OUT + 'gen-12345-test.json', JSON.stringify({ ...sv, playerUnits: [{ unitId: 'fantassin', x: 3.5, z: 2.5 }], enemyUnits: [{ unitId: 'maraudeur', x: 30.5, z: 30.5 }] }));
   const [c2] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Charger une carte' }).click()]);
   await c2.setFiles(OUT + 'gen-12345-test.json'); await wait(2000);
   await page.getByRole('button', { name: 'Tester le scénario' }).click(); await wait(400);
   await ev(() => { for (const e of window.__world.entities) if (!e.isBuilding) { e.stats.maxHp = 1e6; e.hp = 1e6; e.stats.moveSpeed = 0; e.stats.damage = 0; } }); await wait(1500);
-  const inTest = await ev(() => { const w = window.__world; const b = w.entities.find((e) => e.unitId === 'ballista' && e.team === 'player'); const inCamp = (n) => Math.hypot(n.x - b.x, n.z - b.z) < 15; return { camps: w.camps.length, piles: w.resourcePiles.length, barrels: w.entities.filter((e) => e.destructible).length, gold: [...w.resourceNodes.values()].filter((n) => n.resource === 'gold').length, campSources: [...w.resourceNodes.values()].filter(inCamp).map((n) => n.resource).sort(), ticks: w.tick }; });
+  const inTest = await ev(() => { const w = window.__world; const b = w.entities.find((e) => e.unitId === 'townhall' && e.team === 'player'); const inCamp = (n) => Math.hypot(n.x - b.x, n.z - b.z) < 15; return { camps: w.camps.length, piles: w.resourcePiles.length, barrels: w.entities.filter((e) => e.destructible).length, gold: [...w.resourceNodes.values()].filter((n) => n.resource === 'gold').length, campSources: [...w.resourceNodes.values()].filter(inCamp).map((n) => n.resource).sort(), ticks: w.tick }; });
   await page.screenshot({ path: OUT + 'editeur-test-scenario.png' });
   const testGates = await ev(() => window.__world.entities.filter((e) => e.alive && e.wall?.door).map((e) => e.wall.door.open));
   check('« Tester le scénario » : les memes 4 portes, ouvertes ; carte enregistree sans mur ajoute (aucun doublon au rechargement)', J(testGates) === '[true,true,true,true]' && (sv.walls ?? []).length === 0, { testGates, walls: (sv.walls ?? []).length });

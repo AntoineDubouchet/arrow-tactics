@@ -332,6 +332,9 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
 
 ### Principales
 
+- **Hôtel de ville ou Baliste comme bâtiment principal à défendre ?** Aujourd'hui la Baliste
+  (`DESIGN_DECISIONS.md` G50). L'Hôtel de ville n'a encore aucune fonction : production,
+  niveaux ou technologies demanderont une décision à part.
 - **Vagues infinies** :
   - modèle de génération (budget de menace, paliers, compositions variées,
     vagues spéciales) ;

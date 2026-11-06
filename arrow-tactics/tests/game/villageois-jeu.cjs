@@ -26,7 +26,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
     for (const e of window.__world.entities) if (e.worker) { e.worker.autoRetryIn = 1e9; e.cargo.wood = e.cargo.stone = e.cargo.minedGold = 0; }
   });
   await p.evaluate(() => window.arrowEconomy.set({ gold: 500, wood: 100, stone: 100 }));
-  const base = await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'ballista'); return { x: Math.floor(b.x), z: Math.floor(b.z) }; });
+  // Centre du camp (Hotel de ville, G50).
+  const base = await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'townhall'); return { x: Math.floor(b.x), z: Math.floor(b.z) }; });
   const setView = (x, z, h = 16) => L.setView(p, { targetX: x, targetZ: z, viewHeight: h, yawDeg: 45, pitchDeg: 55 });
   const actions = () => p.evaluate(() => [...document.querySelectorAll('.entity-info:not([hidden]) .entity-info-action')].map((b) => ({ a: b.dataset.action, t: b.textContent })));
   const rows = () => p.evaluate(() => (document.querySelector('.entity-info:not([hidden])')?.innerText ?? '').replace(/\s+/g, ' '));

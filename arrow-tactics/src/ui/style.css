@@ -603,6 +603,34 @@ img {
   margin-bottom: 6px;
 }
 
+/* Heros seul (G50) : portrait et nom, le HUD RPG porte le reste. */
+.entity-info--hero {
+  width: auto;
+  padding: 8px 15px 8px 10px;
+}
+
+.entity-info--hero .entity-info-header {
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 0;
+}
+
+.entity-info-portrait {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--edge);
+}
+
+.entity-info-portrait img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
 .entity-info-title {
   font-size: 18px;
   font-weight: 700;

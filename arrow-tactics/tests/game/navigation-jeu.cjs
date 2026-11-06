@@ -39,11 +39,11 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const searches = () => p.evaluate(() => window.__stats.searches);
 
   // ==== 1. Deux Maisons par le menu, baties.
-  const line = { ax: -8, az: 7.3, bx: 2, bz: 7.3 };
-  await setView(-3, 7, 16); await L.wait(p, 400);
+  const line = { ax: 4, az: 3.3, bx: 14, bz: 3.3 };
+  await setView(9, 3, 16); await L.wait(p, 400);
   await openMenu('Maison');
   const houses = [];
-  for (const [x, z] of [[-3.4, 5.5], [-3.4, 9.1]]) {
+  for (const [x, z] of [[9.4, 1.5], [9.4, 5.1]]) {
     const s = await moveTo(x, z);
     await p.keyboard.down('Shift'); await p.mouse.click(s.x, s.y); await p.keyboard.up('Shift'); await L.wait(p, 250);
   }
@@ -54,10 +54,10 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
 
   // ==== 2. Palissade entre elles : le cas qui bouclait.
   // Heros au loin, Villageois ecartes : une ligne de palissade refuse de traverser une unite.
-  await p.evaluate(() => { const w = window.__world; const h = window.__hero(); w.issueCommand({ kind: 'stop', entityIds: [h.id] }); h.x = h.prevX = 4.5; h.z = h.prevZ = -3.5; let i = 0; for (const e of w.entities) if (e.worker && e.alive) { e.x = e.prevX = 8 + i; e.z = e.prevZ = -5; e.path = null; i += 2; } });
+  await p.evaluate(() => { const w = window.__world; const h = window.__hero(); w.issueCommand({ kind: 'stop', entityIds: [h.id] }); h.x = h.prevX = -3.5; h.z = h.prevZ = 0.5; let i = 0; for (const e of w.entities) if (e.worker && e.alive) { e.x = e.prevX = -3 + i; e.z = e.prevZ = 10; e.path = null; i += 2; } });
   await L.wait(p, 200);
   await L.blur(p); await p.keyboard.press('Space'); await L.wait(p, 250);
-  await setView(-3, 7, 16); await L.wait(p, 300);
+  await setView(9, 3, 16); await L.wait(p, 300);
   const before = await searches();
   await p.evaluate(() => { window.__frames.max = 0; window.__frames.on = true; });
   await openMenu('Palissade');
@@ -87,7 +87,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   check('aucune image gelee pendant la construction (moins d une seconde, sous Edge sans GPU)', frames < 1000, frames);
 
   // ==== 3. Chantier enferme : clic droit, message, Garde.
-  const c = { x: -4.5, z: -2.5 };
+  const c = { x: -8.5, z: -2.5 };
   await p.evaluate((c) => {
     const w = window.__world; const r = 3;
     const pts = [[c.x - r, c.z - r], [c.x + r, c.z - r], [c.x + r, c.z + r], [c.x - r, c.z + r], [c.x - r, c.z - r]];

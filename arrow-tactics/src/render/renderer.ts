@@ -304,11 +304,11 @@ export class Renderer {
     this.updateCamera();
   }
 
-  resetCamera(): void {
+  resetCamera(yawDeg: number = CAMERA.yawDeg, viewHeight: number = CAMERA.viewHeight): void {
     this.framed = false;
-    this.yawDeg = CAMERA.yawDeg;
+    this.yawDeg = yawDeg;
     this.pitchDeg = CAMERA.pitchDeg;
-    this.viewHeight = CAMERA.viewHeight;
+    this.viewHeight = viewHeight;
     this.target.set(0, 0, 0);
     this.updateCamera();
   }

@@ -79,7 +79,10 @@ inaccessible, ordre manuel, plusieurs constructeurs, grappe serrée, événement
 et `camp-portes.mts` (4 portes, graines 1, 42, 12345, 99999 : angles, axes, sortie par
 chacune, porte fermée, ennemi, or proche, camps). G49 : `navigation-boucle.mts` (palissade
 entre des bâtiments, point verrouillé, 40 cas tirés dans le vrai camp, route perdue, watchdog
-cas A à E, foule, charge et limite d'A*).
+cas A à E, foule, charge et limite d'A*). G50 : `farm-stands.mts` (emplacements, 4 sur un arbre,
+8 sur un gisement, surplus manuel et autonome, libération, retour du dépôt, Héros, charge à 20,
+déterminisme) et `noyau-depart.mts` (noyau dans les 4 rotations, Hôtel de ville, aire libre, or
+visible, trajets autour du noyau, Maison +5, A Z E R structurels, tas / 2 sans toucher au reste).
 
 `tests/game/` : `baliste-reparation.cjs`, `camp-boucle.cjs`,
 `cargo-jeu.cjs`, `depart-jeu.cjs`, `editeur-procedural.cjs`,
@@ -106,7 +109,11 @@ double-clic, ralliement et production d'un bâtiment tourné, captures) et
 `mort-heros-jeu.cjs` (G48 : effet à la position, montée, durée, unicité, partie qui
 continue, capture au milieu), `navigation-jeu.cjs` (G49 : Paladin et palissade entre deux
 Maisons posées au menu, A* et image la plus longue mesurés, chantier enfermé, destination
-impossible, message unique).
+impossible, message unique), `noyau-jeu.cjs` (G50 : base complète en image, Hôtel de ville, Pop.
+2 / 15, Maison détruite, A Z E R au clavier, champ texte, unité 4, R en placement, fiche du Héros,
+six Villageois autour d'un arbre au clic droit, surplus et message), `townhall-face-jeu.cjs` (biais de 27° de
+l'Hôtel de ville, 4 rotations du camp, normale lue sur le modèle ; cadrage 28, Espace, R, captures),
+`baliste-portee-jeu.cjs` (Baliste en AUTO, ennemi touché devant chacune des 4 portes, 2 rotations).
 `camp-boucle.cjs` a 3 vérifications en échec, antérieures à G47 (KI-72).
 `lib.cjs` est la bibliothèque commune (lancement, ouverture de la Survie,
 caméra, captures).

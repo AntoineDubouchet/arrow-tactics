@@ -106,16 +106,16 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `createFreshRun`,
      (identifiant, stats et cartes inchangés) ;
    - or de départ : **20** (`STARTING_GOLD`), 25 avec le talent Or de départ
      (+5, `TALENT_STARTING_GOLD_BONUS`) ;
-   - population : **2 / 9** (base `PLAYER_BASE_POPULATION` = 5, + 2 par
-     Maison du camp de départ, 2 Villageois ; 0 / 5 avant le 2026-11-04) ;
+   - population : **2 / 15** (base `PLAYER_BASE_POPULATION` = 5, + 5 par
+     Maison du camp de départ depuis G50, 2 Villageois ; 2 / 9 avant G50) ;
    - stock de départ : **0 bois, 0 pierre** (`STARTING_RESOURCES`,
      provisoire) : il faut explorer et déposer avant tout chantier ;
    - inventaire RPG du Héros vide (§6 ter) ; bâtiments : ceux du camp de
-     départ (Auberge, deux Maisons), terminés et gratuits ; aucune
+     départ (Hôtel de ville, Auberge, deux Maisons), terminés et gratuits ; aucune
      amélioration de run (`upgrades = {}`), vague 1.
 
    **Début de run** : 20 or, 0 bois, 0 pierre, le Héros, deux Villageois et
-   la Baliste dans le camp de départ, Pop. 2 / 9. Aucun chantier n'est
+   la Baliste dans le camp de départ, Pop. 2 / 15. Aucun chantier n'est
    possible avant le premier dépôt de ressources (bois et pierre se
    récoltent dès le départ, sans Forge). Produire une unité exige le
    bâtiment correspondant (§4, §6 sexies) : Piquier → Caserne, Homme
@@ -126,8 +126,8 @@ Fonctions concernées dans `main.ts` : `startNewRun`, `createFreshRun`,
    d'archerie (30 or) non. Tout bâtiment acheté est d'abord un chantier,
    bâti par le Héros (§6 bis).
 
-   **Population** (`data/population.ts`) : maximum 5 + 2 par Maison vivante
-   et terminée (5, 7, 9, 11…) ; chaque unité en occupe `populationCost`
+   **Population** (`data/population.ts`) : maximum 5 + 5 par Maison vivante
+   et terminée (5, 10, 15, 20… ; +2 avant G50) ; chaque unité en occupe `populationCost`
    (Piquier, Fantassin, Archer et Villageois 1, Oracle 2, Mage et Vengeur 3,
    Sentinelle 5). Affichée par le HUD économique « Pop. N / M ». Une
    production qui dépasserait le maximum attend une place (§6 sexies).
@@ -252,6 +252,23 @@ Sources : `run/entityInfo.ts`, `ui/entityInfoPanel.ts`, `main.ts`
 Une fiche compacte décrit ce que le joueur a sélectionné. Elle n'existe pas
 dans l'éditeur.
 
+**Héros seul sélectionné** (2026-11-06, G50, décision d'Antoine ; aucune fiche du
+2026-11-02 à G50) : **portrait et nom seulement**, ni PV, ni statistiques, ni bonus. Le HUD
+RPG (barres, sorts, inventaire) et le bouton Construire ne changent pas ; ses statistiques
+sont dans l'inventaire (touche I). Dans un groupe, la fiche du groupe reste.
+
+**Raccourcis de production** (2026-11-06, G50, décision d'Antoine) : sur tout producteur
+sélectionné, les unités de sa liste prennent **A, Z, E, R** dans l'ordre
+(`PRODUCTION_HOTKEYS`, `productionHotkey`, `data/production.ts`), affichés sur le bouton
+(« [A] Villageois — 5 or · 8 s ») : même action que le bouton (ressources, paiement, file,
+niveau, unlocks). Une unité garde sa touche quand une autre se débloque ; la 5e n'en a pas.
+Inactifs dans un champ de saisie, l'éditeur, sous un écran, l'inventaire, une récompense,
+en placement ou en ciblage (ralliement, sort). **Priorité** : la touche va à la production
+seulement si le bouton existe, même grisé ; sinon elle garde son rôle : **A / E zooment**
+(conflit assumé : un producteur sélectionné ne zoome plus au clavier, la molette reste),
+**R** tourne en placement, recentre la caméra sinon. Plusieurs bâtiments du même type
+sélectionnés : le bâtiment principal seulement, comme le bouton (limite).
+
 > Depuis le 2026-11-04, il n'y a plus de préparation : là où cette section
 > distingue encore « en préparation » et « en bataille », lire « en jeu,
 > sur un bâtiment terminé » pour les boutons (améliorer, rechercher,
@@ -299,7 +316,7 @@ dans l'éditeur.
   - **Caserne / Camp d'archerie / Sanctuaire / Église / Écurie / Auberge**
     (bâtiments de production, 2026-11-04) : « Nom — Niv. N » (Caserne,
     Sanctuaire, Église), PV, unités produites, emprise, puis les boutons de
-    la **file de production** (« Produire : Nom — N or · T s », un par
+    la **file de production** (« [A] Nom — N or · T s », un par
     unité productible, désactivé si l'or manque ou si la file est pleine),
     les ordres en cours (unités, amélioration, recherche ; clic : annuler,
     or et stock rendus), la ligne du niveau suivant (« Niv. 2 | débloque :
@@ -321,7 +338,7 @@ dans l'éditeur.
     emprise ; plus d'amélioration (placeholder retiré le 2026-11-05) ni de
     soin de l'armée (G41) ; le bouton « Améliorations de l'Église »
     (parchemins) n'existe plus (§9) ;
-  - **Baliste** : PV, dégâts par carreau, portée (« 18 cases »), recharge,
+  - **Baliste** : PV, dégâts par carreau, portée (« 22,6 cases »), recharge,
     carreaux par volée. En préparation : PV max / max,
     « Mode : Automatique au début de la bataille » et « Prête pour la
     bataille ». En bataille : PV de l'entité, mode de tir (« Automatique ·
@@ -435,7 +452,7 @@ bestiaire et l'éditeur.
 - Le coût payé en partie est le **coût de base** de l'unité, fixe : aucune
   technologie ni aucun niveau ne le change (2026-11-05, G41 ; avant, le
   niveau de production de la Forge le renchérissait). La fiche du bâtiment
-  producteur l'affiche (« Produire : Nom — N or · T s »).
+  producteur l'affiche (« [A] Nom — N or · T s »).
 
 ## 4. Déblocage des unités
 
@@ -488,11 +505,11 @@ AUTO), `main.ts`.
   - Valeurs de base : 2 dégâts, recharge d'environ 2,31 s
     (`PLAYER_ARROW_COOLDOWN = 3 / 1.3`).
   - Vitesse 13,5 cases/s, rayon d'impact 0,63.
-  - **Portée maximale fixe de 18 cases** (`PLAYER_ARROW_RANGE`), la même en
-    AUTO et en MANUEL, mesurée du centre de la Baliste au point visé : la
-    moitié de la profondeur de l'arène (36 cases). Depuis sa position, elle
-    porte un peu au-delà du milieu du terrain, sans atteindre la zone de
-    départ ennemie. Un tir hors de portée est refusé sans toucher à la
+  - **Portée maximale fixe de 22,6 cases** (`PLAYER_ARROW_RANGE`, 18 avant le
+    2026-11-06), la même en AUTO et en MANUEL, mesurée du centre de la Baliste au
+    point visé. Depuis sa place dans le noyau, elle atteint toute l'enceinte : ennemi
+    devant les 4 portes à 11,4, 12,7, 20,3 et 21,1 cases, contre le bout de palissade
+    le plus lointain à 22,58 cases, dans les 4 rotations. Un tir hors de portée est refusé sans toucher à la
     recharge.
   - Le tir est refusé pendant la recharge et tant que la volée précédente
     est encore en vol.
@@ -595,6 +612,22 @@ réel (§6 bis) ; la Boutique et son onglet « Bâtiments » n'existent plus
   bloquée, chantier compris. Le centre d'une case libre est donc à 0,7 case au
   moins du bâtiment, le corps le plus large du jeu : un passage trop étroit se
   ferme de lui-même. Limite : KI-73.
+- **Récolte à plusieurs : emplacements réservés** (2026-11-06, G50, valeurs PROVISOIRES,
+  `sim/harvestStands.ts`) : arbre 1 × 1, **4 emplacements** cardinaux ; gisement 2 × 2, **8**, deux
+  par côté ; jamais un coin ni le même point. Une unité (Héros compris) réserve le plus proche
+  à pied (6 cases de la source), s'y place et y reste **ancrée** : la séparation ne la pousse plus.
+  Une unité de la boucle de récolte qui passe (vers son emplacement, vers le dépôt) traverse
+  un Villageois ancré (KI-75). Libéré à l'annulation, au départ au dépôt, à l'épuisement, à la mort,
+  à un autre ordre ; au retour, il en reprend un, pas forcément le même. **Surplus manuel**
+  (`findRedirectHarvestSource`) : sans attente, il se reporte sur une source du **même type** (jamais
+  du bois vers la pierre ou l'or), visible, non saturée, à 8 cases au plus de la source visée
+  (`HARVEST_REDIRECT_RANGE`) et 16 cases à pied au plus (`HARVEST_REDIRECT_MAX_WALK`) ; la plus proche à
+  pied, égalité : l'id. Rien : Garde et « Aucun emplacement de travail disponible » (un message à la fois),
+  puis autonomie après 1 s. **Autonome** : une source dont les emplacements sont tous engagés n'est pas proposée.
+  En bosquet, les arbres voisins ferment des emplacements : le bosquet garanti du camp en a 12 pour 7
+  arbres (1 à 3 par arbre), dont 11 utilisables à la fois (deux arbres voisins partagent un point) ; sur la carte de la graine 12345, 278 arbres intérieurs n'en ont aucun.
+  Mesuré, 60 s, avant → après : 4 sur un arbre 89 → 0 tick de chevauchement ; 8 sur un gisement
+  1 408 → 0, 50 → 80 déposés ; 20 sur 6 sources 10 728 → 0, 170 → 34 A*, 75 → 332 déposés ; 0 blocage.
 - **Aucune boucle de navigation** (2026-11-06, G49, valeurs PROVISOIRES) : pour
   construire ou réparer, une unité choisit une fois un **point de travail**, le plus
   proche à pied parmi ceux où son corps tient et qu'elle peut rejoindre (des deux côtés
@@ -776,12 +809,14 @@ Sources : `data/hero.ts`, `sim/systems/hero.ts`, `config/resourceNodes.ts`,
 `DESIGN_DECISIONS.md` G4 à G9.
 
 **Départ** (2026-11-04, §6 duodecies) : le **Héros** et **deux
-Villageois** dans le **camp de départ préconstruit** (Baliste au centre de
-la carte, Auberge, deux Maisons, enceinte de Palissade, 4 portes ouvertes).
-Aucun Homme d'armes, stock **0 bois, 0 pierre**, 20 or, Pop. 2 / 9. La
-Baliste est le cœur du camp : point de dépôt des ressources, point de vision,
-et le **cœur de la base** : sa destruction est une défaite immédiate
-(2026-11-02), Maisons, Auberge et palissade n'y changent rien.
+Villageois** dans le **camp de départ préconstruit** (Hôtel de ville au centre
+de la carte, Baliste, Auberge, deux Maisons tout autour depuis G50, enceinte de
+Palissade, 4 portes ouvertes).
+Aucun Homme d'armes, stock **0 bois, 0 pierre**, 20 or, Pop. 2 / 15. La
+Baliste reste le point de dépôt universel, un point de vision, et le **cœur de
+la base** : sa destruction est une défaite immédiate
+(2026-11-02) ; Hôtel de ville, Maisons, Auberge et palissade n'y changent rien
+(décision ouverte, `DESIGN_DECISIONS.md` G50).
 
 **Héros** (`hero`) :
 
@@ -1035,10 +1070,12 @@ peuvent choisir le même chantier, sans bonus nouveau.
   reliée au camp par un **couloir de 2 cases**. Contrôle : eau, relief et
   arbres. Mesuré sur 6 graines : aucune case praticable non reliée au camp
   (grille de la simulation). L'anneau d'apparition des vagues est plus clair ;
-- **petits tas** : **34 à 35** (111 avant le 2026-11-02, soit trois fois
-  plus rares), toujours sur une case reliée au camp ; **garantie de départ** : des tas à 9–18 cases du centre
-  jusqu'à au moins 10 bois et 6 pierres (Mine, Caserne, Forge) ; le reste
-  dispersé, un peu plus fourni au loin ;
+- **petits tas** : **16 à 18** (35 à 38 avant G50, mesuré sur 12 graines : ratio 0,46 à
+  0,50 ; 111 avant le 2026-11-02), toujours sur une case reliée au camp ; quantité par
+  tas inchangée ; **tirages conservés** : les tirages de l'ancien budget réservent encore
+  leur case pendant la génération, donc arbres, gisements et camps d'une graine ne bougent
+  pas. Tas à 9–18 cases du centre visés jusqu'à 5 bois et 3 pierres, mais cette garantie
+  est faible (KI-76) ; le reste dispersé, un peu plus fourni au loin ;
 - pas de débris de planches décoratifs (on les confondrait avec les tas) ;
 - **vagues** : sur un anneau à 22 cases du centre, gardé sans colline ni eau ;
   la direction tourne à chaque vague (angle d'or), zone de 9 × 9 cases.
@@ -1135,7 +1172,7 @@ horizon) derrière la carte ronde ; même rendu dans l'éditeur.
   la liste « Construire : … ». **Palissade** et **Porte de palissade** au
   menu depuis le 2026-11-02 (tracé A → B, §6 octies) ;
 - **production** (`data/production.ts`) : la fiche d'un bâtiment bâti
-  propose « Produire : <unité> — or · durée » pour les unités qu'il
+  propose « [A] <unité> — or · durée » (raccourci, voir « Raccourcis de production », §2, Fiche d'entité) pour les unités qu'il
   débloque (Caserne : Piquier, + Homme d'armes au Niv. 2 ; Camp d'archerie :
   Archer ; Église : Mage, Oracle, Vengeur). **File de production**
   (2026-11-02) : jusqu'à **5 commandes** par bâtiment (unités et
@@ -1317,7 +1354,7 @@ Première boucle d'exploration (2026-11-02, valeurs PROVISOIRES,
   Clairière de rayon 3,5 sans eau, relief, rampe, rocher ni tas ; au plus
   4 arbres, retirés ; abords ouverts et reliés à pied à la Baliste.
   Déterministe sans tirer dans la RNG de la carte : le reste du terrain
-  d'une graine est inchangé. Deux petits tas (3 bois, 2 pierre) à côté ;
+  d'une graine est inchangé. Un petit tas à côté (3 bois, ou 2 pierre pour le camp suivant ; G50) ;
 - **décor** : feu de camp, tente, bannière, caisses, tonneau, tas de bois,
   râtelier d'armes (seconde tente et seconde bannière pour le grand camp),
   en props **traversables** comme tout décor ; flammes et **une lumière
@@ -1380,7 +1417,7 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G15) :
   (`ENEMY_GOLD_DROPS`, RNG du monde ; plus de prime versée au stock ; talent
   « Butin de guerre » : +1 par tas). Camp nettoyé : 8 / 15 or en tas de 5
   près du feu. **Exceptions** (versées au stock) : Mine (infrastructure,
-  tranche toutes les 60 s), or de départ, bonus de vague repoussée ;
+  tranche toutes les 60 s), or de départ (une vague repoussée ne donne plus d'or depuis G46) ;
 - **dépôt** à la Baliste : **supprimé le 2026-11-03** (§6 undecies) ; les
   équipements restent dans le sac ;
 - **stock** : bâtiments, recrutement, améliorations ne lisent que le stock
@@ -1824,8 +1861,7 @@ le « stock direct » G30 du même jour) :
   sol ; le Héros revient à cargo vide. PROVISOIRE.
 - **Affichage** : sac 3D sur le dos dès qu'une ressource est transportée
   (Héros et Villageois) ; fenêtre du Héros : « Ressources transportées :
-  7 / 10 — Bois 4 · Pierre 2 · Or 1 » sous la grille ; fiche du Héros,
-  ligne « Ressources transportées » ; fiche du Villageois, ligne
+  7 / 10 — Bois 4 · Pierre 2 · Or 1 » sous la grille ; fiche du Villageois, ligne
   « Transport ».
 - **Réparation de la Baliste** (correctif du 2026-11-03) : sa fiche propose
   « Réparer » quand elle est endommagée ; coût : 50 % de 30 or, 10 bois,
@@ -1879,13 +1915,15 @@ sur grille) est supprimé ; ses anciens murs ne sont jamais convertis.
   et entrent.
 - **Porte** : « Porte de palissade » au menu (une palissade doit exister),
   puis clic sur un segment : il est remplacé par une porte de même
-  géométrie, en chantier. Porte bâtie : **fermée** (bloque tout le monde,
-  comme le mur) ; fiche « **Ouvrir la porte** » / « **Fermer la porte** ».
-  **Ouverte** : passage pour son **propriétaire et ses alliés** seulement ;
+  géométrie, en chantier (qui bloque tout le monde). Porte bâtie, ouverte ou
+  fermée : passage pour son **propriétaire et ses alliés** seulement ;
   elle reste un obstacle pour les **hostiles** (vagues comprises), qui la
   contournent si une route existe, sinon l'attaquent comme la palissade
-  (`sim/relations.ts`, `canUnitPassGate`). Un ennemi peut donc être bloqué
-  par une porte visuellement ouverte (prototype). Détruite : vraie brèche,
+  (`sim/relations.ts`, `canUnitPassGate`). **Automatique** (2026-11-06, G51,
+  `sim/systems/doors.ts`, valeurs provisoires) : un allié qui se rapproche à moins de
+  **2,5 cases** l'ouvre ; sinon, un hostile à moins de **5 cases** la ferme ; l'allié passe
+  en premier ; sans personne, elle reste comme elle est. **Plus aucun bouton** Ouvrir / Fermer, ni
+  verrou : portes entièrement automatiques. Détruite : vraie brèche,
   tout le monde passe. Fermeture demandée avec un allié dans l'ouverture :
   elle **attend** (« Fermeture en attente — passage occupé ») et se fait au
   premier pas libre, sans écraser ni pousser personne ; un hostile plaqué
@@ -1903,9 +1941,10 @@ sur grille) est supprimé ; ses anciens murs ne sont jamais convertis.
 - **Rendu** (`render/palisade.ts`, procédural) : pieux taillés en pointe
   (hauteurs légèrement variées), deux traverses côté intérieur, poteau plus
   massif à chaque extrémité (partagé aux jonctions) ; **porte refaite le
-  2026-11-05** (G42) : deux montants un peu plus hauts, **dessus ouvert**
-  (plus de linteau ni d'arche), deux **vrais vantaux** gauche / droite de
-  pieux pointus plus courts avec deux traverses et une écharpe côté
+  2026-11-05** (G42) : deux montants nettement plus hauts que le mur, **dessus ouvert**
+  (plus de linteau ni d'arche ; rehaussée le 2026-11-06 pour se distinguer : montants 2,2,
+  vantaux 1,6, mur 1,05), deux **vrais vantaux** gauche / droite de
+  pieux pointus avec deux traverses et une écharpe côté
   intérieur, chacun construit dans son sens (aucune face miroir : volumes
   réels corrects de l'intérieur, de l'extérieur et de côté), même famille
   visuelle que les segments voisins ; pivot sur les gonds, animation
@@ -1942,28 +1981,28 @@ valeurs **provisoires**) :
   de **départ** ; l'or des gisements l'est aussi depuis le 2026-11-05 (G37
   tranchée, §6 bis).
 - **Camp de départ préconstruit** (preset `basic-camp`,
-  `config/startingBase.ts`) autour du Départ Survie : **Baliste** au
-  centre, **deux Maisons** (A puis B) et l'**Auberge** contre l'enceinte
-  (Maison A au nord-ouest, Maison B à l'ouest, Auberge à l'est, repère
-  local, repoussés vers la périphérie intérieure), cour où apparaissent le
-  **Héros** et **deux Villageois**, enceinte **arrondie** de **Palissade
+  `config/startingBase.ts`) autour du Départ Survie : **Hôtel de ville** au
+  centre exact et **noyau compact** autour de lui (G50, voir ci-dessous), où
+  apparaissent le **Héros** et **deux Villageois**, enceinte **arrondie** de **Palissade
   V2** : dodécagone de **rayon 15** (2026-11-05, G46 ; 10,5 avant :
   apothème 14,5, diamètre 30, 36 pièces, 585 cases à plus d'une case des
-  murs dont **526 libres**, contre 277 / 241 avant G46) avec **4 portes ouvertes**
+  murs dont **501 libres** depuis G50, 526 avant, contre 277 / 241 avant G46) avec **4 portes ouvertes**
   de 2,4 cases (2026-11-06, G48 ; une seule avant), une au milieu des côtés nord,
   est, sud et ouest, à 90° l'une de l'autre, qui suivent la rotation du camp :
   même Porte de Palissade (PV, largeur, animation, collision, règles, réparation),
-  fermées une par une à la main ; la grande cour centrale reste libre pour les
+  automatiques depuis G51 ; toute la couronne autour du noyau reste libre pour les
   constructions suivantes. **Couloirs** : 5 cases de large sur 10 au-delà de
   l'enceinte sans arbre ni gisement (générateur), pour des sorties lisibles.
-  **Positions flottantes** (G48) : Maisons au nord-ouest (−9,7 ; −6,3) et
-  (−6,1 ; −9,7), Auberge au sud-est (9,6 ; 6,4), entre les axes des portes. **Or proche garanti** (G46) : au moins un **second gisement
-  d'or** hors de l'enceinte mais dans la vision initiale de la Baliste
+  **Noyau** (2026-11-06, G50, repère local, valeurs **provisoires**) : Hôtel de ville (0 ; 0),
+  4 × 4 ; Baliste (−4 ; −5), Maison A (−5 ; 4), Maison B (5 ; −4), Auberge (4 ; 5), en
+  tourniquet, à 6,4 cases du centre au plus, jamais collés (1,97 case au moins), décalages
+  entiers (mêmes passages dans les 4 rotations). **Or proche garanti** (G46) : au moins un **second gisement
+  d'or** hors de l'enceinte mais dans la vision initiale de l'Hôtel de ville
   (`preset.nearbyGold`, 18,5 cases du centre, jamais devant une porte : à plus
   de 25° des quatre axes, 4 × 4 cases libres et arbres retirés à deux cases, posé
   par le générateur ; l'éditeur avertit une carte
-  dessinée qui n'en a pas). Vision de la Baliste **21** cases (18 avant) et
-  disque exploré au départ 25 (22 avant) ; anneau des vagues inchangé
+  dessinée qui n'en a pas). Vision de la Baliste **21** cases (18 avant), et de l'Hôtel de ville aussi, et
+  disque exploré au départ 25 autour du centre (22 avant) ; anneau des vagues inchangé
   (22 : les vagues apparaissent à environ 7 cases des murs). **Gisements et bosquet
   garantis** (2026-11-05, G42 puis G43) : un **gisement de pierre**
   (est-nord-est, 9,5 ; −6,5), un **gisement d'or** (sud-ouest, 7,5 ; 8,5, dans la
@@ -1982,9 +2021,9 @@ valeurs **provisoires**) :
   gisement atteint depuis la cour). Tout est terminé, à pleins PV et **gratuit** (stock
   de départ inchangé). Les bâtiments sont des bâtiments possédés ordinaires
   (fiche, amélioration, réparation, destruction) : l'Auberge produit des
-  Villageois, les Maisons donnent leur population (Pop. 2 / 9) et la
+  Villageois, les Maisons donnent leur population (Pop. 2 / 15) et la
   prochaine Maison construite est A ; les portes suivent les règles habituelles
-  (alliés passent, ennemis non, fermeture à la main). Terre battue sous les
+  (alliés passent, ennemis non, automatiques depuis G51). Terre battue sous les
   bâtiments et quelques chemins courts. La caméra suit le Héros au
   lancement. La cour est tournée vers le côté le plus dégagé (rotation choisie
   par le générateur, ou par l'éditeur à la pose du Départ) ; les 4 portes restent
@@ -1992,8 +2031,25 @@ valeurs **provisoires**) :
   que le preset et sa rotation (`MapDef.startingBase`) : le reste est
   dérivé, en run comme dans « Tester le scénario » et l'aperçu de
   l'éditeur.
+- **Hôtel de ville** (`townhall`, 2026-11-06, G50, valeurs **provisoires**) : bâtiment
+  préconstruit au centre du camp, 30 PV, emprise 4 × 4, modèle `blue_townhall`, vision 21 ;
+  **façade de trois-quarts, 27° de biais par rapport à la caméra de la Survie : choix artistique
+  d'Antoine, pas une approximation**, quelle que soit la rotation du camp
+  (`startingBaseFaceCameraRotationY`). Rotation monde 45° : son emprise
+  est un losange de 2,83 cases de pointe sur les axes, collision et navigation suivent, en run comme
+  dans « Tester le scénario » ; l'aperçu de l'éditeur montre le même angle du bâtiment ;
+  sélection, collision, navigation et réparation ordinaires (base 30 or, 20 bois, 20 pierre).
+  Aucune production, technologie, niveau, ressource passive ni dépôt ; jamais au menu
+  Construire. Il peut être attaqué et détruit : ce n'est **pas** la défaite, qui reste
+  la destruction de la **Baliste** (décision ouverte). La Baliste garde le dépôt universel.
+- **Caméra de la Survie** (2026-11-06, décision d'Antoine) : pivot 18° (`CAMERA.survivalYawDeg`, 45° avant),
+  inclinaison 28°, hauteur de vue 28 (`CAMERA.survivalViewHeight`, environ 18 avant), au lancement, à Espace
+  (qui garde le suivi du Héros) et à R. Le clic sur le portrait recentre sans changer le zoom. L'éditeur
+  garde 45° et 20.
+- **Écarts dus au déplacement de la Baliste** (mesurés, graine 12345, un Villageois, cycle
+  complet avant → après) : bois 23,8 → 22,8 s, pierre 29,5 → 31,2 s, or 34,4 → 36,5 s.
 - **Générateur** : l'emprise du camp de départ (disque : enceinte + 2
-  cases, rayon 12,5, la même pour toute rotation) reste sans arbre,
+  cases, rayon 17, la même pour toute rotation) reste sans arbre,
   gisement, tas ni décor ; les gisements sont
   posés **avant** la mise en forme finale des forêts (KI-65 résolue :
   aucun passage d'une case contre un gisement, un flanc de rampe ou un baril
@@ -2751,7 +2807,8 @@ Accessible depuis le menu principal ; le détail d'usage est dans
 camp de départ (preset `basic-camp`) : camp dérivé affiché dans l'éditeur
 (gisements et bosquet garantis compris depuis le 2026-11-05 : deux rochers
 et sept arbres qui
-suivent le Départ, jamais sauvegardés ; enceinte de rayon 15, zone réservée
+suivent le Départ, jamais sauvegardés ; Hôtel de ville sur le Départ, Baliste dans le noyau
+depuis G50 ; enceinte de rayon 15, zone réservée
 17, camp neutre à 21 cases au moins ; avertissement si aucun gisement d'or
 n'est visible hors de l'enceinte), emprise complète validée (eau,
 relief, arbres, gisements, objets, camps neutres), porte orientée

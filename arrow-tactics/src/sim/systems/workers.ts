@@ -1,6 +1,7 @@
 import { WORKER_AUTO_RETRY_SECONDS, WORKER_IDLE_SECONDS } from '../../data/hero';
 import type { NodeResource } from '../../config/resourceNodes';
 import type { Entity } from '../entity';
+import { harvestSourceSaturated } from '../harvestStands';
 import { resetNavigation } from '../orders';
 import { areAllied } from '../relations';
 import { cargoWork, type CargoEvent } from './cargo';
@@ -34,7 +35,9 @@ import { constructSite, nextBuildOrder, workGoal, type HeroEvent, type HeroWorkC
  * rend le Villageois autonome apres WORKER_IDLE_SECONDS. Sans source valide,
  * ou si la source choisie n'a rien donne (injoignable) : il reste inactif et
  * reessaie apres WORKER_AUTO_RETRY_SECONDS, en evitant cette source — pas de
- * recherche a chaque pas, pas de boucle de pathfinding.
+ * recherche a chaque pas, pas de boucle de pathfinding. Une source dont tous les
+ * emplacements de travail sont pris (G50, sim/harvestStands.ts) n'est pas
+ * proposee : il en cherche une autre, visible.
  */
 export function workerSystem(entities: Entity[], work: HeroWorkContext, dt: number, events: CargoEvent[], heroEvents: HeroEvent[]): void {
   const byId = new Map(entities.map((e) => [e.id, e]));
@@ -124,7 +127,10 @@ export function chooseWork(e: Entity, entities: readonly Entity[], work: HeroWor
     if (n.id === avoid || (work.nodeAmounts.get(n.id) ?? 1) <= 0 || !work.canHarvest(n.resource) || !work.isVisible(n.x, n.z)) continue;
     const d = Math.hypot(n.x - e.x, n.z - e.z);
     const best = nearest.get(n.resource);
-    if (!best || d < best.d - 1e-9 || (Math.abs(d - best.d) <= 1e-9 && n.id < best.id)) nearest.set(n.resource, { id: n.id, d });
+    if (best && !(d < best.d - 1e-9 || (Math.abs(d - best.d) <= 1e-9 && n.id < best.id))) continue;
+    // Tous ses emplacements sont pris (G50) : indisponible pour ce choix.
+    if (n.block && harvestSourceSaturated(e, n.id, entities, work)) continue;
+    nearest.set(n.resource, { id: n.id, d });
   }
   let chosen: { id: number; d: number; count: number } | null = null;
   for (const r of WORK_RESOURCES) {
