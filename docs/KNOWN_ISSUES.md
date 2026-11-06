@@ -567,7 +567,7 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   s'il est assez large pour le corps : sinon les unités contournent. Un enclos formé par
   des bâtiments assez proches peut donc être refusé (`unreachable`) alors qu'on le croit
   ouvert. Un chantier entouré de voisins très proches sur tous ses côtés n'est pas pris par
-  l'enchaînement automatique ; un ordre manuel y laisse le constructeur contre un voisin.
+  l'enchaînement automatique ; un ordre manuel s'arrête proprement depuis G49.
 - **Boîte englobante** d'un bâtiment tourné, donc prudente : sortie de production, terre
   battue, tracé d'un mur à côté, évitement réactif.
 - **Piste** : grille plus fine autour des bâtiments, ou couloirs par rayon (KI-66).
@@ -583,7 +583,8 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   graines : 0 passage d'une case contre un gisement, chaque gisement et
   chaque camp atteint en vrai déplacement) ; une carte dessinée à la main
   peut encore en contenir. Les bâtiments posés en jeu n'ont pas ce défaut depuis
-  G48 : leur marge de navigation ferme ce qui est trop étroit (KI-73).
+  G48 : leur marge de navigation ferme ce qui est trop étroit (KI-73). Depuis G49, le
+  corps qui oscillerait dans un tel passage s'arrête : watchdog, deux blocages au plus.
 - **Piste** : grille d'accessibilité par rayon (ou dilatation des
   obstacles) dans le pathfinding, à discuter (coût, comportements de
   mouvement existants) ; ou une alerte de l'éditeur.

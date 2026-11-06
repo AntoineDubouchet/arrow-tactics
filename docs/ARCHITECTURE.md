@@ -1684,9 +1684,9 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   la boîte, à `rayon + HARVEST_STAND_GAP` (0,15) du bord, la plus proche de
   l'unité (jamais un coin, jamais le centre : plus d'oscillation en
   diagonale) ; le point retenu doit être **atteignable** : ligne droite
-  dégagée, sinon un chemin A* existe (`reachableHarvestStand`, même grille
-  et mêmes obstacles que la poursuite, au plus un A* par côté libre, une
-  seule fois par ordre, résultat mémorisé dans `harvestStand`). Aucun côté
+  dégagée, sinon sa case est reliée à l'unité (`reachableHarvestStand`, même grille
+  et mêmes obstacles que la poursuite, aucun A* depuis G49, une
+  seule fois par ordre, résultat mémorisé dans `NavState`). Aucun côté
   libre ou atteignable (source enfermée, région coupée), ou route perdue
   en chemin : aucun point de travail,
   l'ordre s'arrête au premier pas — ordre manuel (Héros ou Villageois) :
@@ -1807,7 +1807,8 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
   la raison du refus) ; `buildingPlacementWorld()` (`main.ts`) fournit le terrain.
 - **Grille** : `rasterizeFootprint` (`sim/pathfinding.ts`) bloque toute case touchée
   par l'empreinte + marge. `bodyPathNearStructure` (`sim/geometry.ts`, ex
-  `bodyPathNearWall`) force A* quand la ligne droite passe mais pas le corps.
+  `bodyPathNearWall`) force A* quand la ligne droite passe mais pas le corps. Voir aussi
+  §13 vicies.
   `findPathFrom` cherche un départ libre jusqu'à 3 anneaux. `pursueTargetWithPathfinding` :
   case libre la plus proche fermée par les voisins → `nearestReachableTile` ; déjà
   sur la bonne case et ligne libre → approche directe (l'évitement réactif oscillait).
@@ -1822,6 +1823,34 @@ seul) ; remplacer l'effet = fournir une autre implémentation, sans toucher
 - **Mort du Héros** : événement `death` (avec `x`, `z`), `createHeroDeathEffect`
   (`render/heroDeathVfx.ts`, même forme que `levelUpVfx`) ; `main.ts` lance `play`, `tick`
   et `clear`. Aucune dépendance de la simulation vers le rendu.
+
+## 13 vicies. Passe corrective du 2026-11-06 (G49) : aucune boucle de navigation
+
+- **Cause mesurée** : `pursueTargetWithPathfinding` relançait A* à chaque sous-pas tant
+  qu'il n'y avait pas de chemin (150 fois par seconde pour une unité, ~5 ms par échec sur
+  96 × 96) ; `wallApproachPoint` recalculait le point visé et son côté à chaque sous-pas ;
+  les ordres de travail échappaient à toute détection de blocage. Avant : 14 cas sur 60
+  sans fin en 25 s ; 3 750 A* et 19 s de calcul pour 25 s de jeu dans le pire.
+- **Régions** : `walkRegions` (`sim/pathfinding.ts`), en cache sur la grille, donc
+  recalculées seulement quand les obstacles changent. `findPath` rejette un but d'une
+  autre région sans recherche. `pathSearchStats` compte, aucune règle ne le lit.
+- **Point de travail** : `sim/workStand.ts`, `chooseWorkStand` : candidats autour de la
+  cible, `bodyFitsAt`, `bodyPathClear` (le corps passe, pas seulement la ligne de vue),
+  coût = distance à pied (`walkDistances`, une inondation, aucun A*) ; à défaut, toute case
+  reliée à portée de travail. La case de route (`routeX`, `routeZ`) est le but d'A*, la
+  fin se fait en ligne droite. `canReachSite` suit la même règle.
+- **État** : `NavState` (`sim/systems/movement.ts`, WeakMap par unité) : point gardé par clé
+  ordre + cible (`workStandKey`), points en échec, recherches, watchdog. Revalidé une fois
+  quand la liste d'obstacles change (bâtiment posé, porte fermée). Choix bornés
+  (`WORK_STAND_MAX_CHOICES`). Attaque d'un mur : `wallApproachPoint` reste, limité par A*.
+- **Watchdog** : `navigationWatchdog`, une fois par pas, `movementGoal` décide si l'unité doit
+  avancer. Se termine toujours : seule une route plus courte que la meilleure de l'ordre
+  (`orderBest`) annule un blocage. Il ne lance aucune recherche. `orderMadeNoProgress` ne
+  sert plus qu'à l'attaque. Abandon : `abandonOrder` (silencieux pour `auto`, Villageois).
+- **Limite A*** : `mayRepath` + `routedPath`, `PATH_SEARCH_COOLDOWN`,
+  `MAX_PATH_SEARCHES_PER_STEP`. Une unité sans recherche permise garde son chemin ou attend.
+- **Feedback** : `OrderEndEvent` couvre tous les ordres de travail ; `flashUnreachableOrders`
+  (`main.ts`), un message à la fois, 3 s au moins entre deux.
 
 ## 14. Audio
 

@@ -1,15 +1,14 @@
-import { obstacleBounds, type ObstacleBounds, type ObstacleDef } from '../../config/constants';
-import { distanceToOrientedBox } from '../../core/orientedBox';
+import type { ObstacleBounds, ObstacleDef } from '../../config/constants';
 import type { ResourceNode } from '../../config/resourceNodes';
 import { HARVEST_NODE_KINDS, type HarvestResource, type PileResource } from '../../data/resources';
 import { UNIT_MOVE_SPEED_MULTIPLIER } from '../../data/units';
 import { acquireItem, resolveEquipmentBonus } from '../inventory';
 import { ITEM_LEVEL_MIN } from '../../data/equipment';
 import { getBuilding } from '../../data/buildings';
-import { distanceToSegment } from '../../core/wallLine';
 import { applyDamageToEntity, type DamageType } from '../damage';
-import { findBlockingObstacle, targetDistance } from '../geometry';
-import { cachedPathGrid, isReachable, reachableTiles } from '../pathfinding';
+import { targetDistance } from '../geometry';
+import { cachedPathGrid } from '../pathfinding';
+import { chooseWorkStand, distanceToSite } from '../workStand';
 import { areAllied } from '../relations';
 import {
   AUTO_CONSTRUCT_RANGE,
@@ -233,50 +232,21 @@ export function nextBuildOrder(e: Entity, finished: Entity, entities: readonly E
       if (!o.alive || !o.construction || o.team !== e.team || o.wall?.lineId !== line.lineId) continue;
       if (!next || Math.abs(o.wall.index - line.index) < Math.abs(next.wall!.index - line.index) || (Math.abs(o.wall.index - line.index) === Math.abs(next.wall!.index - line.index) && o.wall.index > next.wall!.index)) next = o;
     }
-    if (next) return { type: 'build', targetEntityId: next.id };
+    if (next) return { type: 'build', targetEntityId: next.id, auto: true };
   }
   const sites = entities
     .filter((o) => o.alive && o.construction && o.team === e.team)
     .map((o) => ({ site: o, d: Math.hypot(o.x - e.x, o.z - e.z) }))
     .filter((c) => c.d <= AUTO_CONSTRUCT_RANGE)
     .sort((a, b) => a.d - b.d || a.site.id - b.site.id);
-  for (const { site } of sites) if (work.canReachSite(e, site)) return { type: 'build', targetEntityId: site.id };
+  for (const { site } of sites) if (work.canReachSite(e, site)) return { type: 'build', targetEntityId: site.id, auto: true };
   return { type: 'guard' };
 }
 
-/** Distance maximale (cases) entre le centre d'une case libre et l'emprise d'un
- *  chantier pour qu'elle serve de point d'approche : la marge de navigation
- *  bloque au plus la rangee voisine (0,5 + marge + 1 case). */
-const SITE_APPROACH_RANGE = 2.5;
-
-/** Vrai si une case libre reliee a `e` jouxte le chantier, sans obstacle entre
- *  elle et lui (un chantier derriere un mur n'est pas atteint par ce cote). */
+/** Vrai si `e` peut rejoindre le chantier : la meme regle que la navigation
+ *  (un point de travail existe, sim/workStand.ts). */
 export function canReachSite(e: Entity, site: Entity, obstacles: ObstacleDef[], boardWidth: number, boardHeight: number): boolean {
-  const grid = cachedPathGrid(obstacles, boardWidth, boardHeight);
-  const reach = reachableTiles(grid, e.x, e.z);
-  if (!reach) return false;
-  const f = site.footprintObstacle;
-  const b = f ? obstacleBounds(f) : { minX: site.x - site.stats.radius, maxX: site.x + site.stats.radius, minZ: site.z - site.stats.radius, maxZ: site.z + site.stats.radius };
-  for (let tz = Math.floor(b.minZ + grid.halfH - SITE_APPROACH_RANGE); tz <= Math.ceil(b.maxZ + grid.halfH + SITE_APPROACH_RANGE); tz++) {
-    for (let tx = Math.floor(b.minX + grid.halfW - SITE_APPROACH_RANGE); tx <= Math.ceil(b.maxX + grid.halfW + SITE_APPROACH_RANGE); tx++) {
-      const cx = tx - grid.halfW + 0.5;
-      const cz = tz - grid.halfH + 0.5;
-      if (!isReachable(grid, reach, cx, cz) || distanceToSite({ x: cx, z: cz }, site) > SITE_APPROACH_RANGE) continue;
-      if (findBlockingObstacle(cx, cz, site.x, site.z, obstacles, f) === null) return true;
-    }
-  }
-  return false;
-}
-
-/** Distance du centre de `e` a l'emprise d'un batiment (ou a son centre, rayon deduit).
- *  Piece de mur V2 : jusqu'a sa capsule (ligne moins la demi-epaisseur).
- *  Empreinte continue (G48) : jusqu'au rectangle oriente. */
-function distanceToSite(e: { x: number; z: number }, site: Entity): number {
-  const f = site.footprintObstacle;
-  if (f?.line) return Math.max(0, distanceToSegment(e.x, e.z, f.line) - f.line.halfWidth);
-  if (f?.footprint) return distanceToOrientedBox(f.footprint, e.x, e.z);
-  if (!f) return Math.max(0, Math.hypot(site.x - e.x, site.z - e.z) - site.stats.radius);
-  return distanceToBox(e, { minX: site.x - (f.tilesX / 2), maxX: site.x + (f.tilesX / 2), minZ: site.z - (f.tilesZ / 2), maxZ: site.z + (f.tilesZ / 2) });
+  return chooseWorkStand(e, site, obstacles, cachedPathGrid(obstacles, boardWidth, boardHeight)) !== null;
 }
 
 /** Distance du centre de `e` a un rectangle (0 a l'interieur). */

@@ -114,6 +114,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G46 | XP du Héros à 12 cases ; camp de départ de rayon 15 ; 2 gisements d'or visibles au départ ; Villageois constructeurs ; Maj = pose répétée ; double-clic = bâtiments du même type visibles ; DamageType physique / magique (Tourbillon physique) ; banque d'items curated (2 par emplacement, niveaux, tank / physique / magique) ; fin de vague = choix entre 2 items du niveau de la vague ; +5 or de vague supprimé | Active (2026-11-05, valeurs provisoires) |
 | G47 | Loot portable + slot vide = auto-équipement ; clic droit inventaire = équiper / déséquiper ; une icône par EquipmentSlot ; Héros désélectionnable, HUD RPG indépendant de la sélection RTS ; ProductionOrders affiche une barre commune à celle des actions ; bâtiment producteur + clic droit terrain = ralliement ; DamageType reste physical / magic, DamageSchool magique ; effet d'arme = toutes les N attaques réussies, K déclenchements déterministes ; Feu à chaque coup devient N = 1 / K = 1 / fire | Active (2026-11-05, valeurs provisoires) |
 | G48 | Map, navigation et génération restent en grille ; placement joueur des bâtiments continu ; navigation dérivée de l'empreinte continue ; rotation par pas de 15° ; fin d'un chantier : le constructeur cherche un autre chantier allié proche ; camp de départ à 4 portes ouvertes, une par côté ; mort du Héros : VFX blanc héroïque montant vers le ciel | Active (2026-11-06, valeurs provisoires) |
+| G49 | Aucune unité ne reste indéfiniment dans une boucle de navigation : point de travail verrouillé, watchdog (1,5 s, 0,2 case ; premier blocage : récupération, second : abandon), A* limité ; rejet sans recherche d'une destination sans route | Active (2026-11-06, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -2909,6 +2910,32 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `sim/systems/buildingProduction.ts`, `render/heroDeathVfx.ts`, `editor/editorScene.ts`,
   `main.ts`, `CURRENT_STATE.md` §2, §6, §6 bis, §6 duodecies, `ARCHITECTURE.md` §13
   novodecies, `GAME_DESIGN.md` §7, §8, `EDITOR.md`, `KNOWN_ISSUES.md` KI-66, KI-73.
+
+### G49 — Passe corrective du 2026-11-06 : aucune boucle de navigation
+
+- **Statut** : Active (2026-11-06). Valeurs **PROVISOIRES**.
+- **Décisions d'Antoine** (2026-11-06) : aucune unité ne reste indéfiniment dans une boucle ;
+  point de travail mémorisé pour les chantiers, verrouillé pour l'ordre ; watchdog générique
+  1,5 s / 0,2 case ; premier blocage : une récupération, second : ordre terminé
+  `failed / unreachable` ; message unique pour un ordre manuel, rien pour un ordre automatique ;
+  A* limité ; pas de faux positif pendant une action.
+- **Choix de la passe** (à valider ou corriger) : fenêtre doublée au contact d'une autre unité
+  (`STUCK_CROWD_FACTOR`) ; second critère : route qui ne raccourcit plus depuis 6 s, pour les
+  hésitations de grande amplitude que le déplacement seul ne voit pas ; déplacement arrêté à moins
+  d'une case du but : arrivé, sans message ; réparation traitée comme un chantier ; 1 recherche par
+  unité toutes les 0,2 s, 6 par pas ; le déplacement manuel passe au watchdog (`no-progress` ne
+  concerne plus que l'attaque).
+- **Changements de ressenti signalés** : une unité dont la destination est impossible s'arrête
+  aussitôt avec un message, au lieu de tenter ; une destination dans un bâtiment se termine
+  3 s environ après l'avoir atteint (2 s avant), et affiche maintenant le message ; dans une foule très dense et immobile, un
+  ordre peut s'abandonner après 6 s ; les vagues nombreuses répartissent leurs recherches sur quelques pas.
+- **Filet de sécurité** : `tests/sim/navigation-boucle.mts`, `tests/game/navigation-jeu.cjs`.
+- **À ne pas faire** : ne pas recalculer le point de travail à chaque pas ; ne pas relancer A* sans
+  passer par `mayRepath` ; ne pas faire lancer de recherche au watchdog ; ne pas compter un ordre
+  comme bloqué pendant une action au contact.
+- **Sources** : `sim/workStand.ts`, `sim/pathfinding.ts`, `sim/orders.ts`, `sim/world.ts`,
+  `sim/systems/movement.ts`, `sim/systems/hero.ts`, `config/constants.ts`, `main.ts`,
+  `CURRENT_STATE.md` §6, `ARCHITECTURE.md` §13 vicies, `KNOWN_ISSUES.md` KI-66, KI-73.
 
 ## H. Outils internes
 

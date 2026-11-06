@@ -1,6 +1,15 @@
 import {
   COLLISION_ITERATIONS,
+  MAX_PATH_SEARCHES_PER_STEP,
   NEUTRAL_STUCK_CHECK_DURATION,
+  PATH_SEARCH_COOLDOWN,
+  STUCK_CHECK_SECONDS,
+  STUCK_CROWD_FACTOR,
+  STUCK_GOAL_MARGIN,
+  STUCK_MIN_PROGRESS,
+  STUCK_NO_GAIN_SECONDS,
+  WORK_STAND_MAX_CHOICES,
+  WORK_STAND_RETRY_SECONDS,
   NEUTRAL_STUCK_PROGRESS_THRESHOLD,
   OBSTACLE_AVOIDANCE_MARGIN,
   obstacleBounds,
@@ -23,7 +32,8 @@ import { forwardDir, type Entity } from '../entity';
 import { finishOrder, isWorkOrder, orderMadeNoProgress, type OrderEndEvent, type UnitOrder } from '../orders';
 import { workGoal, type HeroWorkContext } from './hero';
 import { pushCircleOutOfOrientedBox } from '../../core/orientedBox';
-import { cachedPathGrid, findPath, isTileBlockedAt, nearestReachableTile, tileToWorldX, tileToWorldZ, type PathGrid } from '../pathfinding';
+import { cachedPathGrid, findPath, isTileBlockedAt, nearestReachableTile, pathSearchStats, sameWalkRegion, type PathGrid } from '../pathfinding';
+import { bodyFitsAt, chooseWorkStand, freeTileNear, type WorkStand } from '../workStand';
 import { SpatialGrid } from '../spatialGrid';
 
 /** Distance (cases) sous laquelle un point de cheminement est considere
@@ -79,9 +89,203 @@ const marchRetry = new WeakMap<Entity, number>();
 /** Point de travail retenu pour l'ordre `harvest` en cours (2026-11-05) :
  *  choisi UNE fois par ordre parmi les cotes libres de la source, le premier
  *  (le plus proche) que la navigation courante peut atteindre ; jamais
- *  recalcule a chaque pas. */
-const harvestStand = new WeakMap<Entity, { nodeId: number; x: number; z: number }>();
+ *  recalcule a chaque pas. Meme principe pour un chantier ou une reparation
+ *  (2026-11-06, G49, sim/workStand.ts). */
 const marchFailureReported = new WeakSet<Entity>();
+
+/** Etat de navigation d'une unite (2026-11-06, G49), hors simulation sauvegardee :
+ *  point de travail verrouille, limite de ses recherches A* et watchdog. */
+interface NavState {
+  /** Point de travail garde pour `standKey` (ordre et cible). */
+  stand: WorkStand | null;
+  standKey: string | null;
+  /** Choix deja faits pour cet ordre, delai avant d'en refaire un, points qui ont
+   *  echoue (ecartes au choix suivant). */
+  standChoices: number;
+  standRetry: number;
+  failedStands: { x: number; z: number }[];
+  /** Obstacles contre lesquels le point a ete valide pour la derniere fois : la
+   *  liste est remplacee quand ils changent (batiment pose, porte fermee). */
+  standObstacles: ObstacleDef[] | null;
+  /** Delai avant la prochaine recherche A* de cette unite. */
+  searchCooldown: number;
+  /** Ordre surveille : un autre objet = un nouvel ordre, tout repart de zero. */
+  order: UnitOrder | null;
+  watchTimer: number;
+  watchX: number;
+  watchZ: number;
+  /** Meilleure route restante depuis la derniere recuperation, temps sans gain. */
+  bestRemaining: number;
+  noGainSeconds: number;
+  /** Meilleure route restante de tout l'ordre : seul un vrai progres annule un
+   *  blocage, donc une hesitation entre deux routes finit toujours. */
+  orderBest: number;
+  stuckCount: number;
+}
+
+const navStates = new WeakMap<Entity, NavState>();
+
+function navOf(e: Entity): NavState {
+  let st = navStates.get(e);
+  if (!st) {
+    st = { stand: null, standKey: null, standChoices: 0, standRetry: 0, failedStands: [], standObstacles: null, searchCooldown: 0, order: null, watchTimer: 0, watchX: e.x, watchZ: e.z, bestRemaining: Infinity, noGainSeconds: 0, orderBest: Infinity, stuckCount: 0 };
+    navStates.set(e, st);
+  }
+  return st;
+}
+
+/** Lecture pour les tests et le debug : blocages de l'ordre courant, point garde. */
+export function navigationState(e: Entity): { stuckCount: number; stand: WorkStand | null } {
+  const st = navOf(e);
+  return { stuckCount: st.stuckCount, stand: st.stand };
+}
+
+/** Recherches A* encore permises pendant ce pas, toutes unites confondues. */
+let pathSearchBudget = 0;
+
+/** Vrai si cette unite peut lancer une recherche maintenant : au plus une toutes
+ *  les PATH_SEARCH_COOLDOWN secondes, dans la limite du pas. Elle garde sinon son
+ *  chemin actuel, ou attend quelques pas. */
+function mayRepath(e: Entity): boolean {
+  const st = navOf(e);
+  if (st.searchCooldown > 0 || pathSearchBudget <= 0) return false;
+  st.searchCooldown = PATH_SEARCH_COOLDOWN;
+  return true;
+}
+
+/** findPathFrom compte sur le budget du pas (une reponse immediate ne coute rien). */
+function routedPath(e: Entity, grid: PathGrid, obstacles: ObstacleDef[], x: number, z: number): { x: number; z: number }[] | null {
+  const before = pathSearchStats.searches;
+  const path = findPathFrom(e, grid, obstacles, x, z);
+  pathSearchBudget -= pathSearchStats.searches - before;
+  return path;
+}
+
+/** Abandon d'un ordre qui ne peut plus aboutir : Garde. Un ordre automatique
+ *  (source choisie seule par un Villageois, enchainement de chantiers) s'arrete
+ *  en silence, un ordre manuel le signale (`unreachable`). */
+function abandonOrder(e: Entity, orderEvents: OrderEndEvent[]): void {
+  const st = navOf(e);
+  st.stand = null;
+  st.standKey = null;
+  const order = e.order;
+  const auto = (e.worker !== null && order.type === 'harvest' && e.worker.autoNodeId === order.nodeId) || (order.type === 'build' && order.auto === true);
+  if (auto) {
+    e.order = { type: 'guard' };
+    e.path = null;
+    e.steerX = null;
+    e.steerZ = null;
+  } else finishOrder(e, orderEvents, 'failed', 'unreachable');
+}
+
+/** Route restante vers (x, z) : le long du chemin s'il y en a un, a vol d'oiseau
+ *  sinon. */
+function routeRemaining(e: Entity, x: number, z: number): number {
+  const path = e.path;
+  if (!path || path.length === 0) return Math.hypot(x - e.x, z - e.z);
+  let total = Math.hypot(path[0]!.x - e.x, path[0]!.z - e.z);
+  for (let i = 1; i < path.length; i++) total += Math.hypot(path[i]!.x - path[i - 1]!.x, path[i]!.z - path[i - 1]!.z);
+  return total + Math.hypot(x - path[path.length - 1]!.x, z - path[path.length - 1]!.z);
+}
+
+/** Cle du point de travail d'un ordre (ordre et cible), null s'il n'en a pas :
+ *  source bloquante, chantier, reparation. */
+function workStandKey(order: UnitOrder, goal: { box?: ObstacleBounds; target?: Entity | null }): string | null {
+  if (order.type === 'harvest' && goal.box !== undefined) return `harvest:${order.nodeId}`;
+  if ((order.type === 'build' || order.type === 'repair') && goal.target) return `${order.type}:${goal.target.id}`;
+  return null;
+}
+
+/** But vers lequel l'unite est REELLEMENT censee avancer, ou null : Garde, assaut,
+ *  action au contact (construction, recolte, incantation, attaque a portee),
+ *  Provocation, Root, ruee, Tourbillon. */
+function movementGoal(e: Entity, st: NavState, byId: Map<number, Entity>, heroWork: HeroWorkContext, obstacles: ObstacleDef[]): { x: number; z: number } | null {
+  if (e.tauntSourceId !== null || e.rootTimer > 0 || e.dash || e.hero?.whirlwind) return null;
+  const order = e.order;
+  if (order.type === 'move') return { x: order.x, z: order.z };
+  if (order.type === 'attack') {
+    const target = byId.get(order.targetEntityId);
+    return !target || isEngaged(e, target, obstacles) ? null : target;
+  }
+  if (!isWorkOrder(order)) return null;
+  const goal = workGoal(e, heroWork, byId);
+  if (!goal || goal.reached) return null;
+  return st.stand && st.standKey === workStandKey(order, goal) ? st.stand : goal;
+}
+
+/**
+ * Watchdog de navigation (2026-11-06, G49), une fois par pas : ceinture de
+ * securite generique, pour tout ordre qui demande de se deplacer. Sur chaque
+ * fenetre de STUCK_CHECK_SECONDS (plus longue au contact d'une autre unite),
+ * bloquee si elle a bouge de moins de STUCK_MIN_PROGRESS, ou, but fixe, si sa
+ * route ne raccourcit plus depuis STUCK_NO_GAIN_SECONDS (hesitation de grande
+ * amplitude). Premier blocage : UNE recuperation (chemin oublie, nouveau point de
+ * travail, recherche permise) ; second : ordre abandonne. Le watchdog ne lance
+ * lui-meme aucune recherche. Se termine toujours : seule une route plus courte
+ * que la meilleure de l'ordre annule un blocage.
+ */
+function navigationWatchdog(e: Entity, byId: Map<number, Entity>, dt: number, inCrowd: boolean, heroWork: HeroWorkContext, obstacles: ObstacleDef[], orderEvents: OrderEndEvent[]): void {
+  const st = navOf(e);
+  st.searchCooldown = Math.max(0, st.searchCooldown - dt);
+  st.standRetry = Math.max(0, st.standRetry - dt);
+  const resetWindow = (): void => {
+    st.watchTimer = 0;
+    st.watchX = e.x;
+    st.watchZ = e.z;
+  };
+  if (st.order !== e.order) {
+    st.order = e.order;
+    st.bestRemaining = Infinity;
+    st.orderBest = Infinity;
+    st.noGainSeconds = 0;
+    st.stuckCount = 0;
+    st.standChoices = 0;
+    st.failedStands = [];
+    resetWindow();
+  }
+  const goal = movementGoal(e, st, byId, heroWork, obstacles);
+  if (!goal) {
+    st.noGainSeconds = 0;
+    resetWindow();
+    return;
+  }
+  st.watchTimer += dt;
+  if (st.watchTimer < STUCK_CHECK_SECONDS * (inCrowd ? STUCK_CROWD_FACTOR : 1)) return;
+
+  const moved = Math.hypot(e.x - st.watchX, e.z - st.watchZ);
+  const remaining = routeRemaining(e, goal.x, goal.z);
+  if (remaining < st.bestRemaining - STUCK_MIN_PROGRESS) {
+    st.bestRemaining = remaining;
+    st.noGainSeconds = 0;
+  } else st.noGainSeconds += st.watchTimer;
+  if (remaining < st.orderBest - STUCK_MIN_PROGRESS) {
+    st.orderBest = remaining;
+    st.stuckCount = 0;
+  }
+  resetWindow();
+  // But mobile (attaque, sort sur un allie) : la route peut s'allonger sans blocage.
+  const fixedGoal = e.order.type !== 'attack' && e.order.type !== 'cast';
+  if (moved >= STUCK_MIN_PROGRESS && !(fixedGoal && st.noGainSeconds >= STUCK_NO_GAIN_SECONDS)) return;
+
+  if (e.order.type === 'move' && Math.hypot(goal.x - e.x, goal.z - e.z) <= STUCK_GOAL_MARGIN) {
+    finishOrder(e, orderEvents, 'completed', 'arrived');
+    return;
+  }
+  st.stuckCount++;
+  if (st.stuckCount >= 2) {
+    abandonOrder(e, orderEvents);
+    return;
+  }
+  e.path = null;
+  e.steerX = null;
+  e.steerZ = null;
+  st.searchCooldown = 0;
+  if (st.stand) st.failedStands.push({ x: st.stand.x, z: st.stand.z });
+  st.stand = null;
+  st.standKey = null;
+  st.bestRemaining = Infinity;
+  st.noGainSeconds = 0;
+}
 
 /** Unite qui marche vers le camp quand elle n'a pas de cible. */
 function marchesToGoal(e: Entity, march: MarchContext | null): march is MarchContext {
@@ -195,6 +399,7 @@ export function movementSystem(
   const terrain = march ? terrainObstacles(obstacles, entities) : obstacles;
   const terrainGrid = (): PathGrid => cachedPathGrid(terrain, boardWidth, boardHeight);
 
+  pathSearchBudget = MAX_PATH_SEARCHES_PER_STEP;
   updateStuckState(movable, byId, dt, teamObstacles, teamGrid, orderEvents, march);
 
   // Rayon max une seule fois (les rayons ne changent pas pendant la
@@ -209,6 +414,7 @@ export function movementSystem(
   // Relief : unites au contact d'une autre au debut du tick (voir
   // bodyClearanceFor). Une fois par tick, ordre deterministe.
   const touching = touchingEntityIds(movable, separationCellSize);
+  for (const e of movable) navigationWatchdog(e, byId, dt, touching.has(e.id), heroWork, teamObstacles(e), orderEvents);
   /** Marge de corps pres des falaises (bodyPathNearTerrainCliff) : seulement
    *  pour une unite SEULE. Une unite au contact d'une autre garde la ligne
    *  droite des qu'elle est degagee entre centres : sinon, deux unites cote
@@ -295,42 +501,52 @@ export function movementSystem(
         // Source bloquante (arbre, gisement) : point de travail contre un de
         // ses cotes, dans une case libre ET atteignable par la navigation
         // courante (ligne droite degagee, sinon A* : une fois par ordre,
-        // memorise dans harvestStand). Aucun cote libre, ou aucun chemin vers
+        // memorise). Aucun cote libre, ou aucun chemin vers
         // aucun cote (source enfermee, region inaccessible), ou route perdue
         // en chemin : l'ordre s'arrete tout de suite, proprement (ni centre
         // bloque, ni coin, ni tour de la source, ni recherche a chaque pas) ;
         // un ordre manuel le signale (`unreachable`), une source choisie
         // seule par un Villageois est abandonnee en silence et evitee a son
         // prochain choix (workerSystem : autoNodeId garde, autoWorked faux).
-        const abandon = () => {
-          harvestStand.delete(e);
-          const auto = e.worker !== null && e.order.type === 'harvest' && e.worker.autoNodeId === e.order.nodeId;
-          if (auto) {
-            e.order = { type: 'guard' };
-            e.path = null;
-            e.steerX = null;
-            e.steerZ = null;
-          } else finishOrder(e, orderEvents, 'failed', 'unreachable');
-        };
-        let stand: { x: number; z: number } | null = null;
-        if (goal.box && e.order.type === 'harvest') {
-          const nodeId = e.order.nodeId;
-          const kept = harvestStand.get(e);
-          if (kept && kept.nodeId === nodeId) stand = kept;
-          else {
-            stand = reachableHarvestStand(e, goal.box, teamObstacles(e), teamGrid(e));
-            if (stand) harvestStand.set(e, { nodeId, x: stand.x, z: stand.z });
-          }
-          if (!stand) {
-            abandon();
+        // Chantier, reparation (2026-11-06, G49) : meme verrou, autour de la
+        // cible (sim/workStand.ts) ; route perdue : un nouveau choix, borne.
+        const nav = navOf(e);
+        const order = e.order;
+        const onSource = goal.box !== undefined && order.type === 'harvest';
+        const standKey = workStandKey(order, goal);
+        // Les obstacles ont change : le point garde tient-il encore, et reste-t-il
+        // relie a l'unite ? Une fois par changement, jamais a chaque pas.
+        const here = teamObstacles(e);
+        if (nav.stand && nav.standObstacles !== here) {
+          nav.standObstacles = here;
+          const from = freeTileNear(teamGrid(e), here, e.x, e.z);
+          if (!bodyFitsAt(nav.stand.x, nav.stand.z, e.stats.radius, here) || !from || !sameWalkRegion(teamGrid(e), from.x, from.z, nav.stand.routeX, nav.stand.routeZ)) nav.stand = null;
+        }
+        if (standKey !== null && (nav.standKey !== standKey || nav.stand === null)) {
+          if (nav.standRetry > 0) continue;
+          nav.standChoices++;
+          nav.stand = nav.standChoices > WORK_STAND_MAX_CHOICES ? null : onSource ? reachableHarvestStand(e, goal.box!, teamObstacles(e), teamGrid(e)) : chooseWorkStand(e, goal.target!, teamObstacles(e), teamGrid(e), nav.failedStands);
+          nav.standKey = standKey;
+          nav.standObstacles = here;
+          e.path = null;
+          if (!nav.stand) {
+            abandonOrder(e, orderEvents);
             continue;
           }
         }
-        const target = goal.target ?? ({ x: stand?.x ?? goal.x, z: stand?.z ?? goal.z, footprintObstacle: null } as unknown as Entity);
-        const routed = pursueTargetWithPathfinding(e, target, teamObstacles(e), teamGrid(e), subDt, bodyClearanceFor(e));
+        const stand = standKey !== null ? nav.stand : null;
+        const target = stand ? ({ x: stand.x, z: stand.z, footprintObstacle: null } as unknown as Entity) : goal.target ?? ({ x: goal.x, z: goal.z, footprintObstacle: null } as unknown as Entity);
+        const routed = pursueTargetWithPathfinding(e, target, teamObstacles(e), teamGrid(e), subDt, bodyClearanceFor(e), stand ? { x: stand.routeX, z: stand.routeZ } : undefined);
         // Route perdue apres le choix (chantier pose, source tombee entre
-        // temps) : meme arret propre, sans nouvelle recherche a chaque pas.
-        if (!routed && stand) abandon();
+        // temps) : arret propre d'une source, nouveau choix differe d'un chantier,
+        // jamais de recherche a chaque pas.
+        if (!routed && stand) {
+          if (onSource) abandonOrder(e, orderEvents);
+          else {
+            nav.stand = null;
+            nav.standRetry = WORK_STAND_RETRY_SECONDS;
+          }
+        }
         continue;
       }
 
@@ -558,14 +774,10 @@ function updateStuckState(
       continue;
     }
 
-    // Deplacement manuel : les filets de secours de la poursuite et de la
-    // marche neutre ne s'appliquent pas (ils viseraient la mauvaise
-    // destination). Une seule mesure (sim/orders.ts, orderMadeNoProgress) :
-    // si la distance a la destination ne diminue pas de
-    // ORBIT_PROGRESS_THRESHOLD en ORBIT_CHECK_DURATION, hors suivi d'un chemin
-    // A* (un detour peut eloigner temporairement), l'unite abandonne et passe
-    // en Garde — destination occupee par un obstacle, ou unite bloquee.
-    // Travail du Heros : ni degagement ni abandon (il rejoint sa source).
+    // Deplacement manuel et travail : les filets de secours de la poursuite et
+    // de la marche neutre ne s'appliquent pas (ils viseraient la mauvaise
+    // destination). Le blocage se juge dans navigationWatchdog, une seule mesure
+    // pour tous les ordres (2026-11-06, G49).
     if (isWorkOrder(e.order) && e.tauntSourceId === null) {
       e.stuckTimer = 0;
       e.stuckCheckX = e.x;
@@ -582,10 +794,6 @@ function updateStuckState(
       e.orbitCheckTargetId = null;
       e.neutralStuckTimer = 0;
       e.neutralProgressZ = e.z;
-      const remaining = Math.hypot(e.order.x - e.x, e.order.z - e.z);
-      if (orderMadeNoProgress(e, remaining, dt, ORBIT_CHECK_DURATION, ORBIT_PROGRESS_THRESHOLD)) {
-        finishOrder(e, orderEvents, 'failed', 'no-progress');
-      }
       continue;
     }
 
@@ -877,15 +1085,15 @@ function harvestStandPoints(e: Entity, box: ObstacleBounds, grid: PathGrid): { x
 /**
  * Premier point d'approche REELLEMENT atteignable par la navigation courante
  * (meme grille et memes obstacles que la poursuite) : ligne droite degagee,
- * sinon un chemin A* existe. Au plus un A* par cote libre, une seule fois
- * par ordre (l'appelant memorise le resultat) ; un detour valide est trouve
- * comme pour toute poursuite. null : aucun cote atteignable (source
- * enfermee, ou region coupee de l'unite).
+ * sinon sa case est reliee a l'unite (aucun A*, G49), une seule fois par ordre
+ * (l'appelant memorise le resultat) ; un detour valide est trouve comme pour
+ * toute poursuite. null : aucun cote atteignable (source enfermee, ou region
+ * coupee de l'unite).
  */
-function reachableHarvestStand(e: Entity, box: ObstacleBounds, obstacles: ObstacleDef[], grid: PathGrid): { x: number; z: number } | null {
+function reachableHarvestStand(e: Entity, box: ObstacleBounds, obstacles: ObstacleDef[], grid: PathGrid): WorkStand | null {
+  const start = freeTileNear(grid, obstacles, e.x, e.z);
   for (const p of harvestStandPoints(e, box, grid)) {
-    if (findBlockingObstacle(e.x, e.z, p.x, p.z, obstacles) === null) return p;
-    if (findPathFrom(e, grid, obstacles, p.x, p.z) !== null) return p;
+    if (findBlockingObstacle(e.x, e.z, p.x, p.z, obstacles) === null || (start && sameWalkRegion(grid, start.x, start.z, p.x, p.z))) return { x: p.x, z: p.z, routeX: p.x, routeZ: p.z };
   }
   return null;
 }
@@ -921,7 +1129,7 @@ function moveStraightTowards(e: Entity, aimX: number, aimZ: number, subDt: numbe
 /** Renvoie false uniquement quand A* ne trouve AUCUNE route vers la cible
  *  (plateau deconnecte) — utilise pour faire echouer une attaque ciblee. Le
  *  deplacement de repli de ce cas reste celui d'avant. */
-function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: ObstacleDef[], grid: PathGrid, subDt: number, bodyClearance: number): boolean {
+function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: ObstacleDef[], grid: PathGrid, subDt: number, bodyClearance: number, route?: { x: number; z: number }): boolean {
   // Piece de mur V2 (2026-11-02) : on vise le point du mur le plus proche, du
   // cote de l'unite, au contact. Viser son centre (case bloquee par la ligne)
   // laissait A* choisir une case libre quelconque, parfois de l'autre cote.
@@ -934,20 +1142,27 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
     return true;
   }
 
-  const goalTileX = Math.floor(aim.x + grid.halfW);
-  const goalTileZ = Math.floor(aim.z + grid.halfH);
+  // But de la route : la case de route d'un point de travail garde, sinon le point
+  // vise. Au plus une recherche par PATH_SEARCH_COOLDOWN (G49) : avant, un but sans
+  // route relancait A* a chaque sous-pas (150 fois par seconde pour une seule unite).
+  const routeX = route?.x ?? aim.x;
+  const routeZ = route?.z ?? aim.z;
+  const goalTileX = Math.floor(routeX + grid.halfW);
+  const goalTileZ = Math.floor(routeZ + grid.halfH);
   const stale = e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ;
+  let noRoute = false;
 
-  if (!e.path || e.path.length === 0 || stale || cachedPathBlocked(e, grid)) {
-    e.path = findPathFrom(e, grid, obstacles, aim.x, aim.z);
+  if ((!e.path || e.path.length === 0 || stale || cachedPathBlocked(e, grid)) && mayRepath(e)) {
+    e.path = routedPath(e, grid, obstacles, routeX, routeZ);
     // Batiment pose librement (G48) : la case libre la plus proche peut etre une
     // poche fermee par ses voisins ; on vise la plus proche case reliee.
     if (e.path === null && target.footprintObstacle?.footprint) {
       const stand = nearestReachableTile(grid, e.x, e.z, aim.x, aim.z, SITE_STAND_SEARCH_RADIUS);
-      if (stand) e.path = findPathFrom(e, grid, obstacles, stand.x, stand.z);
+      if (stand) e.path = routedPath(e, grid, obstacles, stand.x, stand.z);
     }
     e.pathGoalTileX = goalTileX;
     e.pathGoalTileZ = goalTileZ;
+    noRoute = e.path === null;
   }
 
   // Deja sur la bonne case, et seule la marge de corps ecartait la ligne droite
@@ -962,10 +1177,10 @@ function pursueTargetWithPathfinding(e: Entity, target: Entity, obstacles: Obsta
     // Aucune route trouvee (cas degrade rarissime, ex. cible totalement
     // enfermee) : repli sur l'ancien evitement reactif plutot que de ne rien
     // faire — moins bon qu'un vrai chemin, mais jamais pire qu'avant.
-    // `[]` (deja sur la case de la cible) n'est pas une absence de route.
-    const routeFound = e.path !== null;
+    // `[]` (deja sur la case de la cible) n'est pas une absence de route, pas
+    // plus qu'une recherche simplement differee.
     pursueTowards(e, aim.x, aim.z, obstacles, subDt);
-    return routeFound;
+    return !noRoute;
   }
 
   let next = e.path[0]!;
@@ -1024,17 +1239,19 @@ function followMoveOrder(
   const goalTileX = Math.floor(order.x + grid.halfW);
   const goalTileZ = Math.floor(order.z + grid.halfH);
   if (e.path === null || e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ || cachedPathBlocked(e, grid)) {
-    e.path = findPathFrom(e, grid, obstacles, order.x, order.z);
-    e.pathGoalTileX = goalTileX;
-    e.pathGoalTileZ = goalTileZ;
-    if (e.path === null) {
-      finishOrder(e, orderEvents, 'failed', 'unreachable');
-      return;
-    }
+    if (mayRepath(e)) {
+      e.path = routedPath(e, grid, obstacles, order.x, order.z);
+      e.pathGoalTileX = goalTileX;
+      e.pathGoalTileZ = goalTileZ;
+      if (e.path === null) {
+        finishOrder(e, orderEvents, 'failed', 'unreachable');
+        return;
+      }
+    } else if (e.path === null) return;
   }
 
   // Chemin epuise : approche finale en ligne droite (la destination peut se
-  // trouver dans un obstacle, voir la mesure de progres dans updateStuckState).
+  // trouver dans un obstacle : le watchdog de navigation l'arrete alors).
   if (e.path.length === 0) {
     moveStraightTowards(e, order.x, order.z, subDt);
     return;
@@ -1098,34 +1315,14 @@ function wallApproachPoint(e: Entity, w: { ax: number; az: number; bx: number; b
  * voisine la plus proche atteignable en ligne droite (meme cote), ajoutee en
  * tete du chemin. Case libre (cas general) : findPath tel quel. La marge de
  * navigation d'un batiment pose librement (G48) peut bloquer plusieurs rangees
- * autour de l'unite : l'anneau de recherche s'elargit alors.
+ * autour de l'unite : l'anneau de recherche s'elargit alors (sim/workStand.ts).
  */
-const FREE_START_RINGS = 3;
 /** Rayon de recherche (cases) d'un point d'approche relie autour d'un batiment. */
 const SITE_STAND_SEARCH_RADIUS = 6;
 
 function findPathFrom(e: Entity, grid: PathGrid, obstacles: ObstacleDef[], toX: number, toZ: number): { x: number; z: number }[] | null {
   if (!isTileBlockedAt(grid, e.x, e.z)) return findPath(grid, e.x, e.z, toX, toZ);
-  const tx = Math.floor(e.x + grid.halfW);
-  const tz = Math.floor(e.z + grid.halfH);
-  let start: { x: number; z: number } | null = null;
-  let bestD = Infinity;
-  for (let ring = 1; ring <= FREE_START_RINGS && !start; ring++) {
-    for (let dz = -ring; dz <= ring; dz++) {
-      for (let dx = -ring; dx <= ring; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
-        const cx = tileToWorldX(grid, tx + dx);
-        const cz = tileToWorldZ(grid, tz + dz);
-        if (tx + dx < 0 || tz + dz < 0 || tx + dx >= grid.width || tz + dz >= grid.height || isTileBlockedAt(grid, cx, cz)) continue;
-        if (findBlockingObstacle(e.x, e.z, cx, cz, obstacles) !== null) continue;
-        const d = Math.hypot(cx - e.x, cz - e.z);
-        if (d < bestD) {
-          bestD = d;
-          start = { x: cx, z: cz };
-        }
-      }
-    }
-  }
+  const start = freeTileNear(grid, obstacles, e.x, e.z);
   if (!start) return findPath(grid, e.x, e.z, toX, toZ);
   const path = findPath(grid, start.x, start.z, toX, toZ);
   return path ? [start, ...path] : null;
@@ -1151,8 +1348,8 @@ function marchToGoal(e: Entity, march: MarchContext, obstacles: ObstacleDef[], g
   const goalTileZ = Math.floor(goal.z + grid.halfH);
   const retry = marchRetry.get(e) ?? 0;
   const needed = e.path === null || e.pathGoalTileX !== goalTileX || e.pathGoalTileZ !== goalTileZ || cachedPathBlocked(e, grid);
-  if (needed && retry <= 0) {
-    e.path = findPathFrom(e, grid, obstacles, goal.x, goal.z);
+  if (needed && retry <= 0 && mayRepath(e)) {
+    e.path = routedPath(e, grid, obstacles, goal.x, goal.z);
     e.pathGoalTileX = goalTileX;
     e.pathGoalTileZ = goalTileZ;
     if (e.path === null) {

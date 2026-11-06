@@ -33,8 +33,9 @@ export type UnitOrder =
   /** Heros : recolter la source `nodeId` (World.resourceNodes), au contact,
    *  jusqu'a un autre ordre. */
   | { type: 'harvest'; nodeId: number }
-  /** Heros : construire le chantier `targetEntityId`, au contact. */
-  | { type: 'build'; targetEntityId: number }
+  /** Heros : construire le chantier `targetEntityId`, au contact. `auto` :
+   *  enchainement automatique, abandonne sans message s'il echoue. */
+  | { type: 'build'; targetEntityId: number; auto?: true }
   /** Heros : ramasser le petit tas au sol `pileId` (World.resourcePiles). */
   | { type: 'pickup'; pileId: number }
   /** Heros : ramasser l'item au sol `dropId` (World.itemDrops, butin). */
@@ -134,10 +135,11 @@ export type OrderEndReason = 'arrived' | 'target-lost' | 'unreachable' | 'no-pro
  *  que l'acceptation ou le refus d'une commande au moment de l'appliquer. */
 export interface OrderEndEvent {
   entityId: number;
-  /** `harvest` (2026-11-05) : seulement un ordre MANUEL de recolte termine
-   *  faute de point de travail (source enfermee, `unreachable`) ; une source
-   *  choisie seule par un Villageois est abandonnee sans evenement. */
-  order: 'move' | 'attack' | 'harvest';
+  /** Ordre de travail (recolte depuis le 2026-11-05, tous depuis G49) : seulement
+   *  un ordre MANUEL termine faute d'acces (`unreachable`) ; un ordre automatique
+   *  (source choisie seule par un Villageois, enchainement de chantiers) est
+   *  abandonne sans evenement. */
+  order: 'move' | 'attack' | WorkOrder['type'];
   outcome: 'completed' | 'failed';
   reason: OrderEndReason;
 }
@@ -235,8 +237,8 @@ export function orderMadeNoProgress(entity: Entity, remaining: number, dt: numbe
  *  Garde sur place et un evenement est ajoute pour l'interface. */
 export function finishOrder(entity: Entity, events: OrderEndEvent[], outcome: OrderEndEvent['outcome'], reason: OrderEndReason): void {
   const type = entity.order.type;
-  if (type === 'move' || type === 'attack' || (type === 'harvest' && reason === 'unreachable')) {
-    events.push({ entityId: entity.id, order: type, outcome, reason });
+  if (type === 'move' || type === 'attack' || (isWorkOrder(entity.order) && reason === 'unreachable')) {
+    events.push({ entityId: entity.id, order: entity.order.type as OrderEndEvent['order'], outcome, reason });
   }
   entity.order = { type: 'guard' };
   entity.path = null;

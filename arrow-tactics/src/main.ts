@@ -6049,6 +6049,22 @@ function buildingPlacementWorld(): BuildingPlacementWorld {
   };
 }
 
+/** Pas de simulation du dernier message d'ordre impossible : jamais de rafale,
+ *  quand un groupe echoue a la suite. */
+let lastUnreachableFlashTick = Number.NEGATIVE_INFINITY;
+const UNREACHABLE_FLASH_TICKS = 90;
+
+/** Ordre manuel qui n'a pas pu aboutir (source enfermee, chantier ou destination
+ *  hors d'atteinte, 2026-11-06, G49) : l'unite s'est arretee seule, feedback
+ *  discret, une fois. Les ordres automatiques n'emettent aucun evenement. */
+function flashUnreachableOrders(): void {
+  const failed = world.orderEvents.find((ev) => ev.outcome === 'failed' && ev.reason === 'unreachable' && world.getById(ev.entityId)?.team === 'player');
+  if (!failed || world.tick - lastUnreachableFlashTick < UNREACHABLE_FLASH_TICKS) return;
+  lastUnreachableFlashTick = world.tick;
+  const site = failed.order === 'build' || failed.order === 'repair';
+  waveIndicator.flash(failed.order === 'harvest' ? 'Aucun accès à cette ressource' : site ? 'Impossible d’atteindre le chantier' : failed.order === 'attack' ? 'Impossible d’atteindre la cible' : 'Impossible d’atteindre la destination');
+}
+
 /** Cases existantes de `currentMap` (resolveMapCells), recalculees quand la
  *  carte change. */
 let mapTilesCache: { map: MapDef; cells: unknown; keys: Set<string> } | null = null;
@@ -6692,9 +6708,7 @@ const loop = new Loop(
     world.visibility = fogActive() ? (x, z) => fogOfWar!.isVisible(x, z) : null;
     world.step(dt);
     handleCargoEvents();
-    // Ordre manuel de recolte sans aucun point de travail (source enfermee,
-    // 2026-11-05) : l'unite s'est arretee seule, feedback discret.
-    if (world.orderEvents.some((ev) => ev.order === 'harvest' && ev.reason === 'unreachable')) waveIndicator.flash('Aucun accès à cette ressource');
+    flashUnreachableOrders();
     logPathDiagnostics();
     stepSurvivalWaves();
     // Ordres acceptes pendant CE pas : commandResults est remplace a chaque

@@ -692,6 +692,29 @@ export const NEUTRAL_STUCK_CHECK_DURATION = 6.0;
  *  ci-dessus. */
 export const NEUTRAL_STUCK_PROGRESS_THRESHOLD = 1.0;
 
+/** Watchdog de navigation (2026-11-06, G49) : aucune unite ne reste indefiniment
+ *  dans une boucle. Fenetre de mesure et deplacement reel minimal (cases) sur
+ *  cette fenetre ; premier blocage : une recuperation, second : ordre abandonne.
+ *  PROVISOIRE. */
+export const STUCK_CHECK_SECONDS = 1.5;
+export const STUCK_MIN_PROGRESS = 0.2;
+/** Au contact d'une autre unite : fenetre allongee, le trafic se debloque seul. */
+export const STUCK_CROWD_FACTOR = 2;
+/** Bloquee aussi si la route restante ne diminue pas pendant ce temps, meme en
+ *  bougeant : une hesitation de grande amplitude entre deux itineraires. */
+export const STUCK_NO_GAIN_SECONDS = 6;
+/** Deplacement arrete a moins de cette distance de sa destination (cases) :
+ *  arrive, la place est simplement prise. */
+export const STUCK_GOAL_MARGIN = 1;
+/** Limite des recherches A* (2026-11-06, G49) : delai minimal entre deux
+ *  recherches d'une unite (s) et maximum par pas de simulation, toutes unites
+ *  confondues. PROVISOIRE. */
+export const PATH_SEARCH_COOLDOWN = 0.2;
+export const MAX_PATH_SEARCHES_PER_STEP = 6;
+/** Nouveau choix de point de travail : delai (s) et nombre maximal par ordre. */
+export const WORK_STAND_RETRY_SECONDS = 0.5;
+export const WORK_STAND_MAX_CHOICES = 4;
+
 // --- Combat ---
 /** Duree d'affichage (s) de TOUS les textes flottants du combat (« raté »,
  *  « esquivé », soins, « +N or ») : montee + fondu, puis retrait du DOM.

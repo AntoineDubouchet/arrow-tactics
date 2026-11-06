@@ -595,6 +595,19 @@ réel (§6 bis) ; la Boutique et son onglet « Bâtiments » n'existent plus
   bloquée, chantier compris. Le centre d'une case libre est donc à 0,7 case au
   moins du bâtiment, le corps le plus large du jeu : un passage trop étroit se
   ferme de lui-même. Limite : KI-73.
+- **Aucune boucle de navigation** (2026-11-06, G49, valeurs PROVISOIRES) : pour
+  construire ou réparer, une unité choisit une fois un **point de travail**, le plus
+  proche à pied parmi ceux où son corps tient et qu'elle peut rejoindre (des deux côtés
+  d'un segment de palissade, sur les quatre côtés d'un bâtiment), et le garde pour
+  l'ordre. **Watchdog** pour tout ordre qui demande de se déplacer : fenêtre de 1,5 s
+  (3 s au contact d'une autre unité), bloquée si elle a bougé de moins de 0,2 case, ou si
+  sa route ne raccourcit plus depuis 6 s. Premier blocage : une récupération (nouveau
+  chemin, autre point de travail) ; second : ordre abandonné, Garde. Jamais pendant
+  une action au contact, un sort, une attaque à portée, un Root, une Provocation ou un
+  Tourbillon. Message discret et unique pour un ordre manuel : « Impossible d'atteindre
+  le chantier », « la destination » ou « la cible » ; rien pour un ordre automatique.
+  **A* limité** : 1 recherche par unité toutes les 0,2 s, 6 par pas de simulation au total ;
+  une destination sans route est rejetée sans recherche.
 - **Déplacement** : aucun ; un bâtiment posé ne se déplace plus (le
   glisser de l'ancienne préparation a disparu avec elle).
 - **Persistance** : les bâtiments restent toute la run, avec leurs PV ; un

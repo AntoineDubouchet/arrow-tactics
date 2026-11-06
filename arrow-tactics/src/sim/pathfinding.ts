@@ -41,6 +41,9 @@ export interface PathGrid {
    *  bits EDGE_EAST / EDGE_WEST / EDGE_SOUTH / EDGE_NORTH. Toujours a 0 sur
    *  une carte plate. */
   edges: Uint8Array;
+  /** Region connexe de chaque case libre (0 = bloquee), calculee a la premiere
+   *  demande : la grille change seulement avec les obstacles. Voir walkRegions. */
+  regions: Int32Array | null;
 }
 
 const EDGE_EAST = 1;
@@ -90,7 +93,7 @@ export function buildPathGrid(obstacles: ObstacleDef[], boardWidth: number, boar
     }
   }
 
-  return { width: boardWidth, height: boardHeight, halfW, halfH, blocked, edges };
+  return { width: boardWidth, height: boardHeight, halfW, halfH, blocked, edges, regions: null };
 }
 
 /** Grilles en cache par REFERENCE de tableau d'obstacles (2026-11-02) :
@@ -210,6 +213,8 @@ function nearestFreeTile(grid: PathGrid, tx: number, tz: number): { x: number; z
   return null;
 }
 
+const ORTHOGONAL: readonly (readonly [number, number])[] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
 const NEIGHBORS: readonly [number, number, number][] = [
   [1, 0, 1],
   [-1, 0, 1],
@@ -220,6 +225,88 @@ const NEIGHBORS: readonly [number, number, number][] = [
   [-1, 1, Math.SQRT2],
   [-1, -1, Math.SQRT2],
 ];
+
+/** Recherches A* lancees et rejetees d'emblee depuis le demarrage (mesure et
+ *  tests de charge ; aucune regle du jeu ne le lit). */
+export const pathSearchStats = { searches: 0, rejected: 0 };
+
+/** Regions connexes de la grille (4 directions : une diagonale n'ouvre jamais un
+ *  passage que deux pas orthogonaux n'ouvrent pas), en cache sur la grille. */
+function walkRegions(grid: PathGrid): Int32Array {
+  if (grid.regions) return grid.regions;
+  const regions = new Int32Array(grid.width * grid.height);
+  const queue = new Int32Array(grid.width * grid.height);
+  let next = 0;
+  for (let k0 = 0; k0 < regions.length; k0++) {
+    if (grid.blocked[k0] === 1 || regions[k0] !== 0) continue;
+    next++;
+    regions[k0] = next;
+    queue[0] = k0;
+    for (let head = 0, tail = 1; head < tail; head++) {
+      const k = queue[head]!;
+      const x = k % grid.width;
+      const z = Math.floor(k / grid.width);
+      for (const [dx, dz] of ORTHOGONAL) {
+        const nx = x + dx;
+        const nz = z + dz;
+        if (isBlocked(grid, nx, nz) || edgeBlocked(grid, x, z, dx, dz)) continue;
+        const nk = nz * grid.width + nx;
+        if (regions[nk] !== 0) continue;
+        regions[nk] = next;
+        queue[tail++] = nk;
+      }
+    }
+  }
+  grid.regions = regions;
+  return regions;
+}
+
+/** Vrai si les cases libres de deux points monde sont reliees a pied. */
+export function sameWalkRegion(grid: PathGrid, ax: number, az: number, bx: number, bz: number): boolean {
+  const a = worldToTileX(grid, ax);
+  const b = worldToTileX(grid, bx);
+  const c = worldToTileZ(grid, az);
+  const d = worldToTileZ(grid, bz);
+  if (isBlocked(grid, a, c) || isBlocked(grid, b, d)) return false;
+  const regions = walkRegions(grid);
+  return regions[c * grid.width + a] === regions[d * grid.width + b];
+}
+
+/** Centre de la case libre la plus proche du point monde (x, z), ou null. */
+export function nearestFreeTileAt(grid: PathGrid, x: number, z: number): { x: number; z: number } | null {
+  const free = nearestFreeTile(grid, worldToTileX(grid, x), worldToTileZ(grid, z));
+  return free ? { x: tileToWorldX(grid, free.x), z: tileToWorldZ(grid, free.z) } : null;
+}
+
+/** Case (entiere) du point monde (x, z), bornee a la grille. */
+export function tileAt(grid: PathGrid, x: number, z: number): { x: number; z: number } {
+  return { x: worldToTileX(grid, x), z: worldToTileZ(grid, z) };
+}
+
+/** Distance a pied (nombre de pas orthogonaux) de la case (tx, tz) a chaque case
+ *  libre reliee, -1 sinon. Une inondation, aucun A*. */
+export function walkDistances(grid: PathGrid, tx: number, tz: number): Int32Array {
+  const dist = new Int32Array(grid.width * grid.height).fill(-1);
+  if (isBlocked(grid, tx, tz)) return dist;
+  const queue = new Int32Array(grid.width * grid.height);
+  queue[0] = tz * grid.width + tx;
+  dist[queue[0]!] = 0;
+  for (let head = 0, tail = 1; head < tail; head++) {
+    const k = queue[head]!;
+    const x = k % grid.width;
+    const z = Math.floor(k / grid.width);
+    for (const [dx, dz] of ORTHOGONAL) {
+      const nx = x + dx;
+      const nz = z + dz;
+      if (isBlocked(grid, nx, nz) || edgeBlocked(grid, x, z, dx, dz)) continue;
+      const nk = nz * grid.width + nx;
+      if (dist[nk] !== -1) continue;
+      dist[nk] = dist[k]! + 1;
+      queue[tail++] = nk;
+    }
+  }
+  return dist;
+}
 
 /**
  * A* case par case (8 directions, cout euclidien) de (fromX, fromZ) vers
@@ -243,6 +330,16 @@ export function findPath(grid: PathGrid, fromX: number, fromZ: number, toX: numb
     goalZ = free.z;
   }
   if (startX === goalX && startZ === goalZ) return [];
+  // But dans une autre region (2026-11-06, G49) : aucune route, reponse immediate.
+  // Une recherche sans issue inondait toute la carte (~5 ms sur 96 x 96).
+  if (!isBlocked(grid, startX, startZ)) {
+    const regions = walkRegions(grid);
+    if (regions[startZ * grid.width + startX] !== regions[goalZ * grid.width + goalX]) {
+      pathSearchStats.rejected++;
+      return null;
+    }
+  }
+  pathSearchStats.searches++;
 
   const width = grid.width;
   const key = (x: number, z: number) => z * width + x;
@@ -395,8 +492,10 @@ export function reachableTiles(grid: PathGrid, fromX: number, fromZ: number): Ui
  *  plus proche peut etre une poche fermee par ses voisins. Null : aucune a moins
  *  de `maxRadius` cases. */
 export function nearestReachableTile(grid: PathGrid, fromX: number, fromZ: number, toX: number, toZ: number, maxRadius: number): { x: number; z: number } | null {
-  const reach = reachableTiles(grid, fromX, fromZ);
-  if (!reach) return null;
+  const start = nearestFreeTile(grid, worldToTileX(grid, fromX), worldToTileZ(grid, fromZ));
+  if (!start) return null;
+  const regions = walkRegions(grid);
+  const region = regions[start.z * grid.width + start.x]!;
   const gx = worldToTileX(grid, toX);
   const gz = worldToTileZ(grid, toZ);
   for (let r = 0; r <= maxRadius; r++) {
@@ -405,7 +504,7 @@ export function nearestReachableTile(grid: PathGrid, fromX: number, fromZ: numbe
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         const x = gx + dx;
         const z = gz + dz;
-        if (x >= 0 && x < grid.width && z >= 0 && z < grid.height && reach[z * grid.width + x] === 1) return { x: tileToWorldX(grid, x), z: tileToWorldZ(grid, z) };
+        if (x >= 0 && x < grid.width && z >= 0 && z < grid.height && regions[z * grid.width + x] === region) return { x: tileToWorldX(grid, x), z: tileToWorldZ(grid, z) };
       }
     }
   }

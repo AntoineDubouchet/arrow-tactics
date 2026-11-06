@@ -77,7 +77,9 @@ coordonnées flottantes, marge, rotation, refus, rasterisation, passages large e
 tous les bâtiments standards), `auto-construction.mts` (enchaînement, portée, égalité,
 inaccessible, ordre manuel, plusieurs constructeurs, grappe serrée, événement de mort)
 et `camp-portes.mts` (4 portes, graines 1, 42, 12345, 99999 : angles, axes, sortie par
-chacune, porte fermée, ennemi, or proche, camps).
+chacune, porte fermée, ennemi, or proche, camps). G49 : `navigation-boucle.mts` (palissade
+entre des bâtiments, point verrouillé, 40 cas tirés dans le vrai camp, route perdue, watchdog
+cas A à E, foule, charge et limite d'A*).
 
 `tests/game/` : `baliste-reparation.cjs`, `camp-boucle.cjs`,
 `cargo-jeu.cjs`, `depart-jeu.cjs`, `editeur-procedural.cjs`,
@@ -102,7 +104,9 @@ déclenchés dans la vraie interface, aller-retour strict, migration du feu),
 `placement-jeu.cjs` (G48 : fantôme continu, R, Maison 3,27 / 8,63 à 15°, Maj, Villageois,
 double-clic, ralliement et production d'un bâtiment tourné, captures) et
 `mort-heros-jeu.cjs` (G48 : effet à la position, montée, durée, unicité, partie qui
-continue, capture au milieu).
+continue, capture au milieu), `navigation-jeu.cjs` (G49 : Paladin et palissade entre deux
+Maisons posées au menu, A* et image la plus longue mesurés, chantier enfermé, destination
+impossible, message unique).
 `camp-boucle.cjs` a 3 vérifications en échec, antérieures à G47 (KI-72).
 `lib.cjs` est la bibliothèque commune (lancement, ouverture de la Survie,
 caméra, captures).
