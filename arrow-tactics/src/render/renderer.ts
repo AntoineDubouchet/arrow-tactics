@@ -3,6 +3,7 @@ import { FogOfWarPass, type FogOfWar } from './fogOfWar';
 import { BOARD_H, BOARD_W, CAMERA } from '../config/constants';
 import { clamp, degToRad } from '../core/math';
 import { createBackgroundVeil, type AtmosphereSettings, type LookSettings } from './look';
+import type { VisualPresetSettings } from './visualPreset';
 
 /** Distance camera -> point vise. En orthographique elle n'affecte pas la taille : on la garde
  *  grande pour que rien ne soit jamais coupe par le plan proche. Sert aussi de zero a la brume. */
@@ -164,6 +165,20 @@ export class Renderer {
     if (look.fillIntensity !== undefined) this.fill.intensity = look.fillIntensity * Renderer.LIGHT_LEVEL;
     if (look.backgroundIntensity !== undefined) this.scene.backgroundIntensity = look.backgroundIntensity;
     if (look.backgroundVeil) this.scene.add(createBackgroundVeil(look.backgroundVeil));
+  }
+
+  /** Lumieres d'un preset visuel (render/visualPreset.ts ; `atmospheric` = rendu officiel), apres
+   *  applyLook, et a chaque entree/sortie de l'editeur (main.ts : l'editeur garde les lumieres
+   *  officielles) : couleurs et intensites des trois lumieres (LIGHT_LEVEL compris). La brume du
+   *  preset passe par enableAtmosphere (main.ts, `?atmosphere=clear` la retire). */
+  applyVisualPreset(preset: VisualPresetSettings): void {
+    this.hemisphere.color.set(preset.hemisphere.sky);
+    this.hemisphere.groundColor.set(preset.hemisphere.ground);
+    this.hemisphere.intensity = preset.hemisphere.intensity * Renderer.LIGHT_LEVEL;
+    this.sun.color.set(preset.sun.color);
+    this.sun.intensity = preset.sun.intensity * Renderer.LIGHT_LEVEL;
+    this.fill.color.set(preset.fill.color);
+    this.fill.intensity = preset.fill.intensity * Renderer.LIGHT_LEVEL;
   }
 
   /** Eclairement d'un sol plat a decouvert (lineaire, divise par pi : ce que
@@ -437,7 +452,8 @@ export class Renderer {
     }
   }
 
-  /** Brume et fond assortis (jeu), ou fond noir sans brume (editeur). Appel gratuit si rien ne change. */
+  /** Brume et fond assortis (jeu ; fond : AtmosphereSettings.background, sinon la couleur de la brume),
+   *  ou fond noir sans brume (editeur). Appel gratuit si rien ne change. */
   setAtmosphereActive(active: boolean): void {
     const settings = this.atmosphere;
     const fog = this.scene.fog;
@@ -445,7 +461,7 @@ export class Renderer {
     this.atmosphereActive = active;
     fog.near = active ? CAMERA_DISTANCE + settings.near : ATMOSPHERE_OFF_NEAR;
     fog.far = active ? CAMERA_DISTANCE + settings.far : ATMOSPHERE_OFF_NEAR * 2;
-    (this.scene.background as THREE.Color).set(active ? settings.color : 0x000000);
+    (this.scene.background as THREE.Color).set(active ? settings.background ?? settings.color : 0x000000);
   }
 
   render(): void {

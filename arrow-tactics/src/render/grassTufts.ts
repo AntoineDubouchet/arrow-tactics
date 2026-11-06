@@ -144,9 +144,19 @@ function cloverGeometry(): THREE.BufferGeometry {
 /** Partages par tous les plateaux, jamais liberes. */
 let shared: { blades: THREE.BufferGeometry; clover: THREE.BufferGeometry; material: THREE.MeshLambertMaterial } | null = null;
 
+/** Graphic Lab V2 (render/visualPreset.ts, main.ts) : multiplicateur lineaire des teintes de toutes
+ *  les touffes (couleur du materiau partage) ; neutre sans preset. Ni geometrie ni densite. */
+let tuftTint: readonly [number, number, number] = [1, 1, 1];
+
+export function setTuftTint(tint: readonly [number, number, number]): void {
+  tuftTint = tint;
+  shared?.material.color.setRGB(tint[0], tint[1], tint[2], THREE.LinearSRGBColorSpace);
+}
+
 function sharedAssets(): NonNullable<typeof shared> {
   if (!shared) {
     const material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    material.color.setRGB(tuftTint[0], tuftTint[1], tuftTint[2], THREE.LinearSRGBColorSpace);
     // Deux faces sans retourner la normale (voir tuftGeometry).
     material.onBeforeCompile = (shader) => {
       shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n\tnormal = normalize( vNormal );');

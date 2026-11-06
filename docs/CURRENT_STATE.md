@@ -2468,6 +2468,19 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
 - **Reflet des bâtiments** (2026-11-06) : `specular` 0,06 et `shininess` 80
   au chargement des `.obj` (0,214 et 250 venant des `.mtl`) : plus de pan de
   toit blanc à certains angles (`render/assetLibrary.ts`) ;
+- **Rendu officiel : preset visuel `atmospheric`** (2026-11-06, Graphic
+  Lab V2 clos, choix d'Antoine) : sans aucun paramètre d'URL, le jeu rend
+  `meadow` avec les lumières de `stylized`, la brume ci-dessus (subtile,
+  voulue telle quelle), son fond assorti et la correction des reflets.
+  `?visualPreset=clear` (lisible, lumineux, brume presque nulle) et
+  `?visualPreset=moody` (plus sombre, plus froid, brume plus présente)
+  restent des variantes de développement et de comparaison
+  (`render/visualPreset.ts`) : elles ne règlent que des paramètres de rendu
+  avec `meadow` (lumières, brume et fond, teintes du sol et des touffes) ;
+  géométrie, densité des touffes, caméra, brouillard de guerre, interface et
+  matériaux des bâtiments ne changent pas. L'éditeur garde les lumières
+  d'`atmospheric` quel que soit le preset (`main.ts`, `syncActiveTerrain`).
+  Aucun bloom ni post-traitement ;
 - **Direction graphique officielle par défaut** (2026-11-02, choix
   d'Antoine) : `look=stylized`, `groundLook=rich` (`meadow` depuis le
   2026-11-06), `surfaceBlend=organic`,
@@ -2626,12 +2639,12 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   Les dessus restent le sol logique ; carte, relief, trajets, pose et
   simulation inchangés ; rien de nouveau n'est enregistré (les surfaces
   nouvelles s'écrivent dans `surfaceCells` avec leur identifiant). Le rendu
-  sans paramètre n'a pas changé. Combinaison proposée :
-  `http://localhost:5173/?map=island&look=stylized&groundLook=rich&surfaceBlend=lisiere&relief=hybrid`.
-  Proposition en comparaison (transitions par couple, herbe plus variée) :
-  `http://localhost:5173/?map=island&look=stylized&groundLook=organic&surfaceBlend=organic&relief=hybrid`.
-  Avec la bordure de contact :
-  `http://localhost:5173/?map=island&look=stylized&groundLook=rich&surfaceBlend=organic&relief=hybrid&surfaceBorder=marquee`.
+  sans paramètre n'a pas changé à cette date. Ces propositions sont
+  tranchées depuis : `surfaceBlend=organic` et `surfaceBorder=marquee` sont
+  le rendu par défaut (2026-11-02), `groundLook=meadow` a remplacé `rich`
+  (2026-11-06) ; `lisiere`, `melange`, `rich` et `organic` (matière du sol)
+  ne sont plus des options ouvertes et restent des témoins historiques et de
+  débogage.
 - **Habillage du relief** (`render/reliefLook.ts`, 2026-10-31, en
   comparaison) : par défaut `baseline`, le rendu actuel, rien ne change.
   Trois variantes du rendu `faceted-plus`, par exemple

@@ -110,8 +110,10 @@ import { buildCellGridLines, setTerrainRenderMode, TERRAIN_RENDER_MODES } from '
 import { ChunkedTerrainView } from './render/terrainChunks';
 import { HILL_SHAPES, setHillShape } from './render/hillShape';
 import { setSurfaceBlendMode, setSurfaceBorder, SURFACE_BLEND_MODES, SURFACE_BORDERS, surfaceBlendSubdivisions } from './render/surfaceBlend';
-import { LOOK_PRESETS, lookSettings, MEADOW_ATMOSPHERE, setLookPreset } from './render/look';
-import { GROUND_LOOKS, setGroundLook, setGroundSwatchLight, setGroundVariation } from './render/groundLook';
+import { LOOK_PRESETS, lookSettings, setLookPreset } from './render/look';
+import { GROUND_LOOKS, setGroundLook, setGroundPresetTint, setGroundSwatchLight, setGroundVariation } from './render/groundLook';
+import { VISUAL_PRESET_SETTINGS, VISUAL_PRESETS, type VisualPresetSettings } from './render/visualPreset';
+import { setTuftTint } from './render/grassTufts';
 import { RELIEF_LOOKS, setReliefLook, setReliefShadows } from './render/reliefLook';
 import { activeTerrain, intersectSculptSurface, intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
 import { reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, type ReliefBrushSize, type ReliefDelta, type SlopeDirection, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
@@ -369,6 +371,10 @@ function gameTerrain(): TerrainHeightField {
 }
 
 let groundVariationMap: MapDef | null | undefined;
+// Preset visuel actif en jeu (render/visualPreset.ts ; null hors `meadow`) et dernier etat applique
+// aux lumieres (true : lumieres officielles de l'editeur, false : celles du preset).
+let activeVisualPreset: VisualPresetSettings | null = null;
+let editorLightsApplied: boolean | null = null;
 
 /** Surface active du rendu (render/terrainSurface.ts) : le brouillon dans
  *  l'editeur, sinon la carte en jeu (y compris pendant « Tester le
@@ -378,6 +384,12 @@ function syncActiveTerrain(): void {
   setActiveTerrain(inEditorMode && editorState ? editorState.heightField() : gameTerrain());
   // Brume atmospherique : en jeu seulement, l'editeur reste un outil net sur fond noir.
   renderer.setAtmosphereActive(!inEditorMode);
+  // Lumieres : celles du preset visuel en jeu ; l'editeur garde toujours les lumieres officielles
+  // (`atmospheric`), meme sous `?visualPreset=clear|moody` (environnement de travail neutre).
+  if (activeVisualPreset && editorLightsApplied !== inEditorMode) {
+    editorLightsApplied = inEditorMode;
+    renderer.applyVisualPreset(inEditorMode ? VISUAL_PRESET_SETTINGS.atmospheric : activeVisualPreset);
+  }
   // Variantes de l'herbe (render/groundLook.ts) : celles de la carte en jeu, neutres dans l'editeur.
   const variationMap = inEditorMode ? null : currentMap;
   if (variationMap !== groundVariationMap) {
@@ -405,8 +417,9 @@ renderer.setTargetConstraint((x, z) => {
 // surcharge de laboratoire (`?look=baseline`, `?groundLook=baseline`,
 // `?surfaceBlend=irregular`, `?relief=baseline`, `?surfaceBorder=off` rendent
 // l'ancien rendu). `?hills=organic` reste experimental, jamais par defaut.
-// Le fond reste noir (render/renderer.ts).
+// Le fond reste noir (render/renderer.ts) hors brume.
 // 2026-11-06 (demande d'Antoine) : `meadow` remplace `rich` (prairie et touffes) ; `?groundLook=rich` rend le sol d'avant.
+// 2026-11-06 (Graphic Lab V2 clos) : preset visuel `atmospheric` officiel (lumieres, brume, fond ; ci-dessous).
 const OFFICIAL_LOOK = { look: 'stylized', groundLook: 'meadow', surfaceBlend: 'organic', relief: 'hybrid', surfaceBorder: 'marquee' } as const;
 
 // Sol : herbe classique par defaut ; `?sol=<palette>` pour comparer les
@@ -460,10 +473,25 @@ if (lookPreset) {
 const groundLookParam = new URLSearchParams(location.search).get('groundLook') ?? OFFICIAL_LOOK.groundLook;
 const groundLook = GROUND_LOOKS.find((l) => l === groundLookParam);
 if (groundLook) setGroundLook(groundLook);
+// Preset visuel (render/visualPreset.ts). DECIDE (Antoine, 2026-11-06, Graphic Lab V2 clos) :
+// `atmospheric` est le rendu OFFICIEL, sans parametre d'URL ; `?visualPreset=clear` et `moody` restent
+// des variantes de developpement et de comparaison. Un preset regle lumieres (apres `?look=`), brume
+// et fond, teintes du sol et des touffes, avec `meadow` seulement ; `rich` et les autres temoins n'en
+// recoivent rien. L'editeur garde les lumieres d'`atmospheric` (syncActiveTerrain). La brume
+// (render/look.ts) : `?atmosphere=clear` la retire de tout preset, comparaison de developpement,
+// jamais un reglage du joueur.
+const visualPresetParam = new URLSearchParams(location.search).get('visualPreset');
+const visualPreset = VISUAL_PRESETS.find((p) => p === visualPresetParam) ?? 'atmospheric';
+const presetSettings = groundLook === 'meadow' ? VISUAL_PRESET_SETTINGS[visualPreset] : null;
+if (presetSettings) {
+  activeVisualPreset = presetSettings;
+  editorLightsApplied = false;
+  renderer.applyVisualPreset(presetSettings);
+  setGroundPresetTint(presetSettings.groundTint, presetSettings.grassTint);
+  setTuftTint(presetSettings.tuftTint);
+}
 setGroundSwatchLight(renderer.groundIrradiance());
-// Brume atmospherique du rendu `meadow` (render/look.ts). `?atmosphere=clear` : comparaison de
-// developpement, sans brume ; jamais un reglage du joueur. Rien en `rich` et dans les autres temoins.
-if (groundLook === 'meadow' && new URLSearchParams(location.search).get('atmosphere') !== 'clear') renderer.enableAtmosphere(MEADOW_ATMOSPHERE);
+if (presetSettings && new URLSearchParams(location.search).get('atmosphere') !== 'clear') renderer.enableAtmosphere(presetSettings.atmosphere);
 // Habillage du relief : `hybrid` par defaut (OFFICIAL_LOOK) ; `baseline` (ancien rendu), `?relief=roche`,
 // `?relief=massif` et `?relief=hybrid` (render/reliefLook.ts), en
 // comparaison ; `&reliefShadows=on|off` force les ombres du relief. Purement

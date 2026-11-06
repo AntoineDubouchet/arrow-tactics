@@ -246,11 +246,28 @@ export function groundSurfaceDef(id: GroundSurfaceId): SurfaceRender {
   return out;
 }
 
+/** Graphic Lab V2 (render/visualPreset.ts, main.ts) : multiplicateurs lineaires de toutes les
+ *  surfaces du sol, et de l'herbe en plus ; neutres sans preset. Avant toute construction de plateau. */
+let presetGroundTint: Rgb = [1, 1, 1];
+let presetGrassTint: Rgb = [1, 1, 1];
+
+export function setGroundPresetTint(ground: Rgb, grass: Rgb): void {
+  presetGroundTint = ground;
+  presetGrassTint = grass;
+}
+
 /** Multiplicateur du preset `?look=` (render/look.ts) pour le dessus de la
  *  surface `id` : en `living`, un seul par famille (celui de l'herbe par
  *  defaut pour toutes les herbes, celui de la terre battue pour les terres) ;
- *  sinon celui de la surface. */
+ *  sinon celui de la surface. Puis les teintes du preset du Graphic Lab. */
 export function groundLookTint(id: GroundSurfaceId): Rgb {
+  const t = groundLookBaseTint(id);
+  const g = presetGroundTint;
+  const h = GRASS_FAMILY.includes(id) ? presetGrassTint : ([1, 1, 1] as Rgb);
+  return [t[0] * g[0] * h[0], t[1] * g[1] * h[1], t[2] * g[2] * h[2]];
+}
+
+function groundLookBaseTint(id: GroundSurfaceId): Rgb {
   if (groundLookIsLiving()) {
     if (GRASS_FAMILY.includes(id)) {
       const t = lookSurfaceTint('grass');

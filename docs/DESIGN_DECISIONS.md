@@ -1242,15 +1242,24 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     instanciées, brume atmosphérique en jeu avec fond assorti) ; `rich` reste
     disponible comme comparaison et débogage, sans touffes ni brume, et
     `?atmosphere=clear` compare sans brume. L'éditeur garde un fond noir, sans
-    brume ni touffes, pour rester un outil lisible. Valeurs **provisoires**.
-    **En comparaison** (2026-10-31) : `surfaceBlend=organic` (mêmes
-    frontières que `lisiere`, transition douce choisie par couple de
-    matières) et `groundLook=organic` (`rich`, herbe un peu plus variée).
-    **Ouvert** : les retenir à la place de `lisiere` et `rich` ;
-    **en comparaison** (2026-10-31) avec `organic` : `surfaceBorder=subtile`
-    ou `marquee` (bordure de contact : herbe plus sombre au bord des autres
-    matières, liseré clair de l'eau, croûte de la lave ; jamais de trait).
-    **Ouvert** : la retenir, et à quelle intensité ;
+    brume ni touffes, pour rester un outil lisible.
+    **Décidé** (Antoine, 2026-11-06, Graphic Lab V2 clos) : après
+    comparaison de trois presets sur le même état de jeu (`clear`,
+    `atmospheric`, `moody` ; `render/visualPreset.ts`), **`atmospheric` est le
+    rendu officiel par défaut**, sans paramètre d'URL : `meadow`, densité
+    d'herbe actuelle (environ 3 300 à 3 500 touffes selon la graine, valeur
+    de référence), brume et lumières `atmospheric` telles quelles (la brume
+    est subtile à dessein), fond assorti, correction des reflets des `.obj`
+    (plus de retour aux anciens highlights blancs). `clear` et `moody`
+    restent des presets de développement et de comparaison, jamais le rendu
+    officiel ; `moody` pourra servir plus tard de base (biome, événement,
+    ambiance, variante de carte) sans qu'aucune mécanique n'en dépende. Pas
+    de bloom ni de post-traitement. L'éditeur garde les lumières
+    d'`atmospheric` quel que soit le preset. Les anciennes questions
+    `surfaceBlend=organic` contre `lisiere`, `groundLook=organic` contre
+    `rich` et `surfaceBorder` sont closes par les décisions du 2026-11-02 et
+    du 2026-11-06 ci-dessus ; `lisiere`, `melange`, `rich`, `organic` et
+    `subtile` restent des témoins historiques et de débogage ;
   - **éditeur** : le sol est découpé en morceaux pour qu'un coup de pinceau
     Surface ne reconstruise que la zone touchée ; organisation du rendu
     seulement, sans incidence sur la carte ni le jeu.

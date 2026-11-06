@@ -85,11 +85,13 @@ export const LOOK_SETTINGS: Readonly<Record<LookPreset, LookSettings>> = {
 };
 
 /** Brume atmospherique : couleur, et debut et fin du fondu en cases de profondeur de vue,
- *  comptees depuis le point vise par la camera (renderer.ts). */
+ *  comptees depuis le point vise par la camera (renderer.ts). `background` : couleur du fond sous
+ *  la brume (celle de la brume si absent ; render/visualPreset.ts). */
 export interface AtmosphereSettings {
   color: number;
   near: number;
   far: number;
+  background?: number;
 }
 
 /** Brume de prairie fraiche du rendu `meadow` (2026-11-06, demande d'Antoine, valeurs PROVISOIRES) :
