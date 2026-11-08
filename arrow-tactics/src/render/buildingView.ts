@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { HIT_FLASH_DURATION } from '../config/constants';
 import { BuildingDamageFx } from './buildingDamageFx';
+import { applyContactShading } from './contactMap';
 
 /**
  * Retour visuel d'un bâtiment GAMEPLAY (Mine, Baliste — 2026-08-16, voir
@@ -52,6 +53,8 @@ export class BuildingView {
         const castable = mat as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial;
         if (!('emissive' in castable)) return mat;
         const c = castable.clone() as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial;
+        // Ombre de contact et voile de brume (render/contactMap.ts, rendu officiel 2026-11-07).
+        applyContactShading(c);
         this.materials.push(c);
         return c;
       });

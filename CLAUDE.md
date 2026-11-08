@@ -86,10 +86,20 @@ npm run build     # tsc --noEmit puis vite build : vérification de référence
 npm run preview   # sert le build localement (facultatif)
 ```
 
-**Il n'existe actuellement aucun script `test`** ni suite de tests
-automatisée. Ne jamais affirmer avoir « lancé les tests ». Indiquer
-précisément ce qui a été vérifié : build, script ponctuel, vérification
-manuelle ou rien.
+Tests (détails, prérequis et liste des scripts : `arrow-tactics/tests/README.md`) :
+
+```bash
+npm run test:sim   # tests/sim/*.mts : Node seul, sans navigateur (Node 24+)
+npm run test:game  # tests/game/*.cjs : Playwright + Edge, Vite dédié sur 5177
+npm test           # les deux, dans cet ordre
+```
+
+Un seul script : `node tests/run-sim.mjs nom` ou `node tests/run-game.mjs nom`
+(filtre sur le nom de fichier). Ce n'est pas une couverture complète :
+chaque script fixe un contrat observable. Ne jamais affirmer avoir « lancé
+les tests » en général : nommer précisément ce qui a été lancé (build,
+`test:sim`, scripts `test:game` ciblés, script ponctuel, vérification
+manuelle) et ce qui ne l'a pas été.
 
 Depuis la racine Git :
 

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { obstacleCenter, TILE, type ObstacleDef } from '../config/constants';
 import { cloneScaledTo, type EnvironmentAssets } from './assetLibrary';
+import { applyContactShading } from './contactMap';
 
 /** Modele du gros gisement (2026-11-02, demande d'Antoine : « Rocher E » du
  *  catalogue Nature de l'editeur). */
@@ -12,6 +13,9 @@ const DEPOSIT_WIDTH_RATIO = 0.95;
 
 const goldOre = new THREE.MeshStandardMaterial({ color: 0xf2c24a, metalness: 0.65, roughness: 0.35, emissive: 0x3d2800, flatShading: true });
 const goldVein = new THREE.MeshStandardMaterial({ color: 0xd9a52e, metalness: 0.5, roughness: 0.45, emissive: 0x2a1a00, flatShading: true });
+// Ombre de contact et voile de brume (render/contactMap.ts, rendu officiel 2026-11-07).
+applyContactShading(goldOre);
+applyContactShading(goldVein);
 
 /** Petit hachage deterministe (aspect stable d'un gisement donne). */
 function seeded(seed: number): () => number {

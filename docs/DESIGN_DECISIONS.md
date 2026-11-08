@@ -56,6 +56,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | A2 | Décor : du procédural aux assets importés | Remplacée |
 | A3 | Rendu instancié des unités retiré | Historique |
 | A4 | Retour d'impact : flash conservé, recul retiré | Active (flash) / Remplacée (recul) |
+| A5 | Graphic Lab « ancrage et lumière » clos : contact map, Ground Mist liée au brouillard en soft intersection, deux sources chaudes, lumière dans la brume ; `shadow` non retenu | Active (2026-11-07, valeurs provisoires) |
 | B1 | Retrait du Cavalier léger | Remplacée (cavalerie revenue, G8) |
 | B2 | PV et dégâts stockés ×10, affichés en pips | Active |
 | B3 | La case comme unité de mesure | Active |
@@ -214,6 +215,90 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   explicite.
 - **Sources** : archive (« Où on en est », section Combat) ;
   `render/unitViews.ts`, `render/buildingView.ts`, `main.ts`.
+
+### A5 — Graphic Lab « ancrage et lumière » clos : rendu officiel ancré et brumeux
+
+- **Statut** : Active (Antoine, 2026-11-07). Valeurs **PROVISOIRES**.
+- **Contexte** : après le choix d'`atmospheric` (E7, Graphic Lab V2), une
+  image de référence d'Antoine montrait ce qui manquait encore : des objets
+  posés sur une nappe plutôt qu'ancrés, une brume qui coupait les objets
+  d'un trait net, aucune poche de chaleur dans un monde froid. Un laboratoire
+  en trois passes (2026-11-06 et 2026-11-07, briques activables par
+  `?lab=…`) a comparé sur un même état de jeu : ombre de contact, voile par
+  matériau (« soft intersection »), lumière dans la brume, feux plus
+  présents, ombres adoucies, sources chaudes temporaires dans le camp.
+- **Décision** (Antoine) :
+  - **contact map plutôt que SSAO** : une texture en espace monde
+    d'empreintes douces (arbres, rochers, props, bâtiments, pièces de
+    palissade, tas), lue par les matériaux éclairés et appliquée au sol et au
+    bas des objets. Raison : caméra orthographique, scène basse et lisible,
+    coût fixe (une texture de 4 texels par case, re-tamponnée seulement quand
+    un bâtiment ou un tas change), aucune passe plein écran, aucun bruit ni
+    halo sombre autour des unités. Forces réduites en fin de lab pour rendre
+    du contraste au Héros et aux Villageois près des bâtiments (arbres 0,52,
+    props 0,42, rochers 0,48, bâtiments 0,48, murs 0,38, tas 0,34) : ce
+    niveau est validé, **ne pas le renforcer**. **Jamais d'ombre de contact
+    sur les unités** (silhouettes d'abord). Forme des empreintes revue le
+    2026-11-08 (carrés sous les rochers, bandes et jonctions plus sombres sous
+    la palissade : rochers, structures et pièces de mur recevaient la boîte
+    englobante de leur emprise) : capsule sur le segment réel d'une pièce de
+    mur, ellipse sous un rocher, rectangle à bord rentré sous un bâtiment,
+    et union (maximum) entre structures au lieu d'une accumulation ; forces
+    inchangées, l'ombre reste collée au socle ;
+  - **faux soft intersection plutôt qu'un depth prepass** : la brume n'est pas
+    un plan testé contre la profondeur mais un voile que chaque matériau
+    calcule à partir de sa hauteur au-dessus du sol (hauteur du sol lue dans
+    la même texture) et des mêmes nappes de bruit. Raison : aucun rendu
+    supplémentaire de la scène, pas de lecture de profondeur, et un fondu qui
+    suit la forme de l'objet (pieu, tronc, socle) au lieu d'une ligne. Les
+    plans de brume de l'ancien prototype ne sont plus dans le chemin de
+    rendu ; les **unités** ne sont voilées que sur leurs 30 premiers
+    centimètres, à demi-force, pour supprimer la rupture net/voilé sans
+    toucher à la lisibilité ;
+  - **Ground Mist liée au brouillard de guerre** (mode `fog`, défaut) :
+    discrète en zone visible (gain 0,50, monté de 0,35 en fin de lab pour se
+    rapprocher de la référence dans la cour), dense et vivante en zone
+    explorée hors vision, nulle dans l'inexploré ; lecture seule de la
+    grille, aucune logique de visibilité modifiée ;
+  - **deux sources chaudes officielles** dans le camp du joueur : devant la
+    porte de l'Hôtel de ville (marches, sol et tonneau réchauffés) et sur un
+    montant de la porte de palissade la plus proche du Héros (bois chaud,
+    contraste « civilisation chaude / extérieur froid »). `PointLight` ambre,
+    portée courte, décroissance quadratique, pas d'ombre ; la source
+    temporaire devant l'**Auberge** n'est **pas** retenue pour l'instant
+    (parking). Indicateur : petits cônes de flamme de la famille du feu de
+    camp ; aucun asset de torche ou de lanterne créé (parking) ;
+  - **lumière dans la brume** (`mistlight`) : feux des camps et sources du
+    camp réchauffent et éclaircissent localement le voile ; **plafond de 4
+    `MistLightSource`** envoyées au shader (les plus proches du point visé),
+    conservé ;
+  - **pas de bloom** : la lumière existe par le sol éclairé et le halo dans la
+    brume ; aucun post-traitement ;
+  - **`shadow` non retenu** : soleil −15 % / ambiance +15 % n'apportait pas
+    assez une fois contact et brume présents. Les ombres directionnelles
+    restent exactement celles d'avant le lab ;
+  - les **feux des camps neutres** gardent leurs valeurs du 2026-11-02 : le
+    réglage `lights` du lab (intensité 12, portée 9) n'a été ni validé ni
+    écarté ; à revoir à l'œil si besoin.
+- **Contrainte documentée** : avec 14 `PointLight` déjà dans la scène (feux
+  des camps, 16 avec les deux sources), le système n'est **pas** prévu pour
+  une lumière par bâtiment. Si le nombre de sources chaudes augmente, passer
+  par une approximation dans le shader du sol et de la brume (fausse lumière
+  par position et rayon, comme le voile le fait déjà) ou limiter aux sources
+  les plus proches, plutôt que d'ajouter des `PointLight`.
+- **Parking** (voir aussi `ROADMAP.md` §7) : vrais assets pour les deux
+  sources chaudes (un vrai petit feu de camp devant l'Hôtel de ville, une
+  vraie torche ou lanterne fixée au montant de la porte ; les cônes actuels
+  sont des indicateurs provisoires) ; volumétrie lumineuse verticale (halo dans l'air au-dessus du
+  sol, hors de portée d'un voile au sol) ; Auberge comme troisième source à
+  réévaluer ; stratégie si le nombre de lumières augmente fortement.
+- **À ne pas faire** : ne pas réintroduire les plans de brume comme rendu
+  normal ; ne pas ajouter d'ombre de contact aux unités ; ne pas pousser
+  `shadow` ; ne pas ajouter de bloom ; ne pas multiplier les `PointLight`.
+- **Sources** : `render/contactMap.ts`, `render/groundMist.ts`,
+  `render/warmLights.ts`, `render/campViews.ts`, `render/board.ts`,
+  `render/unitViews.ts`, `main.ts` (`syncContactMap`, `updateFogOfWar`) ;
+  `CURRENT_STATE.md` §11 (rendu officiel) et §18.
 
 ---
 

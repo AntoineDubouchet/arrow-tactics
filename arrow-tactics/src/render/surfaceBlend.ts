@@ -8,6 +8,7 @@ import { applyGroundLayer, groundLookTint, groundMacro, groundRenderSurface, gro
 import type { ReliefShading } from './reliefLook';
 import { newBuffers, RELIEF_TINT_PER_LEVEL, SLOPE_NORMAL_Y, SLOPE_SHADE, type LayerBuffers, type TerrainContext } from './terrainCells';
 import type { TerrainLips } from './terrainStylized';
+import { applyContactShading } from './contactMap';
 
 /**
  * TRANSITIONS entre surfaces du dessus (`?surfaceBlend=`), purement visuelles :
@@ -580,6 +581,8 @@ export function appendSurfaceBlend(group: THREE.Group, cells: readonly TerrainCe
       });
       m.color.setRGB(def.color[0] * tint[0], def.color[1] * tint[1], def.color[2] * tint[2], THREE.LinearSRGBColorSpace);
       applyGroundLayer(m, id);
+      // Ombre de contact et voile de brume (render/contactMap.ts, rendu officiel 2026-11-07).
+      applyContactShading(m);
       return m;
     });
     const mesh = new THREE.Mesh(geometry, material);

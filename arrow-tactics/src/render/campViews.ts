@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { Chest } from '../sim/systems/camps';
 import { surfaceY } from './terrainSurface';
+import { applyContactShading } from './contactMap';
+import type { MistLightSource } from './groundMist';
 
 /**
  * Camps neutres, rendu (2026-11-02) : flammes et petite lumiere du feu de
@@ -35,13 +37,22 @@ interface ChestView {
   state: 'locked' | 'ready' | 'opened';
 }
 
+/** Lumiere du feu de camp : valeurs du 2026-11-02, inchangees par le Graphic Lab 2026-11-07 (le
+ *  reglage `lights` du lab, intensite 12 / portee 9 / decroissance 2 / 0xffa040, n'a ete ni retenu
+ *  ni ecarte : DESIGN_DECISIONS.md A5, ROADMAP.md §7). */
 const FIRE_LIGHT_INTENSITY = 7;
 const FIRE_LIGHT_DISTANCE = 7;
+const FIRE_LIGHT_DECAY = 1.6;
+const FIRE_LIGHT_COLOR = 0xff8a3d;
+/** Rayon (monde) de la brume eclairee par un feu (render/groundMist.ts, setMistLights). */
+const FIRE_MIST_RADIUS = 6;
 
 const woodMaterial = new THREE.MeshStandardMaterial({ color: 0x7a4a26, roughness: 0.85, flatShading: true });
 const ironMaterial = new THREE.MeshStandardMaterial({ color: 0x3a3a42, roughness: 0.5, metalness: 0.4, flatShading: true });
 const goldMaterial = new THREE.MeshStandardMaterial({ color: 0xd9b24a, roughness: 0.4, metalness: 0.6, emissive: 0x3a2a05, flatShading: true });
 const innerMaterial = new THREE.MeshStandardMaterial({ color: 0x1c120a, roughness: 1 });
+// Ombre de contact et voile de brume (render/contactMap.ts) : coffres ancres et voiles comme le decor.
+for (const m of [woodMaterial, ironMaterial, goldMaterial, innerMaterial]) applyContactShading(m);
 const flameGeometry = new THREE.ConeGeometry(0.16, 0.55, 7, 1, true);
 flameGeometry.translate(0, 0.27, 0);
 const ringGeometry = new THREE.RingGeometry(0.55, 0.68, 32);
@@ -102,6 +113,12 @@ export class CampViews {
     }
   }
 
+  /** Feux comme sources pour la brume (render/groundMist.ts, setMistLights) : niveau = intensite
+   *  du moment rapportee au maximum (0 si le camp n'est pas explore). */
+  fireLights(): MistLightSource[] {
+    return this.fires.map((fire) => ({ x: fire.x, y: fire.root.position.y + 0.5, z: fire.z, radius: FIRE_MIST_RADIUS, color: fire.light.color, level: fire.light.intensity / FIRE_LIGHT_INTENSITY }));
+  }
+
   clear(): void {
     this.group.clear();
     this.fires = [];
@@ -118,7 +135,7 @@ export class CampViews {
       root.add(flame);
       return flame;
     });
-    const light = new THREE.PointLight(0xff8a3d, 0, FIRE_LIGHT_DISTANCE, 1.6);
+    const light = new THREE.PointLight(FIRE_LIGHT_COLOR, 0, FIRE_LIGHT_DISTANCE, FIRE_LIGHT_DECAY);
     light.position.y = 0.7;
     light.castShadow = false;
     // La lumiere reste dans la scene meme cachee (intensite nulle) : son

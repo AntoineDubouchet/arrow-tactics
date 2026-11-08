@@ -974,6 +974,23 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     l'horloge partagée avant le rendu de leurs meshes ; au bord, la marge
     portée par l'alpha des sommets (`lisiere`, `melange`, `organic`) donne
     l'écume et la croûte refroidie.
+  - Ancrage et brume (2026-11-07, `DESIGN_DECISIONS.md` A5) :
+    `render/contactMap.ts` (`ContactMap` : texture en espace monde construite
+    par `createBoard` à partir des obstacles de la carte, `refresh` avec les
+    empreintes dynamiques que `main.ts` calcule depuis les bâtiments et les
+    tas du `World` ; `applyContactShading` : morceau de shader injecté par
+    `onBeforeCompile` dans les matériaux éclairés, ombre de contact puis
+    voile de brume ; `setActiveContactMap` : uniforms partagés) ;
+    `render/groundMist.ts` (mode `?groundMist=` lu à l'import du module car
+    des matériaux partagés sont créés avant `main.ts` ; `mistShared` et
+    `MIST_GLSL` : uniforms et fonctions des nappes de bruit, partagés par tous
+    les matériaux ; `GroundMist` : configuration d'un plateau, activée par
+    `setActiveGroundMist` ; `setFogOfWar` : lecture seule de la grille du
+    brouillard ; `setMistLights` : 4 sources au plus) ;
+    `render/warmLights.ts` (`WarmLights` : deux `PointLight` du camp du
+    joueur, placées depuis `startingBaseLayoutOf`, sources pour la brume).
+    Le rendu ne lit le `World` que pour les empreintes et les feux ; la
+    simulation ignore tout cela.
   - Habillage du relief (`render/reliefLook.ts`, `setReliefLook`,
     `?relief=` lu par `main.ts`), rendu `faceted-plus` seulement :
     `reliefParams()` (null en `baseline` : aucun calcul, rendu inchangé ;

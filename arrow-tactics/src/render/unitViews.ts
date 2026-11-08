@@ -13,6 +13,7 @@ import {
   WALK_SWING_AMPLITUDE,
 } from '../config/constants';
 import { clamp, dist, lerp } from '../core/math';
+import { applyContactShadingTo } from './contactMap';
 import { forwardDir, type Entity } from '../sim/entity';
 import { UNIT_MOVE_SPEED_MULTIPLIER } from '../data/units';
 import { harvestSecondsOfWork, HARVEST_NODE_KINDS, HARVEST_STROKES_PER_UNIT, type HarvestResource } from '../data/resources';
@@ -846,6 +847,9 @@ export class UnitViews {
 
   private createView(entity: Entity): THREE.Group {
     const view = buildUnit(entity.unitId, entity.team);
+    // Voile de brume (render/contactMap.ts, rendu officiel 2026-11-07, A5) : sur les 30 premiers
+    // centimetres seulement, a demi-force, jamais d'ombre de contact (silhouettes d'abord).
+    applyContactShadingTo(view, { unit: true });
     // Clip de marche / course accelere comme la vitesse de deplacement
     // (x1,4, data/units.ts) : les pieds ne glissent pas. Generique (tous les
     // kits rigges exposent `walk`) ; attaque, travail, sort, chute intacts.

@@ -4,6 +4,7 @@ import { GROUND_SURFACES, type GroundSurfaceId } from './groundSurfaces';
 import { Rng } from '../core/rng';
 import { lookSurfaceTint } from './look';
 import { groundTextureUrl } from './textures';
+import { applyContactShading } from './contactMap';
 
 /**
  * MATIERE DU SOL (`?groundLook=`, 2026-10-30) : le dessus du
@@ -721,6 +722,8 @@ function applyLiquid(material: THREE.MeshLambertMaterial, id: GroundSurfaceId): 
       .replace('#include <map_fragment>', `#ifdef USE_MAP\n\t${body}\n#endif`);
   };
   material.customProgramCacheKey = () => `ground-liquid-${lava ? 'lave' : 'eau'}`;
+  // Voile de brume (render/contactMap.ts, rendu officiel 2026-11-07) : l'eau est voilee comme le sol.
+  applyContactShading(material);
 }
 
 /** Eclairement d'un sol plat (lineaire, deja divise par pi : ce que

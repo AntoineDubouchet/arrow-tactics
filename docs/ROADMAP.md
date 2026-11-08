@@ -635,11 +635,11 @@ buffs), jamais par la simulation directement.
 - **Réécriture de `CLAUDE.md`** : en dernier, après les autres documents (C1).
 - **Sol : points parqués** (après le choix de `?groundLook=living`,
   2026-10-30 ; voir `DESIGN_DECISIONS.md` E7) :
-  1. **contact visuel au pied des bâtiments et des murs** : sur l'herbe, un
-     bâtiment ou un mur paraît posé sur une nappe. Une cour ou un tablier
-     de terre battue et quelques rochers aident déjà, mais rien n'assombrit
-     le contact ; il faudrait un rendu qui connaisse les bâtiments (le sol
-     ne lit que la carte) ;
+  1. **contact visuel au pied des bâtiments et des murs** : **fait** le
+     2026-11-07 (ombre de contact, `render/contactMap.ts`,
+     `DESIGN_DECISIONS.md` A5) : une texture d'empreintes en espace monde,
+     re-tamponnée quand un bâtiment ou un tas change, assombrit le sol et le
+     bas des objets ;
   2. **palette des petites plantes 3D** : plantes Kenney et plantes
      aquatiques KayKit lisibles à partir d'environ 0,6 case, mais d'un vert
      bleuté sombre qui tranche sur l'herbe ; fleurs, champignons et
@@ -661,3 +661,19 @@ buffs), jamais par la simulation directement.
      parois voisines partagent leurs sommets ; la paroi y forme une grande
      facette plane. Pas de correctif simple et sûr : à reprendre avec le
      découpage des parois (`emitRockEdge`, `render/terrainStylized.ts`).
+- **Rendu : points parqués après le Graphic Lab « ancrage et lumière »**
+  (2026-11-07, `DESIGN_DECISIONS.md` A5) :
+  1. **vrais assets pour les deux sources chaudes** du camp : un vrai petit
+     feu de camp devant l'Hôtel de ville, une vraie torche ou lanterne fixée
+     au montant de la porte de palissade (aujourd'hui deux petits cônes de
+     flamme, indicateurs provisoires) ;
+  2. **volumétrie lumineuse verticale** : halo dans l'air au-dessus du sol
+     autour d'une source, hors de portée du voile au sol actuel ; demande
+     un vrai volume ou un sprite, à juger contre le coût ;
+  3. **Auberge comme troisième source chaude**, à réévaluer à l'œil ;
+  4. **stratégie si le nombre de lumières augmente fortement** : fausse
+     lumière dans le shader du sol et de la brume (position et rayon, comme
+     le voile le fait déjà) ou sélection des sources les plus proches,
+     plutôt qu'une `PointLight` par bâtiment ;
+  5. **feux des camps neutres** : le réglage `lights` du lab (plus présents)
+     n'a été ni retenu ni écarté.

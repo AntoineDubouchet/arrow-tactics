@@ -5,6 +5,7 @@ import { cellKey, type TerrainCellDef } from '../config/mapDef';
 import { cellTriangles, EDGE_CORNERS, FLAT_TERRAIN, TERRAIN_ELEVATION_STEP, OPPOSITE_SLOPE_DIRECTION, SLOPE_DIRECTIONS, SLOPE_DIRECTION_VECTORS, type TerrainHeightField } from '../config/terrainElevation';
 import { GROUND_SURFACES, groundFlankSurface, groundSurfaceAt, type GroundSurfaceId } from './groundSurfaces';
 import { applyGroundLayer, attachGroundClock, groundLookTint, groundMacro, groundRenderSurface, groundStates, groundSurfaceDef } from './groundLook';
+import { applyContactShading } from './contactMap';
 import { appendSurfaceBlend } from './surfaceBlend';
 import { buildStylizedTerrain } from './terrainStylized';
 
@@ -136,6 +137,8 @@ export function groundMaterial(materials: TerrainMaterials, key: string, id: Gro
     const material = new THREE.MeshLambertMaterial({ map: def.texture(), vertexColors: true });
     material.color.setRGB(def.color[0] * tint[0], def.color[1] * tint[1], def.color[2] * tint[2], THREE.LinearSRGBColorSpace);
     applyGroundLayer(material, id);
+    // Ombre de contact et voile de brume (render/contactMap.ts, rendu officiel 2026-11-07).
+    applyContactShading(material);
     return material;
   });
 }

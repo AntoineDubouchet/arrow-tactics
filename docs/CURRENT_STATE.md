@@ -2481,6 +2481,50 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   matériaux des bâtiments ne changent pas. L'éditeur garde les lumières
   d'`atmospheric` quel que soit le preset (`main.ts`, `syncActiveTerrain`).
   Aucun bloom ni post-traitement ;
+- **Rendu officiel ancré et brumeux** (2026-11-07, Graphic Lab « ancrage et
+  lumière » clos, choix d'Antoine ; `DESIGN_DECISIONS.md` A5). Sans aucun
+  paramètre d'URL, en plus d'`atmospheric`, `meadow` et la densité d'herbe
+  ci-dessus, le jeu rend :
+  - **ombre de contact** (`render/contactMap.ts`) : une texture en espace
+    monde (4 texels par case) accumule des empreintes douces sous les arbres
+    (force 0,52), props (0,42), rochers (0,48), bâtiments posés (0,48), pièces
+    de palissade (0,38) et tas de ressources (0,34), plancher 0,4 ; les
+    matériaux éclairés du monde (sol, touffes, décors, palissades, bâtiments,
+    tas, coffres, pièces et rochers d'or, eau, lisières) la lisent à la
+    position monde du fragment et s'assombrissent au sol et sur leurs 0,8
+    premières unités de hauteur. Les **unités n'en reçoivent jamais**.
+    Empreintes dynamiques re-tamponnées quand la liste des bâtiments ou des
+    tas change (`main.ts`, `syncContactMap`). Pas de SSAO ;
+  - **Ground mist liée au brouillard de guerre** (`render/groundMist.ts`,
+    mode `fog` par défaut) : deux couches de bruit (hauteurs 0,32 et 0,7,
+    dérive très lente, décalage par graine), gain **0,50** en zone visible,
+    1,3 avec seuil abaissé et bruit vivant en zone explorée hors vision, rien
+    dans l'inexploré ; la grille du brouillard est lue seule, rien n'est
+    révélé, aucune logique de visibilité ne change ; sans brouillard actif
+    (éditeur, test de scénario), comme `on`. Rendue en **soft intersection** :
+    aucun plan, chaque matériau calcule son propre voile selon sa hauteur
+    au-dessus du sol (profil par couche), eau, lisières, décors, palissades et
+    bâtiments compris ; les **unités** ne sont voilées que sur leurs 30
+    premiers centimètres, à demi-force, torse et tête nets ;
+  - **sources chaudes du camp du joueur** (`render/warmLights.ts`) : deux
+    `PointLight` ambre (`0xffa040`, intensité 9, portée 7, décroissance
+    quadratique, scintillement, sans ombre) posées au lancement de la run
+    devant la porte de l'Hôtel de ville et sur un montant de la porte de
+    palissade la plus proche du Héros ; indicateur : deux petits cônes de
+    flamme additifs de la famille du feu de camp. Pas d'asset de torche ni de
+    lanterne, pas de source devant l'Auberge (parking, `ROADMAP.md` §7). Les
+    feux des camps neutres gardent leurs valeurs du 2026-11-02 ;
+  - **lumière dans la brume** (`setMistLights`) : feux des camps et sources du
+    camp alimentent le voile, **4 sources au plus** (les plus proches du point
+    visé), halo local (rayon 5 cases pour une source, 6 pour un feu,
+    décroissance quadratique), teinte 0,8 et alpha +0,8 au cœur. Contrainte
+    documentée : le système n'est pas prévu pour une `PointLight` par
+    bâtiment (`DESIGN_DECISIONS.md` A5) ;
+  - **débogage** : `?groundMist=off` (aucun voile), `on` (densité uniforme,
+    sans lecture du brouillard), `strong` (limites). L'ombre de contact et les
+    sources n'ont pas d'interrupteur. Ombres directionnelles inchangées (le
+    réglage `shadow` du lab n'est pas retenu). Toujours aucun bloom ni
+    post-traitement ;
 - **Direction graphique officielle par défaut** (2026-11-02, choix
   d'Antoine) : `look=stylized`, `groundLook=rich` (`meadow` depuis le
   2026-11-06), `surfaceBlend=organic`,
@@ -3154,6 +3198,9 @@ du menu principal, écran distinct de l'Atelier et de l'éditeur de maps :
   bascule la vitesse de jeu entre ×1 et ×2. Plus aucune aide « X — Vitesse
   fois 2 » à l'écran, ni dans le HUD joueur ni en mode debug ; la vitesse
   courante se lit dans le détail du compteur FPS.
+- **`?groundMist=off|on|strong`** (2026-11-07) : compare le rendu sans voile
+  de brume, avec une densité uniforme ou aux limites ; `fog` (défaut) suit le
+  brouillard de guerre (§11, rendu officiel). Purement visuel.
 - **Bouton « +1 point de talent (debug) »** dans l'écran des talents.
 - Le bouton « +100 or (debug) » a disparu avec la Boutique (2026-11-04) ;
   `window.arrowEconomy.set(...)` (§6 quinquies) reste le moyen de debug.

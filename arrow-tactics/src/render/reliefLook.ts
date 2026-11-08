@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { cellTriangles, TERRAIN_ELEVATION_STEP, type TerrainHeightField } from '../config/terrainElevation';
 import type { TerrainMaterials } from './terrainCells';
+import { applyContactShading } from './contactMap';
 
 /**
  * HABILLAGE DU RELIEF (`?relief=`, passe du 2026-10-31, en comparaison) :
@@ -178,7 +179,12 @@ export function rockFacetColor(P: ReliefParams, depth: number, span: number, x: 
 
 /** Materiau des parois de roche : facettes a plat, couleur par sommet, sans texture. */
 export function rockMaterial(materials: TerrainMaterials): THREE.MeshLambertMaterial {
-  return materials.get('rock', () => new THREE.MeshLambertMaterial({ vertexColors: true }));
+  return materials.get('rock', () => {
+    const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+    // Ombre de contact et voile de brume (render/contactMap.ts, rendu officiel 2026-11-07).
+    applyContactShading(material);
+    return material;
+  });
 }
 
 /** Ombrage des dessus d'une variante : facteur de couleur (contact, creux et bosses, voile de pente lisse) et

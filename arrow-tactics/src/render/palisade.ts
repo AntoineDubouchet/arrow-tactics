@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { WallSegment } from '../core/wallLine';
 import { surfaceY } from './terrainSurface';
+import { applyContactShading } from './contactMap';
 
 /**
  * Rendu PROCEDURAL de la Palissade V2 (2026-11-02) : aucun asset adapte dans
@@ -84,7 +85,10 @@ class MergedGeometry {
 }
 
 function woodMaterial(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, flatShading: true });
+  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, flatShading: true });
+  // Ombre de contact et voile de brume (render/contactMap.ts, rendu officiel 2026-11-07).
+  applyContactShading(material);
+  return material;
 }
 
 const m4 = new THREE.Matrix4();

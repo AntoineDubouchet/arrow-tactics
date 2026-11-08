@@ -114,6 +114,8 @@ import { LOOK_PRESETS, lookSettings, setLookPreset } from './render/look';
 import { GROUND_LOOKS, setGroundLook, setGroundPresetTint, setGroundSwatchLight, setGroundVariation } from './render/groundLook';
 import { VISUAL_PRESET_SETTINGS, VISUAL_PRESETS, type VisualPresetSettings } from './render/visualPreset';
 import { setTuftTint } from './render/grassTufts';
+import { setActiveGroundMist, setMistLights, tickMistClock } from './render/groundMist';
+import { boxStamp, BUILDING_FEATHER, BUILDING_INSET, setActiveContactMap, wallStamp, type ContactStamp } from './render/contactMap';
 import { RELIEF_LOOKS, setReliefLook, setReliefShadows } from './render/reliefLook';
 import { activeTerrain, intersectSculptSurface, intersectTerrain, setActiveTerrain, surfaceY } from './render/terrainSurface';
 import { reliefBrushCore, reliefBrushOrigin, resolveMapHeightField, type ReliefBrushSize, type ReliefDelta, type SlopeDirection, type TerrainElevationCellDef, type TerrainHeightField } from './config/terrainElevation';
@@ -121,6 +123,7 @@ import { UnitMovePreview, type UnitMovePreviewItem } from './render/unitMovePrev
 import { DEFAULT_LAUNCH_HEIGHT, PlayerArrowView, preloadPlayerArrowModel } from './render/playerArrowView';
 import { Projectiles } from './render/projectiles';
 import { Renderer, type CameraViewState } from './render/renderer';
+import { WarmLights } from './render/warmLights';
 import { buildUnit } from './render/unitMesh';
 import { UnitViews } from './render/unitViews';
 import { preloadMageModel } from './render/mageRig';
@@ -492,6 +495,8 @@ if (presetSettings) {
 }
 setGroundSwatchLight(renderer.groundIrradiance());
 if (presetSettings && new URLSearchParams(location.search).get('atmosphere') !== 'clear') renderer.enableAtmosphere(presetSettings.atmosphere);
+// Voile de brume basse (render/groundMist.ts, rendu officiel 2026-11-07) : `?groundMist=` est lu par
+// le module lui-meme a l'import (des materiaux partages sont crees avant ce point) ; `fog` par defaut.
 // Habillage du relief : `hybrid` par defaut (OFFICIAL_LOOK) ; `baseline` (ancien rendu), `?relief=roche`,
 // `?relief=massif` et `?relief=hybrid` (render/reliefLook.ts), en
 // comparaison ; `&reliefShadows=on|off` force les ombres du relief. Purement
@@ -555,6 +560,10 @@ renderer.scene.add(destructibleViews.group);
 /** Camps neutres : feux (flammes, lumiere) et coffres. */
 const campViews = new CampViews();
 renderer.scene.add(campViews.group);
+/** Sources chaudes du camp du joueur (render/warmLights.ts) : porte de l'Hotel de ville et porte de
+ *  palissade, posees au lancement d'une run (rendu seulement). */
+const warmLights = new WarmLights();
+renderer.scene.add(warmLights.group);
 /** Camps deja decouverts (brouillard) de la bataille en cours, par id. */
 const discoveredCamps = new Set<number>();
 /** Anneau jaune du depot (Baliste) vise par un ordre de depot du Heros. */
@@ -753,6 +762,8 @@ async function rebuildGameBoardVisuals(): Promise<void> {
   // Grille masquee en jeu ; les zones de territoire restent affichees.
   renderer.scene.remove(board.group);
   board.tufts?.dispose();
+  board.contact.dispose();
+  contactSignature = '';
   board = await createBoard(currentMap);
   board.gridLines.visible = false;
   renderer.scene.add(board.group);
@@ -1371,6 +1382,7 @@ function startSurvivalWorld(): void {
   // Or des ennemis abattus (tas au sol) : bonus du talent, resolu ici.
   world.goldDropBonus = Math.round(computeTalentEconomyHooks(metaProgress).bonusGoldPerKill?.() ?? 0);
   campViews.setCamps(currentMap.camps ?? []);
+  warmLights.place(startingBaseLayoutOf(currentMap));
   discoveredCamps.clear();
   // Demarrage direct (2026-11-05, KI-68 resolue) : monde charge, camp de
   // depart, Heros et Villageois en Garde, simulation en temps reel. Plus de
@@ -1551,10 +1563,46 @@ function visionSources(): VisionSource[] {
 /** Compteur de frames du reveil des decors (toutes les 6 frames). */
 let decorRevealFrame = 0;
 
+/** Signature (ids) des empreintes dynamiques deja tamponnees dans la carte de contact. */
+let contactSignature = '';
+
+/** Carte de contact (render/contactMap.ts) : empreintes des batiments poses, pieces de palissade et
+ *  tas de ressources, re-tamponnees quand leur liste change. Lecture seule du monde, rendu seulement. */
+function syncContactMap(): void {
+  const contact = board.contact;
+  let signature = '';
+  const stamps: ContactStamp[] = [];
+  for (const e of world.entities) {
+    if (!e.isBuilding || !e.alive || !e.footprintObstacle) continue;
+    signature += `${e.id},`;
+    // Forces validees le 2026-11-07 (A5 ; batiments 0,48, murs 0,38) : ne pas renforcer. Formes
+    // revues le 2026-11-08 : capsule sur le segment reel d'une piece de mur, rectangle a bord
+    // rentre pour un batiment (render/contactMap.ts, ContactStamp).
+    const line = e.footprintObstacle.line;
+    stamps.push(e.wall && line ? wallStamp(line, 0.38) : boxStamp(e.footprintObstacle, BUILDING_INSET, BUILDING_FEATHER, 0.48));
+  }
+  for (const p of world.resourcePiles) {
+    if (p.amount <= 0) continue;
+    signature += `p${p.id},`;
+    stamps.push({ kind: 'disc', x: p.x, z: p.z, inner: 0.25, outer: 0.85, strength: 0.34 });
+  }
+  if (signature === contactSignature) return;
+  contactSignature = signature;
+  contact.refresh(stamps);
+}
+
 /** Une frame : vision du moment, unites adverses masquees, tas explores. */
 function updateFogOfWar(): void {
   const on = fogActive();
   renderer.setFogOfWar(on ? fogOfWar : null);
+  // Voile de brume (render/groundMist.ts) : grille du brouillard en lecture seule (mode `fog`),
+  // horloge cosmetique, puis feux des camps et sources chaudes du camp dans la brume (4 au plus,
+  // les plus proches du point vise) ; empreintes de contact.
+  board.mist?.setFogOfWar(on ? fogOfWar : null);
+  tickMistClock();
+  const view = renderer.getViewState();
+  setMistLights([...campViews.fireLights(), ...warmLights.sources()], view.targetX, view.targetZ);
+  syncContactMap();
   if (on) fogOfWar!.update(visionSources());
   // Decors instancies (carte generee) : reveles a l'exploration (KI-35).
   if (on && board.decor && ++decorRevealFrame % 6 === 0) board.decor.reveal((x, z) => fogOfWar!.isExplored(x, z));
@@ -3900,6 +3948,7 @@ async function testScenario(): Promise<void> {
   if (testBoard) {
     renderer.scene.remove(testBoard.group);
     testBoard.tufts?.dispose();
+    testBoard.contact.dispose();
   }
   testBoard = await createBoard(testMap);
   testBoard.gridLines.visible = false;
@@ -3930,6 +3979,7 @@ function returnToEditorAfterTest(): void {
   world.clear();
   clearScenarioBuildingMeshes();
   campViews.setCamps([]);
+  warmLights.clear();
   // Remet aussi le modele de la Baliste a neuf si elle a ete detruite pendant
   // le test (voir forgetBattleBuildings).
   forgetBattleBuildings();
@@ -3959,6 +4009,10 @@ function returnToEditorAfterTest(): void {
   if (testBoard) {
     renderer.scene.remove(testBoard.group);
     testBoard.tufts?.dispose();
+    testBoard.contact.dispose();
+    // Retour au plateau de jeu : ses materiaux relisent sa carte de contact et sa brume.
+    setActiveContactMap(board.contact);
+    setActiveGroundMist(board.mist);
     testBoard = null;
   }
 
@@ -7205,6 +7259,7 @@ const loop = new Loop(
     resourcePileViews.animate(realDt);
     itemDropViews.animate(realDt);
     campViews.animate(realDt);
+    warmLights.animate(realDt);
     destructibleViews.animate(realDt);
     // Marqueur net pour tout batiment selectionne (groupe du double-clic compris).
     rallyMarkers.sync(world.entities, battleInspectedGroupIds.size > 0 ? battleInspectedGroupIds : new Set(battleInspectedEntityId !== null ? [battleInspectedEntityId] : []), !inEditorMode && inBattlePhase());

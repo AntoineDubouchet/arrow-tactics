@@ -7,6 +7,7 @@ import type { TerrainHeightField } from '../config/terrainElevation';
 import { Rng } from '../core/rng';
 import { groundNoise } from './groundSurfaces';
 import { hillHeightAt } from './hillShape';
+import { applyContactShading } from './contactMap';
 
 /**
  * TOUFFES D'HERBE (2026-11-06, demande d'Antoine) : petits accents low-poly qui cassent le vide
@@ -162,6 +163,8 @@ function sharedAssets(): NonNullable<typeof shared> {
       shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n\tnormal = normalize( vNormal );');
     };
     material.customProgramCacheKey = () => 'grass-tuft';
+    // Ombre de contact et voile de brume (render/contactMap.ts, rendu officiel 2026-11-07).
+    applyContactShading(material);
     shared = { blades: bladesGeometry(), clover: cloverGeometry(), material };
   }
   return shared;

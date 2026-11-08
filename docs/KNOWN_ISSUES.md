@@ -62,7 +62,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-53 | Sol du plateau en morceaux : ~35 morceaux (169 meshes) ; repeinte de 25 à 47 ms à la pose d'un bâtiment | Limite assumée (à surveiller) |
 | KI-55 | Palissade : les vagues frappent le premier mur ou la première porte rencontrés (une porte ouverte les bloque aussi), sans choisir leur cible ; un mur ennemi de carte les bloquerait sans être attaqué | Limite assumée |
 | KI-56 | Palissade : éditeur sans retrait d'une porte ni édition partielle d'une ligne (supprimer la ligne entière) ; aucun mur en préparation (legacy) | À faire (si besoin) |
-| KI-57 | Palissade : sur un terrain irrégulier, les traverses vont droit d'un bout à l'autre du segment (pieux au sol) ; pas d'ombre de contact au pied | Limite assumée (visuel provisoire) |
+| KI-57 | Palissade : sur un terrain irrégulier, les traverses vont droit d'un bout à l'autre du segment (pieux au sol) ; ombre de contact au pied depuis le 2026-11-07 (`render/contactMap.ts`) | Limite assumée (visuel provisoire) |
 | KI-58 | Cartes dessinées : leurs `rock` deviennent des gisements bloquants ; carte générée : placement des gisements changé (mêmes graines, autres cartes) | Limite assumée (2026-11-03) |
 | KI-59 | Écurie : modèle KayKit 2 × 3 ajusté à l'emprise 3 × 3, un peu petit et plat ; gisement d'or : pépites procédurales | Limite assumée (visuels provisoires) |
 | KI-60 | Maison B : variante seulement pour les Maisons posées en jeu ; une Maison de scénario de l'éditeur reste A | Limite assumée |

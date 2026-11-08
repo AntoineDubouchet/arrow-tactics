@@ -9,6 +9,8 @@ import { ensureModels, loadEnvironmentAssets, obstacleModelKeys } from './assetL
 import { box } from './meshHelpers';
 import { currentGroundLook } from './groundLook';
 import { GrassTufts } from './grassTufts';
+import { GroundMist, groundMistMode, setActiveGroundMist } from './groundMist';
+import { applyContactShadingTo, ContactMap, setActiveContactMap } from './contactMap';
 import { hillHeightAt } from './hillShape';
 import { buildObstacleMesh, placeObstacleMesh } from './obstacleFactory';
 import { buildCellGridLines } from './terrainCells';
@@ -42,6 +44,10 @@ export interface Board {
   terrain: ChunkedTerrainView;
   /** Touffes d'herbe instanciees (render/grassTufts.ts), en `?groundLook=meadow` ; sinon null. */
   tufts: GrassTufts | null;
+  /** Nappes de brume basse (render/groundMist.ts, voile par materiau), en `meadow` sauf `?groundMist=off` ; sinon null. */
+  mist: GroundMist | null;
+  /** Carte de contact (render/contactMap.ts : ombre de contact, hauteur du sol pour le voile). */
+  contact: ContactMap;
 }
 
 /**
@@ -125,6 +131,12 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
     obstacles.add(mesh);
   }
   group.add(obstacles);
+  // Carte de contact du plateau (render/contactMap.ts, rendu officiel 2026-11-07) : empreintes des
+  // obstacles, hauteur du sol ; morceau de shader sur les materiaux des obstacles (les decors
+  // instancies partagent ces materiaux).
+  const contact = new ContactMap(cells, field, map.obstacles);
+  applyContactShadingTo(obstacles);
+  setActiveContactMap(contact);
   // Carte generee (grande) : decors instancies par modele et par morceau,
   // caches tant que leur case n'est pas exploree (KI-34, KI-35).
   const decor = map.generator ? new InstancedDecor(obstacles, true) : null;
@@ -136,8 +148,13 @@ export async function createBoard(map: MapDef, spawnDepth?: number): Promise<Boa
 
   const tufts = currentGroundLook() === 'meadow' ? new GrassTufts(map, cells, field) : null;
   if (tufts) group.add(tufts.group);
+  // Voile de brume (render/groundMist.ts) : configuration du plateau, lue par tous les materiaux
+  // patches ; aucun voile sans touffes (`rich`, editeur) ni en `?groundMist=off`.
+  const mistMode = groundMistMode();
+  const mist = tufts && mistMode !== 'off' ? new GroundMist(map, mistMode) : null;
+  setActiveGroundMist(mist);
 
-  return { group, gridLines, zones, obstacles, decor, terrain, tufts };
+  return { group, gridLines, zones, obstacles, decor, terrain, tufts, mist, contact };
 }
 
 /** Hauteur des zones au-dessus du sol (sous la grille, a 0.012). */

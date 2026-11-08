@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { PileResource, ResourceCargo } from '../data/resources';
 import { surfaceY } from './terrainSurface';
 import { loadVfxTexture } from './vfxTextures';
+import { applyContactShading } from './contactMap';
 
 /**
  * Petits tas de ressources au sol (2026-11-01, Hero RTS) : fagot de planches
@@ -22,6 +23,8 @@ function material(color: number): THREE.MeshStandardMaterial {
   let m = materials.get(color);
   if (!m) {
     m = new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0, flatShading: true });
+    // Ombre de contact et voile de brume (render/contactMap.ts, rendu officiel 2026-11-07).
+    applyContactShading(m);
     materials.set(color, m);
   }
   return m;
@@ -41,6 +44,7 @@ function seeded(seed: number): () => number {
 
 const coinGeometry = new THREE.CylinderGeometry(0.075, 0.075, 0.025, 12);
 const goldMaterial = new THREE.MeshStandardMaterial({ color: 0xf2c94c, metalness: 0.7, roughness: 0.3, emissive: 0x4a3200, flatShading: true });
+applyContactShading(goldMaterial);
 
 /** Modele d'un tas : `pieces` planches croisees, cailloux empiles ou pieces d'or. */
 export function buildResourcePileModel(resource: PileResource, pieces: number, seed: number): THREE.Group {
