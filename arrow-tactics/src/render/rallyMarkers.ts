@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Entity } from '../sim/entity';
 import { surfaceY } from './terrainSurface';
+import { markGameplayOverlay } from './fogOfWar';
 
 /**
  * Points de ralliement des batiments producteurs (2026-11-02), rendu : petit
@@ -64,6 +65,9 @@ export class RallyMarkers {
     const lineGeometry = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
     const line = new THREE.Line(lineGeometry, new THREE.LineDashedMaterial({ color: 0x8fd3ff, dashSize: 0.3, gapSize: 0.2, transparent: true, opacity: 0.8 }));
     root.add(ring, pole, flag, line);
+    // Repere prioritaire : rendu apres brouillard et nappes, profondeur de la scene relue
+    // (render/fogOfWar.ts).
+    markGameplayOverlay(root);
     this.group.add(root);
     const marker = { root, ring, flag, line };
     this.markers.set(id, marker);

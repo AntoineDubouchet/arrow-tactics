@@ -124,6 +124,7 @@ import { DEFAULT_LAUNCH_HEIGHT, PlayerArrowView, preloadPlayerArrowModel } from 
 import { Projectiles } from './render/projectiles';
 import { Renderer, type CameraViewState } from './render/renderer';
 import { WarmLights } from './render/warmLights';
+import { mistUnitMaskOn, setMistCloudsScene, setMistCloudUnits } from './render/mistClouds';
 import { buildUnit } from './render/unitMesh';
 import { UnitViews } from './render/unitViews';
 import { preloadMageModel } from './render/mageRig';
@@ -171,7 +172,7 @@ import {
   type OrderLedger,
 } from './run/productionOrders';
 import { getTechnology } from './data/technologies';
-import { FOG_GRID_MARGIN, FogOfWar, type VisionSource } from './render/fogOfWar';
+import { FOG_GRID_MARGIN, FogOfWar, markGameplayOverlay, type VisionSource } from './render/fogOfWar';
 import { DepotTargetRing, ResourcePileViews, type DepotRingTarget } from './render/resourcePiles';
 import { randomSeed, Rng } from './core/rng';
 import { effectiveBuildingAttackDamage, effectiveBuildingMaxHp, getEffectiveBuildingCost } from './run/buildingUpgradeEffects';
@@ -1383,6 +1384,8 @@ function startSurvivalWorld(): void {
   world.goldDropBonus = Math.round(computeTalentEconomyHooks(metaProgress).bonusGoldPerKill?.() ?? 0);
   campViews.setCamps(currentMap.camps ?? []);
   warmLights.place(startingBaseLayoutOf(currentMap));
+  // Mist Clouds (render/mistClouds.ts, rendu officiel) : poche claire du camp, graine du bruit.
+  setMistCloudsScene(startingBaseLayoutOf(currentMap)?.origin ?? currentMap.ballista ?? null, currentMap.generator?.seed ?? 0);
   discoveredCamps.clear();
   // Demarrage direct (2026-11-05, KI-68 resolue) : monde charge, camp de
   // depart, Heros et Villageois en Garde, simulation en temps reel. Plus de
@@ -1602,6 +1605,17 @@ function updateFogOfWar(): void {
   tickMistClock();
   const view = renderer.getViewState();
   setMistLights([...campViews.fireLights(), ...warmLights.sources()], view.targetX, view.targetZ);
+  // Mist Clouds, debug `?mistUnitMask=on` seulement (non retenu en rendu normal) : unites visibles les plus
+  // proches du point vise (masque local de densite autour de leur silhouette, render/mistClouds.ts) ;
+  // jamais une unite cachee par le brouillard. Sinon, aucun travail.
+  if (mistUnitMaskOn()) {
+    const near = world.entities
+      .filter((e) => e.alive && e.unitId && !e.isBuilding && !(on && hiddenByFog(e)))
+      .map((e) => ({ e, d: Math.hypot(e.x - view.targetX, e.z - view.targetZ) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 12);
+    setMistCloudUnits(near.map(({ e }) => ({ x: e.x, z: e.z, y: surfaceY(e.x, e.z), radius: e.stats.radius })));
+  }
   syncContactMap();
   if (on) fogOfWar!.update(visionSources());
   // Decors instancies (carte generee) : reveles a l'exploration (KI-35).
@@ -6428,6 +6442,8 @@ function updateBuildingPlacementGhost(x: number, z: number): void {
   const { width, depth } = buildingFootprint(mode.buildingId);
   placementPlate = buildFootprintPreview(x, z, width, depth, mode.rotationY, valid);
   placementPlate.name = 'building-placement-plate';
+  // Repere prioritaire : vert / rouge rendus apres brouillard et nappes (render/fogOfWar.ts).
+  markGameplayOverlay(placementPlate);
   buildingPlacementGroup.add(placementPlate);
 }
 

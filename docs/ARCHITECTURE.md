@@ -991,6 +991,39 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     joueur, placées depuis `startingBaseLayoutOf`, sources pour la brume).
     Le rendu ne lit le `World` que pour les empreintes et les feux ; la
     simulation ignore tout cela.
+  - Mist Clouds et repères depth-aware (2026-11-08, `DESIGN_DECISIONS.md`
+    A6) : `render/mistClouds.ts` (modes `?mistClouds=` et `?mistCloudsRes=`
+    lus à l'import ; `mistCloudUniforms` ; `MIST_CLOUDS_GLSL` : fonctions
+    GLSL `mistCloudsLayers` (couleur prémultipliée et couverture des trois
+    couches situées devant la surface) et `mistClouds` ; `setMistCloudsScene`
+    : centre de la poche et graine, appelé par `main.ts` au chargement d'une
+    carte ; `tickMistClouds` : horloge cosmétique ; les 4 sources chaudes de
+    `mistShared` sont lues, rien d'autre n'est partagé avec la Ground Mist :
+    voile au sol par matériau d'un côté, masses aériennes dans la passe de
+    l'autre). **Aucun mesh** : les nappes sont évaluées dans `FogOfWarPass`
+    (`render/fogOfWar.ts`) à partir de la DepthTexture de la scène et
+    composées **avant** l'assombrissement du brouillard de guerre
+    (assombries ou noires comme le sol couvert). Traitement half-res (défaut)
+    : `cloudMaterial` rend les couches dans `cloudTarget` (HalfFloat, moitié
+    de la taille, recréé au redimensionnement), puis `halfMaterial` compose
+    l'image : lecture du brouillard d'abord (rien n'est relu sur un pixel
+    jamais exploré), `cloudsUpsample` (4 texels, poids bilinéaires atténués
+    par l'écart de profondeur), repli exact `mistCloudsLayers` sur les pixels
+    de contour sans voisin compatible. `material` reste la composition pleine
+    résolution (`?mistCloudsRes=full` ; `cloudsHalfRes` commutable à chaud) ;
+    en `?mistClouds=off`, le shader historique est inchangé. Couche gameplay
+    overlay : `GAMEPLAY_OVERLAY_LAYER` (couche 1) ; `markGameplayOverlay`
+    met un objet sur cette couche et rend ses matériaux depth-aware
+    (`makeOverlayDepthAware` : `onBeforeCompile`, `discard` du fragment situé
+    derrière la profondeur opaque lue dans `overlayDepthUniforms`, biais
+    `OVERLAY_DEPTH_BIAS` converti en profondeur normalisée ; un matériau
+    cloné doit être re-marqué). `FogOfWarPass.render` rend la couche 0 dans
+    sa cible, compose, puis rend la couche 1 par-dessus avec la DepthTexture
+    de la cible, et coupe le test ensuite. Sans passe (éditeur, test de
+    scénario), la caméra a la couche 1 activée (`Renderer`) et ces objets se
+    rendent comme les autres. Utilisé par `render/unitSelectionRing.ts`,
+    `render/resourcePiles.ts`, `render/rallyMarkers.ts` et la plaque de
+    placement (`main.ts`). Test : `tests/game/overlay-profondeur-jeu.cjs`.
   - Habillage du relief (`render/reliefLook.ts`, `setReliefLook`,
     `?relief=` lu par `main.ts`), rendu `faceted-plus` seulement :
     `reliefParams()` (null en `baseline` : aucun calcul, rendu inchangé ;

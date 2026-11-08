@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FogOfWarPass, type FogOfWar } from './fogOfWar';
+import { FogOfWarPass, GAMEPLAY_OVERLAY_LAYER, type FogOfWar } from './fogOfWar';
 import { BOARD_H, BOARD_W, CAMERA } from '../config/constants';
 import { clamp, degToRad } from '../core/math';
 import { createBackgroundVeil, type AtmosphereSettings, type LookSettings } from './look';
@@ -99,6 +99,8 @@ export class Renderer {
   static readonly LIGHT_LEVEL = 0.92;
 
   constructor(canvas: HTMLCanvasElement) {
+    // Reperes de jeu prioritaires (render/fogOfWar.ts) : visibles aussi sans la passe du brouillard.
+    this.camera.layers.enable(GAMEPLAY_OVERLAY_LAYER);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;

@@ -3,6 +3,7 @@ import type { PileResource, ResourceCargo } from '../data/resources';
 import { surfaceY } from './terrainSurface';
 import { loadVfxTexture } from './vfxTextures';
 import { applyContactShading } from './contactMap';
+import { markGameplayOverlay } from './fogOfWar';
 
 /**
  * Petits tas de ressources au sol (2026-11-01, Hero RTS) : fagot de planches
@@ -326,6 +327,9 @@ export class DepotTargetRing {
     this.mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: RING_COLOR, transparent: true, opacity: RING_OPACITY, depthWrite: false, side: THREE.DoubleSide }));
     this.mesh.raycast = () => {};
     this.mesh.visible = false;
+    // Repere prioritaire : rendu apres brouillard et nappes, profondeur de la scene relue
+    // (render/fogOfWar.ts).
+    markGameplayOverlay(this.mesh);
   }
 
   /** Depot vise par un ordre en cours, null sinon. */

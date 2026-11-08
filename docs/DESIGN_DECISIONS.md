@@ -57,6 +57,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | A3 | Rendu instancié des unités retiré | Historique |
 | A4 | Retour d'impact : flash conservé, recul retiré | Active (flash) / Remplacée (recul) |
 | A5 | Graphic Lab « ancrage et lumière » clos : contact map, Ground Mist liée au brouillard en soft intersection, deux sources chaudes, lumière dans la brume ; `shadow` non retenu | Active (2026-11-07, valeurs provisoires) |
+| A6 | Graphic Lab « Mist Clouds » clos : nappes aériennes en espace monde dans la passe du brouillard, calcul half-res, repères gameplay depth-aware ; relief interne et masque unités non retenus | Active (2026-11-08) |
 | B1 | Retrait du Cavalier léger | Remplacée (cavalerie revenue, G8) |
 | B2 | PV et dégâts stockés ×10, affichés en pips | Active |
 | B3 | La case comme unité de mesure | Active |
@@ -299,6 +300,104 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `render/warmLights.ts`, `render/campViews.ts`, `render/board.ts`,
   `render/unitViews.ts`, `main.ts` (`syncContactMap`, `updateFogOfWar`) ;
   `CURRENT_STATE.md` §11 (rendu officiel) et §18.
+
+### A6 — Graphic Lab « Mist Clouds » clos : nappes aériennes half-res, repères depth-aware
+
+- **Statut** : Active (Antoine, 2026-11-08).
+- **Contexte** : après A5, l'image manquait encore de grandes masses
+  aériennes, de profondeur et d'environnement autour du village : la Ground
+  Mist reste un voile au ras du sol. Un laboratoire en plusieurs passes
+  (2026-11-08, variantes activables par `?mistClouds=`, comparées sur un
+  même état de jeu et par captures) a réglé la distribution, la poche du
+  village, les trois hauteurs, la couche haute, l'interaction avec les
+  WarmLights, puis essayé un relief interne et un masque de densité autour
+  des unités, vérifié la lisibilité gameplay, découvert et corrigé un
+  comportement « rayons X » des repères, et terminé par une passe de
+  performance.
+- **Décision** (Antoine) :
+  - **Mist Clouds officielles**, variante REFERENCE : trois couches (0,2 à
+    1,0 ; 0,8 à 1,9 ; 1,5 à 2,8), alpha 0,75 / 0,5 / **0,22**, distribution
+    actuelle, poche claire du StartingBase (densité résiduelle 0,18), WarmLight
+    alpha additionnel **0,15**, **aucun relief interne**, **aucun plafond de
+    couverture**, **aucune baisse globale de densité**, masque unités **OFF**.
+    Actives sans paramètre d'URL ; `off` conservé pour comparer ;
+  - **aucun mesh ni draw call monde pour les nappes** : elles sont calculées
+    dans la passe plein écran du brouillard de guerre, à partir de la
+    profondeur déjà résolue. Raisons : parallaxe correcte (forme lue à la
+    position monde de la couche), absorption progressive de l'épaisseur
+    devant la surface sans ligne de coupe, intégration au brouillard gratuite
+    (composées avant l'assombrissement : assombries ou noires comme le sol
+    couvert, rien de révélé), aucun tri de transparence ni objet à gérer dans
+    la scène ;
+  - **calcul par pixel non retenu** : +1,8 à +2,2 ms GPU médian (1600 × 900)
+    dans la session mesurée, au-dessus de l'objectif de +1,0 ms. Les
+    sorties anticipées exactes n'apportaient aucun gain fiable (la couche
+    basse couvre presque tout le sol) ; les couches simplifiées (1 ou 2
+    octaves sur la couche haute ou moyenne) changeaient le détail interne
+    partout (25 à 76 % des pixels de plus de 2 niveaux) pour un gain instable ;
+    une texture de bruit précalculée aurait changé la distribution (bruit à
+    rendre périodique, dérive non bornée) ;
+  - **half-res retenu** : nappes évaluées dans une cible HalfFloat de la
+    moitié de la taille (un draw call, un programme et une texture de plus),
+    recomposées par un suréchantillonnage bilinéaire pondéré par la
+    similarité de profondeur, avec une évaluation exacte pleine résolution
+    sur les seuls pixels de contour : aucune frange sur les cimes, les pieux
+    ni les silhouettes. Surcoût +0,2 à +0,45 ms, soit environ 80 % de moins,
+    pour une image dont la masse, la distribution, les silhouettes des bancs
+    et l'intégration des objets sont identiques (écart moyen inférieur à 0,4
+    niveau, au niveau du bruit de mesure d'un témoin exact). **Pas de quart
+    de résolution.** La mesure a été faite sur un GPU partagé avec une
+    application tierce : les valeurs absolues sont contaminées, seules les
+    comparaisons A/B/C entrelacées dans la même session font foi ; ce n'est
+    pas un benchmark matériel universel ;
+  - **pas de relief interne** : un ombrage directionnel du bruit a été
+    essayé puis retiré : il ajoutait un grain interne et du coût sans
+    améliorer la lecture des masses ; la grande forme et les trois couches
+    suffisent ;
+  - **masque unités non retenu en production** : réduction locale de la
+    densité autour des unités visibles (surfaces au-dessus de leur sol
+    seulement). Coût GPU d'une boucle par fragment non mesuré, ne sauvait
+    pas les unités basses, cœurs opaques rares, et les informations
+    prioritaires sont déjà protégées par les repères rendus après la passe.
+    Les nappes très denses peuvent donc volontairement masquer fortement une
+    silhouette ; **aucune exception par type d'unité**. `?mistUnitMask=on`
+    reste un outil de comparaison tant que son code reste simple ;
+  - **repères gameplay depth-aware via la DepthTexture existante** : plaque
+    de placement, anneaux de sélection, anneau de dépôt et marqueurs de
+    ralliement sont rendus après la composition brouillard + nappes (jamais
+    voilés ni assombris) mais chaque matériau abandonne les fragments situés
+    derrière la profondeur opaque de la scène, relue dans la DepthTexture que
+    la passe possède déjà (biais 0,01 unité). Le comportement « rayons X »
+    précédent (repères visibles à travers les bâtiments) est corrigé.
+    **Pas de nouvelle depth prepass**, aucune passe, aucun draw call ni
+    texture supplémentaire ;
+  - **barres HTML** : hors périmètre, inchangées. Elles peuvent toujours
+    passer devant un bâtiment : problème préexistant et séparé (KI-77,
+    parking) ;
+  - **Ground Mist** : strictement inchangée. Rôles distincts et documentés :
+    Ground Mist = intégration basse, pieds des objets, fog exploré, ancrage ;
+    Mist Clouds = grandes masses aériennes, profondeur, environnement autour
+    du village. Seuls les uniforms des 4 sources chaudes sont partagés, en
+    lecture ;
+  - **WarmLights** : interaction conservée, les deux sources officielles
+    (Hôtel de ville, porte de palissade) colorent légèrement les nappes.
+    Aucune nouvelle lumière.
+- **Parking** (voir `ROADMAP.md` §7) : vrai petit feu de camp devant l'Hôtel
+  de ville et vraie torche ou lanterne à la porte (déjà parqués par A5) ;
+  volumes ou filaments internes des nappes, seulement si un besoin apparaît
+  à l'œil ; overlays HTML de combat depth-aware.
+- **À ne pas faire** : ne pas réintroduire le relief interne ; pas de plafond
+  de couverture ni de baisse globale de densité ; pas de quart de
+  résolution ; pas de depth prepass ; pas de masque unités par défaut ni
+  d'exception par type d'unité ; ne pas modifier la Ground Mist pour un effet
+  qui relève des Mist Clouds ; ne pas ajouter de mesh de nuage dans la scène.
+- **Sources** : `render/mistClouds.ts`, `render/fogOfWar.ts` (`FogOfWarPass`,
+  `GAMEPLAY_OVERLAY_LAYER`, `makeOverlayDepthAware`, `markGameplayOverlay`),
+  `render/renderer.ts`, `render/unitSelectionRing.ts`,
+  `render/resourcePiles.ts`, `render/rallyMarkers.ts`, `main.ts`
+  (`setMistCloudsScene`, plaque de placement) ;
+  `tests/game/overlay-profondeur-jeu.cjs` ; `CURRENT_STATE.md` §11 et §18 ;
+  `ARCHITECTURE.md` §11.
 
 ---
 

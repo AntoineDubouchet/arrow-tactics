@@ -677,3 +677,16 @@ buffs), jamais par la simulation directement.
      plutôt qu'une `PointLight` par bâtiment ;
   5. **feux des camps neutres** : le réglage `lights` du lab (plus présents)
      n'a été ni retenu ni écarté.
+- **Rendu : Graphic Lab « Mist Clouds » clos** (2026-11-08,
+  `DESIGN_DECISIONS.md` A6 : nappes aériennes en espace monde calculées en
+  half-res dans la passe du brouillard, repères gameplay depth-aware ; rendu
+  officiel, plus aucune expérimentation artistique en cours). Points
+  parqués :
+  1. **vrai petit feu de camp devant l'Hôtel de ville** (repris du point 1
+     ci-dessus) ;
+  2. **vraie torche ou lanterne à la porte de palissade** (idem) ;
+  3. **volumes ou filaments internes des nappes** : seulement si un besoin
+     apparaît à l'œil ; le relief interne essayé pendant le lab n'est pas
+     retenu et ne doit pas revenir tel quel ;
+  4. **overlays HTML de combat depth-aware** (barres de vie, de mana, de
+     file : KI-77) : les repères 3D le sont déjà, les barres HTML non.

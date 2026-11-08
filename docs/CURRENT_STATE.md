@@ -2525,6 +2525,74 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
     sources n'ont pas d'interrupteur. Ombres directionnelles inchangées (le
     réglage `shadow` du lab n'est pas retenu). Toujours aucun bloom ni
     post-traitement ;
+- **Mist Clouds et repères gameplay depth-aware** (2026-11-08, Graphic Lab
+  « Mist Clouds » clos, choix d'Antoine ; `DESIGN_DECISIONS.md` A6). Sans
+  aucun paramètre d'URL, en plus de ce qui précède, le jeu rend :
+  - **Mist Clouds en espace monde** (`render/mistClouds.ts`) : grandes nappes
+    de brume aériennes autour du village, distinctes de la Ground Mist. Les
+    deux systèmes ont des rôles séparés : la **Ground Mist** fait
+    l'intégration basse (pieds des objets, fog exploré, ancrage) ; les **Mist
+    Clouds** font les grandes masses aériennes, la profondeur et
+    l'environnement autour du village. Aucun mesh ni draw call dans le
+    monde : **trois couches atmosphériques** horizontales épaisses (hauteurs
+    0,2 à 1,0, 0,8 à 1,9 et 1,5 à 2,8 unités au-dessus du sol ; alpha 0,75,
+    0,5 et **0,22** ; grande forme de 22, 30 et 40 cases ; bruit de valeur à
+    3 octaves, seuils 0,40 à 0,78 ; dérive lente et décalage propres à chaque
+    couche) sont intersectées par la ligne de vue dans la passe plein écran
+    du brouillard de guerre : la part de l'épaisseur située devant la surface
+    rendue donne l'absorption (un pieu ou un tronc disparaît progressivement
+    vers le bas, une cime ou un toit au-dessus de la couche reste net, aucune
+    ligne de coupe), et la forme est lue à la position **monde** de la couche
+    sur cette ligne de vue (parallaxe correcte quand la caméra tourne).
+    Couleur `#b9cac6`, de la famille de la Ground Mist. **Poche claire autour
+    du StartingBase** : densité résiduelle 0,18 au cœur, distance au centre
+    du camp déformée par un bruit lent (jamais un cercle). Aucun relief
+    interne, aucun plafond de couverture, aucune baisse globale de densité :
+    une nappe très dense peut volontairement voiler fortement une silhouette ;
+    les informations gameplay prioritaires restent lisibles par les repères
+    ci-dessous et les barres HTML. Aucune exception par type d'unité.
+    Déterministe : décalage du bruit tiré de la graine de la carte ;
+  - **intégration Fog of War** : les nappes sont composées **avant**
+    l'assombrissement de la passe, donc assombries en zone explorée hors
+    vision et noires en zone inexplorée, comme le sol qu'elles couvrent ;
+    la grille du brouillard est lue seule, rien n'est révélé ;
+  - **WarmLights** : les deux sources chaudes officielles (porte de l'Hôtel
+    de ville, montant de la porte de palissade) colorent légèrement les nappes
+    (mêmes 4 sources que la Ground Mist, lecture seule ; au cœur d'une source
+    : alpha +0,15, teinte chaude 0,85, luminance +0,45, portée verticale).
+    Aucune nouvelle lumière ;
+  - **calcul half-res** : les nappes sont évaluées dans une passe dédiée de la
+    moitié de la taille (cible HalfFloat d'un quart de l'écran, un draw call
+    et un programme de plus), puis recomposées par un suréchantillonnage
+    bilinéaire pondéré par la similarité de profondeur, avec une évaluation
+    exacte pleine résolution sur les seuls pixels de contour : aucune frange
+    sur les cimes, les pieux et les silhouettes. Masse, distribution,
+    silhouettes des bancs et intégration des objets identiques au calcul par
+    pixel (écart moyen mesuré inférieur à 0,4 niveau, au scintillement des
+    lumières près). Pas de quart de résolution ;
+  - **performance** (session du 2026-11-08, 1600 × 900, RTX 2070 partagée
+    avec une application tierce : valeurs absolues contaminées, mais
+    comparaisons A/B/C entrelacées cohérentes ; ce n'est pas un benchmark
+    matériel universel) : calcul par pixel environ +1,8 à +2,2 ms GPU,
+    half-res environ +0,2 à +0,45 ms, soit environ 80 % de moins ;
+  - **repères gameplay depth-aware** (`GAMEPLAY_OVERLAY_LAYER`,
+    `render/fogOfWar.ts`) : plaque de placement, anneaux de sélection,
+    anneau de dépôt des ressources et marqueurs de ralliement sont rendus
+    **après** la composition brouillard + nappes (jamais voilés ni
+    assombris) **mais** testés contre la DepthTexture de la scène déjà
+    rendue (`makeOverlayDepthAware`, biais 0,01 unité) : un anneau derrière
+    l'Hôtel de ville est masqué par le bâtiment. L'ancien comportement
+    « rayons X » (repères visibles à travers les bâtiments) est corrigé.
+    Aucune passe, aucun draw call ni texture supplémentaire. Les **barres
+    HTML** (vie, mana, files) ne sont pas concernées et peuvent toujours
+    passer devant un bâtiment (KI-77, préexistant) ;
+  - **débogage** : `?mistClouds=off` (passe du brouillard strictement
+    identique à celle d'avant les nappes), `subtle`, `strong` (limites) ;
+    `?mistCloudsRes=full` (nappes calculées par pixel, comparaison) ;
+    `?mistUnitMask=on` (masque local de densité autour des 12 unités visibles
+    les plus proches du point visé, outil de comparaison non retenu) ;
+    `?overlayDepth=off` (repères à travers les bâtiments, comparaison).
+    Test permanent : `tests/game/overlay-profondeur-jeu.cjs` ;
 - **Direction graphique officielle par défaut** (2026-11-02, choix
   d'Antoine) : `look=stylized`, `groundLook=rich` (`meadow` depuis le
   2026-11-06), `surfaceBlend=organic`,
@@ -3201,6 +3269,14 @@ du menu principal, écran distinct de l'Atelier et de l'éditeur de maps :
 - **`?groundMist=off|on|strong`** (2026-11-07) : compare le rendu sans voile
   de brume, avec une densité uniforme ou aux limites ; `fog` (défaut) suit le
   brouillard de guerre (§11, rendu officiel). Purement visuel.
+- **`?mistClouds=off|subtle|on|strong`** (2026-11-08) : compare le rendu sans
+  Mist Clouds (passe du brouillard identique à celle d'avant), ou avec des
+  nappes plus légères ou aux limites ; `on` (défaut) est le rendu officiel
+  (§11). **`?mistCloudsRes=full`** : nappes calculées par pixel au lieu de la
+  passe demi-résolution. **`?mistUnitMask=on`** : masque local de densité
+  autour des unités visibles proches (non retenu). **`?overlayDepth=off`** :
+  repères prioritaires rendus sans test de profondeur (à travers les
+  bâtiments). Purement visuels.
 - **Bouton « +1 point de talent (debug) »** dans l'écran des talents.
 - Le bouton « +100 or (debug) » a disparu avec la Boutique (2026-11-04) ;
   `window.arrowEconomy.set(...)` (§6 quinquies) reste le moyen de debug.

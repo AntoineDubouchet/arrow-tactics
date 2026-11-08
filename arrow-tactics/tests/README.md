@@ -113,7 +113,9 @@ impossible, message unique), `noyau-jeu.cjs` (G50 : base complète en image, Hô
 2 / 15, Maison détruite, A Z E R au clavier, champ texte, unité 4, R en placement, fiche du Héros,
 six Villageois autour d'un arbre au clic droit, surplus et message), `townhall-face-jeu.cjs` (biais de 27° de
 l'Hôtel de ville, 4 rotations du camp, normale lue sur le modèle ; cadrage 28, Espace, R, captures),
-`baliste-portee-jeu.cjs` (Baliste en AUTO, ennemi touché devant chacune des 4 portes, 2 rotations).
+`baliste-portee-jeu.cjs` (Baliste en AUTO, ennemi touché devant chacune des 4 portes, 2 rotations),
+`overlay-profondeur-jeu.cjs` (repères prioritaires rendus après la passe du brouillard : matériaux
+depth-aware, anneau du Héros masqué derrière l'Hôtel de ville, intact devant, captures).
 `camp-boucle.cjs` a 3 vérifications en échec, antérieures à G47 (KI-72).
 `lib.cjs` est la bibliothèque commune (lancement, ouverture de la Survie,
 caméra, captures).

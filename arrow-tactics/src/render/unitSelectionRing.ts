@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { sidePalette } from '../config/factions';
 import type { Team } from '../sim/entity';
 import { surfaceY } from './terrainSurface';
+import { markGameplayOverlay } from './fogOfWar';
 
 /**
  * Anneau de selection d'UNE UNITE, identique dans l'editeur, la preparation
@@ -64,6 +65,9 @@ export function createUnitSelectionRing(team: Team): THREE.Mesh {
   const ring = new THREE.Mesh(ringGeometry, ringMaterial(team));
   ring.rotation.x = -Math.PI / 2;
   ring.raycast = () => {};
+  // Repere prioritaire : rendu apres brouillard et nappes, profondeur de la scene relue
+  // (render/fogOfWar.ts).
+  markGameplayOverlay(ring);
   return ring;
 }
 
@@ -75,6 +79,7 @@ export function createAnimatedUnitRing(team: Team): THREE.Mesh {
   const ring = new THREE.Mesh(ringGeometry, ringMaterial(team).clone());
   ring.rotation.x = -Math.PI / 2;
   ring.raycast = () => {};
+  markGameplayOverlay(ring);
   return ring;
 }
 

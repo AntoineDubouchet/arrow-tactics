@@ -72,6 +72,7 @@ Les pistes de correction sont indicatives : rien n'est implémenté ici.
 | KI-73 | Placement libre : grille prudente, un passage suffisant mais mal calé peut être fermé pour A* ; plusieurs calculs passent par la boîte englobante d'un bâtiment tourné | Limite assumée |
 | KI-72 | `camp-boucle.cjs` : 3 vérifications en échec, déjà présentes avant G47 (coffre non exploré à 8 cases, annonce de nettoyage écrasée) | Confirmé (test) |
 | KI-66 | Pathfinding : la grille A* ignore le rayon des corps ; un passage d'une case (posé à la main dans l'éditeur : gisement, arbre, baril contre un obstacle ou une falaise) paraît praticable et le Héros y oscille ; le générateur n'en produit plus (G39) | Limite assumée |
+| KI-77 | Barres HTML de combat (vie, mana, files) visibles devant ou à travers un bâtiment qui masque leur porteur | Confirmé (préexistant) ; parking |
 
 Les identifiants ne sont pas réutilisés : une entrée traitée est retirée
 (c'est le cas de KI-05, KI-06, KI-07, KI-08, KI-13, KI-14, KI-17, KI-18, KI-19,
@@ -906,3 +907,22 @@ Retirées avec MapV2 et l'étape C symétrique, résolues côté code :
   `?relief=massif` et `?relief=hybrid` (`render/reliefLook.ts`) laissent
   ces sommets en place, sans face de raccord. Le rendu par défaut n'est pas modifié tant
   qu'aucune variante n'est retenue.
+
+### KI-77 — Barres HTML de combat visibles devant ou à travers un bâtiment
+
+- **Statut** : Confirmé (2026-11-08, observé pendant le Graphic Lab « Mist
+  Clouds »). Problème préexistant et séparé des repères 3D ; **parking**
+  (`ROADMAP.md` §7).
+- **Constat** : les barres de vie, de mana et de file de production sont des
+  éléments HTML projetés en coordonnées d'écran, sans aucun test de
+  profondeur contre la scène. Quand une unité ou un bâtiment est caché par
+  un bâtiment plus proche de la caméra, sa barre reste dessinée par-dessus.
+- **Périmètre** : les repères rendus dans la scène (plaque de placement,
+  anneaux de sélection et de dépôt, marqueurs de ralliement) sont, eux,
+  testés contre la DepthTexture de la passe du brouillard depuis le
+  2026-11-08 (`DESIGN_DECISIONS.md` A6, `tests/game/overlay-profondeur-jeu.cjs`).
+  Les barres HTML ne sont pas concernées par ce correctif : décision
+  explicite de ne rien y changer pour l'instant.
+- **Piste** : masquer ou atténuer une barre dont le point d'ancrage est
+  occulté (lecture ponctuelle de la profondeur, ou test contre les emprises
+  des bâtiments en espace écran), à juger contre le coût et la lisibilité.
