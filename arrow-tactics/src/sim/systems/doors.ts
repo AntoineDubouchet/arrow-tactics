@@ -49,11 +49,19 @@ export function doorSystem(entities: readonly Entity[], halfWidthOf: (door: Enti
  * (DOOR_ENEMY_CLOSE_RANGE) la ferme. L'allie passe en premier : un hostile ne franchit
  * jamais une porte, meme ouverte, alors qu'un allie laisse dehors resterait coince.
  * Sans personne : elle reste comme elle est. Deterministe.
+ *
+ * Verrouillee fermee par le joueur (2026-11-08, `door.locked`, World.setDoorLocked) :
+ * aucune ouverture automatique, l'etat voulu reste « fermee » (doorSystem la ferme des
+ * que l'ouverture est libre) ; retour en mode automatique : ces regles reprennent.
  */
 export function doorDemandSystem(entities: readonly Entity[]): void {
   for (const e of entities) {
     const door = e.wall?.door;
     if (!door || !e.alive || e.construction) continue;
+    if (door.locked) {
+      door.wantOpen = false;
+      continue;
+    }
     const w = e.wall!;
     let allyApproaching = false;
     let enemyNear = false;

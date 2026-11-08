@@ -534,16 +534,21 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     `World.obstacles`. `obstaclesForUnit(obstacles, unit, crossesWater)`
     (en cache par tableau et par camp) retire l'eau pour une unité qui la
     traverse et les portes qu'elle peut franchir :
-    `canUnitPassGate(unit, door)` (`sim/relations.ts`) = porte ouverte ET
+    `canUnitPassGate(unit, door)` (`sim/relations.ts`) = porte bâtie, **non
+    verrouillée** (`door.locked`, 2026-11-08) ET
     `areAllied(unit.team, door.owner)`. Aucun camp codé en dur :
     `areAllied` (même camp aujourd'hui) est le point d'extension des
-    factions / alliances.
+    factions / alliances. `World.setDoorLocked(id, locked, issuer)` pose le
+    verrou, force la fermeture demandée et renouvelle `World.obstacles`
+    (listes par camp et grilles A* en cache par identité de tableau) ;
+    `doorDemandSystem` ignore une porte verrouillée.
 - **Ciblage** : un bâtiment n'acquiert jamais de cible (`targetingSystem`) ;
   la Tour tire par `buildingAttack`.
 - **Survie d'un camp** : `countsForDefeat` (porté par la `BuildingDef`) fait
   compter un bâtiment dans `countCombatants`.
 - **Production** (Caserne, Camp d'archerie, Sanctuaire, Église, Écurie,
-  Auberge) : une seule règle depuis le 2026-11-04, la **file payée** en
+  Hôtel de ville — Villageois depuis le 2026-11-08, l'Auberge n'a plus de
+  `recruitmentUnlock`) : une seule règle depuis le 2026-11-04, la **file payée** en
   temps réel. `main.ts` (`produceAtInspectedBuilding`) débite l'or et
   appelle `World.queueProduction(entityId, { kind: 'unit', unitId }, durée)`
   (durée de `data/production.ts`, au plus `PRODUCTION_QUEUE_MAX` ordres) ;
@@ -1004,7 +1009,26 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     carte ; `tickMistClouds` : horloge cosmétique ; les 4 sources chaudes de
     `mistShared` sont lues, rien d'autre n'est partagé avec la Ground Mist :
     voile au sol par matériau d'un côté, masses aériennes dans la passe de
-    l'autre). **Aucun mesh** : les nappes sont évaluées dans `FogOfWarPass`
+    l'autre). Second facteur de densité (2026-11-08) :
+    `render/mistClearance.ts` (`MistClearanceMap` : texture R8 en espace
+    monde, 2 texels par case sur le rectangle de la grille du brouillard,
+    `refresh(sources)` = union des fondus par distance signée à l'empreinte,
+    `strengthAt` pour les contrôles ; `mistClearanceSource(entité)` /
+    `isMistClearanceBuilding` : prédicat générique, bâtiment vivant du
+    joueur, `construction === null`, `wall === null`, `destructible ===
+    null`, empreinte `footprintObstacle` ou disque `stats.radius` ;
+    `CLEARANCE_INNER` / `CLEARANCE_OUTER`). `setMistCloudsScene` est
+    complété par `setMistClearanceMap(carte | null)` (uniforms
+    `tCloudClear`, `uCloudClearRect`, `uCloudClear` = (actif, niveau cible
+    `CLEARANCE_LEVEL`)) ; GLSL `cloudClearance(xz)` (lecture de la texture,
+    seuils ondulés) appliqué dans `cloudFogLevel` : `mix(level, min(level,
+    cible), clairière × explored)`, donc nul en inexploré ; la cible (0,08)
+    est sous le niveau visible (0,22), une case visible comme une case
+    explorée hors vision sont ramenées vers elle. `main.ts` crée la carte avec la grille du brouillard
+    (`mistClearance`, même rectangle) et la recalcule dans `updateFogOfWar`
+    par `syncMistClearance` seulement quand la signature des ids éligibles
+    change ; la grille du brouillard et la vision ne la lisent jamais.
+    **Aucun mesh** : les nappes sont évaluées dans `FogOfWarPass`
     (`render/fogOfWar.ts`) à partir de la DepthTexture de la scène et
     composées **avant** l'assombrissement du brouillard de guerre
     (assombries comme le sol couvert ; en inexploré, posées atténuées,
@@ -1042,7 +1066,10 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     `disposeWallPieceView`). `render/palisade.ts` ajoute deux torches par
     porte dans un sous-groupe `palisade_torches`, face intérieure des
     montants (−Z local, côté des traverses). `render/warmLights.ts` pose le
-    feu de camp depuis la disposition du camp (`place`), reçoit chaque image
+    feu de camp depuis la disposition du camp (`place`, point local
+    `CAMPFIRE_LOCAL` = (+0,8 ; +3,0) de l'Hôtel de ville, convention
+    `core/orientedBox.ts` ; sous l'axe du clocher depuis le 2026-11-08),
+    reçoit chaque image
     les portes vivantes du joueur (`syncGates`, `main.ts`) et le point visé
     (`setFocus`), affecte un réservoir de deux PointLights aux portes les plus
     proches (`animate`), et fournit feu et portes comme `MistLightSource`
@@ -1413,10 +1440,39 @@ Outil interne (CURRENT_STATE.md §16 bis), indépendant d'une run.
   `Entity.rally`, `World.queueRallyPoint`, `ProductionSpawnEvent.rally`
   (ordre de déplacement donné par `main.ts` à l'apparition) ;
   `render/rallyMarkers.ts`.
-- Réparation : ordre `repair` (travail du Héros, `HeroState.repairJob`,
-  événement `repairEnd`), coût `run/buildingRepair.ts`, paiement et
+- Réparation : ordre `repair` (capacité générique `canRepair` de
+  `sim/orders.ts` : Héros et Villageois ; `RepairJobState` porté par
+  `HeroState.repairJob` ou `WorkerState.repairJob`, suivi partagé
+  `syncRepairJob` / `repairAtSite` dans `sim/systems/hero.ts`, appelé par
+  `heroWorkSystem` et `workerSystem` ; événement `repairEnd`, `heroId` =
+  unité réparatrice), coût `run/buildingRepair.ts`, paiement et
   remboursement dans `main.ts` (registre par `repairId`, refus de commande
-  remboursé).
+  remboursé ; bouton de fiche `startRepairOfInspected` et clic droit
+  `startRepairByUnits`, réparateur sélectionné le plus proche).
+- Dépôt des ressources : `BuildingDef.dropOff` seul décide (Hôtel de ville
+  universel depuis le 2026-11-08, Scierie, Camp de mineur ; la Baliste n'en
+  a plus) ; `nearestDropOff` (`sim/systems/cargo.ts`) et `WorkLookups.isDepot`
+  ne connaissent aucun id. Sans point valide : `cargoFullNoDropOff`, cargo
+  gardé.
+- Défense locale (2026-11-08) : `sim/damage.ts` cumule les dégâts reçus dans
+  `Entity.damageTaken` ; `sim/systems/localDefense.ts` (après toutes les
+  sources de dégâts du pas, avant `deathSystem`) le consomme et remet à
+  zéro, alerte au plus une fois par seconde par bâtiment
+  (`World.defenseAlerts`), et donne l'ordre `defend` (`UnitOrder`, point
+  d'approche `defenseApproachPoint`) aux unités de `canDefendLocally`
+  dans `LOCAL_DEFENSE_RADIUS` (22 cases, constante de simulation).
+  `movementSystem` suit `defend` comme un `move` tant que `targetId` est
+  nul (arrivée : Garde, sans événement) ; `targetingSystem` le traite comme
+  la Garde ; fin par le système (bâtiment perdu, `LOCAL_DEFENSE_TIMEOUT`,
+  `LOCAL_DEFENSE_LEAVE_RADIUS`) ou par le watchdog de navigation.
+- Retour jaune des ordres manuels : `main.ts` lit `World.commandResults`
+  (seules les commandes du joueur y passent) et pulse `resourceSelectionRing`
+  (récolte), `resourcePileViews` (tas), `depotTargetRing` (dépôt,
+  réparation) ; une décision automatique de la simulation ne produit aucun
+  `CommandResult`, donc aucun pulse.
+- Portes manuelles : `Entity.wall.door.locked`, `World.setDoorLocked`,
+  actions `lockGate` / `unlockGate` de la fiche (`withRealtimeActions`,
+  `onEntityInfoAction`), ligne « Porte » dans `battleBuildingInfo`.
 - Murailles diagonales : supprimées avec le Wall V1 (2026-11-02, §13 octies).
 - Défaite : `World.isBaseLost`. HUD : `ui/actionProgress.ts`.
 
@@ -1515,7 +1571,8 @@ restent comme décors (« Obstacles / structures »).
 | `data/buildings.ts` | pièces `palisade` / `palisade_gate` (`BuildingDef.wallPiece`), pour tout le générique bâtiment (fiche, PV, ciblage, réparation, mort). Sans `cost` : jamais en boutique. |
 | `config/mapDef.ts` | `MapDef.walls` (`WallLineDef` : famille, A, B, camp, rangs des portes) ; `dropLegacyWalls` retire les pièces V1 au chargement (journal `[map] anciens murs ignorés`). |
 | `sim/world.ts` | `spawnWallLine` (une entité par segment, `Entity.wall` : ligne, rang, A, B, porte), `replaceWallSegmentWithGate`, `setDoorWanted` (camp demandeur allié du propriétaire), `refreshDoorPassages` (nouveau tableau d'obstacles, même contenu). |
-| `sim/systems/doors.ts` | portes au pas fixe, avant le mouvement : ouverture immédiate ; fermeture différée tant qu'un corps allié touche la capsule ; chaque changement remplace `World.obstacles` (caches par camp). |
+| `sim/systems/doors.ts` | portes au pas fixe, avant le mouvement : ouverture immédiate ; fermeture différée tant qu'un corps allié touche la capsule ; chaque changement remplace `World.obstacles` (caches par camp) ; `doorDemandSystem` (automatisme) ignore une porte verrouillée (`door.locked`, 2026-11-08). |
+| `sim/systems/localDefense.ts` | défense locale des bâtiments (2026-11-08) : consomme `Entity.damageTaken`, alerte au plus une fois par seconde par bâtiment, ordre `defend` aux unités militaires libres à moins de `LOCAL_DEFENSE_RADIUS` (22 cases), fin d'intervention (bâtiment perdu, temps mort, éloignement). Après toutes les sources de dégâts du pas, avant les morts. |
 | `sim/relations.ts` | `areAllied` (relation entre camps, extensible) et `canUnitPassGate` (porte ouverte et alliée). |
 | `sim/geometry.ts` | `targetDistance` (portée jusqu'à la ligne d'une pièce de mur, ciblage / combat / Tour / engagement), `bodyPathNearStructure`, capsule dans `findBlockingObstacle`. |
 | `sim/systems/movement.ts` | collision capsule ; `findPathFrom` (départ A* hors d'une case bloquée, du bon côté) ; `wallApproachPoint` (poursuite d'une pièce de mur : point du mur le plus proche, de son côté, loin des jonctions). |

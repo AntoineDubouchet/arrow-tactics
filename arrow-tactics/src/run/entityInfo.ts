@@ -73,7 +73,9 @@ export interface EntityInfoAction {
    *  `research` : technologie (payload : id) a la file du site inspecte
    *  (Forge, Caserne). `upgradeBallista` : niveau suivant de la Baliste a sa
    *  file. `toggleBallistaMode` : bascule la Baliste AUTO / MANUEL. */
-  id: 'upgradeBuilding' | 'research' | 'upgradeBallista' | 'toggleBallistaMode' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding';
+  /** `lockGate` / `unlockGate` (2026-11-08) : porte de mur verrouillee fermee /
+   *  remise en mode automatique (World.setDoorLocked). */
+  id: 'upgradeBuilding' | 'research' | 'upgradeBallista' | 'toggleBallistaMode' | 'buildStructure' | 'produceUnit' | 'cancelProduction' | 'setRally' | 'clearRally' | 'repairBuilding' | 'lockGate' | 'unlockGate';
   /** `buildStructure` : batiment a poser ; `produceUnit` : unite a produire
    *  (fiche d'un batiment) ; `research` : technologie. */
   payload?: string;
@@ -499,7 +501,7 @@ function mineRows(level: number, nextIn: number | null = null): EntityInfoRow[] 
 }
 
 /** Unites que le batiment produit par sa file (Caserne, Camp d'archerie,
- *  Eglise, Sanctuaire, Auberge, Ecurie) : « Produit : Piquiers, Hommes
+ *  Eglise, Sanctuaire, Hotel de ville, Ecurie) : « Produit : Piquiers, Hommes
  *  d'armes (Niv. 2) ». */
 function productionRows(buildingId: string): EntityInfoRow[] {
   const unlock = getBuilding(buildingId).recruitmentUnlock;
@@ -547,8 +549,8 @@ function ownedBuildingRows(buildingId: string, level: number): EntityInfoRow[] {
   const def = getBuilding(buildingId);
   if (def.id === 'mine') return mineRows(level);
   if (def.attack) return attackRows(effectiveBuildingAttackDamage(def.id, level), def.attack.rangeTiles, def.attack.cooldownSeconds);
-  if (def.recruitmentUnlock) return productionRows(def.id);
-  return [...populationBonusRows(def.id), ...dropOffRows(def.id)];
+  // Production ET point de collecte peuvent coexister (Hotel de ville, 2026-11-08).
+  return [...productionRows(def.id), ...populationBonusRows(def.id), ...dropOffRows(def.id)];
 }
 
 /** Bonus de roster d'un niveau de producteur (« Archers : +2 PV, +1 dégâts »),
@@ -675,8 +677,13 @@ export function battleBuildingInfo(entity: Entity, ownedLevel: number | null = n
   else if (entity.buildingAttack) {
     const attack = entity.buildingAttack;
     rows = attackRows(attack.damage, attack.rangeTiles, attack.cooldownSeconds);
-  } else if (def.recruitmentUnlock) rows = productionRows(def.id);
-  else rows = [...populationBonusRows(def.id), ...dropOffRows(def.id)];
+  } else {
+    // Production ET point de collecte peuvent coexister (Hotel de ville, 2026-11-08).
+    rows = [...productionRows(def.id), ...populationBonusRows(def.id), ...dropOffRows(def.id)];
+  }
+  // Porte de mur (2026-11-08) : mode et etat physique.
+  const door = entity.wall?.door;
+  if (door) rows.push({ label: 'Porte', value: door.locked ? `Verrouillée fermée${door.open ? ' (se ferme)' : ''}` : `Automatique — ${door.open ? 'ouverte' : 'fermée'}` });
   // Unites terminees qui attendent une place de population ou une case
   // libre (voir sim/systems/buildingProduction.ts).
   if (entity.productionQueue.length > 0) {

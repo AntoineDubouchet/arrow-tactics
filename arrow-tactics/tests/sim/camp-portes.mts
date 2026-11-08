@@ -41,9 +41,9 @@ const gateMid = (g: any) => ({ x: (g.ax + g.bx) / 2, z: (g.az + g.bz) / 2 });
     const pieces = L.walls.flatMap((w: any) => segmentWallLine(w, getWallType(w.type).segmentLength).map((s: any, i: number) => ({ s, gate: w.gates?.includes(i) ?? false })));
     // Les bouts de mur rejoignent les portes : chaque extremite de porte est aussi l'extremite d'un bout de mur.
     const joined = gates.every((g: any) => [[g.ax, g.az], [g.bx, g.bz]].every(([x, z]) => L.walls.some((w: any) => w !== g && ((w.ax === x && w.az === z) || (w.bx === x && w.bz === z)))));
-    rows.push({ r, gates: gates.length, open: gates.every((g: any) => g.openGates === true), angles, lens, axisGap: +axisGap.toFixed(2), doorPieces: pieces.filter((p: any) => p.gate).length, joined, type: gates.every((g: any) => g.type === 'palisade') });
+    rows.push({ r, gates: gates.length, closedAuto: gates.every((g: any) => g.openGates !== true), angles, lens, axisGap: +axisGap.toFixed(2), doorPieces: pieces.filter((p: any) => p.gate).length, joined, type: gates.every((g: any) => g.type === 'palisade') });
   }
-  check('4 rotations : exactement 4 portes de palissade, ouvertes, a 0° / 90° / 180° / 270°, 2,4 cases, 4 pieces-portes, raccordees aux murs ; axes Hotel de ville -> porte a >= 2 cases de tout batiment et ressource', rows.every((q) => q.gates === 4 && q.open && q.type && q.angles.join() === '0,90,180,270' && q.lens.every((l: number) => l === ENC.gateLength) && q.doorPieces === 4 && q.joined && q.axisGap >= 2), rows);
+  check('4 rotations : exactement 4 portes de palissade, posees FERMEES (mode automatique, 2026-11-08), a 0° / 90° / 180° / 270°, 2,4 cases, 4 pieces-portes, raccordees aux murs ; axes Hotel de ville -> porte a >= 2 cases de tout batiment et ressource', rows.every((q) => q.gates === 4 && q.closedAuto && q.type && q.angles.join() === '0,90,180,270' && q.lens.every((l: number) => l === ENC.gateLength) && q.doorPieces === 4 && q.joined && q.axisGap >= 2), rows);
   // La rotation fait suivre les portes, et le camp reste le meme a un quart de tour pres.
   const at = (r: number) => SB.startingBaseLayoutAt({ x: 0.5, z: 0.5 }, 'basic-camp', r);
   const moved = at(0).buildings.map((b: any) => [b.x, b.z]).join() !== at(1).buildings.map((b: any) => [b.x, b.z]).join();
@@ -74,7 +74,7 @@ for (const seed of SEEDS) {
   const w0 = mkWorld();
   const gates = w0.entities.filter((e: any) => e.wall?.door);
   row.gates = gates.length;
-  row.open = gates.every((g: any) => g.wall.door.open === true);
+  row.closedAuto = gates.every((g: any) => g.wall.door.open === false && g.wall.door.locked === false && g.wall.door.wantOpen === false);
   const stats = gates.map((g: any) => [g.stats.maxHp, g.unitId, +Math.hypot(g.wall.bx - g.wall.ax, g.wall.bz - g.wall.az).toFixed(2)].join('/'));
   row.memePorte = new Set(stats).size === 1;
   // Ressources de depart et or proche.
@@ -154,7 +154,7 @@ for (const seed of SEEDS) {
   summary.push(row);
 }
 console.log('GRAINES', JSON.stringify(summary.map((r) => ({ seed: r.seed, rot: r.rotation, orAngle: r.orAngle, orLateral: r.orLateral, campsAxe: r.campsAxe, couloirs: r.couloirs }))));
-check('chaque graine : 4 portes ouvertes dans le monde, meme definition (PV, type, largeur)', summary.every((r) => r.gates === 4 && r.open && r.memePorte), summary.map((r) => [r.seed, r.gates, r.open, r.memePorte]));
+check('chaque graine : 4 portes fermees et automatiques (ni ouvertes, ni verrouillees) dans le monde, meme definition (PV, type, largeur)', summary.every((r) => r.gates === 4 && r.closedAuto && r.memePorte), summary.map((r) => [r.seed, r.gates, r.closedAuto, r.memePorte]));
 check('ressources de depart intactes (1 pierre, 1 or, bosquet complet dans l enceinte)', summary.every((r) => r.ressources), summary.map((r) => [r.seed, r.ressources]));
 check('second or visible au depart, jamais devant une porte (>= 20° des axes)', summary.every((r) => r.orProche >= 1 && r.orAngle !== null && r.orAngle >= 20), summary.map((r) => [r.seed, r.orProche, r.orAngle, r.orLateral]));
 check('camps neutres hors des axes des portes (> 2 cases de l axe)', summary.every((r) => r.campsAxe.every((d: number) => d > 2)), summary.map((r) => [r.seed, r.campsAxe]));
@@ -163,6 +163,6 @@ for (const kind of ['hero', 'villageois', 'cavalier']) {
   check(`${kind} : sort depuis la cour par CHACUNE des 4 portes, dans son axe (< 1,3 case du centre de la porte au franchissement)`, summary.every((r) => r.sorties[kind].length === 4 && r.sorties[kind].every((s: any) => s.arrived && s.lateral !== null && s.lateral < 1.3)), summary.map((r) => [r.seed, r.sorties[kind]]));
 }
 check('porte fermee : elle s ouvre devant le Heros, qui rejoint le point juste derriere ; 4 portes fermees : il sort quand meme', summary.every((r) => r.porteFermee.arrive && r.porteFermee.ouverte && r.sorti), summary.map((r) => [r.seed, r.porteFermee, r.sorti]));
-check('ennemi devant chacune des 4 portes ouvertes : n entre par aucune', summary.every((r) => !r.ennemiEntre), summary.map((r) => [r.seed, r.ennemiEntre]));
+check('ennemi devant chacune des 4 portes (fermees, automatiques) : n entre par aucune', summary.every((r) => !r.ennemiEntre), summary.map((r) => [r.seed, r.ennemiEntre]));
 
 console.log(failures ? failures + ' ECHEC(S)' : 'tout OK');

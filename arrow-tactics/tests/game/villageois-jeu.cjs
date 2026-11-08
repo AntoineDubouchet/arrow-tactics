@@ -1,5 +1,5 @@
-// Tests EN JEU de la priorite 3 : Auberge (menu, fiche, Villageois produit), Villageois selectionne comme une unite,
-// clic droit sur un arbre sans Forge : recolte directe (hache des le depart, 2026-11-04), depot a la Baliste,
+// Tests EN JEU de la priorite 3 : Auberge au menu (sans production depuis le 2026-11-08), Villageois produit a l'Hotel de ville, Villageois selectionne comme une unite,
+// clic droit sur un arbre sans Forge : recolte directe (hache des le depart, 2026-11-04), depot a l'Hotel de ville (2026-11-08),
 // stock +5 bois, retour a l'arbre ; fiche (charge portee, ni XP ni mana). Auberge et Villageois du camp de depart exclus. Usage : npm run test:game (ou VITE_BASE=http://localhost:5174/ node tests/game/villageois-jeu.cjs)
 const L = require('./lib.cjs');
 const OUT = require('./lib.cjs').OUT;
@@ -52,12 +52,19 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const ts = await p.evaluate(([x, z]) => window.__toScreen(x, z, window.__S.surfaceY(x, z) + 0.8), [tpos.x, tpos.z]);
   await p.mouse.click(ts.x, ts.y); await L.wait(p, 400);
   const aTav = await actions();
+  // 2026-11-08 (decision d'Antoine) : le Villageois sort de l'Hotel de ville ; l'Auberge n'a plus ni production ni ralliement.
+  const hall = await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'townhall'); return { id: b.id, x: b.x, z: b.z }; });
+  await setView(hall.x, hall.z + 2, 14); await L.wait(p, 400);
+  const hs = await p.evaluate(([x, z]) => window.__toScreen(x, z, window.__S.surfaceY(x, z) + 1.0), [hall.x, hall.z]);
+  await p.mouse.click(hs.x, hs.y); await L.wait(p, 400);
+  const aHall = await actions();
   await p.locator('.entity-info:not([hidden]) .entity-info-action[data-action="produceUnit"]', { hasText: 'Villageois' }).first().click(); await L.wait(p, 300);
-  await p.evaluate((id) => { const e = window.__world.getById(id); if (e.productionOrders[0]) e.productionOrders[0].remaining = 0.05; }, tav);
+  await p.evaluate((id) => { const e = window.__world.getById(id); if (e.productionOrders[0]) e.productionOrders[0].remaining = 0.05; }, hall.id);
   await L.wait(p, 900);
   const vil = await p.evaluate((old) => { const e = window.__world.entities.find((e) => e.unitId === 'villageois' && e.team === 'player' && e.alive && !old.includes(e.id)); return e ? { id: e.id, x: e.x, z: e.z, hero: !!e.hero, level: e.level, worker: !!e.worker } : null; }, pre.vil);
   check('camp de depart : 1 Auberge et 2 Villageois deja presents (exclus de la suite)', pre.tav.length === 1 && pre.vil.length === 2, pre);
-  check('Auberge : au menu, fiche -> Produire Villageois + Ralliement ; un Villageois sort (unite simple, pas Heros, niveau 1, transport)', aTav.some((x) => x.a === 'produceUnit' && /Villageois/.test(x.t)) && aTav.some((x) => x.a === 'setRally') && vil && !vil.hero && vil.worker && vil.level === 1, { aTav: aTav.map((x) => x.t), vil });
+  check('Auberge : au menu, posee et achevee ; sa fiche n offre plus ni production ni ralliement (2026-11-08)', tav !== null && !aTav.some((x) => x.a === 'produceUnit') && !aTav.some((x) => x.a === 'setRally'), { aTav: aTav.map((x) => x.t) });
+  check('Hotel de ville : fiche -> Produire Villageois + Ralliement ; un Villageois sort (unite simple, pas Heros, niveau 1, transport)', aHall.some((x) => x.a === 'produceUnit' && /Villageois/.test(x.t)) && aHall.some((x) => x.a === 'setRally') && vil && !vil.hero && vil.worker && vil.level === 1, { aHall: aHall.map((x) => x.t), vil });
 
   // 2. Selection du Villageois (clic) ; arbre le plus proche.
   const tree = await p.evaluate((v) => { const w = window.__world; return [...w.resourceNodes.values()].filter((n) => n.resource === 'wood' && !w.depletedResourceNodes.has(n.id)).sort((a, b) => Math.hypot(a.x - v.x, a.z - v.z) - Math.hypot(b.x - v.x, b.z - v.z))[0]; }, vil);
@@ -82,7 +89,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const noForge = await p.evaluate(([id, t]) => { const w = window.__world; const e = w.getById(id); return { forges: w.entities.filter((b) => b.unitId === 'forge').length, order: e.order.type, d: Math.hypot(e.x - t.x, e.z - t.z), working: e.worker.working, wood: e.cargo.wood, reste: w.resourceNodeAmounts.get(t.id), msg: window.__flashes.filter((m) => /Forge/.test(m)) }; }, [vil.id, tree]);
   check('sans Forge : clic droit -> recolte directe (ordre de recolte, coupe au pied de l arbre, bois dans le cargo, arbre decompte), aucun message Forge', noForge.forges === 0 && noForge.order === 'harvest' && noForge.msg.length === 0 && noForge.d < 3 && noForge.working === 'chop' && noForge.wood >= 1 && noForge.reste === treeBefore - noForge.wood, { ...noForge, treeBefore });
 
-  // 4. Toujours sans Forge : boucle complete, depot a la Baliste (+5 bois au stock), retour a l'arbre.
+  // 4. Toujours sans Forge : boucle complete, depot a l'Hotel de ville (+5 bois au stock), retour a l'arbre.
   const wood0 = (await p.evaluate(() => window.arrowEconomy.stock())).wood;
   await p.mouse.click(ttop.x, ttop.y, { button: 'right' }); await L.wait(p, 400);
   const o1 = await p.evaluate((id) => window.__world.getById(id).order, vil.id);
@@ -95,7 +102,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   }
   const wood1 = (await p.evaluate(() => window.arrowEconomy.stock())).wood;
   await p.screenshot({ path: OUT + 'villageois-jeu.png' });
-  check('sans Forge : clic droit -> recolte, cargo 5 -> depot a la Baliste (stock +5) -> retour a l arbre (cargo economique, 2026-11-03)', o1.type === 'harvest' && wood1 >= wood0 + 5 && back && log.some((s) => s.o === 'deposit'), { o1, wood0, wood1, log });
+  check('sans Forge : clic droit -> recolte, cargo 5 -> depot a l Hotel de ville (stock +5) -> retour a l arbre (cargo economique, 2026-11-03)', o1.type === 'harvest' && wood1 >= wood0 + 5 && back && log.some((s) => s.o === 'deposit'), { o1, wood0, wood1, log });
 
   if (errors.length) { failures++; console.log('ERREURS', errors.join(' / ').slice(0, 1500)); }
   console.log(failures ? failures + ' ECHEC(S)' : 'tout OK');

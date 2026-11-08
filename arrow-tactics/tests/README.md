@@ -83,6 +83,17 @@ cas A à E, foule, charge et limite d'A*). G50 : `farm-stands.mts` (emplacements
 8 sur un gisement, surplus manuel et autonome, libération, retour du dépôt, Héros, charge à 20,
 déterminisme) et `noyau-depart.mts` (noyau dans les 4 rotations, Hôtel de ville, aire libre, or
 visible, trajets autour du noyau, Maison +5, A Z E R structurels, tas / 2 sans toucher au reste).
+G53 (2026-11-08) : `hotel-de-ville.mts` (dépôt universel à l'Hôtel de ville, Baliste jamais choisie
+ni repli, cargo gardé sans dépôt, production du Villageois par la file standard, ralliement,
+déterminisme), `reparation.mts` (`canRepair`, réparation par le Héros puis par un Villageois,
+refus bâtiment intact / unité militaire / chantier, interruption, mort, bâtiment détruit),
+`defense-locale.mts` (alerte sur dégâts réels, rayon 22, Villageois et lointains exclus, ordres
+manuels conservés, approche puis combat, temps mort, fin propre, déterminisme) et
+`porte-verrou.mts` (portes posées fermées en AUTO, ouverture devant un allié, verrouillage fermé
+bloquant les alliés, retour AUTO, ennemi bloqué, refus). Les tests `cargo`, `collecte`,
+`modernisation`, `or-butin`, `farm-stands`, `villageois-autonomie`, `noyau-depart`, `camp-portes`
+et `depart-camp` ont été recalés sur ces contrats (dépôt à l'Hôtel de ville, portes fermées au
+départ, Auberge sans production).
 
 `tests/game/` : `baliste-reparation.cjs`, `camp-boucle.cjs`,
 `cargo-jeu.cjs`, `depart-jeu.cjs`, `editeur-procedural.cjs`,
@@ -117,12 +128,25 @@ l'Hôtel de ville, 4 rotations du camp, normale lue sur le modèle ; cadrage 28,
 `overlay-profondeur-jeu.cjs` (repères prioritaires rendus après la passe du brouillard : matériaux
 depth-aware, anneau du Héros masqué derrière l'Hôtel de ville, intact devant, captures),
 `mist-clouds-fog-jeu.cjs` (Mist Clouds pilotées par la grille du brouillard de guerre : couverture
-des nappes lue dans la cible demi-résolution, faible en zone visible, forte en zone explorée hors
-vision comme en zone inexplorée ; un Villageois ou un Fantassin téléporté dans une zone explorée la
-dégage puis la brume revient ; captures),
+des nappes lue dans la cible demi-résolution, faible en zone visible sans bâtiment proche, plus
+faible encore au centre de l'Hôtel de ville (clairière des bâtiments construits, depuis le
+2026-11-08), forte en zone explorée hors vision comme en zone inexplorée ; un Villageois ou un
+Fantassin téléporté dans une zone explorée la dégage puis la brume revient ; captures),
+`mist-clearance-jeu.cjs` (2026-11-08 : clairière des bâtiments construits dans les Mist Clouds :
+masque lu dans la texture (Hôtel de ville et Baliste 1, segment et porte de palissade 0, chantier 0
+puis 1 une fois terminé, 0 détruit), niveau cible 0,08 ; couverture des nappes au pied d'une Maison
+en zone explorée hors vision sous le tiers de celle d'un point lointain alors qu'elle reste forte au
+pied d'un segment (crochet rendu : sources de vision des bâtiments retirées de la grille, état
+« exploré » conservé), rien ne change au-delà de la frontière de l'inexploré, et en zone visible
+(Héros placé à côté) le pied de la Maison reste nettement plus clair qu'un point visible sans
+bâtiment ; feu de camp à x local +0,8, z +3,0 de l'Hôtel de ville, au sol ; captures),
 `selection-flash-jeu.cjs` (flash de sélection : l'anneau d'une unité cliquée, ou d'un bâtiment
 inspecté, gonfle puis revient en ~240 ms ; aucun pulse tant que la sélection est seulement
 maintenue ; échelle échantillonnée image par image, aucun pixel).
+G53 (2026-11-08) : `depart-jeu`, `noyau-jeu`, `cargo-jeu`, `villageois-jeu`, `porte-jeu` et
+`ergonomie-jeu` recalés sur l'Hôtel de ville (dépôt, production du Villageois, touche A), les
+portes posées fermées (ouvertes par la simulation quand le test examine les vantaux ouverts) et
+l'Auberge sans production.
 `camp-boucle.cjs` a 3 vérifications en échec, antérieures à G47 (KI-72).
 `lib.cjs` est la bibliothèque commune (lancement, ouverture de la Survie,
 caméra, captures).

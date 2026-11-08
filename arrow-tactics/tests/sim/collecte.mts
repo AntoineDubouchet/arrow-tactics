@@ -1,5 +1,5 @@
 // Tests cibles SANS NAVIGATEUR des points de collecte specialises (2026-11-03) : Scierie (bois), Camp de mineur
-// (pierre, or extrait), Baliste universelle ; choix du point valide le plus proche pour la ressource (jamais par id) ;
+// (pierre, or extrait), Hotel de ville universel (la Baliste n'accepte plus rien, 2026-11-08) ; choix du point valide le plus proche pour la ressource (jamais par id) ;
 // chantier et batiment ennemi ignores ; point detruit en chemin -> suivant ; cargo mixte (depot manuel partiel, chainage
 // automatique) ; ordre manuel refuse en silence rien ; or de butin jamais en cargo ; Villageois ; determinisme.
 // Usage : node --import ../ts-register.mjs collecte.mts (ou npm run test:sim)
@@ -55,62 +55,62 @@ function follow(w: any, u: any, seconds: number, onStep?: (i: number) => void) {
 }
 const harvest = (w: any, u: any, node: any) => w.issueCommand({ kind: 'harvest', entityIds: [u.id], nodeId: node.id });
 
-check('donnees : Scierie = bois seul ; Camp de mineur = pierre + or extrait ; Baliste = tout ; Forge = rien ; couts, emprises et PV inchanges',
-  JSON.stringify(getBuilding('sawmill').dropOff) === '["wood"]' && JSON.stringify(getBuilding('miner_camp').dropOff) === '["stone","minedGold"]' && JSON.stringify(getBuilding('ballista').dropOff) === '["wood","stone","minedGold"]' && !getBuilding('forge').dropOff
+check('donnees : Scierie = bois seul ; Camp de mineur = pierre + or extrait ; Hotel de ville = tout ; Baliste = rien ; Forge = rien ; couts, emprises et PV inchanges',
+  JSON.stringify(getBuilding('sawmill').dropOff) === '["wood"]' && JSON.stringify(getBuilding('miner_camp').dropOff) === '["stone","minedGold"]' && JSON.stringify(getBuilding('townhall').dropOff) === '["wood","stone","minedGold"]' && getBuilding('ballista').dropOff === undefined && !getBuilding('forge').dropOff
   && getBuilding('sawmill').cost === 5 && getBuilding('sawmill').resourceCost!.wood === 15 && getBuilding('sawmill').footprintTilesX === 3 && getBuilding('sawmill').maxHp === 150 && getBuilding('miner_camp').cost === 5 && getBuilding('miner_camp').resourceCost!.stone === 10 && getBuilding('miner_camp').maxHp === 150);
 
 // --- BOIS (Heros).
 {
-  const { w, node, u } = setup('hero', 'wood', [{ id: 'ballista', dx: 6, dz: 0 }]);
+  const { w, node, u } = setup('hero', 'wood', [{ id: 'townhall', dx: 6, dz: 0 }]);
   harvest(w, u, node); const r = follow(w, u, 30);
-  check('bois, Baliste seule : depot a la Baliste', r.phases.includes('deposit:ballista') && r.deposits.wood === 10, r);
+  check('bois, Hotel de ville seul : depot a l Hotel de ville', r.phases.includes('deposit:townhall') && r.deposits.wood === 10, r);
 }
 {
-  const { w, node, u } = setup('hero', 'wood', [{ id: 'ballista', dx: 9, dz: 0 }, { id: 'sawmill', dx: 0, dz: 4 }]);
+  const { w, node, u } = setup('hero', 'wood', [{ id: 'townhall', dx: 9, dz: 0 }, { id: 'sawmill', dx: 0, dz: 4 }]);
   harvest(w, u, node); const r = follow(w, u, 30);
-  check('bois, Scierie plus proche que la Baliste : depot a la Scierie, retour a l arbre', r.phases.includes('deposit:sawmill') && !r.phases.includes('deposit:ballista') && r.bySite.sawmill === 10 && r.phases.lastIndexOf(`harvest:${node.id}`) > r.phases.indexOf('deposit:sawmill'), r);
+  check('bois, Scierie plus proche que l Hotel de ville : depot a la Scierie, retour a l arbre', r.phases.includes('deposit:sawmill') && !r.phases.includes('deposit:townhall') && r.bySite.sawmill === 10 && r.phases.lastIndexOf(`harvest:${node.id}`) > r.phases.indexOf('deposit:sawmill'), r);
 }
 {
-  const { w, node, u } = setup('hero', 'wood', [{ id: 'ballista', dx: 0, dz: 4 }, { id: 'sawmill', dx: 10, dz: 0 }]);
+  const { w, node, u } = setup('hero', 'wood', [{ id: 'townhall', dx: 0, dz: 4 }, { id: 'sawmill', dx: 10, dz: 0 }]);
   harvest(w, u, node); const r = follow(w, u, 30);
-  check('bois, Scierie plus loin que la Baliste : depot a la Baliste', r.phases.includes('deposit:ballista') && !r.phases.includes('deposit:sawmill'), r);
+  check('bois, Scierie plus loin que l Hotel de ville : depot a l Hotel de ville', r.phases.includes('deposit:townhall') && !r.phases.includes('deposit:sawmill'), r);
 }
 {
-  const { w, node, u } = setup('hero', 'wood', [{ id: 'ballista', dx: 9, dz: 0 }, { id: 'sawmill', dx: 0, dz: 4, chantier: true }, { id: 'sawmill', dx: 0, dz: -4, team: 'enemy' }]);
+  const { w, node, u } = setup('hero', 'wood', [{ id: 'townhall', dx: 9, dz: 0 }, { id: 'sawmill', dx: 0, dz: 4, chantier: true }, { id: 'sawmill', dx: 0, dz: -4, team: 'enemy' }]);
   harvest(w, u, node); const r = follow(w, u, 30);
-  check('Scierie en chantier et Scierie ennemie proches : ignorees, depot a la Baliste', r.phases.includes('deposit:ballista') && !r.phases.includes('deposit:sawmill'), r);
+  check('Scierie en chantier et Scierie ennemie proches : ignorees, depot a l Hotel de ville', r.phases.includes('deposit:townhall') && !r.phases.includes('deposit:sawmill'), r);
 }
 {
-  const { w, node, u, built } = setup('hero', 'wood', [{ id: 'ballista', dx: 9, dz: 0 }, { id: 'sawmill', dx: 0, dz: 6 }]);
+  const { w, node, u, built } = setup('hero', 'wood', [{ id: 'townhall', dx: 9, dz: 0 }, { id: 'sawmill', dx: 0, dz: 6 }]);
   harvest(w, u, node);
   let killed = false;
   const r = follow(w, u, 40, () => { if (!killed && u.order.type === 'deposit' && u.order.targetEntityId === built.sawmill.id && Math.hypot(u.x - built.sawmill.x, u.z - built.sawmill.z) < 4) { kill(built.sawmill); killed = true; } });
-  check('Scierie detruite pendant le trajet : la Baliste reprend la destination, 10 bois deposes, retour a l arbre', killed && r.phases.includes('deposit:sawmill') && r.phases.indexOf('deposit:ballista') > r.phases.indexOf('deposit:sawmill') && r.bySite.ballista >= 10 && (r.bySite.sawmill ?? 0) === 0 && r.phases.lastIndexOf(`harvest:${node.id}`) > r.phases.indexOf('deposit:ballista'), r);
+  check('Scierie detruite pendant le trajet : l Hotel de ville reprend la destination, 10 bois deposes, retour a l arbre', killed && r.phases.includes('deposit:sawmill') && r.phases.indexOf('deposit:townhall') > r.phases.indexOf('deposit:sawmill') && r.bySite.townhall >= 10 && (r.bySite.sawmill ?? 0) === 0 && r.phases.lastIndexOf(`harvest:${node.id}`) > r.phases.indexOf('deposit:townhall'), r);
 }
 
 // --- PIERRE / OR EXTRAIT (Villageois).
 {
-  const { w, node, u } = setup('villageois', 'stone', [{ id: 'ballista', dx: 5, dz: 0 }]);
+  const { w, node, u } = setup('villageois', 'stone', [{ id: 'townhall', dx: 5, dz: 0 }]);
   harvest(w, u, node); const r = follow(w, u, 30);
-  check('pierre, Baliste seule : depot a la Baliste (5)', r.bySite.ballista >= 5 && r.deposits.stone >= 5, r);
+  check('pierre, Hotel de ville seul : depot a l Hotel de ville (5)', r.bySite.townhall >= 5 && r.deposits.stone >= 5, r);
 }
 {
-  const { w, node, u } = setup('villageois', 'stone', [{ id: 'ballista', dx: 8, dz: 0 }, { id: 'miner_camp', dx: 0, dz: 4 }, { id: 'sawmill', dx: 0, dz: -3 }]);
+  const { w, node, u } = setup('villageois', 'stone', [{ id: 'townhall', dx: 8, dz: 0 }, { id: 'miner_camp', dx: 0, dz: 4 }, { id: 'sawmill', dx: 0, dz: -3 }]);
   harvest(w, u, node); const r = follow(w, u, 40);
-  check('pierre, Camp de mineur plus proche (Scierie encore plus proche ignoree) : depot au Camp, retour, deuxieme boucle', r.phases.includes('deposit:miner_camp') && !r.phases.includes('deposit:sawmill') && !r.phases.includes('deposit:ballista') && r.bySite.miner_camp >= 10, r);
+  check('pierre, Camp de mineur plus proche (Scierie encore plus proche ignoree) : depot au Camp, retour, deuxieme boucle', r.phases.includes('deposit:miner_camp') && !r.phases.includes('deposit:sawmill') && !r.phases.includes('deposit:townhall') && r.bySite.miner_camp >= 10, r);
 }
 {
-  const { w, node, u } = setup('villageois', 'gold', [{ id: 'ballista', dx: 8, dz: 0 }, { id: 'miner_camp', dx: 0, dz: 4 }]);
+  const { w, node, u } = setup('villageois', 'gold', [{ id: 'townhall', dx: 8, dz: 0 }, { id: 'miner_camp', dx: 0, dz: 4 }]);
   harvest(w, u, node); const r = follow(w, u, 40);
-  check('or extrait, Camp de mineur proche : depot au Camp (minedGold), jamais a la Baliste', r.phases.includes('deposit:miner_camp') && !r.phases.includes('deposit:ballista') && r.deposits.minedGold >= 5, r);
-  const g = setup('villageois', 'gold', [{ id: 'ballista', dx: 4, dz: 0 }]);
+  check('or extrait, Camp de mineur proche : depot au Camp (minedGold), jamais a l Hotel de ville', r.phases.includes('deposit:miner_camp') && !r.phases.includes('deposit:townhall') && r.deposits.minedGold >= 5, r);
+  const g = setup('villageois', 'gold', [{ id: 'townhall', dx: 4, dz: 0 }]);
   harvest(g.w, g.u, g.node); const rg = follow(g.w, g.u, 40);
-  check('or extrait, Baliste seule : depot a la Baliste', rg.phases.includes('deposit:ballista') && rg.deposits.minedGold >= 5, rg);
+  check('or extrait, Hotel de ville seul : depot a l Hotel de ville', rg.phases.includes('deposit:townhall') && rg.deposits.minedGold >= 5, rg);
 }
 
 // --- OR DE BUTIN : jamais en cargo, jamais de point de collecte.
 {
-  const { w, u } = setup('hero', 'wood', [{ id: 'miner_camp', dx: 2, dz: 2 }, { id: 'ballista', dx: 3, dz: -2 }]);
+  const { w, u } = setup('hero', 'wood', [{ id: 'miner_camp', dx: 2, dz: 2 }, { id: 'townhall', dx: 3, dz: -2 }]);
   const id = w.dropGold(u.x + 2, u.z, 9);
   w.issueCommand({ kind: 'pickup', entityIds: [u.id], pileId: id });
   const r = follow(w, u, 8);
@@ -118,8 +118,8 @@ check('donnees : Scierie = bois seul ; Camp de mineur = pierre + or extrait ; Ba
 }
 
 // --- CARGO MIXTE du Heros : depot manuel partiel (un seul point), rien de vide en silence.
-for (const [site, expect] of [['sawmill', { wood: 0, stone: 3, gold: 2, total: 5 }], ['miner_camp', { wood: 4, stone: 0, gold: 0, total: 4 }], ['ballista', { wood: 0, stone: 0, gold: 0, total: 0 }]] as const) {
-  const { w, u, built } = setup('hero', 'wood', [{ id: 'sawmill', dx: 6, dz: 0 }, { id: 'miner_camp', dx: 0, dz: 6 }, { id: 'ballista', dx: -6, dz: 6 }]);
+for (const [site, expect] of [['sawmill', { wood: 0, stone: 3, gold: 2, total: 5 }], ['miner_camp', { wood: 4, stone: 0, gold: 0, total: 4 }], ['townhall', { wood: 0, stone: 0, gold: 0, total: 0 }]] as const) {
+  const { w, u, built } = setup('hero', 'wood', [{ id: 'sawmill', dx: 6, dz: 0 }, { id: 'miner_camp', dx: 0, dz: 6 }, { id: 'townhall', dx: -6, dz: 6 }]);
   Object.assign(u.cargo, { wood: 4, stone: 3, minedGold: 2 });
   w.issueCommand({ kind: 'deposit', entityIds: [u.id], targetEntityId: built[site].id });
   const r = follow(w, u, 15);
@@ -136,11 +136,11 @@ for (const [site, expect] of [['sawmill', { wood: 0, stone: 3, gold: 2, total: 5
 
 // --- CARGO MIXTE : chainage automatique quand le cargo est plein.
 {
-  const { w, node, u } = setup('hero', 'wood', [{ id: 'sawmill', dx: 0, dz: 4 }, { id: 'miner_camp', dx: 0, dz: 8 }, { id: 'ballista', dx: 14, dz: 0 }]);
+  const { w, node, u } = setup('hero', 'wood', [{ id: 'sawmill', dx: 0, dz: 4 }, { id: 'miner_camp', dx: 0, dz: 8 }, { id: 'townhall', dx: 14, dz: 0 }]);
   Object.assign(u.cargo, { wood: 5, stone: 3, minedGold: 1 });
   harvest(w, u, node); const r = follow(w, u, 45);
   const order = ['deposit:sawmill', 'deposit:miner_camp', `harvest:${node.id}`].map((p) => r.phases.indexOf(p));
-  check('plein (6 bois / 3 pierre / 1 or) : Scierie (bois) -> enchaine au Camp de mineur (pierre + or) -> retour a l arbre, cargo vide, Baliste lointaine jamais visitee', order[0] > 0 && order[1] > order[0] && r.phases.lastIndexOf(`harvest:${node.id}`) > order[1] && r.bySite.sawmill >= 6 && r.deposits.stone === 3 && r.deposits.minedGold === 1 && r.bySite.miner_camp === 4 && !r.phases.includes('deposit:ballista') && r.noDrop === 0, r);
+  check('plein (6 bois / 3 pierre / 1 or) : Scierie (bois) -> enchaine au Camp de mineur (pierre + or) -> retour a l arbre, cargo vide, Hotel de ville lointain jamais visitee', order[0] > 0 && order[1] > order[0] && r.phases.lastIndexOf(`harvest:${node.id}`) > order[1] && r.bySite.sawmill >= 6 && r.deposits.stone === 3 && r.deposits.minedGold === 1 && r.bySite.miner_camp === 4 && !r.phases.includes('deposit:townhall') && r.noDrop === 0, r);
 }
 {
   const { w, node, u } = setup('hero', 'wood', [{ id: 'sawmill', dx: 0, dz: 4 }]);
@@ -155,14 +155,14 @@ for (const [site, expect] of [['sawmill', { wood: 0, stone: 3, gold: 2, total: 5
   check('Scierie seule, Heros mine la pierre : plein (10), aucun point pour la pierre -> alerte, Garde, cargo garde', r.noDrop >= 1 && u.order.type === 'guard' && u.cargo.stone === 10 && !r.phases.some((p) => p.startsWith('deposit')), { ...r, cargo: cargo(u) });
 }
 
-// --- VILLAGEOIS : boucle avec Scierie, puis Scierie detruite -> Baliste.
+// --- VILLAGEOIS : boucle avec Scierie, puis Scierie detruite -> Hotel de ville.
 {
-  const { w, node, u, built } = setup('villageois', 'wood', [{ id: 'ballista', dx: 8, dz: 0 }, { id: 'sawmill', dx: 0, dz: 4 }]);
+  const { w, node, u, built } = setup('villageois', 'wood', [{ id: 'townhall', dx: 8, dz: 0 }, { id: 'sawmill', dx: 0, dz: 4 }]);
   harvest(w, u, node);
   const r1 = follow(w, u, 60); // 10 bois a 2 s, deux boucles
   kill(built.sawmill);
   const r2 = follow(w, u, 60);
-  check('Villageois bucheron : arbre -> 10 bois -> Scierie -> retour (2 boucles) ; Scierie detruite -> la Baliste prend le relais', r1.phases.filter((p) => p === 'deposit:sawmill').length >= 2 && !r1.phases.includes('deposit:ballista') && r2.phases.includes('deposit:ballista') && !r2.phases.slice(1).includes('deposit:sawmill') && (r2.bySite.sawmill ?? 0) === 0 && r2.bySite.ballista >= 5, { r1, r2 });
+  check('Villageois bucheron : arbre -> 10 bois -> Scierie -> retour (2 boucles) ; Scierie detruite -> l Hotel de ville prend le relais', r1.phases.filter((p) => p === 'deposit:sawmill').length >= 2 && !r1.phases.includes('deposit:townhall') && r2.phases.includes('deposit:townhall') && !r2.phases.slice(1).includes('deposit:sawmill') && (r2.bySite.sawmill ?? 0) === 0 && r2.bySite.townhall >= 5, { r1, r2 });
 }
 
 // --- Determinisme.

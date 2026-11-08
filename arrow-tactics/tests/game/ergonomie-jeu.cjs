@@ -126,6 +126,15 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const v1 = await vilPos();
   check('Villageois selectionne, clic droit : il part vers le point ; Heros immobile, pas resélectionne', Math.hypot(v1.x - v0.x, v1.z - v0.z) > 0.5 && s7.x === s6.x && s7.z === s6.z && J(s7.builders) === J([vil.id]), { v0, v1, s6, s7 });
   await p.evaluate((id) => window.__world.issueCommand({ kind: 'stop', entityIds: [id] }), vil.id); await L.wait(p, 150);
+  // 2026-11-08 (G53) : l'Auberge ne produit plus (le Villageois sort de l'Hotel de ville). Ce test porte sur
+  // l'ergonomie (ralliement, double-clic, barres de file) d'un producteur que l'on peut batir en double : il
+  // rend a l'Auberge une production de Villageois PAR INJECTION DE TEST, retiree a la fin de la section 3.
+  await p.evaluate(async () => {
+    const urls = performance.getEntriesByType('resource').map((e) => e.name);
+    window.__buildings = window.__buildings ?? (await import(urls.find((n) => n.includes('/src/data/buildings.ts')))).BUILDINGS;
+    window.__oldTavernUnlock = window.__buildings.tavern.recruitmentUnlock;
+    window.__buildings.tavern.recruitmentUnlock = { unitIds: ['villageois'] };
+  });
   // Batiment selectionne : Heros hors selection.
   const taverns = () => p.evaluate(() => window.__world.entities.filter((e) => e.alive && e.team === 'player' && e.unitId === 'tavern' && !e.construction).map((e) => ({ id: e.id, x: e.x, z: e.z, rally: e.rally })));
   const tav0 = (await taverns())[0];
@@ -231,6 +240,9 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const q5 = await bars();
   const noBar = await p.evaluate(() => document.querySelector('.entity-info-progress') === null);
   check('annulation : la barre disparait, plus aucune commande', q4[0].width > q3[0].width && q5.length === 0 && noBar, { q4, q5, noBar });
+
+  // Fin de l'injection de test : l'Auberge redevient sans production (G53).
+  await p.evaluate(() => { window.__buildings.tavern.recruitmentUnlock = window.__oldTavernUnlock; });
 
   // ==== 4. INVENTAIRE AU CLIC DROIT.
   await L.blur(p); await p.keyboard.press('Escape'); await L.wait(p, 150);

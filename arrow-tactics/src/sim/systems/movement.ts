@@ -209,6 +209,9 @@ function movementGoal(e: Entity, st: NavState, byId: Map<number, Entity>, heroWo
   if (e.tauntSourceId !== null || e.rootTimer > 0 || e.dash || e.hero?.whirlwind) return null;
   const order = e.order;
   if (order.type === 'move') return { x: order.x, z: order.z };
+  // Defense locale (2026-11-08) : point d'alerte tant qu'aucune cible n'est
+  // verrouillee ; en poursuite, meme regle que la Garde (pas de but fixe).
+  if (order.type === 'defend') return e.targetId === null ? { x: order.x, z: order.z } : null;
   if (order.type === 'attack') {
     const target = byId.get(order.targetEntityId);
     return !target || isEngaged(e, target, obstacles) ? null : target;
@@ -273,7 +276,7 @@ function navigationWatchdog(e: Entity, byId: Map<number, Entity>, dt: number, in
   const fixedGoal = e.order.type !== 'attack' && e.order.type !== 'cast';
   if (moved >= STUCK_MIN_PROGRESS && !(fixedGoal && st.noGainSeconds >= STUCK_NO_GAIN_SECONDS)) return;
 
-  if (e.order.type === 'move' && Math.hypot(goal.x - e.x, goal.z - e.z) <= STUCK_GOAL_MARGIN) {
+  if ((e.order.type === 'move' || e.order.type === 'defend') && Math.hypot(goal.x - e.x, goal.z - e.z) <= STUCK_GOAL_MARGIN) {
     finishOrder(e, orderEvents, 'completed', 'arrived');
     return;
   }
@@ -493,6 +496,13 @@ export function movementSystem(
       // Sentinelle normalement, et reprend son trajet ensuite.
       if (e.order.type === 'move' && e.tauntSourceId === null) {
         followMoveOrder(e, e.order, teamObstacles(e), teamGrid(e), subDt, orderEvents, bodyClearanceFor(e));
+        continue;
+      }
+      // Defense locale (2026-11-08, sim/systems/localDefense.ts) : sans cible,
+      // l'unite rejoint le point d'alerte comme un deplacement (arrivee : Garde,
+      // sans evenement) ; avec une cible, poursuite normale ci-dessous.
+      if (e.order.type === 'defend' && e.targetId === null && e.tauntSourceId === null) {
+        followMoveOrder(e, { type: 'move', x: e.order.x, z: e.order.z }, teamObstacles(e), teamGrid(e), subDt, orderEvents, bodyClearanceFor(e));
         continue;
       }
       // Travail du Heros (recolte, construction, sim/systems/hero.ts) : il
@@ -858,7 +868,7 @@ function updateStuckState(
       e.neutralStuckTimer = 0;
       continue;
     }
-    if (e.order.type === 'move' && e.tauntSourceId === null) {
+    if ((e.order.type === 'move' || (e.order.type === 'defend' && e.targetId === null)) && e.tauntSourceId === null) {
       e.stuckTimer = 0;
       e.stuckCheckX = e.x;
       e.stuckCheckZ = e.z;

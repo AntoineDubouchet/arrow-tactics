@@ -20,7 +20,7 @@ import { canAffordTechnology, isTechnologyAcquired, isTechnologyAvailable } from
  * et de l'application a la fin, pour les quatre sortes de commandes qui
  * partagent la MEME file (Entity.productionOrders, World.queueProduction,
  * sim/systems/buildingProduction.ts) :
- *  - unite (Caserne, Camp d'archerie, Sanctuaire, Eglise, Ecurie, Auberge) ;
+ *  - unite (Caserne, Camp d'archerie, Sanctuaire, Eglise, Ecurie, Hotel de ville) ;
  *  - amelioration d'un batiment (Mine, Tour : exemplaire ; Caserne,
  *    Camp d'archerie, Sanctuaire, Ecurie : type, global a la run) ;
  *  - amelioration de la Baliste (depuis sa propre fiche) ;

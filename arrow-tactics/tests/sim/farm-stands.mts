@@ -30,7 +30,7 @@ const DEPOT = { x: 0.5, z: 0.5 };
 function setup(obstacles: any[], count: number, seed = 3) {
   const w = new World(seed);
   w.setMap({ ...DEFAULT_MAP, width: 60, height: 60, obstacles });
-  w.spawnBuilding(getBuilding('ballista'), 'player', DEPOT.x, DEPOT.z, { kind: 'building', tilesX: 2.4, tilesZ: 2.4, x: DEPOT.x, z: DEPOT.z });
+  w.spawnBuilding(getBuilding('townhall'), 'player', DEPOT.x, DEPOT.z, { kind: 'building', tilesX: 2.4, tilesZ: 2.4, x: DEPOT.x, z: DEPOT.z });
   const us = Array.from({ length: count }, (_, i) => {
     const u = w.spawn('villageois', 'player', DEPOT.x + 3 + (i % 5) * 1.1, DEPOT.z + 3 + Math.floor(i / 5) * 1.1);
     u.order = { type: 'guard' };

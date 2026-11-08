@@ -29,7 +29,7 @@ import {
   PICKUP_REACH,
   PICKUP_SECONDS,
 } from '../../data/hero';
-import type { Entity } from '../entity';
+import type { Entity, RepairJobState } from '../entity';
 import { isWorkOrder, type UnitOrder } from '../orders';
 import type { AbilityEvent } from './abilities';
 import type { Chest } from './camps';
@@ -273,14 +273,10 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
   for (const e of entities) {
     const h = e.hero;
     if (!h) continue;
-    // Reparation (2026-11-02) : un autre ordre, la mort du Heros ou la perte
-    // de la cible termine le travail ; le budget non utilise est rendu par
-    // l'orchestration (evenement).
-    const job = h.repairJob;
-    if (job && (!e.alive || e.order.type !== 'repair' || e.order.repairId !== job.repairId)) endRepair(e, 'interrupted', events);
-    if (e.alive && e.order.type === 'repair' && h.repairJob === null) {
-      h.repairJob = { repairId: e.order.repairId, targetId: e.order.targetEntityId, budgetHp: e.order.budgetHp, restoredHp: 0 };
-    }
+    // Reparation (2026-11-02 ; generique Heros / Villageois depuis le
+    // 2026-11-08) : un autre ordre, la mort ou la perte de la cible termine le
+    // travail ; le budget non utilise est rendu par l'orchestration (evenement).
+    syncRepairJob(e, h, events);
     if (!e.alive) continue;
     // Or de butin au sol (2026-11-05, decision d'Antoine) : ramasse
     // AUTOMATIQUEMENT au contact du corps du Heros (rayon + PICKUP_REACH),
@@ -359,30 +355,54 @@ export function heroWorkSystem(entities: Entity[], work: HeroWorkContext, dt: nu
       continue;
     }
     if (e.order.type === 'repair') {
-      // Geste et marteau du chantier ; PV rendus au rythme de
-      // REPAIR_FULL_SECONDS pour 100 %, dans la limite du budget paye.
-      const target = goal.target!;
-      const rj = h.repairJob!;
-      h.working = 'build';
-      const amount = Math.min((target.stats.maxHp / REPAIR_FULL_SECONDS) * dt, rj.budgetHp - rj.restoredHp, target.stats.maxHp - target.hp);
-      target.hp += amount;
-      rj.restoredHp += amount;
-      if (rj.restoredHp >= rj.budgetHp - 1e-6 || target.hp >= target.stats.maxHp - 1e-6) {
-        if (target.stats.maxHp - target.hp < 1e-6) target.hp = target.stats.maxHp;
-        endRepair(e, 'done', events);
-        e.order = { type: 'guard' };
-        h.working = null;
-      }
+      repairAtSite(e, h, goal.target!, dt, events);
       continue;
     }
     constructSite(e, h, goal.target!, entities, work, dt, events);
   }
 }
 
-/** Fin du travail de reparation du Heros `e` (evenement repairEnd). */
-function endRepair(e: Entity, reason: 'done' | 'interrupted', events: HeroEvent[]): void {
-  const job = e.hero!.repairJob!;
-  e.hero!.repairJob = null;
+/** Porteur d'une reparation : HeroState ou WorkerState (geste, minuteur, travail). */
+export type RepairWorker = { working: 'chop' | 'mine' | 'build' | 'gather' | null; workTimer: number; repairJob: RepairJobState | null };
+
+/**
+ * Suivi de la reparation d'une unite capable de reparer (Heros, Villageois ;
+ * sim/orders.ts canRepair), a chaque pas AVANT son travail : un autre ordre,
+ * la mort ou un ordre `repair` d'un autre paiement termine le travail en
+ * cours (`interrupted`) ; un ordre `repair` sans travail ouvre le sien.
+ */
+export function syncRepairJob(e: Entity, holder: RepairWorker, events: HeroEvent[]): void {
+  const job = holder.repairJob;
+  if (job && (!e.alive || e.order.type !== 'repair' || e.order.repairId !== job.repairId)) endRepair(e, holder, 'interrupted', events);
+  if (e.alive && e.order.type === 'repair' && holder.repairJob === null) {
+    holder.repairJob = { repairId: e.order.repairId, targetId: e.order.targetEntityId, budgetHp: e.order.budgetHp, restoredHp: 0 };
+  }
+}
+
+/** Un pas de reparation AU CONTACT du batiment `target` : geste et marteau du
+ *  chantier ; PV rendus au rythme de REPAIR_FULL_SECONDS pour 100 %, dans la
+ *  limite du budget paye ; termine (Garde, `done`) au budget ou aux PV max.
+ *  Meme vitesse pour le Heros et le Villageois (2026-11-08). */
+export function repairAtSite(e: Entity, holder: RepairWorker, target: Entity, dt: number, events: HeroEvent[]): void {
+  const rj = holder.repairJob!;
+  holder.working = 'build';
+  const amount = Math.min((target.stats.maxHp / REPAIR_FULL_SECONDS) * dt, rj.budgetHp - rj.restoredHp, target.stats.maxHp - target.hp);
+  target.hp += amount;
+  rj.restoredHp += amount;
+  if (rj.restoredHp >= rj.budgetHp - 1e-6 || target.hp >= target.stats.maxHp - 1e-6) {
+    if (target.stats.maxHp - target.hp < 1e-6) target.hp = target.stats.maxHp;
+    endRepair(e, holder, 'done', events);
+    e.order = { type: 'guard' };
+    holder.working = null;
+    holder.workTimer = 0;
+  }
+}
+
+/** Fin du travail de reparation de l'unite `e` (evenement repairEnd ;
+ *  `heroId` = unite reparatrice, Heros ou Villageois). */
+function endRepair(e: Entity, holder: RepairWorker, reason: 'done' | 'interrupted', events: HeroEvent[]): void {
+  const job = holder.repairJob!;
+  holder.repairJob = null;
   events.push({ type: 'repairEnd', heroId: e.id, repairId: job.repairId, buildingId: job.targetId, restoredHp: job.restoredHp, budgetHp: job.budgetHp, reason });
 }
 

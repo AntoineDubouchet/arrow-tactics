@@ -66,10 +66,13 @@ const gap = (a: any, b: any) => Math.hypot(Math.max(a.minX - b.maxX, b.minX - a.
   const def = getBuilding('townhall');
   check('Hotel de ville : id, nom, PV, emprise 4 x 4, modele du pack', def.id === 'townhall' && def.displayName === 'Hôtel de ville' && def.maxHp > 0 && def.footprintTilesX === 4 && def.footprintTilesZ === 4 && def.buildingModel === 'blue_townhall');
   check('ni cout, ni menu Construire', def.cost === undefined && def.resourceCost === undefined && !listBuyableBuildingIds().includes('townhall'));
-  check('ni production, ni technologie, ni niveau, ni population, ni attaque, ni depot', def.recruitmentUnlock === undefined && producibleUnits('townhall', 0).length === 0 && !isUpgradableBuilding('townhall') && def.populationBonus === undefined && def.attack === undefined && def.dropOff === undefined);
+  // 2026-11-08 (decision d'Antoine) : l'Hotel de ville produit le Villageois et recoit tout le cargo (depot universel,
+  // a la place de la Baliste) ; toujours ni technologie, ni niveau, ni population, ni attaque.
+  check('produit le Villageois et point de collecte universel (2026-11-08) ; ni technologie, ni niveau, ni population, ni attaque', JSON.stringify(producibleUnits('townhall', 0)) === '["villageois"]' && !isUpgradableBuilding('townhall') && def.populationBonus === undefined && def.attack === undefined && JSON.stringify(def.dropOff) === '["wood","stone","minedGold"]');
   const base = repairBaseCost('townhall');
   check('reparation : payante, base propre comme la Baliste (preconstruit, sans cout de construction)', base.gold > 0 && repairCost('townhall', 0.5).gold > 0, base);
-  check('la Baliste garde sa reparation et son depot universel', repairBaseCost('ballista').gold === 30 && JSON.stringify(getBuilding('ballista').dropOff) === JSON.stringify(['wood', 'stone', 'minedGold']));
+  // 2026-11-08 : la Baliste garde sa reparation mais n'est plus un depot ; l'Hotel de ville prend le depot universel.
+  check('la Baliste garde sa reparation ; le depot universel est passe a l Hotel de ville (2026-11-08)', repairBaseCost('ballista').gold === 30 && getBuilding('ballista').dropOff === undefined && JSON.stringify(getBuilding('townhall').dropOff) === JSON.stringify(['wood', 'stone', 'minedGold']));
 }
 
 /** Monde comme la vraie run : Baliste, batiments a empreinte continue, enceinte. */
@@ -92,7 +95,7 @@ function camp(seed: number) {
   const vil = w.spawn('villageois', 'player', L.units[0].x, L.units[0].z);
   vil.order = { type: 'guard' };
   vil.cargo.wood = 3;
-  check('depot : le Villageois vise la Baliste, jamais l Hotel de ville, meme tout pres de lui', nearestDropOff({ ...vil, x: hall.x, z: hall.z + 2.5 }, w.entities, 'wood') === ballista);
+  check('depot : le Villageois vise l Hotel de ville, jamais la Baliste, meme tout pres d elle (2026-11-08)', nearestDropOff({ ...vil, x: hall.x, z: hall.z + 2.5 }, w.entities, 'wood') === hall && nearestDropOff({ ...vil, x: ballista.x, z: ballista.z + 1.5 }, w.entities, 'wood') === hall);
   check('vision de l Hotel de ville = celle de la Baliste (21) : le camp voit toujours ses abords', visionRadiusOf(hall) === VISION_RADIUS.townhall && VISION_RADIUS.townhall === VISION_RADIUS.ballista && visionRadiusOf(ballista) === 21);
   const grid = cachedPathGrid(obstaclesForUnit(w.obstacles, vil, false), w.boardWidth, w.boardHeight);
   check('collision : le centre de l Hotel de ville et ses coins bloquent la grille', [[0, 0], [1.5, 1.5], [-1.5, -1.5], [1.5, -1.5]].every(([dx, dz]) => isTileBlockedAt(grid, L.origin.x + dx!, L.origin.z + dz!)));
@@ -206,13 +209,13 @@ function camp(seed: number) {
   const wrong: any[] = [];
   for (const b of producers) b.recruitmentUnlock.unitIds.forEach((unitId: string, i: number) => { if (productionHotkey(b.id, unitId) !== (PRODUCTION_HOTKEYS[i] ?? null)) wrong.push([b.id, unitId]); });
   check(`chaque producteur (${producers.length}) : rang dans sa liste -> touche, sans regle par batiment`, producers.length >= 5 && wrong.length === 0, wrong);
-  check('Auberge : Villageois sur A ; Caserne : Piquier sur A, Fantassin sur Z', productionHotkey('tavern', 'villageois') === 'A' && productionHotkey('barracks', 'piquier') === 'A' && productionHotkey('barracks', 'fantassin') === 'Z');
+  check('Hotel de ville : Villageois sur A (2026-11-08 ; Auberge sans production) ; Caserne : Piquier sur A, Fantassin sur Z', productionHotkey('townhall', 'villageois') === 'A' && productionHotkey('tavern', 'villageois') === null && productionHotkey('barracks', 'piquier') === 'A' && productionHotkey('barracks', 'fantassin') === 'Z');
   check('une unite garde sa touche quand elle se debloque : Fantassin absent niv. 0, Z au niv. 1', !producibleUnits('barracks', 0).includes('fantassin') && producibleUnits('barracks', 1).includes('fantassin') && productionHotkey('barracks', 'fantassin') === 'Z');
   // Un producteur de cinq unites : A Z E R, puis pas de touche.
   (BUILDINGS as any).__test = { ...getBuilding('tavern'), id: '__test', recruitmentUnlock: { unitIds: ['a', 'b', 'c', 'd', 'e'] } };
   check('n importe quel producteur : 4 touches, la 5e unite n en a pas', ['a', 'b', 'c', 'd', 'e'].map((u) => productionHotkey('__test', u)).join() === 'A,Z,E,R,');
   delete (BUILDINGS as any).__test;
-  check('un batiment qui ne produit rien n a pas de touche', productionHotkey('house', 'villageois') === null && productionHotkey('townhall', 'villageois') === null);
+  check('un batiment qui ne produit rien n a pas de touche', productionHotkey('house', 'villageois') === null && productionHotkey('tavern', 'villageois') === null);
 }
 
 // ---- 8. Tas : divises par deux, sans rien changer d'autre. Reference : avant G50.

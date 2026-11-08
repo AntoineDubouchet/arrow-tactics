@@ -333,8 +333,10 @@ Questions à trancher par Antoine. Elles ne sont pas des engagements.
 ### Principales
 
 - **Hôtel de ville ou Baliste comme bâtiment principal à défendre ?** Aujourd'hui la Baliste
-  (`DESIGN_DECISIONS.md` G50). L'Hôtel de ville n'a encore aucune fonction : production,
-  niveaux ou technologies demanderont une décision à part.
+  (`DESIGN_DECISIONS.md` G50). Depuis le 2026-11-08 (G53), l'Hôtel de ville est le dépôt
+  universel et produit le Villageois ; niveaux ou technologies demanderont une décision à part.
+- **Rôle de l'Auberge** : elle ne produit plus le Villageois (G53) et reste au menu Construire
+  sans fonction ; à décider (retrait du menu, autre production, bonus).
 - **Vagues infinies** :
   - modèle de génération (budget de menace, paliers, compositions variées,
     vagues spéciales) ;
@@ -452,7 +454,14 @@ Construit le 2026-11-02 (`DESIGN_DECISIONS.md` G16). À faire :
 
 - barils dans l'éditeur, ruines et autres destructibles (KI-51) ;
 - ralliement sur une cible (ressource, unité), plusieurs points ;
-- réparation par d'autres unités (ouvriers) ;
+- ~~réparation par d'autres unités (ouvriers)~~ : fait le 2026-11-08 (G53 :
+  Villageois, clic droit, capacité générique `canRepair`) ; à suivre :
+  plusieurs réparateurs sur le même bâtiment (un seul paiement et un seul
+  réparateur à la fois aujourd'hui) ;
+- défense locale des bâtiments (G53) : à suivre — limite de poursuite propre
+  à la Garde (une unité en Garde suit sa cible tant qu'elle reste dans son
+  aggro), nombre maximal de défenseurs par alerte, priorité entre deux
+  alertes proches ;
 - fusion des tas d'or proches (KI-47).
 
 ## 6 decies. Murs V2 (Palissade) — suites
@@ -463,10 +472,12 @@ Wall V1 supprimé et Palissade V2 construite le 2026-11-02
 - autres familles (`data/walls.ts`) : mur de pierre, mur fortifié, avec
   leurs propres PV, coût (pierre), épaisseur et rendu ; amélioration
   palissade → pierre ;
-- porte : ouverture automatique pour les alliés, verrouillage, passage
-  réservé à un camp ; vagues qui cherchent une porte ouverte ou un détour
-  (KI-55) ; visuel refait le 2026-11-05 (G42 : sans arche, deux vrais
-  vantaux), à juger en jeu ;
+- porte : ~~ouverture automatique pour les alliés~~ (G51), ~~verrouillage~~
+  (fait le 2026-11-08, G53 : verrouillée fermée / mode automatique, posée
+  fermée au départ), passage réservé à un camp ; vagues qui cherchent une
+  porte ouverte ou un détour (KI-55) ; commandes de groupe de portes (une
+  porte à la fois aujourd'hui) ; visuel refait le 2026-11-05 (G42 : sans
+  arche, deux vrais vantaux), à juger en jeu ;
 - éditeur : retirer une porte, déplacer une extrémité (KI-56) ;
 - visuel définitif (asset acheté ou modélisé) ; traverses qui suivent le
   relief (KI-57) ; instancing si les murs se comptent par centaines
@@ -483,8 +494,10 @@ extrait ; G33). À voir aussi :
 
 - visuel dédié du Camp de mineur (aujourd'hui l'atelier KayKit : outils,
   sans pierre) ;
-- ~~dépôt local (Scierie, Camp de mineur)~~ : fait le 2026-11-03 (G33) ; à
-  décider : la Baliste garde-t-elle son rôle de dépôt universel ?
+- ~~dépôt local (Scierie, Camp de mineur)~~ : fait le 2026-11-03 (G33) ;
+  ~~la Baliste garde-t-elle son rôle de dépôt universel ?~~ : décidé le
+  2026-11-08 (G53) : l'Hôtel de ville est le dépôt universel, la Baliste
+  n'accepte plus rien ;
 - ~~gros rochers bloquants ou non (KI-41)~~ : bloquants depuis le
   2026-11-03 (G25) ;
 - ouvriers / récolte par d'autres unités que le Héros : Auberge et
@@ -690,4 +703,11 @@ buffs), jamais par la simulation directement.
      apparaît à l'œil ; le relief interne essayé pendant le lab n'est pas
      retenu et ne doit pas revenir tel quel ;
   4. **overlays HTML de combat depth-aware** (barres de vie, de mana, de
-     file : KI-77) : les repères 3D le sont déjà, les barres HTML non.
+     file : KI-77) : les repères 3D le sont déjà, les barres HTML non ;
+  5. **clairière des bâtiments construits** (2026-11-08,
+     `render/mistClearance.ts`) : validée avec le niveau cible officiel
+     **0,08** (`DESIGN_DECISIONS.md` A6). Leviers encore disponibles si
+     l'œil le demande un jour, sans décision à prendre aujourd'hui : rayons
+     1,75 / 5,5 cases, exclusion ou non de la Baliste ;
+  6. **feu de camp** : position validée (x local +0,8, z +3,0, 2026-11-08).
+     Rien à faire.

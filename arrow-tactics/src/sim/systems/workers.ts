@@ -5,7 +5,7 @@ import { harvestSourceSaturated } from '../harvestStands';
 import { resetNavigation } from '../orders';
 import { areAllied } from '../relations';
 import { cargoWork, type CargoEvent } from './cargo';
-import { constructSite, nextBuildOrder, workGoal, type HeroEvent, type HeroWorkContext } from './hero';
+import { constructSite, nextBuildOrder, repairAtSite, syncRepairJob, workGoal, type HeroEvent, type HeroWorkContext } from './hero';
 
 /**
  * Villageois (2026-11-03, unite economique) : apres movementSystem, sa
@@ -43,10 +43,19 @@ export function workerSystem(entities: Entity[], work: HeroWorkContext, dt: numb
   const byId = new Map(entities.map((e) => [e.id, e]));
   for (const e of entities) {
     const w = e.worker;
-    if (!w || !e.alive) continue;
+    if (!w) continue;
+    // Reparation (2026-11-08, memes regles que le Heros, sim/systems/hero.ts) :
+    // suivi avant le travail, mort comprise (budget rendu par l'orchestration).
+    syncRepairJob(e, w, heroEvents);
+    if (!e.alive) continue;
     const goal = workGoal(e, work, byId);
     const handled = cargoWork(e, goal, work, entities, dt, events);
-    if (!handled && e.order.type === 'build') {
+    if (!handled && e.order.type === 'repair') {
+      // Batiment perdu ou deja intact : Garde ; au contact : PV rendus.
+      if (!goal) e.order = { type: 'guard' };
+      if (goal && goal.reached && e.tauntSourceId === null) repairAtSite(e, w, goal.target!, dt, heroEvents);
+      else { w.working = null; w.workTimer = 0; }
+    } else if (!handled && e.order.type === 'build') {
       // Construction (2026-11-05, G46) : memes regles que le Heros
       // (sim/systems/hero.ts constructSite) ; chantier detruit : Garde ; termine
       // par un autre constructeur (G48) : il enchaine.

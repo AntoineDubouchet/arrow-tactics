@@ -16,7 +16,7 @@ import { createItemIcon } from './itemIcons';
  *    construction), au centre juste au-dessus de la barre d'XP : duree
  *    seulement, jamais la nature de l'action ;
  *  - encart des ressources (bas a droite) : sac (bois et pierre portes,
- *    capacite) et stocks DEPOSES a la Baliste.
+ *    capacite) et stocks DEPOSES aux points de collecte (Hotel de ville depuis le 2026-11-08).
  * Visible pendant la bataille (meme cycle de vie que GoldHud), mis a jour a
  * chaque frame par main.ts, indifferent a la selection courante.
  */

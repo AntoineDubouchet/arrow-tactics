@@ -40,7 +40,7 @@ const fp = (id: string, x: number, z: number) => { const d = getBuilding(id); re
   w.setMap(DEFAULT_MAP);
   const hdef = getBuilding('house');
   for (let i = 0; i < 3; i++) w.spawnBuilding(hdef, 'player', -6.5 + i * 3, 6.5, fp('house', -6.5 + i * 3, 6.5));
-  const producers = ['barracks', 'archery', 'tavern', 'shrine', 'church', 'stables'];
+  const producers = ['barracks', 'archery', 'townhall', 'shrine', 'church', 'stables'];
   const spawned = producers.map((id, i) => w.spawnBuilding(getBuilding(id), 'player', -8.5 + i * 4, -2.5, fp(id, -8.5 + i * 4, -2.5)));
   const unitsBefore = w.entities.filter((e: any) => !e.isBuilding).length;
   run(w, 5);
@@ -51,7 +51,7 @@ const fp = (id: string, x: number, z: number) => { const d = getBuilding(id); re
   // Ralliement pour chaque producteur (avant : seuls Caserne et Camp d'archerie, par l'ancien quota).
   spawned.forEach((e: any, i: number) => w.queueRallyPoint(e.id, { x: 10 + i, z: 10 }));
   run(w, 1 / 30);
-  check('point de ralliement accepte pour TOUS les producteurs (Caserne, Camp d archerie, Auberge, Sanctuaire, Eglise, Ecurie)',
+  check('point de ralliement accepte pour TOUS les producteurs (Caserne, Camp d archerie, Hotel de ville, Sanctuaire, Eglise, Ecurie)',
     spawned.every((e: any, i: number) => e.rally && e.rally.x === 10 + i), spawned.map((e: any) => e.rally));
   // File payee : une unite par producteur, sortie a la fin de sa duree, et marche vers le ralliement.
   const first = producers.map((id) => producibleUnits(id, 0)[0]!);
@@ -127,7 +127,7 @@ const fp = (id: string, x: number, z: number) => { const d = getBuilding(id); re
 // ---- 5. Economie : cargo et points de collecte inchanges.
 {
   check('cargo : Heros 10, Villageois 10 (5 avant la passe economie du 2026-11-05)', CARGO_CAPACITY.hero === 10 && CARGO_CAPACITY.villageois === 10);
-  check('points de collecte : Baliste tout, Scierie bois, Camp de mineur pierre + or extrait ; Forge aucun',
-    JSON.stringify(getBuilding('ballista').dropOff) === '["wood","stone","minedGold"]' && JSON.stringify(getBuilding('sawmill').dropOff) === '["wood"]' && JSON.stringify(getBuilding('miner_camp').dropOff) === '["stone","minedGold"]' && getBuilding('forge').dropOff === undefined);
+  check('points de collecte : Hotel de ville tout (Baliste plus rien, 2026-11-08), Scierie bois, Camp de mineur pierre + or extrait ; Forge aucun',
+    JSON.stringify(getBuilding('townhall').dropOff) === '["wood","stone","minedGold"]' && getBuilding('ballista').dropOff === undefined && JSON.stringify(getBuilding('sawmill').dropOff) === '["wood"]' && JSON.stringify(getBuilding('miner_camp').dropOff) === '["stone","minedGold"]' && getBuilding('forge').dropOff === undefined);
 }
 console.log(failures ? failures + ' ECHEC(S)' : 'tout OK');

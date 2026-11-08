@@ -1,6 +1,6 @@
 // Tests EN JEU du cargo economique (2026-11-03) : Heros : bois en cargo, HUD inchange avant depot, fiche « Ressources
-// transportees », sac RPG sans ressource, sac 3D visible ; plein -> depot Baliste -> HUD +10 -> retour ; depot manuel
-// (clic droit Baliste) ; or de butin -> monnaie directe. Villageois (nouveau modele) : mains vides au repos et en
+// transportees », sac RPG sans ressource, sac 3D visible ; plein -> depot Hotel de ville (2026-11-08) -> HUD +10 -> retour ; depot manuel
+// (clic droit Hotel de ville) ; or de butin -> monnaie directe. Villageois (nouveau modele) : mains vides au repos et en
 // marche (aucun tool_* visible, pas d'arme), hache pendant la coupe, pioche pendant le minage, geste d'attaque joue,
 // outil retire a la fin ; fiche « Transport » ; boucle plein -> depot -> retour ; aucune cible acquise.
 // Usage : npm run test:game (ou VITE_BASE=http://localhost:5174/ node tests/game/cargo-jeu.cjs)
@@ -50,12 +50,12 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
     if (st.wood >= 10 && st.o === 'harvest') back = true;
   }
   const s2 = await stock(); const hud2 = await hud();
-  check('cargo plein (10) : depot automatique a la Baliste, HUD +10 bois, retour a l arbre et reprise', log.some((l) => l.o === 'deposit') && back && s2.wood === 10 && /Bois 10/.test(hud2), { log, s2, hud2 });
+  check('cargo plein (10) : depot automatique a l Hotel de ville, HUD +10 bois, retour a l arbre et reprise', log.some((l) => l.o === 'deposit') && back && s2.wood === 10 && /Bois 10/.test(hud2), { log, s2, hud2 });
 
   // Depot manuel avec 2 bois.
   // Camp de depart (graine 12345 : rotation 0, porte au sud) : le Heros attend devant la porte, hors de portee de
-  // depot ; le depot instantane a portee rendrait l'ordre invisible si le Heros restait colle a la Baliste.
-  const ball = await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'ballista'); return { x: b.x, z: b.z }; });
+  // depot ; le depot instantane a portee rendrait l'ordre invisible si le Heros restait colle a l'Hotel de ville.
+  const ball = await p.evaluate(() => { const b = window.__world.entities.find((e) => e.unitId === 'townhall'); return { x: b.x, z: b.z }; }); // depot = Hotel de ville (2026-11-08)
   await p.evaluate(() => { const h = window.__hero(); const c = window.__world.entities.find((e) => e.unitId === 'townhall'); h.x = h.prevX = c.x; h.z = h.prevZ = c.z + 8.5; h.cargo.wood = 2; h.order = { type: 'guard' }; h.cargo.returnTo = null; });
   await L.setView(p, { targetX: ball.x, targetZ: ball.z, viewHeight: 14, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 400);
   const bs = await p.evaluate((b) => window.__toScreen(b.x, b.z, window.__S.surfaceY(b.x, b.z) + 1.5), ball);
@@ -63,7 +63,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const o3 = await p.evaluate(() => window.__hero().order.type);
   for (let i = 0; i < 60; i++) { await L.wait(p, 250); if (await p.evaluate(() => window.__hero().cargo.wood === 0)) break; }
   const s3 = await stock();
-  check('depot manuel : Heros devant la porte du camp, clic droit sur la Baliste avec 2 bois -> ordre de depot, il entre, stock +2 (12)', o3 === 'deposit' && s3.wood === 12, { o3, s3 });
+  check('depot manuel : Heros devant la porte du camp, clic droit sur l Hotel de ville avec 2 bois -> ordre de depot, il entre, stock +2 (12)', o3 === 'deposit' && s3.wood === 12, { o3, s3 });
 
   // Or de butin : monnaie directe, cargo inchange.
   const gp = await p.evaluate(() => { const h = window.__hero(); const id = window.__world.dropGold(h.x + 2, h.z, 7); const g0 = window.arrowEconomy.stock().gold; return { id, g0 }; });

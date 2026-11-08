@@ -57,7 +57,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | A3 | Rendu instancié des unités retiré | Historique |
 | A4 | Retour d'impact : flash conservé, recul retiré | Active (flash) / Remplacée (recul) |
 | A5 | Graphic Lab « ancrage et lumière » clos : contact map, Ground Mist liée au brouillard en soft intersection, deux sources chaudes, lumière dans la brume ; `shadow` non retenu | Active (2026-11-07, valeurs provisoires) |
-| A6 | Graphic Lab « Mist Clouds » clos : nappes aériennes en espace monde dans la passe du brouillard, densité pilotée par la grille du brouillard de guerre (clair, brume forte, noir), calcul half-res, repères gameplay depth-aware, feu de camp et torches réels ; relief interne, poche centrée sur le camp et masque unités non retenus | Active (2026-11-08) |
+| A6 | Graphic Lab « Mist Clouds » clos : nappes aériennes en espace monde dans la passe du brouillard, densité pilotée par la grille du brouillard de guerre (clair, brume forte, noir), calcul half-res, repères gameplay depth-aware, feu de camp et torches réels ; relief interne, poche centrée sur le camp et masque unités non retenus. Complément 2026-11-08 : clairière esthétique des bâtiments construits (niveau cible 0,08 sous le niveau visible ; palissades et portes exclues), feu de camp recentré sous le clocher | Active (2026-11-08) |
 | B1 | Retrait du Cavalier léger | Remplacée (cavalerie revenue, G8) |
 | B2 | PV et dégâts stockés ×10, affichés en pips | Active |
 | B3 | La case comme unité de mesure | Active |
@@ -120,6 +120,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | G50 | Hôtel de ville central préconstruit, Baliste dans le noyau (défaite inchangée) ; Maison +5 ; producteurs A Z E R ; stands de récolte réservés ; Héros seul : portrait + nom ; tas / 2 | Active (2026-11-06, valeurs provisoires) / Ouverte (bâtiment principal de défaite) |
 | G51 | Portes automatiques : un allié qui approche ouvre, sinon un hostile proche ferme | Active (2026-11-06, valeurs provisoires) |
 | G52 | Finalisation : Baliste portée 22,6 ; surplus manuel reporté aussitôt sur une source voisine du même type ; caméra de Survie à 28 ; Hôtel de ville de trois-quarts (27°) ; portes sans boutons | Active (2026-11-06, valeurs provisoires) |
+| G53 | Passe gameplay du 2026-11-08 : Hôtel de ville dépôt universel et producteur du Villageois (la Baliste n'est plus un dépôt, l'Auberge ne produit plus) ; réparation au clic droit par Héros et Villageois (`canRepair`) ; pulse jaune des ordres manuels ; défense locale des bâtiments (22 cases, jamais un ordre manuel) ; portes posées fermées, AUTO ou verrouillée fermée | Active (2026-11-08, valeurs provisoires) |
 | H1 | Atelier de personnage : outil interne, export vers `units.json` | Active |
 
 Les choix d'architecture (séparation simulation / rendu, pas de temps fixe,
@@ -428,9 +429,36 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Parking** (voir `ROADMAP.md` §7) : volumes ou filaments internes des
   nappes, seulement si un besoin apparaît à l'œil ; overlays HTML de combat
   depth-aware ; lanterne à la place d'une torche si l'œil le demande.
+- **Complément du 2026-11-08 (Antoine ; validé)** : un **second facteur**
+  s'ajoute à la grille du brouillard : la **présence locale de nos
+  bâtiments construits** (`render/mistClearance.ts`). Antoine veut que la
+  **zone bâtie donne l'impression d'être épargnée par le brouillard**.
+  Règles décidées : effet **esthétique seulement** (aucune vision gameplay,
+  grille, exploration, ciblage, détection et IA intacts : un bâtiment hors
+  vision peut éclaircir localement les nappes d'une zone déjà explorée,
+  mais cette zone reste assombrie par le vrai brouillard de guerre) ;
+  bâtiments reconnus par une propriété générique (bâtiment du joueur,
+  chantier terminé), **palissades et portes exclues** (les nappes viennent
+  encore contre l'enceinte, pas de grand cercle propre le long des murs),
+  chantiers, fantômes et destructibles exclus ; distance à l'empreinte
+  réelle, fondu doux (1,75 à 5,5 cases), bordure ondulée, **union** entre
+  bâtiments et jamais une somme ; chemin half-res conservé ; masque en
+  espace monde recalculé au changement de la liste, aucune boucle shader
+  par bâtiment. **Niveau cible officiel : 0,08** (`CLEARANCE_LEVEL`), sous
+  le niveau d'une case visible (0,22) : la hiérarchie voulue est **cœur
+  bâti très légèrement brumeux** → **zone visible non bâtie légèrement
+  brumeuse** → **zone explorée hors vision fortement brumeuse** → **inconnu
+  noir**. Un premier essai à 0,26 (au-dessus du visible, case visible
+  inchangée) n'avait aucun effet dans le camp de départ, entièrement vu par
+  l'Hôtel de ville et la Baliste (vision 21), et a été abandonné le même
+  jour. Ce n'est pas le retour de la poche centrée sur le camp (rayon fixe,
+  indépendant du bâti) : la clarté dérive de la **visibilité réelle** (grille
+  du brouillard) et de la **clairière esthétique des bâtiments réellement
+  construits**, deux choses distinctes.
 - **À ne pas faire** : ne pas réintroduire le relief interne ni une poche
-  claire centrée sur le camp, ni une liste d'unités comme source de clarté
-  (la grille du brouillard est la seule source) ; ne pas remettre un niveau
+  claire centrée sur le camp à rayon fixe, ni une liste d'unités comme
+  source de clarté (la grille du brouillard et la clairière des bâtiments
+  construits sont les deux seules sources) ; ne pas remettre un niveau
   « moyen » en zone explorée ; pas de plafond de couverture ni de baisse
   globale de densité ; pas de quart de résolution ; pas de depth prepass ;
   pas de masque unités par défaut ni d'exception par type d'unité ; ne pas
@@ -3290,6 +3318,68 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   vraie décision de verrouillage.
 - **Sources** : `config/constants.ts`, `sim/harvestStands.ts`, `sim/systems/movement.ts`, `sim/orders.ts`, `data/hero.ts`,
   `render/renderer.ts`, `main.ts`, `CURRENT_STATE.md` §5, §6, §6 duodecies.
+
+### G53 — Passe gameplay du 2026-11-08 : Hôtel de ville, réparation, pulse, défense locale, portes manuelles
+
+- **Statut** : Active. Valeurs **PROVISOIRES**.
+- **Décisions d'Antoine** :
+  - **dépôt** : la Baliste n'est plus un point de collecte ; l'**Hôtel de ville** reçoit bois,
+    pierre et or extrait (Villageois, Héros, tout futur porteur) ; la Baliste n'est jamais un
+    repli ; sans dépôt valide, le porteur garde son cargo et s'arrête proprement ;
+  - **Villageois** produit à l'Hôtel de ville par la file standard (coût, durée, population,
+    ralliement inchangés) ; l'entrée de l'Auberge est retirée ;
+  - **réparation manuelle** : clic droit d'un Héros ou d'un constructeur sur un bâtiment allié
+    endommagé ; jamais déclenchée par la proximité ; capacité générique plutôt qu'un test de type ;
+  - **pulse jaune** de l'anneau de la cible pour tout ordre manuel accepté (ressource, tas,
+    dépôt, réparation), jamais pour une décision automatique, jamais pour un ordre refusé ;
+  - **défense locale** : un bâtiment allié qui encaisse des dégâts appelle les unités militaires
+    proches (`LOCAL_DEFENSE_RADIUS = 22`, unités de simulation, jamais la caméra) ; Villageois
+    exclus ; un ordre manuel n'est jamais écrasé ; réaction minimale (rejoindre le bâtiment), pas de
+    révélation du brouillard ; défense bornée (ennemi éliminé, plus de menace, temps mort,
+    sortie de zone) ;
+  - **portes** : toutes posées **fermées**, mode **AUTO** ; le joueur peut **verrouiller fermée**
+    une porte (alliés bloqués, collision et trajets la traitent comme fermée) ou la remettre en
+    AUTO ; pas de mode « forcée ouverte » ; une porte à la fois ;
+  - la Baliste reste la condition de défaite.
+- **Choix de la passe** (à valider ou corriger) :
+  - `canRepair(e)` = Héros ou Villageois (`sim/orders.ts`), source unique pour la simulation et
+    `main.ts` ; la réparation garde la règle économique existante (50 % du prix pour 100 % des PV,
+    payé d'avance, remboursement du reste) ; un seul réparateur et un seul paiement par bâtiment à la
+    fois : au clic droit, le réparateur sélectionné le plus proche prend l'ordre, les autres unités
+    se déplacent vers le point ; un bâtiment endommagé visé par un réparateur l'emporte sur le dépôt
+    (un porteur avec du cargo répare d'abord) ;
+  - la fiche garde le bouton « Réparer » (Héros) ;
+  - l'**Auberge** reste au menu Construire sans aucune fonction (rôle à décider, `ROADMAP.md`) ;
+  - **défense locale** : événement réel = `Entity.damageTaken` cumulé par `applyDamageToEntity`
+    (toutes sources), consommé chaque pas, au lieu d'un balayage bâtiments × ennemis ; éligibles =
+    unités non bâtiments avec `damage > 0`, sans `worker`, hors gardes de camp, en `guard` ou
+    `assault`, sans cible verrouillée ni Provocation ; le Héros compte s'il est libre ; une unité en
+    `defend` garde sa première intervention ; temps mort d'alerte 1 s par bâtiment ; ordre `defend`
+    distinct (aucun `OrderEndEvent`, donc aucun message), suivi comme un déplacement tant qu'aucune
+    cible n'est verrouillée, ciblage normal en chemin ; fin : arrivée, bâtiment perdu, 20 s, plus de
+    30 cases du point, ou watchdog de navigation ; destination = bord de l'emprise du côté de
+    l'unité ;
+  - une porte verrouillée redevient un obstacle pour ses alliés : un allié dans l'ouverture est
+    repoussé par la collision (comme tout obstacle) puis la porte se ferme ; elle ne se ferme jamais
+    sur un corps ; `World.setDoorLocked` renouvelle `World.obstacles` (les trajets dépendent donc du
+    verrou, pas de l'état ouvert / fermé, G51) ;
+  - l'état initial fermé vaut pour tout preset de camp (`config/startingBase.ts` sans `openGates`) ;
+    `MapDef.walls[].openGates` reste pris en charge pour les cartes.
+- **Changements de ressenti signalés** : le Villageois qui revient de récolte marche jusqu'à
+  l'Hôtel de ville (4 × 4, centre du camp) et plus jusqu'à la Baliste ; les portes fermées au
+  départ s'ouvrent au premier passage d'un allié ; des unités en Garde près d'un bâtiment attaqué
+  bougent désormais d'elles-mêmes (puis chassent dans leur aggro comme toute Garde) ; un allié
+  sorti pendant qu'une porte est verrouillée ne rentre plus par elle.
+- **À ne pas faire** : ne pas rendre à la Baliste un `dropOff` « de secours » ; ne pas tester les
+  types d'unités pour la réparation (étendre `canRepair`) ; ne pas lire la caméra dans la
+  simulation ; ne pas faire écraser un ordre manuel par une alerte ; ne pas ajouter de mode
+  « forcée ouverte » ; ne pas pulser l'anneau pour une décision automatique.
+- **Sources** : `data/buildings.ts`, `config/startingBase.ts`, `config/constants.ts`, `sim/entity.ts`,
+  `sim/orders.ts`, `sim/damage.ts`, `sim/relations.ts`, `sim/systems/doors.ts`,
+  `sim/systems/localDefense.ts`, `sim/systems/hero.ts`, `sim/systems/workers.ts`,
+  `sim/systems/movement.ts`, `sim/world.ts`, `run/entityInfo.ts`, `main.ts`,
+  `tests/sim/{hotel-de-ville,reparation,defense-locale,porte-verrou}.mts`,
+  `CURRENT_STATE.md` §6 sexies, §6 octies, §6 undecies, §6 duodecies ; `ARCHITECTURE.md` §13 sexies.
 
 ## H. Outils internes
 

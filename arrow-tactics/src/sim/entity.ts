@@ -40,11 +40,13 @@ export interface WallPieceState {
   bx: number;
   bz: number;
   /** Porte : proprietaire, ouverte (passage pour le proprietaire et ses
-   *  allies, sim/relations.ts) ou fermee ; `wantOpen` = etat demande par le
-   *  joueur. Une fermeture attend qu'aucun corps n'occupe l'ouverture
-   *  (sim/systems/doors.ts). Meme objet que ObstacleDef.door de l'emprise.
-   *  null pour un segment. */
-  door: { owner: Team; open: boolean; wantOpen: boolean; built: boolean } | null;
+   *  allies, sim/relations.ts) ou fermee ; `wantOpen` = etat demande par
+   *  l'automatisme (sim/systems/doors.ts) ; `locked` (2026-11-08) :
+   *  verrouillee fermee par le joueur (World.setDoorLocked) — plus
+   *  d'ouverture automatique, et elle bloque aussi ses allies. Une fermeture
+   *  attend qu'aucun corps n'occupe l'ouverture. Meme objet que
+   *  ObstacleDef.door de l'emprise. null pour un segment. */
+  door: { owner: Team; open: boolean; wantOpen: boolean; built: boolean; locked: boolean } | null;
 }
 
 /**
@@ -154,11 +156,24 @@ export interface WeaponProcState extends ResolvedWeaponProc {
   count: number;
 }
 
+/** Reparation en cours d'une unite capable de reparer (ordre `repair`,
+ *  sim/systems/hero.ts ; Heros et Villageois depuis le 2026-11-08) : PV payes
+ *  (budget) et rendus ; sa fin (terminee, interrompue, cible perdue) emet
+ *  `repairEnd`. */
+export interface RepairJobState {
+  repairId: number;
+  targetId: number;
+  budgetHp: number;
+  restoredHp: number;
+}
+
 /** Etat propre au Heros (Entity.hero). */
 /** Etat d'un Villageois : son geste de travail (rendu : outil et clip). */
 export interface WorkerState {
   working: 'chop' | 'mine' | 'gather' | 'build' | null;
   workTimer: number;
+  /** Reparation en cours (2026-11-08, memes regles que le Heros), null sinon. */
+  repairJob: RepairJobState | null;
   /** Autonomie (2026-11-05, sim/systems/workers.ts) : secondes
    *  d'inactivite reelle (Garde, aucune boucle de cargo) ; au-dela de
    *  WORKER_IDLE_SECONDS le Villageois se choisit un travail. */
@@ -214,9 +229,8 @@ export interface HeroState {
   /** Inventaire RPG (sim/inventory.ts, 2026-11-02) : equipements du sac,
    *  items equipes ; les ressources sont dans Entity.cargo. */
   inventory: HeroInventory;
-  /** Reparation en cours (ordre `repair`) : PV payes (budget) et rendus ;
-   *  sa fin (terminee, interrompue, cible perdue) emet `repairEnd`. */
-  repairJob: { repairId: number; targetId: number; budgetHp: number; restoredHp: number } | null;
+  /** Reparation en cours (ordre `repair`, RepairJobState), null sinon. */
+  repairJob: RepairJobState | null;
   /** Heros joue (data/heroes.ts), mana et sorts connus : parametres resolus
    *  copies a l'apparition (heroKit), jamais relus depuis data/. Le mana se
    *  regenere par pas de simulation (sim/systems/hero.ts, heroSpellSystem). */
@@ -274,6 +288,12 @@ export interface Entity {
 
   hp: number;
   alive: boolean;
+  /** Degats recus depuis le dernier pas, toutes sources (sim/damage.ts,
+   *  applyDamageToEntity ; 2026-11-08) : l'evenement reel « touche ».
+   *  Consomme et remis a zero a chaque pas par la defense locale des
+   *  batiments (sim/systems/localDefense.ts), qui le lit au lieu de comparer
+   *  chaque batiment a chaque ennemi. */
+  damageTaken: number;
 
   /** Cible verrouillee. Seul targetingSystem l'ecrit ; les autres systemes se
    *  contentent de la lire. Gardee tant qu'elle est vivante et dans l'aggro,

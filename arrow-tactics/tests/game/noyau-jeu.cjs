@@ -43,14 +43,15 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await setView(ctr[0], ctr[1], 18); await L.wait(p, 600);
   await p.screenshot({ path: OUT + 'noyau-coeur.png' });
   const gates = await p.evaluate(() => window.__world.entities.filter((e) => e.alive && e.wall?.door).map((e) => [e.wall.door.open, +e.x.toFixed(1), +e.z.toFixed(1)]));
-  check('4 portes presentes et ouvertes', gates.length === 4 && gates.every((g) => g[0] === true), gates);
+  check('4 portes presentes, posees fermees (mode automatique, 2026-11-08)', gates.length === 4 && gates.every((g) => g[0] === false), gates);
   const popText = await p.evaluate(() => [...document.querySelectorAll('*')].filter((n) => n.children.length === 0 && /^\D*\d+\s*\/\s*\d+\D*$/.test(n.textContent ?? '')).map((n) => n.textContent).slice(0, 6));
   check('HUD : population 2 / 15', popText.some((t) => /2\s*\/\s*15/.test(t)), popText);
 
   // ==== 2. Hotel de ville.
   await clickEntity(ctr[0], ctr[1], 0.5);
   const hallPanel = await panel();
-  check('clic sur l Hotel de ville : sa fiche, sans production ni technologie ni amelioration', hallPanel?.title === 'Hôtel de ville' && hallPanel.kind === 'entity-info--building' && hallPanel.actions.every(([a]) => a !== 'produceUnit' && a !== 'research' && a !== 'upgradeBuilding'), hallPanel);
+  // 2026-11-08 (G53) : l'Hotel de ville produit le Villageois ([A], ralliement) ; toujours ni technologie ni amelioration.
+  check('clic sur l Hotel de ville : sa fiche, « [A] Villageois » et Ralliement, sans technologie ni amelioration', hallPanel?.title === 'Hôtel de ville' && hallPanel.kind === 'entity-info--building' && hallPanel.actions.some(([a, l]) => a === 'produceUnit' && /^\[A\] Villageois/.test(l)) && hallPanel.actions.some(([a]) => a === 'setRally') && hallPanel.actions.every(([a]) => a !== 'research' && a !== 'upgradeBuilding'), hallPanel);
   await p.evaluate(() => { const h = window.__world.entities.find((e) => e.unitId === 'townhall'); h.hp = h.stats.maxHp * 0.5; }); await L.wait(p, 300);
   const hallDamaged = await panel();
   const repair = hallDamaged?.actions.find(([a]) => a === 'repairBuilding');
@@ -64,12 +65,12 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await clearSelection();
 
   // ==== 3. Raccourcis.
-  const tavern = (await byId('tavern'))[0];
+  const tavern = (await byId('townhall'))[0]; // Hotel de ville : producteur du Villageois depuis le 2026-11-08 (l'Auberge ne produit plus)
   await setView(tavern.x, tavern.z, 16); await L.wait(p, 300);
   await clickEntity(tavern.x, tavern.z, 0.8);
   const tp = await panel();
   const produceBtn = tp?.actions.find(([a]) => a === 'produceUnit');
-  check('Auberge : bouton « [A] Villageois »', tp?.title?.startsWith('Auberge') && /^\[A\] Villageois/.test(produceBtn?.[1] ?? ''), tp?.actions);
+  check('Hotel de ville : bouton « [A] Villageois »', tp?.title?.startsWith('Hôtel de ville') && /^\[A\] Villageois/.test(produceBtn?.[1] ?? ''), tp?.actions);
   const beforeGold = await p.evaluate(() => window.arrowEconomy.stock().gold);
   await L.blur(p); await p.keyboard.press('a'); await L.wait(p, 200);
   const afterGold = await p.evaluate(() => window.arrowEconomy.stock().gold);
@@ -94,8 +95,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await L.blur(p); await p.keyboard.press('a'); await L.wait(p, 150);
   const za = await p.evaluate(() => window.__R.camera.top ?? window.__R.camera.position.y);
   check('sans producteur selectionne : A garde son zoom', zb !== za, { zb, za });
-  // Quatre unites sur l'Auberge (injection de test : aucun producteur n'en a quatre aujourd'hui).
-  const R = await p.evaluate(() => { const u = window.__buildings.tavern.recruitmentUnlock; window.__oldUnits = u.unitIds; u.unitIds = ['villageois', 'piquier', 'archer', 'fantassin']; return u.unitIds; });
+  // Quatre unites sur l'Hotel de ville (injection de test : aucun producteur n'en a quatre aujourd'hui).
+  const R = await p.evaluate(() => { const u = window.__buildings.townhall.recruitmentUnlock; window.__oldUnits = u.unitIds; u.unitIds = ['villageois', 'piquier', 'archer', 'fantassin']; return u.unitIds; });
   await clickEntity(tavern.x, tavern.z, 0.8);
   const fourPanel = await panel();
   const labels = (fourPanel?.actions ?? []).filter(([a]) => a === 'produceUnit').map(([, l]) => l.split(' ')[0]);
@@ -120,13 +121,15 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const rotAfter = await p.evaluate(() => { const o = window.__R.scene.getObjectByName('building-placement'); return o ? o.children.map((c) => c.rotation.y) : null; });
   check('R en placement : rotation, aucune production', (await queueLen(tavern.id)) === q3 && J(rotBefore2) !== J(rotAfter), { q3, rotBefore, rotBefore2, rotAfter });
   await p.keyboard.press('Escape'); await L.wait(p, 200);
-  await p.evaluate(() => { window.__buildings.tavern.recruitmentUnlock.unitIds = window.__oldUnits; });
+  await p.evaluate(() => { window.__buildings.townhall.recruitmentUnlock.unitIds = window.__oldUnits; });
   await clearSelection();
   await p.waitForTimeout(100);
 
   // Vrai batiment a deux unites (Eglise) : Z produit la seconde.
   await clearSelection(); await L.blur(p); await p.keyboard.press('Space'); await L.wait(p, 250);
-  const cSpot = { x: tavern.x + 5, z: tavern.z + 4 };
+  // Place libre a cote de l'Auberge reelle (le producteur teste plus haut est l'Hotel de ville, au centre du camp).
+  const realTavern = (await byId('tavern'))[0];
+  const cSpot = { x: realTavern.x + 5, z: realTavern.z + 4 };
   await setView(cSpot.x, cSpot.z, 16); await L.wait(p, 300);
   await p.locator('.build-menu-button').click({ timeout: 4000 }); await L.wait(p, 200);
   await p.locator('.build-menu-item', { hasText: 'Église' }).first().click({ timeout: 4000 }); await L.wait(p, 200);

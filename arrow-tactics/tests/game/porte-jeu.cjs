@@ -18,6 +18,14 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
     for (const e of window.__world.entities) if (e.team === 'enemy') e.stats.damage = 0;
   });
 
+  // 2026-11-08 : les portes sont posees FERMEES (mode automatique). Le test examine la structure VANTAUX OUVERTS :
+  // il ouvre d'abord la porte par la simulation (World.setDoorWanted, meme voie que la fermeture plus bas).
+  await p.evaluate(() => { const w = window.__world; const d = w.entities.find((e) => e.wall?.door); w.setDoorWanted(d.id, true, 'player'); });
+  let openedFirst = false;
+  for (let i = 0; i < 20 && !openedFirst; i++) { await L.wait(p, 250); openedFirst = await p.evaluate(() => window.__world.entities.find((e) => e.wall?.door).wall.door.open); }
+  await L.wait(p, 1000);
+  check('porte posee fermee au depart (2026-11-08), ouverte par la simulation pour l examen des vantaux', openedFirst);
+
   // Structure du modele de la porte (scene) : groupe qui contient palisade_door_left / _right.
   const info = await p.evaluate(() => {
     const T = window.THREE;
@@ -73,7 +81,9 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   const doorScreen = await p.evaluate((g) => { const v = new window.THREE.Vector3(g.x, window.__S.surfaceY(g.x, g.z), g.z).project(window.__R.camera); return { x: (v.x * 0.5 + 0.5) * innerWidth, y: (-v.y * 0.5 + 0.5) * innerHeight }; }, g);
   await p.mouse.click(doorScreen.x, doorScreen.y); await L.wait(p, 350);
   const doorPanel = await p.evaluate(() => { const r = document.querySelector('.entity-info'); return { title: r?.querySelector('.entity-info-title')?.textContent ?? null, actions: [...(r?.querySelectorAll('.entity-info-action') ?? [])].map((b) => b.textContent), text: r?.innerText ?? '' }; });
-  check('fiche de la porte : aucun bouton Ouvrir, Fermer, ni verrou', /Porte/.test(doorPanel.title ?? '') && !/Ouvrir|Fermer|Maintenir|Verrou/.test(doorPanel.actions.join(' ')), doorPanel);
+  // 2026-11-08 (G53) : deux modes seulement, AUTO ou verrouillee fermee ; en AUTO, un seul bouton « Fermer et verrouiller »,
+  // aucun Ouvrir / Fermer / Maintenir ; ligne « Porte : Automatique — ... ».
+  check('fiche de la porte (AUTO) : un seul bouton « Fermer et verrouiller », ni Ouvrir ni Fermer seul, ligne « Porte : Automatique »', /Porte/.test(doorPanel.title ?? '') && doorPanel.actions.length === 1 && doorPanel.actions[0] === 'Fermer et verrouiller' && !/Ouvrir|Maintenir/.test(doorPanel.actions.join(' ')) && /Automatique/.test(doorPanel.text), doorPanel);
   await L.blur(p); await p.keyboard.press('Space'); await L.wait(p, 250);
 
   // Portes automatiques (2026-11-06) : hostile proche -> fermee ; allie qui approche -> ouverte ; puis refermee.

@@ -23,7 +23,7 @@ import type { UnitBonus } from './unitBonus';
 /**
  * Unites produites par un batiment (Caserne -> Piquier, puis Homme d'armes au
  * Niv. 2 ; Camp d'archerie -> Archer ; Eglise -> Oracle et Vengeur ;
- * Sanctuaire -> Mage ; Auberge -> Villageois ; Ecurie -> Cavalier) : seule
+ * Sanctuaire -> Mage ; Hotel de ville -> Villageois (Auberge avant le 2026-11-08) ; Ecurie -> Cavalier) : seule
  * regle de production du jeu (2026-11-04), par la file temps reel de la
  * fiche du batiment (data/production.ts, producibleUnits ; World.queueProduction).
  * L'ancien quota gratuit « par manche » (UnitProductionConfig) a ete retire.
@@ -222,11 +222,10 @@ export const BUILDINGS: Record<string, BuildingDef> = {
   ballista: {
     id: 'ballista',
     displayName: 'Baliste',
-    // Coeur du camp initial : point de collecte UNIVERSEL de depart
-    // (2026-11-03) ; accepte bois, pierre et or extrait (jamais le butin
-    // RPG). La Scierie et le Camp de mineur s'y ajoutent sans le remplacer
-    // (a decider plus tard si elle garde ce role).
-    dropOff: ['wood', 'stone', 'minedGold'],
+    // Plus un point de collecte depuis le 2026-11-08 (decision d'Antoine) :
+    // le depot universel du camp de depart est l'Hotel de ville ; la Baliste
+    // reste la condition de defaite et le point de resurrection du Heros.
+    // (2026-11-03 -> 2026-11-08 : `dropOff: ['wood', 'stone', 'minedGold']`.)
     maxHp: 25 * HP_PER_PIP,
     // Légèrement plus grand que la Mine — la baliste+tour est visuellement
     // plus imposante (voir render/ballista.ts, BALLISTA_TOWER_FOOTPRINT =
@@ -345,7 +344,15 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_townhall',
     footprintTilesX: 4,
     footprintTilesZ: 4,
-    description: 'Cœur du camp',
+    // 2026-11-08 (decision d'Antoine) : point de collecte UNIVERSEL du camp
+    // de depart (bois, pierre, or extrait ; jamais le butin RPG), a la place
+    // de la Baliste ; la Scierie et le Camp de mineur s'y ajoutent sans le
+    // remplacer. Aucune regle par id : seule cette liste compte.
+    dropOff: ['wood', 'stone', 'minedGold'],
+    // 2026-11-08 : produit le Villageois (file temps reel standard, ralliement
+    // standard ; avant : l'Auberge). Memes cout, duree et population.
+    recruitmentUnlock: { unitIds: ['villageois'] },
+    description: 'Cœur du camp : dépôt des ressources, produit le Villageois',
   },
   // Maison : +5 de population maximale tant qu'elle existe (2026-11-06, G50 ; +2
   // avant ; voir data/population.ts). Cout et PV PROVISOIRES, non encore fixes par
@@ -468,8 +475,10 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     recruitmentUnlock: { unitIds: ['mage'] },
     description: 'Produit le Mage',
   },
-  // Auberge (2026-11-03) : producteur standard du Villageois, premiere unite
-  // economique. Modele `blue_tavern` (taverne du pack). Valeurs PROVISOIRES.
+  // Auberge (2026-11-03) : producteur standard du Villageois jusqu'au
+  // 2026-11-08 (decision d'Antoine : le Villageois sort de l'Hotel de ville ;
+  // l'Auberge ne produit plus rien, son role futur est a decider). Modele
+  // `blue_tavern` (taverne du pack). Valeurs PROVISOIRES.
   tavern: {
     id: 'tavern',
     displayName: 'Auberge',
@@ -485,8 +494,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     buildingModel: 'blue_tavern',
     footprintTilesX: 2,
     footprintTilesZ: 2,
-    recruitmentUnlock: { unitIds: ['villageois'] },
-    description: 'Produit le Villageois (récolte)',
+    description: 'Auberge du camp (ne produit plus le Villageois : Hôtel de ville)',
   },
   // Ecurie (2026-11-03) : producteur standard (comme la Caserne) du Cavalier
   // leger (unite existante `cavalier`). Niv. 2 (2026-11-05, Pass 2) :

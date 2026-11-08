@@ -53,7 +53,16 @@ export type UnitOrder =
   /** Heros : lancer le sort `spellId` (Entity.hero.spells) sur
    *  `targetEntityId` (lui-meme ou un allie) ; il s'approche a portee, puis
    *  incante sur place (sim/systems/hero.ts). */
-  | { type: 'cast'; spellId: string; targetEntityId: number };
+  | { type: 'cast'; spellId: string; targetEntityId: number }
+  /** Defense locale AUTOMATIQUE (2026-11-08, sim/systems/localDefense.ts) :
+   *  l'unite militaire rejoint le point (x, z) pres du batiment allie
+   *  `targetEntityId` qui vient d'encaisser des degats, en combattant tout
+   *  adversaire rencontre (ciblage normal, a la difference de `move`) ;
+   *  Garde a l'arrivee, si le batiment disparait, apres `elapsed` >
+   *  LOCAL_DEFENSE_TIMEOUT ou trop loin du point. Jamais donne par le
+   *  joueur ; n'emet aucun OrderEndEvent ; remplace seulement un
+   *  comportement autonome (jamais un ordre manuel). */
+  | { type: 'defend'; targetEntityId: number; x: number; z: number; elapsed: number };
 
 /** Commande envoyee par l'orchestration (voir World.issueCommand), appliquee
  *  au debut du prochain pas fixe. `stop` place les unites en Garde. */
@@ -148,6 +157,14 @@ export interface OrderEndEvent {
 }
 
 type EntityLookup = (id: number) => Entity | undefined;
+
+/** Capacite GENERIQUE de reparation (2026-11-08, decision d'Antoine) : une
+ *  unite qui sait construire sait reparer — le Heros et tout Villageois
+ *  (Entity.worker). SOURCE UNIQUE pour la simulation et l'orchestration :
+ *  un futur constructeur s'ajoute ici, jamais par un test de type disperse. */
+export function canRepair(entity: Entity): boolean {
+  return entity.hero !== null || entity.worker !== null;
+}
 
 /** Seules les unites vivantes du joueur sont commandables : jamais un
  *  ennemi, un batiment ou une entite morte. */
@@ -406,14 +423,15 @@ export function applyCommands(commands: readonly PlayerCommand[], lookup: Entity
       case 'openChest':
       case 'repair':
       case 'deposit': {
-        // Travail : Heros ; recolte, depot (2026-11-03) et CONSTRUCTION
+        // Travail : Heros ; recolte, depot (2026-11-03), CONSTRUCTION
         // (2026-11-05, G46 : les Villageois construisent, memes regles que le
-        // Heros) : Villageois aussi. Source exploitable, chantier allie
-        // vivant, tas encore present ou depot allie vivant.
+        // Heros) et REPARATION (2026-11-08, canRepair) : Villageois aussi.
+        // Source exploitable, chantier allie vivant, tas encore present,
+        // depot allie vivant ou batiment allie bati et endommage.
         // Tourbillon en cours (2026-11-03) : aucun travail.
         const worker = command.kind === 'harvest' || command.kind === 'pickup' || command.kind === 'deposit' || command.kind === 'build';
         const channeling = accepted.some((e) => e.hero?.whirlwind);
-        const canWork = (e: Entity): boolean => (e.hero !== null && !e.hero.whirlwind) || (worker && e.worker !== null);
+        const canWork = (e: Entity): boolean => (e.hero !== null && !e.hero.whirlwind) || (worker && e.worker !== null) || (command.kind === 'repair' && e.hero === null && canRepair(e));
         for (const e of accepted) if (!canWork(e)) result.rejectedEntityIds.push(e.id);
         accepted.splice(0, accepted.length, ...accepted.filter(canWork));
         if (accepted.length === 0) {

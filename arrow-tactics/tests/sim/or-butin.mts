@@ -14,7 +14,7 @@ const check = (label: string, ok: boolean, extra: unknown = '') => { if (!ok) fa
 function mk(obstacles: any[] = [], seed = 4) {
   const w = new World(seed);
   w.setMap({ name: 'test', version: 1, width: 40, height: 40, obstacles, playerUnits: [], enemyUnits: [] });
-  w.spawnBuilding(getBuilding('ballista'), 'player', -6.5, -6.5, { kind: 'building', x: -6.5, z: -6.5, tilesX: 3, tilesZ: 3 });
+  w.spawnBuilding(getBuilding('townhall'), 'player', -6.5, -6.5, { kind: 'building', x: -6.5, z: -6.5, tilesX: 3, tilesZ: 3 }); // depot = Hotel de ville (2026-11-08)
   const hero = w.spawnHero('player', 0.5, 0.5, { xp: 0, level: 1, deaths: 0 });
   hero.order = { type: 'guard' };
   return { w, hero };
@@ -77,7 +77,7 @@ function mk(obstacles: any[] = [], seed = 4) {
     mined = Math.max(mined, hero.cargo.minedGold);
     for (const ev of w.cargoEvents) { if (ev.type === 'lootGold') loot++; if (ev.type === 'cargoDeposit' && ev.resource === 'minedGold') deposited += ev.amount; }
   }
-  check('or extrait d un gisement : va dans le cargo (minedGold, jusqu a 10), depose a la Baliste (cargoDeposit minedGold), aucun lootGold', mined === 10 && deposited >= 10 && loot === 0, { mined, deposited, loot });
+  check('or extrait d un gisement : va dans le cargo (minedGold, jusqu a 10), depose a l Hotel de ville (cargoDeposit minedGold), aucun lootGold', mined === 10 && deposited >= 10 && loot === 0, { mined, deposited, loot });
   w.issueCommand({ kind: 'stop', entityIds: [hero.id] }); w.step(DT);
   hero.cargo.minedGold = 0;
   const woodId = w.dropResource('wood', hero.x - 2, hero.z + 1.5, 3);

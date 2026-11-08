@@ -124,7 +124,8 @@ import { DEFAULT_LAUNCH_HEIGHT, PlayerArrowView, preloadPlayerArrowModel } from 
 import { Projectiles } from './render/projectiles';
 import { Renderer, type CameraViewState } from './render/renderer';
 import { WarmLights } from './render/warmLights';
-import { mistUnitMaskOn, setMistCloudsScene, setMistCloudUnits } from './render/mistClouds';
+import { mistUnitMaskOn, setMistClearanceMap, setMistCloudsScene, setMistCloudUnits } from './render/mistClouds';
+import { MistClearanceMap, mistClearanceSource, type ClearanceSource } from './render/mistClearance';
 import { buildUnit } from './render/unitMesh';
 import { UnitViews } from './render/unitViews';
 import { preloadMageModel } from './render/mageRig';
@@ -209,7 +210,7 @@ import {
 } from './run/runState';
 import { displayedUpgradeLevel, runUpgradeLevel, type PlayerProgression, type RunUpgradeLevels } from './run/runUpgrades';
 import { type Entity, type Team } from './sim/entity';
-import type { PlayerCommand } from './sim/orders';
+import { canRepair, type PlayerCommand } from './sim/orders';
 import type { ArrowShotSpec } from './sim/playerArrow';
 import { World } from './sim/world';
 import type { EnemyReinforcementPlan, EnemyReinforcementSpawn } from './sim/systems/enemyReinforcements';
@@ -1484,6 +1485,12 @@ function startNewRun(heroId: string = selectedHeroId): void {
   // Brouillard de guerre (Survie Hero RTS) : rien d'explore au lancement.
   fogOfWar?.dispose();
   fogOfWar = usesHeroRtsRules(survivalBaseMap) ? new FogOfWar(survivalBaseMap.width + 2 * FOG_GRID_MARGIN, survivalBaseMap.height + 2 * FOG_GRID_MARGIN) : null;
+  // Clairiere des batiments construits dans les Mist Clouds (render/mistClearance.ts, rendu seul) :
+  // meme rectangle que la grille du brouillard, remplie par syncMistClearance.
+  mistClearance?.dispose();
+  mistClearance = fogOfWar ? new MistClearanceMap(fogOfWar.minX, fogOfWar.minZ, fogOfWar.width, fogOfWar.height) : null;
+  mistClearanceSignature = '';
+  setMistClearanceMap(mistClearance);
   heroCameraLock = false;
   resourcePileViews.clear();
   // Baliste native (Mode survie) : creee directement a sa place dans le camp de
@@ -1535,6 +1542,28 @@ function frameRunCamera(): void {
 /** Grille d'exploration de la run (carte procedurale), null sinon. Rendu et
  *  information seulement : la simulation ne la lit jamais. */
 let fogOfWar: FogOfWar | null = null;
+
+/** Clairiere des batiments construits du joueur dans les Mist Clouds (render/mistClearance.ts) :
+ *  creee avec la grille du brouillard, recalculee seulement quand la liste des batiments eligibles
+ *  change (signature des ids ; un chantier y entre a la fin de sa construction, un batiment detruit
+ *  en sort). Lecture seule du monde, rendu seulement : ni la vision ni la grille n'en dependent. */
+let mistClearance: MistClearanceMap | null = null;
+let mistClearanceSignature = '';
+
+function syncMistClearance(): void {
+  if (!mistClearance) return;
+  let signature = '';
+  const sources: ClearanceSource[] = [];
+  for (const e of world.entities) {
+    const s = mistClearanceSource(e);
+    if (!s) continue;
+    signature += `${e.id},`;
+    sources.push(s);
+  }
+  if (signature === mistClearanceSignature) return;
+  mistClearanceSignature = signature;
+  mistClearance.refresh(sources);
+}
 
 function fogActive(): boolean {
   return fogOfWar !== null && !inEditorMode && !inTestMode && usesHeroRtsRules(currentMap);
@@ -1621,6 +1650,7 @@ function updateFogOfWar(): void {
     setMistCloudUnits(near.map(({ e }) => ({ x: e.x, z: e.z, y: surfaceY(e.x, e.z), radius: e.stats.radius })));
   }
   syncContactMap();
+  syncMistClearance();
   if (on) fogOfWar!.update(visionSources());
   // Decors instancies (carte generee) : reveles a l'exploration (KI-35).
   if (on && board.decor && ++decorRevealFrame % 6 === 0) board.decor.reveal((x, z) => fogOfWar!.isExplored(x, z));
@@ -2039,7 +2069,8 @@ function updateHeroUi(): void {
   if (!source || (sourceLeft !== undefined && sourceLeft <= 0) || !inBattlePhase()) selectedResourceNodeId = null;
   const shownSource = selectedResourceNodeId !== null ? source : undefined;
   resourceSelectionRing.setTarget(shownSource ? { x: shownSource.x, z: shownSource.z, radius: resourceRingRadius(shownSource) } : null);
-  resourceSelectionRing.animate(0);
+  // Animation (pulse d'un ordre de recolte accepte) : dans la boucle de rendu,
+  // avec le temps reel, juste apres cette mise a jour.
   if (selectedPileId !== null && pile) {
     const at = worldToScreen(pile.x, pile.z);
     pileLabel.show(`${CARGO_LABELS[cargoResourceOf(pile.resource)]} — ${pile.amount}`, at.x, at.y - 22);
@@ -2275,7 +2306,16 @@ function withRealtimeActions(info: EntityInfoViewModel): EntityInfoViewModel {
   }
   const inspected = info.kind === 'building' ? inspectedOwnedBuilding() : null;
   if (!inspected || inspected.entity.construction) {
-    return repair ? { ...info, actions: [...(info.actions ?? []), repair] } : info;
+    // Porte de mur batie (2026-11-08, decision d'Antoine) : AUTO ou
+    // VERROUILLEE FERMEE, rien d'autre (pas de « forcer ouverte »).
+    const gate = inspectedPlayerBuilding();
+    const door = gate && !gate.construction ? gate.wall?.door ?? null : null;
+    const gateActions: EntityInfoAction[] = door
+      ? [door.locked
+        ? { id: 'unlockGate', label: 'Mode automatique', enabled: true, hint: 'La porte s’ouvre devant un allié qui approche et se ferme devant un ennemi' }
+        : { id: 'lockGate', label: 'Fermer et verrouiller', enabled: true, hint: 'La porte reste fermée, même pour les alliés, jusqu’au retour en mode automatique' }]
+      : [];
+    return gateActions.length > 0 || repair ? { ...info, actions: [...(info.actions ?? []), ...gateActions, ...(repair ? [repair] : [])] } : info;
   }
   const { entity, owned } = inspected;
   const level = buildingLevelOf(currentRun.upgrades, owned);
@@ -2624,6 +2664,12 @@ function onEntityInfoAction(id: EntityInfoAction['id'], payload?: string): void 
   }
   if (id === 'repairBuilding') {
     startRepairOfInspected();
+    return;
+  }
+  if (id === 'lockGate' || id === 'unlockGate') {
+    const e = inspectedPlayerBuilding();
+    if (e) world.setDoorLocked(e.id, id === 'lockGate', 'player');
+    entityInfoSelectionKey = '';
     return;
   }
   if (inBattlePhase() && (id === 'upgradeBuilding' || id === 'research' || id === 'upgradeBallista')) {
@@ -5763,6 +5809,23 @@ function issueRightClickOrder(event: MouseEvent): void {
 
   const point = computeGroundPoint(event);
   if (!point) return;
+  // Reparation manuelle (2026-11-08, decision d'Antoine) : batiment allie
+  // bati et ENDOMMAGE vise, avec au moins une unite capable de reparer dans
+  // la selection (sim/orders.ts canRepair : Heros, Villageois) -> ordre de
+  // reparation ; prioritaire sur le depot et le deplacement vers ce
+  // batiment. Jamais automatique : seulement ce clic.
+  const repairerIds = entityIds.filter((id) => { const e = world.getById(id); return e !== undefined && canRepair(e); });
+  if (repairerIds.length > 0) {
+    const building = picked !== null && picked.team === 'player' && picked.isBuilding ? picked : battlePlayerBuildingAt(point.x, point.z);
+    if (building && !building.construction && !building.destructible && building.hp < building.stats.maxHp - 1e-6) {
+      const started = startRepairByUnits(building, repairerIds);
+      if (started !== null) {
+        const others = entityIds.filter((id) => id !== started);
+        if (others.length > 0) world.issueCommand({ kind: 'move', entityIds: others, x: point.x, z: point.z });
+      }
+      return;
+    }
+  }
   // Heros : chantier allie vise -> construire ; arbre ou rocher vise ->
   // recolter. Villageois (2026-11-03) : source visee -> recolter, depot vise
   // -> deposer. Les autres unites selectionnees s'y deplacent.
@@ -5842,12 +5905,51 @@ function battleChantierAt(x: number, z: number): Entity | null {
   }) ?? null;
 }
 
-/** Depot de ressources du joueur (Baliste) dont l'emprise contient (x, z). */
+/** Depot de ressources du joueur (Hotel de ville, Scierie, Camp de mineur ;
+ *  BuildingDef.dropOff) dont l'emprise contient (x, z). */
 function battleDepotAt(x: number, z: number): Entity | null {
   return world.entities.find((e) => {
     if (!e.alive || e.team !== 'player' || !e.isBuilding || e.construction || !e.footprintObstacle || !(getBuilding(e.unitId).dropOff?.length)) return false;
     return obstacleContainsPoint(e.footprintObstacle, x, z);
   }) ?? null;
+}
+
+/** Batiment du joueur (bati ou chantier, Baliste comprise) dont l'emprise
+ *  contient (x, z), ou null. */
+function battlePlayerBuildingAt(x: number, z: number): Entity | null {
+  return world.entities.find((e) => e.alive && e.team === 'player' && e.isBuilding && e.footprintObstacle !== null && obstacleContainsPoint(e.footprintObstacle, x, z)) ?? null;
+}
+
+/** Reparation manuelle au clic droit (2026-11-08) : paiement d'avance de tout
+ *  le manque de PV (run/buildingRepair.ts, meme regle que le bouton « Reparer »
+ *  de la fiche), ordre `repair` a l'unite capable de reparer LA PLUS PROCHE du
+ *  batiment (une seule a la fois par batiment : un seul paiement, un seul
+ *  budget). Renvoie l'id de cette unite, ou null (deja en reparation, stock
+ *  insuffisant : message, aucun ordre, aucun pulse). */
+function startRepairByUnits(building: Entity, repairerIds: readonly number[]): number | null {
+  if ([...repairLedger.values()].some((r) => r.buildingId === building.id)) {
+    waveIndicator.flash('Réparation déjà en cours');
+    return null;
+  }
+  const budgetHp = building.stats.maxHp - building.hp;
+  const cost = repairCost(building.unitId, budgetHp / building.stats.maxHp, wallPieceLength(building));
+  if (!canPayRepair(cost)) {
+    waveIndicator.flash(`Stock insuffisant pour réparer — ${formatRepairCost(cost)}`);
+    return null;
+  }
+  const repairer = repairerIds
+    .map((id) => world.getById(id))
+    .filter((e): e is Entity => e !== undefined && e.alive)
+    .sort((a, b) => Math.hypot(a.x - building.x, a.z - building.z) - Math.hypot(b.x - building.x, b.z - building.z) || a.id - b.id)[0];
+  if (!repairer) return null;
+  currentRun.gold = roundGold(currentRun.gold - cost.gold);
+  currentRun.resources.wood -= cost.wood;
+  currentRun.resources.stone -= cost.stone;
+  const repairId = nextRepairId++;
+  repairLedger.set(repairId, { paid: cost, budgetHp, buildingId: building.id });
+  world.issueCommand({ kind: 'repair', entityIds: [repairer.id], targetEntityId: building.id, repairId, budgetHp });
+  entityInfoSelectionKey = '';
+  return repairer.id;
 }
 
 /** Petit tas au sol encore present le plus proche de (x, z), a moins de
@@ -5959,7 +6061,7 @@ function handleCampEvents(): void {
   for (const ev of world.campEvents) {
     if (ev.type !== 'campCleared') continue;
     // L'or du camp tombe au sol pres du feu (World.dropGold) : a ramasser,
-    // porter et deposer a la Baliste avant de pouvoir le depenser.
+    // porter et deposer a l Hotel de ville (2026-11-08 ; la Baliste avant) avant de pouvoir le depenser.
     const camp = world.camps[ev.campId]!;
     waveIndicator.flash(`${getCampKind(camp.kind).name} nettoyé ! ${ev.gold} or au sol — le coffre peut être ouvert`);
   }
@@ -6014,7 +6116,7 @@ function handleHeroEvents(events: readonly HeroEvent[]): void {
   const levelUps = new Map<number, number>();
   for (const ev of events) {
     // Transport (2026-11-01) : la recolte et le ramassage remplissent le sac ;
-    // seul le depot a la Baliste remplit le stock de la run.
+    // seul le depot a un point de collecte (Hotel de ville, Scierie, Camp de mineur) remplit le stock de la run.
     // Ressources : voir handleCargoEvents (cargo economique, 2026-11-03).
     if (ev.type === 'itemPickup') {
       waveIndicator.flash(`Butin : ${EQUIPMENT[ev.itemId]?.name ?? ev.itemId}${ev.equipped ? ' — équipé' : ''}`);
@@ -6900,6 +7002,19 @@ const loop = new Loop(
       // 2026-11-02 : bref pulse de l'anneau jaune du tas, a la place de
       // l'impulsion au sol.
       if (result.command.kind === 'pickup' && result.rejection === null) resourcePileViews.pulse(result.command.pileId);
+      // Ordres MANUELS acceptes (2026-11-08, decision d'Antoine) : bref pulse
+      // de l'anneau jaune de la cible — source (arbre, rocher, gisement),
+      // batiment a reparer. Seules les commandes du joueur passent ici : une
+      // source choisie seule par un Villageois, un report automatique ou une
+      // reaffectation interne n'emettent aucun CommandResult, donc aucun pulse.
+      if (result.command.kind === 'harvest' && result.rejection === null) {
+        const source = world.resourceNodes.get(result.command.nodeId);
+        if (source) resourceSelectionRing.pulse({ x: source.x, z: source.z, radius: resourceRingRadius(source) });
+      }
+      if (result.command.kind === 'repair' && result.rejection === null) {
+        const ring = depotRingTarget(world.getById(result.command.targetEntityId));
+        if (ring) depotTargetRing.pulse(ring);
+      }
       // Depot (Baliste) : meme anneau jaune et meme pulse que les tas.
       if (result.command.kind === 'deposit' && result.rejection === null) {
         const ring = depotRingTarget(world.getById(result.command.targetEntityId));
@@ -7309,6 +7424,7 @@ const loop = new Loop(
     depotTargetRing.animate(realDt);
     spellCastVfxView.sync(inBattlePhase() ? world.entities : [], (id) => unitViews.getPosition(id), realDt);
     updateHeroUi();
+    resourceSelectionRing.animate(realDt);
     attackOrderFeedback.sync(realDt, (id) => world.getById(id), (id) => unitViews.getPosition(id));
     updateSettlementGround(realDt);
     updateGrassTufts();

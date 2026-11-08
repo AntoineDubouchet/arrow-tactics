@@ -472,7 +472,7 @@ export const UNITS: Record<string, UnitDef> = {
     visual: { kit: 'piquier' },
   },
   // Villageois (2026-11-03, demande d'Antoine) : premiere unite economique,
-  // produite a l'Auberge. Fragile, presque inutile au combat, vitesse
+  // produite a l'Hotel de ville (2026-11-08 ; a l'Auberge avant). Fragile, presque inutile au combat, vitesse
   // raisonnable, population 1 ; recolte bois, pierre et or avec les outils de
   // la Forge, credites directement au stock (sim/systems/workers.ts). Pas
   // d'XP, de mana ni d'equipement. Aucun modele de paysan dans les assets :

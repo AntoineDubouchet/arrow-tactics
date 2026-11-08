@@ -40,6 +40,10 @@ export function applyHealToEntity(target: Entity, amount: number): number {
  *  resistances et interface futures). Une seule voie de degats. */
 export function applyDamageToEntity(target: Entity, amount: number, _type: DamageType, _school?: DamageSchool): void {
   if (amount <= 0) return;
+  // Degats recus depuis le dernier pas (2026-11-08, Entity.damageTaken) :
+  // l'evenement reel « cette entite a ete touchee », consomme et remis a zero
+  // par la defense locale des batiments (sim/systems/localDefense.ts).
+  target.damageTaken += amount;
   let remaining = amount;
   if (target.shield > 0) {
     const absorbed = Math.min(target.shield, remaining);

@@ -32,9 +32,13 @@ const LIGHT_INTENSITY = 9;
 const LIGHT_DISTANCE = 7;
 const LIGHT_DECAY = 2;
 /** Feu de camp : position locale devant l'Hotel de ville (+Z local = facade ; emprise 4 x 4, bord a
- *  2) : 1 case devant le bord, 1,9 case de cote (hors de l'axe de la porte et des marches, a une
- *  case du point d'apparition du Heros, hors de l'ombre de la Baliste qui couvre le cote oppose). */
-const CAMPFIRE_LOCAL = { x: -1.9, z: 3.0 };
+ *  2) : 1 case devant le bord, sous l'axe du CLOCHER (2026-11-08, demande d'Antoine : le feu etait
+ *  trop a gauche, a x = -1,9). Mesure sur le modele `blue_townhall` : fleche du clocher a x local
+ *  +0,78 (z +0,5), marches et porte a gauche de l'axe (x -0,92 a -0,02, socle jusqu'a +0,47) ; a
+ *  x = +0,8 le feu (rayon ~0,5) est a droite des marches, hors du socle, a plus de 3 cases du point
+ *  d'apparition du Heros (x -2,4, z +2,4) et de l'Auberge (x -0,7, z +6,4). Ni collision ni
+ *  pathfinding : decor pur. */
+const CAMPFIRE_LOCAL = { x: 0.8, z: 3.0 };
 /** Lumiere d'une porte : centre de la paire de torches, hauteur de leurs flammes (render/palisade.ts :
  *  base a 1,0 + coeur de flamme 0,85). */
 const GATE_LIGHT_HEIGHT = 1.85;

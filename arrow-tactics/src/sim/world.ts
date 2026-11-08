@@ -37,6 +37,7 @@ import { buildingAttackSystem, type BuildingAttackEvent, type BuildingProjectile
 import { combatSystem, type CombatEvent } from './systems/combat';
 import { deathSystem } from './systems/death';
 import { doorDemandSystem, doorSystem } from './systems/doors';
+import { localDefenseSystem } from './systems/localDefense';
 import { segmentWallLine, wallLength, wallSegmentObstacle, type WallSegment } from '../core/wallLine';
 import { getWallType, wallPieceBuildTime, wallPieceMaxHp } from '../data/walls';
 import {
@@ -258,6 +259,10 @@ export class World {
    *  inaccessible, aucun progres) — voir sim/orders.ts, OrderEndEvent. Vide
    *  et repeuple a chaque tick. Permet a l'interface de signaler un echec. */
   orderEvents: OrderEndEvent[] = [];
+  /** Defense locale des batiments (2026-11-08, sim/systems/localDefense.ts) :
+   *  temps de simulation de la derniere alerte par batiment (id), pour le
+   *  temps mort LOCAL_DEFENSE_ALERT_COOLDOWN. */
+  private readonly defenseAlerts = new Map<number, number>();
   /** Obstacles et dimensions du plateau actuellement charge (voir setMap) —
    *  distinct de l'etat de bataille : clear() ne les reinitialise PAS, changer
    *  de map ne doit pas forcement passer par la remise a zero d'une bataille
@@ -456,6 +461,7 @@ export class World {
       // qui gerent eux-memes leurs PV actuels).
       hp: hp ?? statOverrides?.maxHp ?? def.stats.maxHp,
       alive: true,
+      damageTaken: 0,
       targetId: null,
       order: { type: 'assault' },
       orderProgressTimer: 0,
@@ -503,7 +509,7 @@ export class World {
       neutralProgressZ: z,
       neutralStuckTimer: 0,
       hero: null,
-      worker: def.worker ? { working: null, workTimer: 0, idleSeconds: 0, autoRetryIn: 0, autoNodeId: null, autoWorked: false } : null,
+      worker: def.worker ? { working: null, workTimer: 0, repairJob: null, idleSeconds: 0, autoRetryIn: 0, autoNodeId: null, autoWorked: false } : null,
       // Cargo economique : Villageois des sa creation ; Heros dans spawnHero.
       cargo: def.worker ? { ...createCargo(CARGO_CAPACITY.villageois), returnTo: null, auto: false } : null,
       construction: null,
@@ -591,6 +597,7 @@ export class World {
       prevZ: z,
       hp: hp ?? effectiveMaxHp,
       alive: true,
+      damageTaken: 0,
       targetId: null,
       // Un batiment n'est jamais commandable (voir sim/orders.ts,
       // isCommandable) : cette valeur par defaut n'est jamais modifiee.
@@ -727,7 +734,7 @@ export class World {
     // Porte : son etat est partage par l'entite et son emprise (toujours
     // dans World.obstacles ; ouverte, elle ne laisse passer que les allies).
     const opened = gate && open && !construction;
-    const door = gate ? { owner: team, open: opened, wantOpen: opened, built: !construction } : null;
+    const door = gate ? { owner: team, open: opened, wantOpen: opened, built: !construction, locked: false } : null;
     if (door) footprint.door = door;
     const e = this.spawnBuilding(def, team, (s.ax + s.bx) / 2, (s.az + s.bz) / 2, footprint, hp, maxHp, undefined, site);
     e.wall = { wallType, lineId, index, ax: s.ax, az: s.az, bx: s.bx, bz: s.bz, door };
@@ -756,6 +763,24 @@ export class World {
     const door = e?.wall?.door;
     if (!e || !door || !e.alive || !areAllied(issuer, door.owner)) return false;
     door.wantOpen = open;
+    return true;
+  }
+
+  /** Porte verrouillee fermee (`locked` vrai) ou remise en mode automatique
+   *  (faux), par le camp `issuer` allie du proprietaire (2026-11-08, decision
+   *  d'Antoine ; sim/systems/doors.ts). Verrouillee : fermeture demandee
+   *  (appliquee des que l'ouverture est libre), plus d'ouverture
+   *  automatique, et la porte bloque aussi ses allies (sim/relations.ts) :
+   *  les listes d'obstacles par camp et les grilles A* sont renouvelees.
+   *  Faux si `entityId` n'est pas une porte vivante de ce camp ou d'un allie. */
+  setDoorLocked(entityId: number, locked: boolean, issuer: Team): boolean {
+    const e = this.entityById.get(entityId);
+    const door = e?.wall?.door;
+    if (!e || !door || !e.alive || !areAllied(issuer, door.owner)) return false;
+    if (door.locked === locked) return true;
+    door.locked = locked;
+    if (locked) door.wantOpen = false;
+    this.refreshDoorPassages();
     return true;
   }
 
@@ -1168,6 +1193,7 @@ export class World {
     this.commandQueue = [];
     this.commandResults = [];
     this.orderEvents = [];
+    this.defenseAlerts.clear();
     this.buildingFootprints.clear();
     this.seed = seed;
     this.rng = new Rng(seed);
@@ -1314,6 +1340,10 @@ export class World {
     this.combatEvents = combatSystem(this.entities, dt, this.rng, this.obstacles);
     this.buildingAttackEvents = buildingAttackSystem(this.entities, lookup, this.buildingProjectiles, dt, () => this.nextBuildingProjectileId++);
     this.playerArrowEvents = stepPlayerArrow(this.playerArrow, dt, this.entities);
+    // Defense locale des batiments (2026-11-08) : apres toutes les sources de
+    // degats du pas (capacites, combat, Tour, fleche), avant les morts ; les
+    // ordres `defend` donnes ici agissent au pas suivant.
+    localDefenseSystem(this.entities, this.defenseAlerts, this.time, dt, this.orderEvents);
     this.productionUpgradeEvents = tickProductionOrders(this.entities, dt);
     this.productionSpawnEvents = buildingProductionSystem(this.entities, this.obstacles);
     deathSystem(this.entities);

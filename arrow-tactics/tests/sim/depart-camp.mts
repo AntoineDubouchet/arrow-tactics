@@ -1,6 +1,6 @@
 // Tests cibles SANS NAVIGATEUR du camp de depart et de KI-65 (2026-11-04) :
 //  - preset « basic-camp » (4 rotations) : batiments sans chevauchement, dans l'enceinte, loin des murs ; Heros et
-//    Villageois dans la cour ; quatre portes ouvertes (G48) ;
+//    Villageois dans la cour ; quatre portes posees fermees, automatiques (2026-11-08 ; ouvertes de G48 a G50) ;
 //  - lot de graines : zone reservee propre (cases, eau, relief, arbres, gisements, decors, tas, camps), puis dans le
 //    monde reel (Baliste, Auberge, 2 Maisons, enceinte, porte ouverte) : le Heros SORT par la porte, rejoint chaque
 //    camp neutre et le pied de CHAQUE gisement en vrai deplacement (aucune teleportation hors du depart), les
@@ -76,14 +76,14 @@ const insideCamp = (o: any, x: number, z: number, m = 0) => Math.hypot(x - o.x, 
       && treeRects.every((q: any) => [...rects, ...depRects].every((b: any) => Math.max(b.minX - q.maxX, q.minX - b.maxX, b.minZ - q.maxZ, q.minZ - b.maxZ) >= 2))
       && people.every((p: any) => !treeRects.some((q: any) => inside(q, p.x, p.z, -0.6)))
       && treeRects.every(clearOfAxes);
-    res.push({ r, treeOk, trees: L.trees.length, noOverlap, inBounds, clearance: +clearance.toFixed(2), peopleOk, gates: gates.length, open: gates.every((g: any) => g.openGates), pieces: segs.length, houses: L.buildings.filter((b: any) => b.buildingId === 'house').map((b: any) => b.modelVariant), tavern: L.buildings.filter((b: any) => b.buildingId === 'tavern').length, villagers: L.units.filter((u: any) => u.unitId === 'villageois').length, depOk, deposits: L.deposits.map((d: any) => [d.resource, d.x, d.z]) });
+    res.push({ r, treeOk, trees: L.trees.length, noOverlap, inBounds, clearance: +clearance.toFixed(2), peopleOk, gates: gates.length, closedAuto: gates.every((g: any) => !g.openGates), pieces: segs.length, houses: L.buildings.filter((b: any) => b.buildingId === 'house').map((b: any) => b.modelVariant), tavern: L.buildings.filter((b: any) => b.buildingId === 'tavern').length, villagers: L.units.filter((u: any) => u.unitId === 'villageois').length, depOk, deposits: L.deposits.map((d: any) => [d.resource, d.x, d.z]) });
   }
   check('gisements garantis, 4 rotations : 1 pierre + 1 or, emprises 2 x 2 sur cases entieres, dans l enceinte (coins a >= 1 case), sans chevauchement (Baliste, batiments, entre eux), hors places d apparition, loin des axes des 4 portes (> 2 cases), a >= 1 case des murs',
     res.every((q) => q.depOk), res.map((q) => [q.r, q.depOk, q.deposits]));
   check('bosquet garanti, 4 rotations : >= 6 arbres 1 x 1 groupes, dans l enceinte, sans chevauchement (Baliste, batiments, gisements, entre eux), a >= 2 cases des batiments et gisements, hors places, loin des axes des 4 portes, a >= 1 case des murs',
     res.every((q) => q.treeOk), res.map((q) => [q.r, q.treeOk, q.trees]));
-  check('preset basic-camp, 4 rotations : Hotel de ville, 2 Maisons (A, B) + 1 Auberge sans chevauchement (ni Baliste), dans l enceinte, a >= 1,5 case des murs ; Heros et 2 Villageois dans la cour, hors emprises ; 4 portes ouvertes ; 36 pieces (dodecagone de rayon 15, 20 lignes)',
-    res.every((q) => q.noOverlap && q.inBounds && q.clearance >= 1.5 && q.peopleOk && q.gates === 4 && q.open && q.pieces === 36 && L0.walls.length === 20 && JSON.stringify(q.houses) === '[0,1]' && q.tavern === 1 && q.villagers === 2), res);
+  check('preset basic-camp, 4 rotations : Hotel de ville, 2 Maisons (A, B) + 1 Auberge sans chevauchement (ni Baliste), dans l enceinte, a >= 1,5 case des murs ; Heros et 2 Villageois dans la cour, hors emprises ; 4 portes posees FERMEES en mode automatique (2026-11-08) ; 36 pieces (dodecagone de rayon 15, 20 lignes)',
+    res.every((q) => q.noOverlap && q.inBounds && q.clearance >= 1.5 && q.peopleOk && q.gates === 4 && q.closedAuto && q.pieces === 36 && L0.walls.length === 20 && JSON.stringify(q.houses) === '[0,1]' && q.tavern === 1 && q.villagers === 2), res);
 }
 
 // ---- 2. Lot de graines.
@@ -206,7 +206,7 @@ console.log('GRAINES', JSON.stringify(summary));
 check('chaque graine : camp de depart present, zone reservee entierement dans la carte, sans eau, relief, obstacle, tas, ni camp neutre a moins de 5 cases',
   summary.every((r) => r.zone && r.zone.horsCarte === 0 && r.zone.eau === 0 && r.zone.relief === 0 && r.zone.obstacles === 0 && r.zone.tas === 0 && r.zone.camps === 0), summary.map((r) => [r.seed, r.zone]));
 check('population au depart : 2 Villageois sur 15 (5 + 2 Maisons x 5, G50)', summary.every((r) => r.pop?.used === 2 && r.pop?.max === 15), summary.map((r) => r.pop));
-check('Heros : sort par la porte ouverte ; 2 Villageois aussi', summary.every((r) => r.sortieHeros && r.sortieVillageois), summary.map((r) => [r.seed, r.sortieHeros, r.sortieVillageois]));
+check('Heros : sort par la porte (fermee au depart, elle s ouvre devant lui) ; 2 Villageois aussi', summary.every((r) => r.sortieHeros && r.sortieVillageois), summary.map((r) => [r.seed, r.sortieHeros, r.sortieVillageois]));
 check('Heros : rejoint le petit et le grand camp neutres depuis la sortie (vrai deplacement)', summary.every((r) => r.camps?.length === 2 && r.camps.every(Boolean)), summary.map((r) => [r.seed, r.camps]));
 check('Heros : atteint le pied de CHAQUE gisement (pierre et or) depuis la sortie', summary.every((r) => r.gisements && r.gisements.split('/')[0] === r.gisements.split('/')[1]), summary.map((r) => [r.seed, r.gisements, r.ratees]));
 check('aucun passage d une case contre un gisement (KI-65)', summary.every((r) => r.passagesUneCase === 0), summary.map((r) => [r.seed, r.passagesUneCase]));

@@ -68,14 +68,14 @@ code.
   file temps réel (§14 ; passe de modernisation 2, 2026-11-05,
   `DESIGN_DECISIONS.md` G41). Aucun écran ne fige plus le jeu pour cela.
 - **Direction Hero RTS** (provisoire, §6 bis) : la run commence dans un
-  **petit camp préconstruit** (2026-11-04, §6 duodecies : Baliste, Auberge,
-  deux Maisons, deux Villageois, enceinte de Palissade et 4 portes ouvertes)
-  avec le **Héros**. Le Héros explore sous un **brouillard de
+  **petit camp préconstruit** (2026-11-04, §6 duodecies : Hôtel de ville, Baliste, Auberge,
+  deux Maisons, deux Villageois, enceinte de Palissade et 4 portes posées
+  fermées, automatiques) avec le **Héros**. Le Héros explore sous un **brouillard de
   guerre**, gagne de l'XP, récolte du **bois**, de la **pierre** et de l'or
   des gisements dans son **sac de ressources** (cargo de 10, séparé de
-  l'inventaire RPG), les **dépose à un point de collecte** (Baliste pour
-  tout, Scierie pour le bois, Camp de mineur pour la pierre et l'or
-  extrait : seul chemin vers le stock, §6 undecies ; le stock s'ajoute à
+  l'inventaire RPG), les **dépose à un point de collecte** (Hôtel de ville pour
+  tout depuis le 2026-11-08, Scierie pour le bois, Camp de mineur pour la pierre et l'or
+  extrait : seul chemin vers le stock, §6 undecies ; la Baliste n'est plus un dépôt ; le stock s'ajoute à
   l'or dans le prix des bâtiments) et
   bâtit en bataille les **chantiers**.
 - La run continue tant que le joueur gagne ; elle s'arrête à la première
@@ -313,8 +313,9 @@ sélectionnés : le bâtiment principal seulement, comme le bouton (limite).
   - **Mine** : PV, production (« 3 à 7 or »), fréquence (« toutes les
     60 s »), en jeu « Prochaine tranche : dans N s », et emprise. En préparation, aussi l'effet du niveau suivant et le bouton
     **« Améliorer la mine — N or »** (§6) ;
-  - **Caserne / Camp d'archerie / Sanctuaire / Église / Écurie / Auberge**
-    (bâtiments de production, 2026-11-04) : « Nom — Niv. N » (Caserne,
+  - **Caserne / Camp d'archerie / Sanctuaire / Église / Écurie / Hôtel de ville**
+    (bâtiments de production, 2026-11-04 ; l'Hôtel de ville produit le
+    Villageois depuis le 2026-11-08, l'Auberge plus rien) : « Nom — Niv. N » (Caserne,
     Sanctuaire, Église), PV, unités produites, emprise, puis les boutons de
     la **file de production** (« [A] Nom — N or · T s », un par
     unité productible, désactivé si l'or manque ou si la file est pleine),
@@ -474,7 +475,7 @@ retiré (G41).
 | Mage | Sanctuaire (Église jusqu'au 2026-11-03) |
 | Oracle, Vengeur | Église |
 | Cavalier léger | Écurie (§6 nonies) |
-| Villageois | Auberge (§6 nonies) |
+| Villageois | Hôtel de ville (2026-11-08 ; Auberge du 2026-11-03 au 2026-11-08, §6 nonies) |
 | Sentinelle | Aucun bâtiment ne la produit : unité **dormante** (définie, jamais recrutée) tant que son bâtiment, son rôle et son coût ne sont pas décidés (`ROADMAP.md` §6 quater) |
 
 - **Déblocage par victoire : retiré** (2026-11-05, G41, décision
@@ -724,7 +725,8 @@ Production de la Mine (Survie en temps réel, 2026-11-02) :
   scénario » ; une Mine détruite s'arrête aussitôt.
 
 Production de la Caserne, du Camp d'archerie et des autres bâtiments de
-recrutement (Sanctuaire, Église, Écurie, Auberge) :
+recrutement (Sanctuaire, Église, Écurie, Hôtel de ville depuis le
+2026-11-08 ; l'Auberge ne produit plus) :
 
 - **Une seule règle depuis le 2026-11-04** : la **file de production
   payée** de la fiche du bâtiment (§6 sexies, `World.queueProduction`,
@@ -811,12 +813,13 @@ Sources : `data/hero.ts`, `sim/systems/hero.ts`, `config/resourceNodes.ts`,
 **Départ** (2026-11-04, §6 duodecies) : le **Héros** et **deux
 Villageois** dans le **camp de départ préconstruit** (Hôtel de ville au centre
 de la carte, Baliste, Auberge, deux Maisons tout autour depuis G50, enceinte de
-Palissade, 4 portes ouvertes).
-Aucun Homme d'armes, stock **0 bois, 0 pierre**, 20 or, Pop. 2 / 15. La
-Baliste reste le point de dépôt universel, un point de vision, et le **cœur de
-la base** : sa destruction est une défaite immédiate
-(2026-11-02) ; Hôtel de ville, Maisons, Auberge et palissade n'y changent rien
-(décision ouverte, `DESIGN_DECISIONS.md` G50).
+Palissade, 4 portes posées fermées, automatiques).
+Aucun Homme d'armes, stock **0 bois, 0 pierre**, 20 or, Pop. 2 / 15. Depuis le
+2026-11-08 (G53), l'**Hôtel de ville** est le point de dépôt universel et
+produit le Villageois ; la Baliste n'est plus un dépôt mais reste un point de
+vision, le point de résurrection du Héros et le **cœur de la base** : sa
+destruction est une défaite immédiate (2026-11-02) ; Hôtel de ville, Maisons,
+Auberge et palissade n'y changent rien (décision ouverte, `DESIGN_DECISIONS.md` G50).
 
 **Héros** (`hero`) :
 
@@ -943,12 +946,16 @@ passe par le **cargo économique**, jamais par l'inventaire RPG, voir
   sélection, **anneau jaune** et étiquette « Bois — N » / « Pierre — N ».
   **Clic droit** accepté (ramassage) : **bref pulse** de l'anneau jaune,
   puis anneau fixe tant que l'ordre dure (plus de clignotement). Même
-  anneau jaune et même pulse sur la **Baliste** (dépôt) au clic droit de
+  anneau jaune et même pulse sur le **dépôt** (Hôtel de ville depuis le
+  2026-11-08 ; Baliste avant) au clic droit de
   dépôt, à la taille de son emprise, fixe pendant le trajet, retiré après
-  le dépôt (`DepotTargetRing`) ;
+  le dépôt (`DepotTargetRing`). Depuis le 2026-11-08 (G53), tout **ordre
+  manuel accepté** sur une cible pulse ainsi son anneau jaune : source
+  (arbre, rocher, gisement), tas, dépôt, bâtiment à réparer ; jamais pour
+  un choix automatique (Villageois autonome, report, réaffectation) ;
 - **boucle** : clic droit du Héros sur un tas → il y va → ramassage
   (0,6 s) → **sac** (6 unités au plus, bois et pierre confondus) → clic droit
-  sur la **Baliste** → dépôt **instantané** au contact (depuis le
+  sur l'**Hôtel de ville** (la Baliste jusqu'au 2026-11-08) → dépôt **instantané** au contact (depuis le
   2026-11-04 ; avant : 0,5 s par unité, geste accroupi ; annonce « Dépôt
   terminé — stock : … ») → stock de la run. Le stock
   n'augmente **qu'au dépôt** ; un tas vidé disparaît et ne revient pas
@@ -1019,7 +1026,7 @@ finale) :
 | Scierie (3 × 3, 15 PV ; point de collecte : bois) | 5 | 15 | — | 8 s |
 | Camp de mineur (3 × 3, 15 PV ; point de collecte : pierre, or extrait) | 5 | 10 | 10 | 8 s |
 | Mine | 20 | 10 | 5 | 6 s |
-| Auberge | 10 | 20 | — | 8 s |
+| Auberge (sans production depuis le 2026-11-08, rôle à décider) | 10 | 20 | — | 8 s |
 | Caserne | 15 | 20 | 10 | 8 s |
 | Camp d'archerie | 15 | 25 | 5 | 8 s |
 | Forge | 10 | 15 | 20 | 8 s |
@@ -1551,14 +1558,38 @@ Depuis le 2026-11-02 (valeurs PROVISOIRES, `DESIGN_DECISIONS.md` G16) :
 - **murailles diagonales** : supprimées avec tout le Wall V1 le
   2026-11-02 (remplacé par la Palissade V2, §6 octies) ;
 - **réparation** : bouton « Réparer — coût » sur la fiche d'un bâtiment
-  allié bâti et endommagé (Baliste comprise). Coût : 50 % du prix de
+  allié bâti et endommagé (Baliste comprise), ou, depuis le 2026-11-08
+  (G53), **clic droit** d'un Héros ou d'un Villageois sélectionné sur un
+  bâtiment allié endommagé (capacité générique `canRepair`, `sim/orders.ts` :
+  toute unité qui construit répare ; jamais une unité militaire). Coût : 50 % du prix de
   construction pour 100 % des PV, proportionnel aux PV manquants (or au
   demi supérieur, bois et pierre arrondis ; Baliste : base 30 or, 10 bois,
-  10 pierre), payé d'avance sur le stock. Le Héros va au bâtiment et le
-  répare (geste de chantier, barre d'action), 10 s pour 100 %. Ordre
-  manuel, mort du Héros ou perte du bâtiment : arrêt, et la part non
+  10 pierre ; Hôtel de ville : 30 or, 20 bois, 20 pierre), payé d'avance sur
+  le stock, une seule réparation à la fois par bâtiment (clic droit : le
+  réparateur sélectionné le plus proche la prend, les autres unités se
+  déplacent vers le point ; bâtiment intact : aucun ordre ; stock
+  insuffisant ou réparation en cours : message). Le réparateur va au
+  bâtiment et le répare (geste de chantier ; barre d'action pour le
+  Héros), 10 s pour 100 %, même vitesse pour les deux. Ordre
+  manuel, mort du réparateur ou perte du bâtiment : arrêt, et la part non
   utilisée est rendue (or au dixième, bois et pierre à l'unité
-  inférieure) ;
+  inférieure). Jamais automatique : seul un clic lance une réparation ;
+- **défense locale des bâtiments** (2026-11-08, G53,
+  `sim/systems/localDefense.ts`, valeurs provisoires) : quand un bâtiment
+  allié **encaisse des dégâts** (toutes sources, `Entity.damageTaken` posé
+  par `applyDamageToEntity`), les unités **militaires** (dégâts > 0, jamais
+  un Villageois ni un garde de camp) **inactives** (Garde ou comportement
+  autonome, sans cible, hors Provocation) à moins de **22 cases** de
+  simulation (jamais la caméra) reçoivent un ordre `defend` : elles
+  rejoignent le bord du bâtiment du côté où elles sont, en combattant ce
+  qu'elles rencontrent (ciblage normal), puis repassent en Garde à
+  l'arrivée. Un ordre du joueur (déplacement, attaque, travail, sort) n'est
+  **jamais** écrasé ; une unité déjà en défense garde son intervention ; au
+  plus une alerte par bâtiment par seconde ; fin aussi si le bâtiment
+  disparaît, après 20 s, ou si l'unité s'est éloignée de plus de 30 cases
+  du point (poursuite) ; le watchdog de navigation l'arrête sans message si
+  elle n'avance plus. Le Héros participe s'il est libre. Aucune révélation
+  du brouillard, aucun événement d'ordre ;
 - **défaite** : Baliste détruite = défaite immédiate.
 
 ## 6 septies. Niveau d'unité, cartes de survie, sol du village
@@ -1827,9 +1858,10 @@ le « stock direct » G30 du même jour) :
 - **Points de collecte** (`BuildingDef.dropOff`, liste des ressources
   acceptées par un bâtiment **terminé et allié** ; un chantier ne compte
   pas ; jamais le butin RPG), depuis le 2026-11-03 soir (G33) :
-  - **Baliste** : bois, pierre, or extrait (point **universel de départ**,
-    conservé quand on construit les autres ; son maintien dans ce rôle
-    reste à décider) ;
+  - **Hôtel de ville** : bois, pierre, or extrait (point **universel de
+    départ** depuis le 2026-11-08, G53 ; la Baliste l'était du 2026-11-03 au
+    2026-11-08 et n'accepte plus rien : jamais choisie, même plus proche,
+    jamais un repli) ;
   - **Scierie** : **bois** seulement ;
   - **Camp de mineur** : **pierre** et **or extrait** seulement ;
   - la **Forge** n'en est pas un (elle donne les outils).
@@ -1856,7 +1888,9 @@ le « stock direct » G30 du même jour) :
 - **Aucun point valide** pour ce qu'elle porte : l'unité garde son cargo,
   s'arrête pleine, rien n'est perdu (« Aucun point de collecte pour
   déposer : 10 pierre ») ; un point détruit en chemin → le suivant pour
-  ces ressources (Scierie détruite → Baliste), sinon Garde.
+  ces ressources (Scierie détruite → Hôtel de ville), sinon Garde (sans
+  Hôtel de ville, le porteur garde son cargo et s'arrête : jamais de dépôt
+  « magique » ailleurs, la Baliste n'est pas un repli).
 - **Mort** avec un cargo : ressources **perdues** (message), aucun sac au
   sol ; le Héros revient à cargo vide. PROVISOIRE.
 - **Affichage** : sac 3D sur le dos dès qu'une ressource est transportée
@@ -1922,13 +1956,21 @@ sur grille) est supprimé ; ses anciens murs ne sont jamais convertis.
   (`sim/relations.ts`, `canUnitPassGate`). **Automatique** (2026-11-06, G51,
   `sim/systems/doors.ts`, valeurs provisoires) : un allié qui se rapproche à moins de
   **2,5 cases** l'ouvre ; sinon, un hostile à moins de **5 cases** la ferme ; l'allié passe
-  en premier ; sans personne, elle reste comme elle est. **Plus aucun bouton** Ouvrir / Fermer, ni
-  verrou : portes entièrement automatiques. Détruite : vraie brèche,
+  en premier ; sans personne, elle reste comme elle est. Toute porte est
+  **posée fermée** (camp de départ compris, depuis le 2026-11-08 ; ouvertes
+  de G48 à G52), en mode **automatique**. **Deux modes seulement**
+  (2026-11-08, G53, `Entity.wall.door.locked`, `World.setDoorLocked`) :
+  AUTO, ou **verrouillée fermée** par le bouton « Fermer et verrouiller » de
+  la fiche de la porte (bouton « Mode automatique » pour revenir ; ligne
+  « Porte : Automatique — ouverte / fermée » ou « Verrouillée fermée »).
+  Verrouillée : plus aucune ouverture automatique, et elle **bloque aussi
+  ses alliés** (trajets et collision la traitent comme fermée : un allié
+  dans l'ouverture est repoussé comme par tout obstacle, puis elle se
+  ferme) ; pas de mode « forcée ouverte ». Détruite : vraie brèche,
   tout le monde passe. Fermeture demandée avec un allié dans l'ouverture :
-  elle **attend** (« Fermeture en attente — passage occupé ») et se fait au
-  premier pas libre, sans écraser ni pousser personne ; un hostile plaqué
-  contre la porte ne la retient pas. Ni ouverture ni fermeture
-  automatiques. Battants animés (0,35 s).
+  elle **attend** et se fait au premier pas libre, sans jamais se fermer sur
+  un corps ; un hostile plaqué contre la porte ne la retient pas. Battants
+  animés (0,35 s).
 - **Refus de pose** : moins d'une case ou plus de 30, hors carte, eau,
   falaise, arbre debout, gros gisement de pierre, structure bloquante, à
   moins de 0,15 case d'un bâtiment ou chantier (Baliste comprise), corps
@@ -1986,7 +2028,7 @@ valeurs **provisoires**) :
   apparaissent le **Héros** et **deux Villageois**, enceinte **arrondie** de **Palissade
   V2** : dodécagone de **rayon 15** (2026-11-05, G46 ; 10,5 avant :
   apothème 14,5, diamètre 30, 36 pièces, 585 cases à plus d'une case des
-  murs dont **501 libres** depuis G50, 526 avant, contre 277 / 241 avant G46) avec **4 portes ouvertes**
+  murs dont **501 libres** depuis G50, 526 avant, contre 277 / 241 avant G46) avec **4 portes posées fermées, automatiques** (ouvertes de G48 à G52)
   de 2,4 cases (2026-11-06, G48 ; une seule avant), une au milieu des côtés nord,
   est, sud et ouest, à 90° l'une de l'autre, qui suivent la rotation du camp :
   même Porte de Palissade (PV, largeur, animation, collision, règles, réparation),
@@ -2020,8 +2062,9 @@ valeurs **provisoires**) :
   et les déplace avec le Départ ; vérifié sur 12 graines (chaque arbre et
   gisement atteint depuis la cour). Tout est terminé, à pleins PV et **gratuit** (stock
   de départ inchangé). Les bâtiments sont des bâtiments possédés ordinaires
-  (fiche, amélioration, réparation, destruction) : l'Auberge produit des
-  Villageois, les Maisons donnent leur population (Pop. 2 / 15) et la
+  (fiche, amélioration, réparation, destruction) : l'Hôtel de ville produit des
+  Villageois et reçoit tout le cargo (2026-11-08 ; l'Auberge produisait
+  avant et n'a plus de rôle), les Maisons donnent leur population (Pop. 2 / 15) et la
   prochaine Maison construite est A ; les portes suivent les règles habituelles
   (alliés passent, ennemis non, automatiques depuis G51). Terre battue sous les
   bâtiments et quelques chemins courts. La caméra suit le Héros au
@@ -2039,9 +2082,12 @@ valeurs **provisoires**) :
   est un losange de 2,83 cases de pointe sur les axes, collision et navigation suivent, en run comme
   dans « Tester le scénario » ; l'aperçu de l'éditeur montre le même angle du bâtiment ;
   sélection, collision, navigation et réparation ordinaires (base 30 or, 20 bois, 20 pierre).
-  Aucune production, technologie, niveau, ressource passive ni dépôt ; jamais au menu
+  Depuis le 2026-11-08 (G53) : **dépôt universel** (bois, pierre, or extrait) et
+  **production du Villageois** (file standard, touche A, ralliement standard) ;
+  toujours ni technologie, ni niveau, ni ressource passive ; jamais au menu
   Construire. Il peut être attaqué et détruit : ce n'est **pas** la défaite, qui reste
-  la destruction de la **Baliste** (décision ouverte). La Baliste garde le dépôt universel.
+  la destruction de la **Baliste** (décision ouverte). Sans Hôtel de ville, plus aucun
+  dépôt universel (les porteurs gardent leur cargo) et plus de Villageois produits.
 - **Caméra de la Survie** (2026-11-06, décision d'Antoine) : pivot 18° (`CAMERA.survivalYawDeg`, 45° avant),
   inclinaison 28°, hauteur de vue 28 (`CAMERA.survivalViewHeight`, environ 18 avant), au lancement, à Espace
   (qui garde le suivi du Héros) et à R. Le clic sur le portrait recentre sans changer le zoom. L'éditeur
@@ -2577,6 +2623,41 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
     l'assombrissement reste exacte). La réaction suit la grille image par
     image : une unité qui arrive dans une ancienne zone la dégage, la brume
     revient dès qu'elle repart ;
+  - **clairière des bâtiments construits** (2026-11-08, second facteur de
+    densité ; `render/mistClearance.ts`) : nos bâtiments **construits**
+    repoussent visuellement les nappes autour d'eux, jusqu'à un niveau sous
+    celui d'une case visible : la zone bâtie paraît épargnée par la brume. Éligibles par propriété générique, aucune liste d'identifiants :
+    tout bâtiment gameplay vivant du joueur dont le chantier est terminé
+    (Hôtel de ville, Maisons, Auberge, bâtiments économiques et de
+    production, Baliste, tout futur bâtiment du même système) ; **exclus** :
+    segments et portes de palissade (les nappes viennent encore contre
+    l'enceinte et derrière elle), chantiers, fantômes de placement, objets
+    neutres. Force 1 jusqu'à 1,75 case de l'**empreinte réelle** (rectangle
+    orienté, disque de collision pour la Baliste), fondu doux jusqu'à 0 à
+    5,5 cases : un grand bâtiment influence naturellement plus loin qu'une
+    Maison ; plusieurs bâtiments proches font une **union** (maximum), jamais
+    une somme. Dans le shader, la densité d'une case connue est ramenée
+    progressivement vers le niveau cible **0,08** (`CLEARANCE_LEVEL`,
+    décision du 2026-11-08, `DESIGN_DECISIONS.md` A6) : une case **visible**
+    passe de 0,22 à 0,08 au contact d'un bâtiment, une case **explorée hors
+    vision** de 1,0 à 0,08 (elle reste assombrie par le vrai brouillard de
+    guerre) ; en zone **inexplorée** le facteur est nul (rien n'est nettoyé
+    ni révélé, noir souverain). Hiérarchie obtenue : cœur bâti très
+    légèrement brumeux, zone visible non bâtie légèrement brumeuse, zone
+    explorée hors vision fortement brumeuse, inconnu noir. Bordure ondulée
+    par le bruit lent de la frontière du brouillard. Effet **esthétique
+    seulement** : ni la vision gameplay, ni la grille du brouillard, ni
+    l'exploration, ni la détection ne la lisent. Mesure à bruit forcé plein
+    (couverture des nappes dans la cible demi-résolution, graine 12345) : au
+    pied d'un bâtiment visible 0,10 contre 0,27 en zone visible non bâtie ;
+    au pied d'une Maison explorée hors vision 0,125 contre 0,90 au loin et
+    0,895 au pied d'un segment de palissade. Technique : une texture R8 en espace monde de 2 texels
+    par case sur le rectangle de la grille du brouillard (288 × 288, 83 Ko
+    pour une carte de 96 cases), recalculée seulement quand la liste des
+    bâtiments éligibles change (signature des ids ; environ 0,2 ms pour le
+    camp de départ, 2 ms pour 65 bâtiments), une lecture de texture et un
+    bruit de plus par fragment demi-résolution, aucune boucle par bâtiment
+    dans le shader ;
   - **sources chaudes** : les deux sources officielles colorent légèrement
     les nappes (mêmes 4 sources que la Ground Mist, lecture seule ; au cœur
     d'une source : alpha +0,15, teinte chaude 0,85, luminance +0,45, portée
@@ -2584,8 +2665,10 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
     supports (`render/fireProps.ts`, 2026-11-08) : un **feu de camp**
     low-poly devant l'Hôtel de ville (cercle de pierres, quatre bûches,
     braises, flammes ; diamètre environ 1 case, flammes à environ 0,9 ;
-    position dérivée de l'orientation réelle du bâtiment, de côté pour
-    laisser l'axe des marches aux unités ; sa PointLight est ancrée sur le
+    position dérivée de l'orientation réelle du bâtiment : **x local +0,8,
+    z local +3,0**, soit 1 case devant la façade, sous l'axe du clocher et à
+    droite des marches, hors du socle (recentré le 2026-11-08 depuis
+    x −1,9, jugé trop à gauche par Antoine) ; sa PointLight est ancrée sur le
     cœur des flammes) et une **torche** par montant de porte de palissade,
     fixée à la face **intérieure** du poteau, côté défendu, inclinée vers
     l'intérieur du camp (toute porte en porte deux, camp de départ comme

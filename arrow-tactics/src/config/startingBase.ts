@@ -229,9 +229,12 @@ function enclosureLines(e: StartingBasePreset['enclosure']): { ax: number; az: n
     const mz = (p.z + q.z) / 2;
     const g1 = { x: round3(mx - ux * half), z: round3(mz - uz * half) };
     const g2 = { x: round3(mx + ux * half), z: round3(mz + uz * half) };
+    // 2026-11-08 (decision d'Antoine) : toute porte commence physiquement
+    // FERMEE, en mode automatique (elle s'ouvre devant un allie qui approche,
+    // sim/systems/doors.ts). Avant : `openGates: true` (posees ouvertes).
     lines.push(
       { ax: p.x, az: p.z, bx: g1.x, bz: g1.z },
-      { ax: g1.x, az: g1.z, bx: g2.x, bz: g2.z, gates: [0], openGates: true },
+      { ax: g1.x, az: g1.z, bx: g2.x, bz: g2.z, gates: [0] },
       { ax: g2.x, az: g2.z, bx: q.x, bz: q.z },
     );
   }

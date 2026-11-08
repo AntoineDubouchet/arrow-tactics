@@ -24,12 +24,12 @@ let failures = 0;
 const check = (label: string, ok: boolean, extra: unknown = '') => { if (!ok) failures++; console.log(`${ok ? 'OK   ' : 'ECHEC'} ${label}${extra !== '' ? ' — ' + JSON.stringify(extra).slice(0, 900) : ''}`); };
 const run = (w: any, seconds: number) => { for (let t = 0; t < seconds - 1e-9; t += DT) w.step(DT); };
 
-/** Carte plate : un arbre a l'est, un gisement de pierre a l'ouest, un gisement d'or au nord ; Baliste au centre (point de collecte). */
+/** Carte plate : un arbre a l'est, un gisement de pierre a l'ouest, un gisement d'or au nord ; Hotel de ville au centre (point de collecte). */
 const sources = { tree: { kind: 'tree', x: 6.5, z: 0.5, tilesX: 1, tilesZ: 1 }, stone: { kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: -8, cornerZ: -1 }, gold: { kind: 'rock', tilesX: 2, tilesZ: 2, cornerX: -1, cornerZ: 6, ore: 'gold' } };
 function mk(obstacles: any[] = [sources.tree, sources.stone, sources.gold], seed = 3) {
   const w = new World(seed);
   w.setMap({ name: 'test', version: 1, width: 40, height: 40, obstacles, playerUnits: [], enemyUnits: [] });
-  const b = getBuilding('ballista');
+  const b = getBuilding('townhall');
   w.spawnBuilding(b, 'player', 0.5, 0.5, { kind: 'building', x: 0.5, z: 0.5, tilesX: 3, tilesZ: 3 });
   const spawn = (x: number, z: number) => { const e = w.spawn('villageois', 'player', x, z); e.order = { type: 'guard' }; return e; };
   const resOf = (e: any) => { const o = e.order; if (o.type === 'harvest') return w.resourceNodes.get(o.nodeId)?.resource ?? null; if (o.type === 'deposit' && e.cargo.returnTo?.kind === 'node') return w.resourceNodes.get(e.cargo.returnTo.nodeId)?.resource ?? null; return null; };

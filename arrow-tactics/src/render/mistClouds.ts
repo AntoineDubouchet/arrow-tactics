@@ -26,6 +26,15 @@ import { mistShared } from './groundMist';
  * decales par un bruit lent (frontiere esthetique organique ; la frontiere GAMEPLAY, elle, reste
  * exacte : l'assombrissement de la passe lit la grille telle quelle).
  *
+ * SECOND FACTEUR (2026-11-08, VALIDE) : la presence locale de nos BATIMENTS CONSTRUITS
+ * (render/mistClearance.ts : carte de clairiere en espace monde, union des empreintes reelles, fondu
+ * doux ; palissades et portes exclues, chantiers exclus). Pres d'un batiment, la densite d'une case
+ * connue (VISIBLE comme EXPLOREE hors vision) est ramenee progressivement vers CLEARANCE_LEVEL, sous
+ * le niveau visible : le coeur bati parait epargne par la brume, la zone visible non batie reste
+ * legerement brumeuse, la zone exploree hors vision fortement brumeuse ; en zone INEXPLOREE le
+ * facteur est nul (rien n'est revele : le noir et sa matiere restent ceux du brouillard). Effet
+ * esthetique seulement : aucune vision gameplay, la grille du brouillard n'est pas touchee.
+ *
  * Technique : aucun mesh, aucun draw call. La passe plein ecran du brouillard de guerre
  * (render/fogOfWar.ts, FogOfWarPass) connait deja, pour chaque pixel, la position monde de la
  * surface rendue et la direction de vue (camera orthographique : direction constante). Trois
@@ -104,6 +113,13 @@ const FOG_LEVELS = { visible: 0.22, explored: 1.0, unexplored: 1.0 };
  *  (nappes x 0,55 par l'assombrissement). */
 const UNSEEN_CLOUD = 0.22;
 
+/** Niveau de densite vers lequel une case connue (visible ou exploree hors vision) est ramenee au
+ *  contact d'un batiment construit du joueur (render/mistClearance.ts). Sous FOG_LEVELS.visible
+ *  (0,22) : la zone batie parait epargnee par la brume, la zone visible non batie garde son leger
+ *  voile. Decision du 2026-11-08 (docs/DESIGN_DECISIONS.md A6) ; 0,26 (au-dessus du visible) a ete
+ *  essaye et n'avait aucun effet dans le camp, entierement vu par ses propres batiments. */
+const CLEARANCE_LEVEL = 0.08;
+
 /** Couches : bas, haut (unites monde au-dessus du sol), taille de la grande forme (cases), alpha.
  *  (Passe 2 : une couche haute a 0,19 ou 0,176 a ete mesuree sans effet sur la lisibilite d'une
  *  unite au coeur d'une nappe, qui vient du cumul des couches basse et moyenne ; 0,22 conserve.) */
@@ -153,6 +169,12 @@ export const mistCloudUniforms = {
   /** Facteur de densite : visible, explore hors vision, inexplore (FOG_LEVELS). */
   uCloudFogLevel: { value: new THREE.Vector3(FOG_LEVELS.visible, FOG_LEVELS.explored, FOG_LEVELS.unexplored) },
   uCloudUnseen: { value: UNSEEN_CLOUD },
+  /** Carte de clairiere des batiments construits (render/mistClearance.ts : R 0..1) et son rectangle
+   *  monde (coin x, z, taille en cases), fournis par main.ts (setMistClearanceMap) ; (x) facteur
+   *  actif 0/1, (y) niveau cible CLEARANCE_LEVEL. */
+  tCloudClear: { value: null as THREE.Texture | null },
+  uCloudClearRect: { value: new THREE.Vector4(0, 0, 1, 1) },
+  uCloudClear: { value: new THREE.Vector2(0, CLEARANCE_LEVEL) },
   /** Unites visibles proches (x, z, y du sol, rayon de collision) et leur nombre. */
   uCloudUnits: { value: Array.from({ length: MAX_UNITS }, () => new THREE.Vector4()) },
   uCloudUnitCount: { value: 0 },
@@ -176,6 +198,14 @@ if (mode !== 'off') {
 export function setMistCloudsScene(seed: number): void {
   const s = seed >>> 0;
   mistCloudUniforms.uCloudSeed.value.set((s % 883) * 1.71, ((s >>> 9) % 907) * 1.13);
+}
+
+/** Carte de clairiere des batiments construits du joueur (render/mistClearance.ts), ou null (facteur
+ *  coupe) ; appele par main.ts quand la grille du brouillard est (re)creee. */
+export function setMistClearanceMap(map: { texture: THREE.Texture; rect: THREE.Vector4 } | null): void {
+  mistCloudUniforms.tCloudClear.value = map ? map.texture : null;
+  mistCloudUniforms.uCloudClear.value.x = map ? 1 : 0;
+  if (map) mistCloudUniforms.uCloudClearRect.value.copy(map.rect);
 }
 
 /** Unites visibles les plus proches du point vise (au plus MAX_UNITS, le surplus ignore), pour le
@@ -213,6 +243,9 @@ uniform sampler2D tCloudFog;
 uniform vec4 uCloudFogRect;
 uniform vec3 uCloudFogLevel;
 uniform float uCloudUnseen;
+uniform sampler2D tCloudClear;
+uniform vec4 uCloudClearRect;
+uniform vec2 uCloudClear;
 uniform vec4 uCloudUnits[${MAX_UNITS}];
 uniform int uCloudUnitCount;
 uniform vec4 uCloudUnitMask;
@@ -235,6 +268,19 @@ float cloudNoise(vec2 p) {
 float cloudFbm(vec2 p) {
   return cloudNoise(p) * 0.58 + cloudNoise(p * 2.13 + vec2(11.7, 5.3)) * 0.28 + cloudNoise(p * 4.7 + vec2(3.1, 17.9)) * 0.14;
 }
+// Clairiere des batiments construits du joueur (render/mistClearance.ts) au point \`xz\` : 0 sans
+// carte, hors de son rectangle ou loin de tout batiment, 1 au contact. La carte est deja un fondu
+// doux (distance a l'empreinte reelle, union) ; ses seuils ondulent avec le meme bruit lent que la
+// frontiere du brouillard (bordure organique, jamais un cercle propre autour d'une Maison).
+float cloudClearance(vec2 xz) {
+  if (uCloudClear.x <= 0.0) return 0.0;
+  vec2 uv = (xz - uCloudClearRect.xy) / uCloudClearRect.zw;
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+  float raw = texture2D(tCloudClear, uv).r;
+  if (raw <= 0.0) return 0.0;
+  float e = (cloudNoise(xz * 0.3 + uCloudSeed + vec2(37.0, 11.0)) - 0.5) * 0.3;
+  return smoothstep(0.08 + e, 0.92 + e, raw) * uCloudClear.x;
+}
 // Facteur de densite des nappes selon la visibilite GAMEPLAY du pixel (uCloudFogLevel) : case
 // visible FAIBLE, exploree hors vision FORTE, inexploree (sur le noir) ; etat lu dans la grille du
 // brouillard (0 inexplore, 0,5 explore, 1 visible) au point meme (\`c\`) et en cinq points a une case
@@ -242,7 +288,10 @@ float cloudFbm(vec2 p) {
 // \`max(c, s)\`, l'interieur d'une zone visible revient tout de suite au niveau faible, seul le cote
 // brume est adouci ; les seuils ondulent avec un bruit lent (frontiere esthetique organique, la
 // frontiere gameplay de l'assombrissement reste exacte). Hors de la grille : inexplore. \`known\` :
-// 0 au coeur de l'inexplore, 1 des qu'une case connue pese.
+// 0 au coeur de l'inexplore, 1 des qu'une case connue pese. Second facteur : la clairiere des
+// batiments construits (cloudClearance) ramene le niveau vers uCloudClear.y (sous le niveau visible),
+// SEULEMENT la ou la case est connue (\`explored\` : nul au coeur de l'inexplore, rien n'est revele)
+// et jamais au-dessus du niveau deja atteint (min).
 float cloudFogLevel(vec2 xz, out float known) {
   vec2 uv = (xz - uCloudFogRect.xy) / uCloudFogRect.zw;
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { known = 0.0; return uCloudFogLevel.z; }
@@ -256,7 +305,9 @@ float cloudFogLevel(vec2 xz, out float known) {
   known = smoothstep(0.0, 0.3, s);
   float explored = smoothstep(0.1 + edge, 0.45 + edge, s);
   float visible = smoothstep(0.55 + edge * 0.5, 0.95 + edge * 0.5, max(c, s));
-  return mix(mix(uCloudFogLevel.z, uCloudFogLevel.y, explored), uCloudFogLevel.x, visible);
+  float level = mix(mix(uCloudFogLevel.z, uCloudFogLevel.y, explored), uCloudFogLevel.x, visible);
+  float clear = cloudClearance(xz) * explored;
+  return mix(level, min(level, uCloudClear.y), clear);
 }
 // Sources chaudes : teinte et luminance de la nappe pres d'une source, avec une portee verticale ;
 // \`known\` eteint tout en zone inexploree (aucune lumiere ne revele l'inconnu).

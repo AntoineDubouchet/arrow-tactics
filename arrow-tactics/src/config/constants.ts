@@ -460,6 +460,11 @@ export interface WallDoorState {
   open: boolean;
   /** Vrai une fois la porte batie : un chantier bloque tout le monde. */
   built: boolean;
+  /** Verrouillee fermee par le joueur (2026-11-08, sim/systems/doors.ts) :
+   *  plus aucune ouverture automatique, et la porte bloque AUSSI ses allies
+   *  (sim/relations.ts canUnitPassGate) tant qu'elle n'est pas remise en
+   *  mode automatique (World.setDoorLocked). */
+  locked: boolean;
 }
 
 /** Capsule d'une piece de mur V2 (ObstacleDef.line) : segment de A a B et

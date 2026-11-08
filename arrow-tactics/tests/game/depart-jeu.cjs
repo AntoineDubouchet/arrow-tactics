@@ -1,6 +1,6 @@
 // Tests EN JEU du camp de depart (2026-11-04), run reelle graine 12345 : Baliste, Auberge, 2 Maisons (A, B), 2
 // Villageois, enceinte de Palissade V2 et porte OUVERTE ; population 2 / 15 ; stock de depart inchange ; camera sur le
-// Heros ; production d'un Villageois a l'Auberge (fiche) ; Heros et Villageois sortent par la porte ; recolte libre
+// Heros ; production d'un Villageois a l'Hotel de ville (fiche, 2026-11-08) ; Heros et Villageois sortent par la porte (fermee au depart) ; recolte libre
 // (bois, pierre) sans Forge ; clic droit sur un gisement d'or : recolte directe, sans Forge (2026-11-05) ; ennemi bloque par la porte
 // ouverte ; Baliste detruite = defaite. Captures. Usage : npm run test:game (ou VITE_BASE=http://localhost:5174/ node tests/game/depart-jeu.cjs)
 const L = require('./lib.cjs');
@@ -47,8 +47,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
       cam: { dx: +(v.targetX - h.x).toFixed(2), dz: +(v.targetZ - h.z).toFixed(2) },
     };
   });
-  check(`run reelle : 1 Baliste, 1 Auberge, 2 Maisons terminees (A puis B), 2 Villageois, enceinte arrondie de 36 pieces dont 4 portes OUVERTES (G48) ; 1 or (250) + 1 pierre (250) + ${NB_TREES} arbres (75, >= 6) dans l enceinte ; Heros dans le camp ; Pop. 2 / 15 ; stock de depart inchange (0 bois, 0 pierre, 20 or) ; camera centree sur le Heros`,
-    camp.layout && NB_TREES >= 6 && J(camp.deposits) === J(['gold', 'stone', ...Array(NB_TREES).fill('wood')]) && 250 - camp.amounts.gold <= 3 && 250 - camp.amounts.stone <= 3 && 75 - camp.amounts.wood <= 3 && camp.ballista === 1 && camp.tavern === 1 && J(camp.houses) === J(['blue_home_A', 'blue_home_B']) && camp.houseBuilt && camp.villagers === 2 && camp.walls === 36 && J(camp.gates) === '[true,true,true,true]' && camp.hero.inside && /2\s*\/\s*15/.test(camp.pop) && camp.stock.wood === 0 && camp.stock.stone === 0 && camp.stock.gold === 20 && Math.hypot(camp.cam.dx, camp.cam.dz) < 1.5, camp);
+  check(`run reelle : 1 Baliste, 1 Auberge, 2 Maisons terminees (A puis B), 2 Villageois, enceinte arrondie de 36 pieces dont 4 portes posees FERMEES en mode automatique (2026-11-08 ; ouvertes de G48 a G50) ; 1 or (250) + 1 pierre (250) + ${NB_TREES} arbres (75, >= 6) dans l enceinte ; Heros dans le camp ; Pop. 2 / 15 ; stock de depart inchange (0 bois, 0 pierre, 20 or) ; camera centree sur le Heros`,
+    camp.layout && NB_TREES >= 6 && J(camp.deposits) === J(['gold', 'stone', ...Array(NB_TREES).fill('wood')]) && 250 - camp.amounts.gold <= 3 && 250 - camp.amounts.stone <= 3 && 75 - camp.amounts.wood <= 3 && camp.ballista === 1 && camp.tavern === 1 && J(camp.houses) === J(['blue_home_A', 'blue_home_B']) && camp.houseBuilt && camp.villagers === 2 && camp.walls === 36 && J(camp.gates) === '[false,false,false,false]' && camp.hero.inside && /2\s*\/\s*15/.test(camp.pop) && camp.stock.wood === 0 && camp.stock.stone === 0 && camp.stock.gold === 20 && Math.hypot(camp.cam.dx, camp.cam.dz) < 1.5, camp);
   const o = camp.layout.origin;
   await L.wait(p, 800);
   await L.setView(p, { targetX: o.x, targetZ: o.z, viewHeight: 32, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 900);
@@ -59,8 +59,8 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   await L.setView(p, { targetX: o.x, targetZ: o.z + 2, viewHeight: 13, yawDeg: 20, pitchDeg: 45 }); await L.wait(p, 700);
   await p.screenshot({ path: OUT + 'depart-camp-proche.png' });
 
-  // Production d'un Villageois a l'Auberge (fiche).
-  const tav = await p.evaluate(() => { const t = window.__world.entities.find((e) => e.unitId === 'tavern'); return { x: t.x, z: t.z }; });
+  // Production d'un Villageois a l'Hotel de ville (fiche ; 2026-11-08 : l'Auberge ne produit plus).
+  const tav = await p.evaluate(() => { const t = window.__world.entities.find((e) => e.unitId === 'townhall'); return { x: t.x, z: t.z }; });
   await L.setView(p, { targetX: tav.x, targetZ: tav.z, viewHeight: 12, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 400);
   const ts = await p.evaluate((t) => window.__toScreen(t.x, t.z, window.__S.surfaceY(t.x, t.z) + 1.0), tav);
   await p.mouse.click(ts.x, ts.y); await L.wait(p, 400);
@@ -70,7 +70,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   let villagers = 2;
   for (let i = 0; i < 40 && villagers < 3; i++) { await L.wait(p, 400); villagers = await p.evaluate(() => window.__world.entities.filter((e) => e.alive && e.unitId === 'villageois').length); }
   const pop2 = await p.evaluate(() => document.querySelector('.economy-hud-item--pop')?.textContent ?? '');
-  check('fiche de l Auberge : produire un Villageois -> 3e Villageois sorti, Pop. 3 / 15', !!prod && villagers === 3 && /3\s*\/\s*15/.test(pop2), { actions, villagers, pop2 });
+  check('fiche de l Hotel de ville : produire un Villageois -> 3e Villageois sorti, Pop. 3 / 15', !!prod && villagers === 3 && /3\s*\/\s*15/.test(pop2), { actions, villagers, pop2 });
 
   // Sortie par la porte : Heros et les 2 Villageois de depart.
   const exitPt = await p.evaluate(() => { const L = window.__layout; const g = L.walls.find((w) => w.gates); const mx = (g.ax + g.bx) / 2, mz = (g.az + g.bz) / 2; const dx = mx - L.origin.x, dz = mz - L.origin.z; const n = Math.hypot(dx, dz); return { x: mx + (dx / n) * 5, z: mz + (dz / n) * 5 }; });
@@ -79,7 +79,7 @@ const check = (label, ok, extra = '') => { if (!ok) failures++; console.log(`${o
   for (let i = 0; i < 40; i++) { await L.wait(p, 300); out = await p.evaluate(() => { const L = window.__layout; return window.__world.entities.filter((x) => x.alive && (x.hero || x.unitId === 'villageois')).map((x) => !(x.x > L.bounds.minX && x.x < L.bounds.maxX && x.z > L.bounds.minZ && x.z < L.bounds.maxZ)); }); if (out.every(Boolean)) break; }
   await L.setView(p, { targetX: exitPt.x, targetZ: exitPt.z, viewHeight: 16, yawDeg: 45, pitchDeg: 55 }); await L.wait(p, 500);
   await p.screenshot({ path: OUT + 'depart-sortie.png' });
-  check('Heros et Villageois (3) sortent du camp par la porte ouverte', out.length === 4 && out.every(Boolean), out);
+  check('Heros et Villageois (3) sortent du camp par la porte (fermee au depart, elle s ouvre devant eux)', out.length === 4 && out.every(Boolean), out);
 
   // Recolte libre, sans Forge : Villageois -> arbre, Heros -> pierre.
   const harvest = await p.evaluate(async () => {

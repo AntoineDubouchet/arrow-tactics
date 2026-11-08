@@ -4,8 +4,10 @@
 // Contrat, sans pixel de l'image finale : (1) sans parametre d'URL les nappes sont actives,
 // demi-resolution ; (2) avec des seuils de bruit forces a « plein » (uniforms, rendu seulement) la
 // COUVERTURE des nappes (alpha de la cible demi-resolution, moyenne sur un bloc de 24 x 24 texels)
-// vaut environ 0,29 en zone visible et 0,90 en zones exploree et inexploree (meme densite, le noir
-// et l'attenuation font la difference a l'image) ; (3) seuils reels : un Villageois teleporte dans
+// vaut environ 0,29 en zone visible sans batiment proche et 0,90 en zones exploree et inexploree
+// (meme densite, le noir et l'attenuation font la difference a l'image), et moins encore au centre de
+// l'Hotel de ville (visible + clairiere des batiments construits, niveau cible 0,08, 2026-11-08) ;
+// (3) seuils reels : un Villageois teleporte dans
 // une zone exploree la rend visible et la couverture y chute d'au moins moitie, puis revient (a
 // 25 % pres) quand il repart ; idem avec un Fantassin. Le disque explore est elargi par
 // FogOfWar.exploreDisc (rendu seul, aucune regle de jeu).
@@ -45,16 +47,19 @@ const teleport = (p, id, x, z) => p.evaluate(({ id, x, z }) => { const e = windo
   // Disque explore elargi (rendu seul) : camp visible au centre, anneau explore jusqu'a 36, inexplore au-dela.
   await p.evaluate(() => { window.__R.fog.exploreDisc(0.5, 0.5, 36); });
   await L.setView(p, { targetX: 0.5, targetZ: -18, viewHeight: 48 }); await L.wait(p, 900); await L.texturesReady(p);
-  const PTS = { visible: [0.5, 0.5], explored: [0.5, -32], unexplored: [0.5, -40] };
-  const pts = [PTS.visible, PTS.explored, PTS.unexplored];
+  // `visible` : zone visible SANS batiment a moins de 5,5 cases (niveau de la grille seule) ;
+  // `built` : centre de l'Hotel de ville, visible ET dans la clairiere des batiments construits
+  // (render/mistClearance.ts, niveau cible 0,08 sous le niveau visible : mist-clearance-jeu.cjs).
+  const PTS = { visible: [13.5, 0.5], built: [0.5, 0.5], explored: [0.5, -32], unexplored: [0.5, -40] };
+  const pts = [PTS.visible, PTS.explored, PTS.unexplored, PTS.built];
   const st = await states(p, pts);
-  check('etats de la grille aux trois points (visible 2, explore 1, inexplore 0)', J(st) === J([2, 1, 0]), st);
+  check('etats de la grille aux quatre points (visible 2, explore 1, inexplore 0, Hotel de ville 2)', J(st) === J([2, 1, 0, 2]), st);
 
   // (2) Seuils de bruit forces a plein : la couverture ne depend plus que du niveau de visibilite.
   const flat = await p.evaluate(async () => { const mc = await import('/src/render/mistClouds.ts'); const u = mc.mistCloudUniforms; const saved = [u.uCloudLow.value, u.uCloudHigh.value]; u.uCloudLow.value = -1; u.uCloudHigh.value = -0.5; return saved; });
   await L.wait(p, 300);
   const cov = await coverage(p, pts);
-  check('couverture a bruit plein : visible ~0,29 (0,15..0,45), exploree ~0,90 (> 0,8), inexploree ~0,90 (> 0,8), visible bien en dessous', !!cov && cov[0] >= 0.15 && cov[0] <= 0.45 && cov[1] > 0.8 && cov[2] > 0.8 && cov[0] < cov[1] / 2, cov);
+  check('couverture a bruit plein : visible sans batiment ~0,29 (0,15..0,45), exploree ~0,90 (> 0,8), inexploree ~0,90 (> 0,8), visible bien en dessous ; Hotel de ville (visible + clairiere) plus bas encore', !!cov && cov[0] >= 0.15 && cov[0] <= 0.45 && cov[1] > 0.8 && cov[2] > 0.8 && cov[0] < cov[1] / 2 && cov[3] < cov[0] * 0.6, cov);
   await p.evaluate(async (saved) => { const mc = await import('/src/render/mistClouds.ts'); mc.mistCloudUniforms.uCloudLow.value = saved[0]; mc.mistCloudUniforms.uCloudHigh.value = saved[1]; }, flat);
   await L.wait(p, 300);
   await p.screenshot({ path: L.OUT + 'mist-clouds-fog-trois-niveaux.png' });

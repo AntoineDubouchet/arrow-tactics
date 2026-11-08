@@ -1,5 +1,5 @@
 // Tests cibles SANS NAVIGATEUR du cargo economique (2026-11-03) : capacites (Heros 10, Villageois 5), bois / pierre /
-// or de gisement transportes (stock inchange avant depot), plein -> depot automatique a la Baliste -> retour a la
+// or de gisement transportes (stock inchange avant depot), plein -> depot automatique a l Hotel de ville -> retour a la
 // source, melange, depot manuel, tas (prise partielle, reste au sol, retour), or de butin (monnaie directe, jamais
 // dans le cargo), Stop, ordre manuel pendant le trajet, source epuisee, outil perdu, aucun point de collecte,
 // mort (cargo perdu, respawn vide), sac RPG inchange, determinisme.
@@ -22,11 +22,13 @@ const map = generateSurvivalMap(12345);
 const nearest = (w: any, resource: string) => [...w.resourceNodes.values()].filter((n: any) => n.resource === resource).sort((a: any, b: any) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))[0];
 const beside = (node: any) => ({ x: node.x + (node.block ? node.block.maxX - node.x + 0.6 : 1.2), z: node.z });
 
-/** Monde : carte generee, Baliste au centre (point de collecte), unite (Heros ou Villageois) a cote de la source. */
+/** Monde : carte generee, Hotel de ville au centre (point de collecte, 2026-11-08), unite (Heros ou Villageois) a cote de la source. */
 function setup(unit: 'hero' | 'villageois', resource: 'wood' | 'stone' | 'gold', seed = 3, withDepot = true) {
   const w = new World(seed);
   w.setMap(map);
-  const depot = withDepot ? w.spawnBuilding(getBuilding('ballista'), 'player', 0.5, 0.5) : null;
+  const depot = withDepot ? w.spawnBuilding(getBuilding('townhall'), 'player', 0.5, 0.5) : null;
+  // Baliste : plus un depot (2026-11-08), mais toujours le point de resurrection du Heros.
+  w.spawnBuilding(getBuilding('ballista'), 'player', 4.5, 0.5);
   const node = nearest(w, resource);
   const at = beside(node);
   const u = unit === 'hero' ? w.spawnHero('player', at.x, at.z, { xp: 0, level: 1, deaths: 0 }) : w.spawn('villageois', 'player', at.x, at.z);
@@ -48,14 +50,14 @@ function runLoop(w: any, u: any, nodeId: number, seconds: number) {
   return { phases, deposits, maxCargo, loot };
 }
 
-check('donnees : capacites Heros 10, Villageois 10 (passe economie 2026-11-05 ; 5 avant) ; Baliste = point de collecte universel (bois, pierre, or extrait) ; Forge non ; Scierie et Camp de mineur specialises (voir collecte.mts)', CARGO_CAPACITY.hero === 10 && CARGO_CAPACITY.villageois === 10 && JSON.stringify(getBuilding('ballista').dropOff) === '["wood","stone","minedGold"]' && !getBuilding('forge').dropOff && getBuilding('sawmill').dropOff!.length === 1 && getBuilding('miner_camp').dropOff!.length === 2);
+check('donnees : capacites Heros 10, Villageois 10 (passe economie 2026-11-05 ; 5 avant) ; Hotel de ville = point de collecte universel (bois, pierre, or extrait), Baliste plus rien (2026-11-08) ; Forge non ; Scierie et Camp de mineur specialises (voir collecte.mts)', CARGO_CAPACITY.hero === 10 && CARGO_CAPACITY.villageois === 10 && JSON.stringify(getBuilding('townhall').dropOff) === '["wood","stone","minedGold"]' && getBuilding('ballista').dropOff === undefined && !getBuilding('forge').dropOff && getBuilding('sawmill').dropOff!.length === 1 && getBuilding('miner_camp').dropOff!.length === 2);
 
 // 1. Heros : bois, plein a 10 -> depot -> retour ; pierre ; or de gisement (monnaie seulement au depot).
 for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'minedGold']] as const) {
   const { w, node, u } = setup('hero', resource);
   const r = runLoop(w, u, node.id, resource === 'gold' ? 50 : 40); // Heros : 10 or a 3,75 s (G44)
   const bag = u.hero.inventory.slots.filter((s: any) => s && s.kind === 'resource').length;
-  check(`Heros ${resource} : cargo jusqu a 10 (jamais plus), depot automatique a la Baliste (10 ${key} deposes), retour a la source, sac RPG vide`, r.maxCargo === 10 && r.deposits[key] >= 10 && r.phases.includes('deposit') && r.phases.indexOf('deposit') > 0 && r.phases.lastIndexOf(`harvest:${node.id}`) > r.phases.indexOf('deposit') && bag === 0, { ...r, cargo: cargo(u), bag });
+  check(`Heros ${resource} : cargo jusqu a 10 (jamais plus), depot automatique a l Hotel de ville (10 ${key} deposes), retour a la source, sac RPG vide`, r.maxCargo === 10 && r.deposits[key] >= 10 && r.phases.includes('deposit') && r.phases.indexOf('deposit') > 0 && r.phases.lastIndexOf(`harvest:${node.id}`) > r.phases.indexOf('deposit') && bag === 0, { ...r, cargo: cargo(u), bag });
 }
 
 // 2. Villageois : capacite 10, boucle arbre -> plein -> Baliste -> retour (bois, pierre, or). Temps par unite : bois 2 s,
@@ -89,7 +91,7 @@ for (const [resource, key] of [['wood', 'wood'], ['stone', 'stone'], ['gold', 'm
   w.issueCommand({ kind: 'deposit', entityIds: [u.id], targetEntityId: depot.id });
   let dep = 0;
   for (let i = 0; i < 30 * 20; i++) { w.step(DT); for (const ev of w.cargoEvents) if (ev.type === 'cargoDeposit') dep += ev.amount; }
-  check('depot manuel (clic droit Baliste avec 3 bois) : le Heros y va, depose 3, cargo vide, Garde (pas de retour : ordre manuel)', before.wood === 3 && dep === 3 && cargoTotal(u.cargo) === 0 && u.order.type === 'guard', { before, dep, order: u.order.type });
+  check('depot manuel (clic droit Hotel de ville avec 3 bois) : le Heros y va, depose 3, cargo vide, Garde (pas de retour : ordre manuel)', before.wood === 3 && dep === 3 && cargoTotal(u.cargo) === 0 && u.order.type === 'guard', { before, dep, order: u.order.type });
 }
 
 // 5. Tas de bois > place restante : prise partielle, reste au sol, depot, retour, tas fini. Or de butin : monnaie, jamais cargo.
