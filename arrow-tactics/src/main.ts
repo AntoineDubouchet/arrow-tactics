@@ -93,7 +93,7 @@ import { EditorUI, type PropertiesSubject } from './editor/editorUI';
 import { downloadMapDef, exportMapDef, loadMapDefFromFile } from './editor/mapSerializer';
 import { buildBallistaTowerPlatform, playBallistaShot, tickBallista } from './render/ballista';
 import { BattleSelection, isInScreenRect, pickEntityAtScreen, selectableUnitsInScreenRect, type ScreenRect } from './render/battleSelection';
-import { attachUnitSelectionRing, teamColor } from './render/unitSelectionRing';
+import { attachUnitSelectionRing, selectionPulseScale, teamColor } from './render/unitSelectionRing';
 import { ensureModels, loadEnvironmentAssets, obstacleModelKeys, type EnvironmentAssets } from './render/assetLibrary';
 import { createBoard, createZonesGroup, type Board } from './render/board';
 import { BuildingView } from './render/buildingView';
@@ -1384,8 +1384,8 @@ function startSurvivalWorld(): void {
   world.goldDropBonus = Math.round(computeTalentEconomyHooks(metaProgress).bonusGoldPerKill?.() ?? 0);
   campViews.setCamps(currentMap.camps ?? []);
   warmLights.place(startingBaseLayoutOf(currentMap));
-  // Mist Clouds (render/mistClouds.ts, rendu officiel) : poche claire du camp, graine du bruit.
-  setMistCloudsScene(startingBaseLayoutOf(currentMap)?.origin ?? currentMap.ballista ?? null, currentMap.generator?.seed ?? 0);
+  // Mist Clouds (render/mistClouds.ts, rendu officiel) : graine du bruit.
+  setMistCloudsScene(currentMap.generator?.seed ?? 0);
   discoveredCamps.clear();
   // Demarrage direct (2026-11-05, KI-68 resolue) : monde charge, camp de
   // depart, Heros et Villageois en Garde, simulation en temps reel. Plus de
@@ -1604,6 +1604,10 @@ function updateFogOfWar(): void {
   board.mist?.setFogOfWar(on ? fogOfWar : null);
   tickMistClock();
   const view = renderer.getViewState();
+  // Sources chaudes (render/warmLights.ts) : portes de palissade vivantes du joueur (lumieres
+  // partagees et brume), point vise pour le choix des portes eclairees.
+  warmLights.syncGates(world.entities.filter((e) => e.alive && e.team === 'player' && e.wall?.door).map((e) => e.wall!));
+  warmLights.setFocus(view.targetX, view.targetZ);
   setMistLights([...campViews.fireLights(), ...warmLights.sources()], view.targetX, view.targetZ);
   // Mist Clouds, debug `?mistUnitMask=on` seulement (non retenu en rendu normal) : unites visibles les plus
   // proches du point vise (masque local de densite autour de leur silhouette, render/mistClouds.ts) ;
@@ -5444,6 +5448,7 @@ function inspectVisibleSameTypeBuildings(anchor: Entity): void {
   setBattleSelection([]);
   battleInspectedEntityId = anchor.id;
   battleInspectedGroupIds = new Set(ids.length > 0 ? ids : [anchor.id]);
+  battleInspectionPulseStart = performance.now();
   selectedPileId = null;
   selectedResourceNodeId = null;
 }
@@ -5465,6 +5470,7 @@ function resolveBattleSelectionClick(event: MouseEvent): void {
   if (event.shiftKey) {
     if (unit) {
       battleSelection.toggle(unit.id);
+      battleSelection.pulse();
       battleEnemyInspection.clear();
       battleInspectedEntityId = null;
     }
@@ -5504,6 +5510,7 @@ function resolveBattleSelectionClick(event: MouseEvent): void {
     const source = building === null && !pileShown ? resourceNodeAtClick(event.clientX, event.clientY, ground) : null;
     setBattleSelection([]);
     battleInspectedEntityId = next;
+    if (next !== null) battleInspectionPulseStart = performance.now();
     selectedPileId = pileShown && pile!.id !== selectedPileId ? pile!.id : null;
     selectedResourceNodeId = source && source.id !== selectedResourceNodeId ? source.id : null;
     return;
@@ -5547,6 +5554,9 @@ function selectBattleUnitsInRect(rect: ScreenRect): void {
  *  selection commandable des unites alliees `entityIds` (vide : plus rien). */
 function setBattleSelection(entityIds: Iterable<number>): void {
   battleSelection.set(entityIds);
+  // Flash de selection : evenement explicite du joueur (clic, rectangle, double-clic, suivi du
+  // Heros), jamais a la synchronisation par image ; une selection vide ne pulse pas.
+  if (battleSelection.size > 0) battleSelection.pulse();
   battleEnemyInspection.clear();
   battleInspectedEntityId = null;
   // Nouvelle selection d'unites : la source selectionnee est retiree.
@@ -5571,6 +5581,18 @@ function setBattleEnemyInspection(entityIds: Iterable<number>): void {
 let battleInspectedEntityId: number | null = null;
 let battleInspectionRing: THREE.Mesh | null = null;
 let battleInspectionRingEntityId: number | null = null;
+/** Flash de selection d'un batiment ou d'un groupe de batiments (render/unitSelectionRing.ts,
+ *  selectionPulseScale) : instant de la derniere inspection explicite ; les anneaux (principal et
+ *  groupe) gonflent brievement puis reviennent. */
+let battleInspectionPulseStart = -Infinity;
+
+/** A chaque image, apres syncBattleInspection et syncBattleInspectionGroup : echelle du flash sur
+ *  les anneaux d'inspection (1 hors de la fenetre). */
+function applyBattleInspectionPulse(): void {
+  const f = selectionPulseScale(performance.now() - battleInspectionPulseStart);
+  battleInspectionRing?.scale.setScalar(f);
+  for (const ring of battleGroupRings) ring.scale.setScalar(f);
+}
 /** Anneaux des autres batiments du groupe inspecte (G46), par signature. */
 const battleGroupRings: THREE.Mesh[] = [];
 let battleGroupRingsKey = '';
@@ -7201,6 +7223,7 @@ const loop = new Loop(
     ballistaIndicator.update(inBattlePhase() && !pauseMenuOpen && inTestMode, currentBallistaStatus(), battleSelection.size, ballistaFireMode);
     syncBattleInspection();
     syncBattleInspectionGroup();
+    applyBattleInspectionPulse();
     updateEntityInfoPanel(now);
 
     // Fait avancer les fleches en attente de depart (voir pendingArrowSpawns) :

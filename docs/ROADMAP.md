@@ -663,10 +663,9 @@ buffs), jamais par la simulation directement.
      découpage des parois (`emitRockEdge`, `render/terrainStylized.ts`).
 - **Rendu : points parqués après le Graphic Lab « ancrage et lumière »**
   (2026-11-07, `DESIGN_DECISIONS.md` A5) :
-  1. **vrais assets pour les deux sources chaudes** du camp : un vrai petit
-     feu de camp devant l'Hôtel de ville, une vraie torche ou lanterne fixée
-     au montant de la porte de palissade (aujourd'hui deux petits cônes de
-     flamme, indicateurs provisoires) ;
+  1. **vrais assets pour les deux sources chaudes** du camp : **fait** le
+     2026-11-08 (feu de camp devant l'Hôtel de ville, torches sur les
+     montants de chaque porte, `DESIGN_DECISIONS.md` A6) ;
   2. **volumétrie lumineuse verticale** : halo dans l'air au-dessus du sol
      autour d'une source, hors de portée du voile au sol actuel ; demande
      un vrai volume ou un sprite, à juger contre le coût ;
@@ -679,12 +678,14 @@ buffs), jamais par la simulation directement.
      n'a été ni retenu ni écarté.
 - **Rendu : Graphic Lab « Mist Clouds » clos** (2026-11-08,
   `DESIGN_DECISIONS.md` A6 : nappes aériennes en espace monde calculées en
-  half-res dans la passe du brouillard, repères gameplay depth-aware ; rendu
-  officiel, plus aucune expérimentation artistique en cours). Points
-  parqués :
-  1. **vrai petit feu de camp devant l'Hôtel de ville** (repris du point 1
-     ci-dessus) ;
-  2. **vraie torche ou lanterne à la porte de palissade** (idem) ;
+  half-res dans la passe du brouillard, densité pilotée par la grille du
+  brouillard de guerre, repères gameplay depth-aware ; rendu officiel, plus
+  aucune expérimentation artistique en cours). Points parqués :
+  1. **vrai petit feu de camp devant l'Hôtel de ville** : **fait** le
+     2026-11-08 (`render/fireProps.ts`, `render/warmLights.ts`) ;
+  2. **vraie torche à la porte de palissade** : **fait** le 2026-11-08 (une
+     par montant, face intérieure ; une lanterne reste possible si l'œil le
+     demande) ;
   3. **volumes ou filaments internes des nappes** : seulement si un besoin
      apparaît à l'œil ; le relief interne essayé pendant le lab n'est pas
      retenu et ne doit pas revenir tel quel ;

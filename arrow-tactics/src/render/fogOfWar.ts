@@ -44,27 +44,33 @@ export const overlayDepthUniforms = {
 };
 
 /** Biais du test (unites monde le long de la ligne de vue, camera orthographique : profondeur
- *  lineaire). Un anneau ou une plaque est pose 0,03 au-dessus du sol, soit ~0,037 devant le sol sur
- *  la ligne de vue (inclinaison 55°) : 0,01 le garde net au sol ; une facade entre la camera et le
- *  repere l'ecarte de bien plus, donc il est masque des le pied du mur (aucune transparence). */
+ *  lineaire). Un repere est pose 0,03 au-dessus du sol, soit ~0,025 devant le sol sur la ligne de
+ *  vue (inclinaison 55°) : ce biais de reference, 0,01, garde une plaque ou un marqueur net au sol ;
+ *  une facade entre la camera et le repere l'ecarte de bien plus, donc il est masque des le pied du
+ *  mur. Chaque materiau applique un FACTEUR a ce biais (makeOverlayDepthAware) : les anneaux d'unite
+ *  en prennent une fraction (render/unitSelectionRing.ts), car l'arc avant de l'anneau et les pieds
+ *  de l'unite ne sont separes que de quelques millimetres de profondeur : avec 0,01 entier, les
+ *  pieds ne masquaient plus l'anneau, qui semblait peint devant les jambes (2026-11-08). */
 export const OVERLAY_DEPTH_BIAS = 0.01;
 
 const overlayDepthMaterials = new WeakSet<THREE.Material>();
 
 /** Le materiau relit la profondeur opaque de la scene (overlayDepthUniforms) et abandonne tout
- *  fragment situe derriere elle. Idempotent ; un clone du materiau est a marquer a son tour. */
-export function makeOverlayDepthAware(material: THREE.Material): void {
+ *  fragment situe derriere elle, a `biasScale` x OVERLAY_DEPTH_BIAS pres. Idempotent ; un clone du
+ *  materiau est a marquer a son tour. */
+export function makeOverlayDepthAware(material: THREE.Material, biasScale = 1): void {
   if (overlayDepthMaterials.has(material)) return;
   overlayDepthMaterials.add(material);
   material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, overlayDepthUniforms);
+    Object.assign(shader.uniforms, overlayDepthUniforms, { uOverlayBiasScale: { value: biasScale } });
     shader.fragmentShader = shader.fragmentShader.replace(
       'void main() {',
       /* glsl */ `uniform sampler2D tOverlayDepth;
         uniform vec2 uOverlayDepthSize;
         uniform vec2 uOverlayDepthTest;
+        uniform float uOverlayBiasScale;
         void main() {
-          if (uOverlayDepthTest.x > 0.5 && gl_FragCoord.z > texture2D(tOverlayDepth, gl_FragCoord.xy / uOverlayDepthSize).x + uOverlayDepthTest.y) discard;`,
+          if (uOverlayDepthTest.x > 0.5 && gl_FragCoord.z > texture2D(tOverlayDepth, gl_FragCoord.xy / uOverlayDepthSize).x + uOverlayDepthTest.y * uOverlayBiasScale) discard;`,
     );
   };
   material.customProgramCacheKey = () => 'overlayDepth';
@@ -75,13 +81,14 @@ export function isOverlayDepthAware(material: THREE.Material): boolean {
 }
 
 /** Place `object` et ses descendants dans la couche des reperes prioritaires et rend leurs
- *  materiaux sensibles a la profondeur de la scene (makeOverlayDepthAware). */
-export function markGameplayOverlay(object: THREE.Object3D): void {
+ *  materiaux sensibles a la profondeur de la scene (makeOverlayDepthAware, facteur de biais
+ *  `biasScale`). */
+export function markGameplayOverlay(object: THREE.Object3D, biasScale = 1): void {
   object.traverse((o) => {
     o.layers.set(GAMEPLAY_OVERLAY_LAYER);
     const material = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
     if (!material) return;
-    for (const m of Array.isArray(material) ? material : [material]) makeOverlayDepthAware(m);
+    for (const m of Array.isArray(material) ? material : [material]) makeOverlayDepthAware(m, biasScale);
   });
 }
 
@@ -236,6 +243,12 @@ export class FogOfWarPass {
   overlayDepthTest = typeof location === 'undefined' || new URLSearchParams(location.search).get('overlayDepth') !== 'off';
   overlayDepthBias = OVERLAY_DEPTH_BIAS;
 
+  /** Cible demi-resolution des nappes (couleur premultipliee, couverture en alpha), pour les
+   *  controles et les tests ; null sans nappes ou avant le premier rendu. */
+  get cloudCoverage(): THREE.WebGLRenderTarget | null {
+    return this.cloudTarget;
+  }
+
   constructor() {
     this.material = this.compositeMaterial(this.clouds ? 'full' : 'off');
     if (this.clouds) {
@@ -269,26 +282,27 @@ export class FogOfWarPass {
     this.scene.add(this.quad);
   }
 
-  /** Composition plein ecran : `off` (shader historique), `full` (nappes evaluees par pixel, avant
-   *  l'assombrissement), `half` (nappes relues dans la cible demi-resolution : la lecture du
-   *  brouillard est faite d'abord pour ne rien relire sur un pixel jamais explore, resultat identique). */
+  /** Composition plein ecran : `off` (shader historique), `full` (nappes evaluees par pixel), `half`
+   *  (nappes relues dans la cible demi-resolution, evaluation exacte sur les pixels de contour).
+   *  Nappes et brouillard de guerre : les nappes sont composees sur la scene AVANT l'assombrissement
+   *  (assombries en zone exploree comme le sol) ; en zone inexploree, elles sont posees, attenuees
+   *  (uCloudUnseen), sur le noir opaque : matiere atmospherique au-dessus de l'inconnu, qui ne laisse
+   *  rien deviner (render/mistClouds.ts : densite par niveau de visibilite, surface ignoree). */
   private compositeMaterial(clouds: 'off' | 'full' | 'half'): THREE.ShaderMaterial {
-    const fogRead = /* glsl */ `
-            vec2 fogUv = (world.xz - fogRect.xy) / fogRect.zw;
-            bool inside = fogUv.x >= 0.0 && fogUv.x <= 1.0 && fogUv.y >= 0.0 && fogUv.y <= 1.0;
-            float seen = inside ? texture2D(tFog, fogUv).r : 0.0;`;
-    const cloudsCall = clouds === 'full'
-      ? '\n            mistClouds(color.rgb, world, (cameraWorld * vec4(0.0, 0.0, -1.0, 0.0)).xyz);' + fogRead
+    const cloudsEval = clouds === 'full'
+      ? /* glsl */ `
+            vec4 cl = mistCloudsLayers(world, forward);`
       : clouds === 'half'
-        ? fogRead + /* glsl */ `
-            if (seen > 0.0) {
-              float ddMin;
-              vec4 cl = cloudsUpsample(vUv, depth, ddMin);
-              // Contour (aucun texel voisin a moins d'une unite de profondeur) : evaluation exacte.
-              if (ddMin > 0.0025) cl = mistCloudsLayers(world, (cameraWorld * vec4(0.0, 0.0, -1.0, 0.0)).xyz);
-              color.rgb = color.rgb * (1.0 - cl.a) + cl.rgb;
-            }`
-        : fogRead;
+        ? /* glsl */ `
+            float ddMin;
+            vec4 cl = cloudsUpsample(vUv, depth, ddMin);
+            // Contour (aucun texel voisin a moins d'une unite de profondeur) : evaluation exacte.
+            if (ddMin > 0.0025) cl = mistCloudsLayers(world, forward);`
+        : '';
+    const cloudsOver = clouds === 'off' ? '' : /* glsl */ `
+            color.rgb = color.rgb * (1.0 - cl.a) + cl.rgb;`;
+    const cloudsUnseen = clouds === 'off' ? '' : /* glsl */ `
+            unseen = unseen * (1.0 - cl.a) + cl.rgb * uCloudUnseen;`;
     const upsample = /* glsl */ `
         uniform sampler2D tClouds;
         uniform vec2 cloudsTexel;
@@ -336,14 +350,15 @@ export class FogOfWarPass {
           if (depth < 1.0 || fogBackground) {
             vec4 view = projectionInverse * vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
             vec3 world = (cameraWorld * vec4(view.xyz / view.w, 1.0)).xyz;
+            vec3 forward = (cameraWorld * vec4(0.0, 0.0, -1.0, 0.0)).xyz;
             // Fond sous brume : traite comme le sol sur sa ligne de vue (plan y = 0).
-            if (depth >= 1.0) {
-              vec3 forward = (cameraWorld * vec4(0.0, 0.0, -1.0, 0.0)).xyz;
-              world -= forward * (world.y / forward.y);
-            }${cloudsCall}
+            if (depth >= 1.0) world -= forward * (world.y / forward.y);
+            vec2 fogUv = (world.xz - fogRect.xy) / fogRect.zw;
+            bool inside = fogUv.x >= 0.0 && fogUv.x <= 1.0 && fogUv.y >= 0.0 && fogUv.y <= 1.0;
+            float seen = inside ? texture2D(tFog, fogUv).r : 0.0;${cloudsEval}${cloudsOver}
             float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
             vec3 explored = mix(color.rgb, vec3(luma), 0.45) * 0.55;
-            vec3 unseen = vec3(0.012, 0.014, 0.02);
+            vec3 unseen = vec3(0.012, 0.014, 0.02);${cloudsUnseen}
             color.rgb = seen < 0.5 ? mix(unseen, explored, seen * 2.0) : mix(explored, color.rgb, (seen - 0.5) * 2.0);
           }
           gl_FragColor = color;
@@ -377,7 +392,12 @@ export class FogOfWarPass {
     u.projectionInverse.value.copy(camera.projectionMatrixInverse);
     u.cameraWorld.value.copy(camera.matrixWorld);
     u.fogRect.value.set(fog.minX, fog.minZ, fog.width, fog.height);
-    if (this.clouds) tickMistClouds();
+    if (this.clouds) {
+      tickMistClouds();
+      // Densite des nappes par etat de visibilite : la meme grille que l'assombrissement.
+      mistCloudUniforms.tCloudFog.value = fog.texture;
+      mistCloudUniforms.uCloudFogRect.value.set(fog.minX, fog.minZ, fog.width, fog.height);
+    }
     const half = this.cloudsHalfRes && this.cloudMaterial && this.halfMaterial;
     if (half) {
       const w = Math.ceil(size.x / 2);

@@ -115,7 +115,14 @@ six Villageois autour d'un arbre au clic droit, surplus et message), `townhall-f
 l'Hôtel de ville, 4 rotations du camp, normale lue sur le modèle ; cadrage 28, Espace, R, captures),
 `baliste-portee-jeu.cjs` (Baliste en AUTO, ennemi touché devant chacune des 4 portes, 2 rotations),
 `overlay-profondeur-jeu.cjs` (repères prioritaires rendus après la passe du brouillard : matériaux
-depth-aware, anneau du Héros masqué derrière l'Hôtel de ville, intact devant, captures).
+depth-aware, anneau du Héros masqué derrière l'Hôtel de ville, intact devant, captures),
+`mist-clouds-fog-jeu.cjs` (Mist Clouds pilotées par la grille du brouillard de guerre : couverture
+des nappes lue dans la cible demi-résolution, faible en zone visible, forte en zone explorée hors
+vision comme en zone inexplorée ; un Villageois ou un Fantassin téléporté dans une zone explorée la
+dégage puis la brume revient ; captures),
+`selection-flash-jeu.cjs` (flash de sélection : l'anneau d'une unité cliquée, ou d'un bâtiment
+inspecté, gonfle puis revient en ~240 ms ; aucun pulse tant que la sélection est seulement
+maintenue ; échelle échantillonnée image par image, aucun pixel).
 `camp-boucle.cjs` a 3 vérifications en échec, antérieures à G47 (KI-72).
 `lib.cjs` est la bibliothèque commune (lancement, ouverture de la Survie,
 caméra, captures).

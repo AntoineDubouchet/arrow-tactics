@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Entity } from '../sim/entity';
 import { isCommandable } from '../sim/orders';
 import { distanceToSegment } from '../core/wallLine';
-import { createUnitSelectionRing, placeUnitSelectionRing } from './unitSelectionRing';
+import { createUnitSelectionRing, placeUnitSelectionRing, selectionPulseScale } from './unitSelectionRing';
 
 /** Tolerance minimale du clic de selection, en pixels, quand l'unite parait
  *  tres petite a l'ecran (zoom arriere). */
@@ -147,11 +147,20 @@ export class BattleSelection {
     this.set([]);
   }
 
+  /** Flash de selection (render/unitSelectionRing.ts, selectionPulseScale) : a appeler a chaque
+   *  VRAI evenement de selection du joueur (jamais a la synchronisation par image) ; tous les
+   *  anneaux de la selection pulsent ensemble. Rendu seulement. */
+  pulse(): void {
+    this.pulseStart = performance.now();
+  }
+  private pulseStart = -Infinity;
+
   /** A appeler une fois par frame. Retire de la selection les entites
    *  disparues (World vide) ou mortes, puis place un anneau sous la position
    *  rendue de chaque unite restante. */
   sync(lookup: (id: number) => Entity | undefined, renderedPosition: RenderedPosition): void {
     let used = 0;
+    const pulse = selectionPulseScale(performance.now() - this.pulseStart);
     for (const id of this.selected) {
       const entity = lookup(id);
       if (!entity || !entity.alive) {
@@ -159,7 +168,9 @@ export class BattleSelection {
         continue;
       }
       const pos = renderedPosition(entity.id) ?? { x: entity.x, z: entity.z };
-      placeUnitSelectionRing(this.selectionRingAt(used++), entity.team, pos.x, pos.z, entity.stats.radius);
+      const ring = this.selectionRingAt(used++);
+      placeUnitSelectionRing(ring, entity.team, pos.x, pos.z, entity.stats.radius);
+      if (pulse !== 1) ring.scale.multiplyScalar(pulse);
     }
     for (let i = used; i < this.rings.length; i++) this.rings[i]!.visible = false;
   }

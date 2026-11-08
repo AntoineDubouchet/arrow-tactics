@@ -57,7 +57,7 @@ exemple un ancien choix remplacé par un nouveau qui, lui, est actif.
 | A3 | Rendu instancié des unités retiré | Historique |
 | A4 | Retour d'impact : flash conservé, recul retiré | Active (flash) / Remplacée (recul) |
 | A5 | Graphic Lab « ancrage et lumière » clos : contact map, Ground Mist liée au brouillard en soft intersection, deux sources chaudes, lumière dans la brume ; `shadow` non retenu | Active (2026-11-07, valeurs provisoires) |
-| A6 | Graphic Lab « Mist Clouds » clos : nappes aériennes en espace monde dans la passe du brouillard, calcul half-res, repères gameplay depth-aware ; relief interne et masque unités non retenus | Active (2026-11-08) |
+| A6 | Graphic Lab « Mist Clouds » clos : nappes aériennes en espace monde dans la passe du brouillard, densité pilotée par la grille du brouillard de guerre (clair, brume forte, noir), calcul half-res, repères gameplay depth-aware, feu de camp et torches réels ; relief interne, poche centrée sur le camp et masque unités non retenus | Active (2026-11-08) |
 | B1 | Retrait du Cavalier léger | Remplacée (cavalerie revenue, G8) |
 | B2 | PV et dégâts stockés ×10, affichés en pips | Active |
 | B3 | La case comme unité de mesure | Active |
@@ -301,7 +301,7 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   `render/unitViews.ts`, `main.ts` (`syncContactMap`, `updateFogOfWar`) ;
   `CURRENT_STATE.md` §11 (rendu officiel) et §18.
 
-### A6 — Graphic Lab « Mist Clouds » clos : nappes aériennes half-res, repères depth-aware
+### A6 — Graphic Lab « Mist Clouds » clos : nappes aériennes half-res pilotées par le brouillard, repères depth-aware, feu et torches
 
 - **Statut** : Active (Antoine, 2026-11-08).
 - **Contexte** : après A5, l'image manquait encore de grandes masses
@@ -317,10 +317,28 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
 - **Décision** (Antoine) :
   - **Mist Clouds officielles**, variante REFERENCE : trois couches (0,2 à
     1,0 ; 0,8 à 1,9 ; 1,5 à 2,8), alpha 0,75 / 0,5 / **0,22**, distribution
-    actuelle, poche claire du StartingBase (densité résiduelle 0,18), WarmLight
-    alpha additionnel **0,15**, **aucun relief interne**, **aucun plafond de
-    couverture**, **aucune baisse globale de densité**, masque unités **OFF**.
-    Actives sans paramètre d'URL ; `off` conservé pour comparer ;
+    actuelle, WarmLight alpha additionnel **0,15**, **aucun relief interne**,
+    **aucun plafond de couverture**, **aucune baisse globale de densité**,
+    masque unités **OFF**. Actives sans paramètre d'URL ; `off` conservé pour
+    comparer ;
+  - **densité pilotée par le brouillard de guerre** (règle principale,
+    décidée le 2026-11-08 en deux temps : trois niveaux d'abord, puis lecture
+    « clair, brume forte, noir ») : la grille déjà résolue du brouillard est
+    l'unique source de vérité, aucune logique parallèle. Case **visible** par
+    une source de vision alliée : nappes faibles (0,22 de REFERENCE) ; case
+    **explorée hors vision** : nappes fortes (1,0), la bande atmosphérique
+    principale ; case **jamais explorée** : le noir reste souverain, nappes
+    atténuées posées dessus comme matière, surface ignorée. Raisons : le
+    joueur doit sentir que **ses unités repoussent le brouillard parce
+    qu'elles voient**, avec Héros, Villageois, soldats, bâtiments et Baliste
+    sans distinction ; un camp réellement visible ne doit jamais rester noyé.
+    La **poche claire centrée sur le camp**, rayon esthétique fixe, est
+    retirée : elle faisait doublon et pouvait contredire la vision réelle.
+    L'état intermédiaire « moyen » essayé pour la zone explorée a été
+    abandonné : trop peu lisible entre le clair et le noir. La case du pixel
+    fait foi pour la vision (pas de densité héritée des voisines explorées),
+    le côté brume est adouci sur trois cases et ondulé par un bruit, la
+    frontière gameplay de l'assombrissement reste exacte ;
   - **aucun mesh ni draw call monde pour les nappes** : elles sont calculées
     dans la passe plein écran du brouillard de guerre, à partir de la
     profondeur déjà résolue. Raisons : parallaxe correcte (forme lue à la
@@ -367,10 +385,35 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     ralliement sont rendus après la composition brouillard + nappes (jamais
     voilés ni assombris) mais chaque matériau abandonne les fragments situés
     derrière la profondeur opaque de la scène, relue dans la DepthTexture que
-    la passe possède déjà (biais 0,01 unité). Le comportement « rayons X »
-    précédent (repères visibles à travers les bâtiments) est corrigé.
-    **Pas de nouvelle depth prepass**, aucune passe, aucun draw call ni
-    texture supplémentaire ;
+    la passe possède déjà. Le comportement « rayons X » précédent (repères
+    visibles à travers les bâtiments) est corrigé. **Pas de nouvelle depth
+    prepass**, aucune passe, aucun draw call ni texture supplémentaire.
+    **Biais par type** (2026-11-08) : 0,01 unité pour la plaque, l'anneau de
+    dépôt et les marqueurs ; un dixième (0,001) pour les anneaux d'unité.
+    Diagnostic : la hauteur de l'anneau (0,03), la DepthTexture, les matériaux
+    et l'ordre de rendu étaient corrects ; seul le biais entier empêchait les
+    pieds, à quelques millimètres de profondeur de l'arc avant de l'anneau,
+    de le masquer, d'où un anneau qui semblait peint devant les jambes. La
+    hauteur de l'anneau suffit à l'écarter du terrain, aucun scintillement ;
+  - **flash de sélection** : à une vraie sélection du joueur (clic, Maj +
+    clic, rectangle, double-clic, suivi du Héros, inspection d'un bâtiment
+    ou d'un groupe), les anneaux gonflent de 22 % puis reviennent en 240 ms,
+    ensemble pour un groupe ; lié à l'événement, jamais à la synchronisation
+    par image : le maintien de la sélection ne pulse pas ;
+  - **vrais supports pour les sources chaudes** (parking d'A5 levé) : feu de
+    camp low-poly devant l'Hôtel de ville (position dérivée de l'orientation
+    réelle du bâtiment, de côté pour laisser l'axe des marches aux unités,
+    PointLight ancrée sur les flammes) et torche sur chaque montant de porte
+    de palissade, fixée à la face **intérieure** du poteau (côté défendu,
+    celui des traverses : règle valable pour toute porte, construite
+    comprise), le tout dans `render/fireProps.ts`. Flammes existantes
+    réutilisées (cônes additifs), fusionnées en un mesh par foyer et animées
+    en vertex shader : aucun second moteur de particules, aucun registre.
+    **Budget de lumières** : les torches visuelles peuvent être nombreuses,
+    mais les PointLights restent un réservoir de deux lumières partagées pour
+    les portes (centre de la paire de torches des deux portes les plus
+    proches du point visé, hystérésis, fondu) plus une pour le feu : jamais
+    une PointLight par torche, nombre constant, aucune recompilation ;
   - **barres HTML** : hors périmètre, inchangées. Elles peuvent toujours
     passer devant un bâtiment : problème préexistant et séparé (KI-77,
     parking) ;
@@ -382,21 +425,27 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   - **WarmLights** : interaction conservée, les deux sources officielles
     (Hôtel de ville, porte de palissade) colorent légèrement les nappes.
     Aucune nouvelle lumière.
-- **Parking** (voir `ROADMAP.md` §7) : vrai petit feu de camp devant l'Hôtel
-  de ville et vraie torche ou lanterne à la porte (déjà parqués par A5) ;
-  volumes ou filaments internes des nappes, seulement si un besoin apparaît
-  à l'œil ; overlays HTML de combat depth-aware.
-- **À ne pas faire** : ne pas réintroduire le relief interne ; pas de plafond
-  de couverture ni de baisse globale de densité ; pas de quart de
-  résolution ; pas de depth prepass ; pas de masque unités par défaut ni
-  d'exception par type d'unité ; ne pas modifier la Ground Mist pour un effet
-  qui relève des Mist Clouds ; ne pas ajouter de mesh de nuage dans la scène.
+- **Parking** (voir `ROADMAP.md` §7) : volumes ou filaments internes des
+  nappes, seulement si un besoin apparaît à l'œil ; overlays HTML de combat
+  depth-aware ; lanterne à la place d'une torche si l'œil le demande.
+- **À ne pas faire** : ne pas réintroduire le relief interne ni une poche
+  claire centrée sur le camp, ni une liste d'unités comme source de clarté
+  (la grille du brouillard est la seule source) ; ne pas remettre un niveau
+  « moyen » en zone explorée ; pas de plafond de couverture ni de baisse
+  globale de densité ; pas de quart de résolution ; pas de depth prepass ;
+  pas de masque unités par défaut ni d'exception par type d'unité ; ne pas
+  modifier la Ground Mist pour un effet qui relève des Mist Clouds ; ne pas
+  ajouter de mesh de nuage dans la scène ; pas de PointLight par torche ;
+  pas de pulse de sélection en boucle.
 - **Sources** : `render/mistClouds.ts`, `render/fogOfWar.ts` (`FogOfWarPass`,
   `GAMEPLAY_OVERLAY_LAYER`, `makeOverlayDepthAware`, `markGameplayOverlay`),
+  `render/fireProps.ts`, `render/warmLights.ts`, `render/palisade.ts`,
   `render/renderer.ts`, `render/unitSelectionRing.ts`,
-  `render/resourcePiles.ts`, `render/rallyMarkers.ts`, `main.ts`
-  (`setMistCloudsScene`, plaque de placement) ;
-  `tests/game/overlay-profondeur-jeu.cjs` ; `CURRENT_STATE.md` §11 et §18 ;
+  `render/battleSelection.ts`, `render/resourcePiles.ts`,
+  `render/rallyMarkers.ts`, `main.ts` (`setMistCloudsScene`, plaque de
+  placement, `syncGates`, flash d'inspection) ;
+  `tests/game/overlay-profondeur-jeu.cjs`, `mist-clouds-fog-jeu.cjs`,
+  `selection-flash-jeu.cjs` ; `CURRENT_STATE.md` §11 et §18 ;
   `ARCHITECTURE.md` §11.
 
 ---

@@ -3,9 +3,28 @@ import { mistShared } from './groundMist';
 
 /**
  * MIST CLOUDS — RENDU OFFICIEL (2026-11-08, Graphic Lab « Mist Clouds » clos, DESIGN_DECISIONS.md
- * A6). Grandes nappes de brume aeriennes autour du village : masses, profondeur, environnement.
+ * A6 ; passe « brouillard a trois niveaux » du meme jour, EN COURS DE VALIDATION : voir le rapport,
+ * la documentation produit n'est pas encore a jour). Grandes nappes de brume aeriennes : masses,
+ * profondeur, environnement, et desormais REPRESENTATION VISUELLE DU BROUILLARD DE GUERRE.
  * Distinctes de la Ground Mist (render/groundMist.ts, voile par materiau au ras du sol : integration
  * basse, pieds des objets, fog explore, ancrage ; validee et intacte).
+ *
+ * REGLE PRINCIPALE : la densite des nappes suit la visibilite GAMEPLAY du pixel, lue dans la grille du
+ * brouillard de guerre deja resolue (FogOfWar.texture : la meme que l'assombrissement, aucune logique
+ * parallele, aucune liste d'unites, aucun rayon esthetique, aucun centre de camp) :
+ * - case VISIBLE (Heros, unites, batiments, Baliste, toute source de vision) : nappes FAIBLES
+ *   (FOG_LEVELS.visible de REFERENCE : un peu d'humidite, quelques nappes fines, terrain lisible) ;
+ * - case EXPLOREE hors vision : nappes FORTES (FOG_LEVELS.explored, REFERENCE entiere) : la bande
+ *   atmospherique principale, entre la vision reelle et le noir ;
+ * - case INEXPLOREE : le noir du brouillard reste souverain ; des nappes atmospheriques attenuees
+ *   (uCloudUnseen, render/fogOfWar.ts) sont posees dessus, jamais plus presentes que la bande
+ *   exploree ; la surface est ignoree (hauteur ramenee au sol), rien de ce qui est dessous n'est
+ *   devine.
+ * Lecture : CLAIR -> BRUME FORTE -> NOIR. Transitions : etat lu au point meme et en cinq points a une
+ * case d'ecart (fondu sur trois cases environ cote brume) ; la case du pixel fait foi pour la vision
+ * (une zone visible ne recupere pas la densite de ses voisines explorees) ; seuils legerement
+ * decales par un bruit lent (frontiere esthetique organique ; la frontiere GAMEPLAY, elle, reste
+ * exacte : l'assombrissement de la passe lit la grille telle quelle).
  *
  * Technique : aucun mesh, aucun draw call. La passe plein ecran du brouillard de guerre
  * (render/fogOfWar.ts, FogOfWarPass) connait deja, pour chaque pixel, la position monde de la
@@ -16,16 +35,16 @@ import { mistShared } from './groundMist';
  * coupe), et la forme de la nappe est lue a la position MONDE de la couche sur cette ligne de vue
  * (parallaxe correcte quand la camera tourne : les nappes appartiennent au monde). Forme : bruit de
  * valeur a tres basse frequence (3 octaves, 22 a 40 cases pour la grande forme), seuils larges
- * (contours doux, trous, masses). Poche du village : la distance au centre du camp, deformee par un
- * bruit, reduit la densite au coeur (jamais un cercle). Sources chaudes : memes 4 sources que la
- * Ground Mist (uniforms partages, lecture seule), avec une portee verticale pour montrer la lumiere
- * un peu plus haut dans l'air. Brouillard de guerre : les nappes sont composees AVANT
- * l'assombrissement de la passe, donc assombries en zone exploree et noires en zone inexploree
- * comme le sol qu'elles couvrent (rien de revele). Derive lente, directions differentes par couche.
+ * (contours doux, trous, masses). Sources chaudes : memes 4 sources que la Ground Mist (uniforms
+ * partages, lecture seule), avec une portee verticale pour montrer la lumiere un peu plus haut dans
+ * l'air ; aucune lumiere en zone inexploree. Brouillard de guerre : les nappes sont composees AVANT
+ * l'assombrissement de la passe, donc assombries en zone exploree comme le sol qu'elles couvrent
+ * (rien de revele). Derive lente, directions differentes par couche.
  *
- * Lisibilite (passe 3) : une unite peut etre partiellement ou fortement voilee par une nappe dense,
- * c'est assume. Les reperes de jeu prioritaires (plaque de placement, anneaux, marqueurs de
- * ralliement : GAMEPLAY_OVERLAY_LAYER, render/fogOfWar.ts) et les barres HTML restent au-dessus.
+ * Lisibilite : une unite peut etre partiellement voilee par une nappe dense (zone exploree hors
+ * vision surtout), c'est assume. Les reperes de jeu prioritaires (plaque de placement, anneaux,
+ * marqueurs de ralliement : GAMEPLAY_OVERLAY_LAYER, render/fogOfWar.ts) et les barres HTML restent
+ * au-dessus.
  *
  * `?mistClouds=` : `on` (= `reference`, DEFAUT sans parametre) | `off` (comparaison : passe du
  * brouillard strictement identique a celle d'avant les nappes) | `subtle` | `strong` (limites).
@@ -66,13 +85,24 @@ export function mistUnitMaskOn(): boolean {
 /** Couleur des nappes : la famille de la Ground Mist (#a8bdb9), un peu plus claire ; jamais blanc. */
 const CLOUD_COLOR = 0xb9cac6;
 
-/** Niveaux : gain d'alpha, seuil bas du bruit (plus bas = nappes plus larges), densite residuelle
- *  au coeur du camp. */
-const LEVELS: Record<Exclude<MistCloudsMode, 'off'>, { gain: number; low: number; high: number; pocket: number }> = {
-  subtle: { gain: 0.55, low: 0.5, high: 0.85, pocket: 0.1 },
-  reference: { gain: 1.0, low: 0.4, high: 0.78, pocket: 0.18 },
-  strong: { gain: 1.5, low: 0.28, high: 0.7, pocket: 0.3 },
+/** Niveaux : gain d'alpha, seuil bas du bruit (plus bas = nappes plus larges), seuil haut. */
+const LEVELS: Record<Exclude<MistCloudsMode, 'off'>, { gain: number; low: number; high: number }> = {
+  subtle: { gain: 0.55, low: 0.5, high: 0.85 },
+  reference: { gain: 1.0, low: 0.4, high: 0.78 },
+  strong: { gain: 1.5, low: 0.28, high: 0.7 },
 };
+
+/** Facteur de densite par etat du brouillard de guerre (part de l'intensite REFERENCE) : case
+ *  visible FAIBLE, case exploree hors vision FORTE (c'est LA bande atmospherique principale, entre
+ *  la vision reelle et le noir), case jamais exploree (meme densite, mais posee attenuee sur le noir :
+ *  jamais plus importante que la bande exploree). PROVISOIRE (lecture revue le 2026-11-08 :
+ *  CLAIR -> BRUME FORTE -> NOIR ; cibles d'Antoine ~0,22, 0,95 a 1,05, noir souverain). */
+const FOG_LEVELS = { visible: 0.22, explored: 1.0, unexplored: 1.0 };
+
+/** Luminosite des nappes posees sur le noir de l'inexplore (part de leur couleur) : matiere
+ *  atmospherique sombre au-dessus de l'inconnu, nettement plus discrete que la bande exploree
+ *  (nappes x 0,55 par l'assombrissement). */
+const UNSEEN_CLOUD = 0.22;
 
 /** Couches : bas, haut (unites monde au-dessus du sol), taille de la grande forme (cases), alpha.
  *  (Passe 2 : une couche haute a 0,19 ou 0,176 a ete mesuree sans effet sur la lisibilite d'une
@@ -101,22 +131,28 @@ const WARM = { alpha: 0.15, tint: 0.85, bright: 0.45 };
  *  + `outer` (nul), hauteur au-dessus du sol de l'unite de `h0` (nul) a `h1` (plein). Au plus
  *  MAX_UNITS unites, les plus proches du point vise (main.ts). Non retenu : cout GPU non mesure
  *  (boucle par fragment sur une passe plein ecran), ne sauve pas les unites basses, coeurs opaques
- *  rares, informations prioritaires deja protegees par les reperes rendus apres la passe. */
+ *  rares, informations prioritaires deja protegees par les reperes rendus apres la passe ; la
+ *  faiblesse des nappes en zone visible fait l'essentiel du travail depuis la passe trois niveaux. */
 const UNIT_MASK = { strength: 0.35, inner: 0.25, outer: 1.0, h0: 0.12, h1: 0.45 };
 const MAX_UNITS = 12;
 
 export const mistCloudUniforms = {
   uCloudTime: { value: 0 },
-  uCloudCenter: { value: new THREE.Vector2() },
   uCloudSeed: { value: new THREE.Vector2() },
   uCloudGain: { value: 0 },
   uCloudLow: { value: 0.5 },
   uCloudHigh: { value: 0.8 },
-  uCloudPocket: { value: 0.15 },
   uCloudColor: { value: new THREE.Color(CLOUD_COLOR) },
   uCloudLayer: { value: LAYERS.map((l) => new THREE.Vector4(...l)) },
   uCloudDrift: { value: DRIFT.map((d) => new THREE.Vector4(...d)) },
   uCloudWarm: { value: new THREE.Vector3(WARM.alpha, WARM.tint, WARM.bright) },
+  /** Grille du brouillard de guerre (FogOfWar.texture : 0 inexplore, 128 explore, 255 visible) et
+   *  son rectangle monde (coin x, z, taille en cases), remplis par FogOfWarPass a chaque image. */
+  tCloudFog: { value: null as THREE.Texture | null },
+  uCloudFogRect: { value: new THREE.Vector4(0, 0, 1, 1) },
+  /** Facteur de densite : visible, explore hors vision, inexplore (FOG_LEVELS). */
+  uCloudFogLevel: { value: new THREE.Vector3(FOG_LEVELS.visible, FOG_LEVELS.explored, FOG_LEVELS.unexplored) },
+  uCloudUnseen: { value: UNSEEN_CLOUD },
   /** Unites visibles proches (x, z, y du sol, rayon de collision) et leur nombre. */
   uCloudUnits: { value: Array.from({ length: MAX_UNITS }, () => new THREE.Vector4()) },
   uCloudUnitCount: { value: 0 },
@@ -132,13 +168,12 @@ if (mode !== 'off') {
   mistCloudUniforms.uCloudGain.value = level.gain;
   mistCloudUniforms.uCloudLow.value = level.low;
   mistCloudUniforms.uCloudHigh.value = level.high;
-  mistCloudUniforms.uCloudPocket.value = level.pocket;
 }
 
-/** Carte en cours : centre du camp de depart (poche claire) et graine (decalage du bruit). Appele
- *  par main.ts au chargement d'une carte ; sans camp, poche au centre (0, 0). */
-export function setMistCloudsScene(center: { x: number; z: number } | null, seed: number): void {
-  mistCloudUniforms.uCloudCenter.value.set(center?.x ?? 0, center?.z ?? 0);
+/** Carte en cours : graine (decalage du bruit). Appele par main.ts au chargement d'une carte. (La
+ *  poche claire centree sur le camp a ete retiree le 2026-11-08 : la clarte du village vient
+ *  uniquement de sa visibilite gameplay, comme partout ailleurs.) */
+export function setMistCloudsScene(seed: number): void {
   const s = seed >>> 0;
   mistCloudUniforms.uCloudSeed.value.set((s % 883) * 1.71, ((s >>> 9) % 907) * 1.13);
 }
@@ -162,20 +197,22 @@ export function tickMistClouds(): void {
 /** Declarations et fonctions GLSL (fragment de la passe plein ecran). `mistCloudsLayers(world,
  *  forward)` : couleur premultipliee et couverture des nappes devant la surface (rgb = somme des
  *  couches composees « over », a = couverture), `world` surface rendue (ou point du plan y = 0 sur la
- *  ligne de vue pour le fond), `forward` direction de vue (vers le bas). `mistClouds(color, world,
- *  forward)` les applique a la couleur : strictement equivalent aux trois mix successifs par couche. */
+ *  ligne de vue pour le fond), `forward` direction de vue (vers le bas) ; la densite suit l'etat du
+ *  brouillard de guerre a la verticale du pixel (cloudFogLevel). */
 export const MIST_CLOUDS_GLSL = /* glsl */ `
 uniform float uCloudTime;
-uniform vec2 uCloudCenter;
 uniform vec2 uCloudSeed;
 uniform float uCloudGain;
 uniform float uCloudLow;
 uniform float uCloudHigh;
-uniform float uCloudPocket;
 uniform vec3 uCloudColor;
 uniform vec4 uCloudLayer[3];
 uniform vec4 uCloudDrift[3];
 uniform vec3 uCloudWarm;
+uniform sampler2D tCloudFog;
+uniform vec4 uCloudFogRect;
+uniform vec3 uCloudFogLevel;
+uniform float uCloudUnseen;
 uniform vec4 uCloudUnits[${MAX_UNITS}];
 uniform int uCloudUnitCount;
 uniform vec4 uCloudUnitMask;
@@ -198,8 +235,32 @@ float cloudNoise(vec2 p) {
 float cloudFbm(vec2 p) {
   return cloudNoise(p) * 0.58 + cloudNoise(p * 2.13 + vec2(11.7, 5.3)) * 0.28 + cloudNoise(p * 4.7 + vec2(3.1, 17.9)) * 0.14;
 }
-// Sources chaudes : teinte et luminance de la nappe pres d'une source, avec une portee verticale.
-vec3 cloudLit(vec2 xz, float h, vec3 base, inout float alpha) {
+// Facteur de densite des nappes selon la visibilite GAMEPLAY du pixel (uCloudFogLevel) : case
+// visible FAIBLE, exploree hors vision FORTE, inexploree (sur le noir) ; etat lu dans la grille du
+// brouillard (0 inexplore, 0,5 explore, 1 visible) au point meme (\`c\`) et en cinq points a une case
+// d'ecart (\`s\`, transition sur trois cases environ). La case du pixel fait foi pour la vision :
+// \`max(c, s)\`, l'interieur d'une zone visible revient tout de suite au niveau faible, seul le cote
+// brume est adouci ; les seuils ondulent avec un bruit lent (frontiere esthetique organique, la
+// frontiere gameplay de l'assombrissement reste exacte). Hors de la grille : inexplore. \`known\` :
+// 0 au coeur de l'inexplore, 1 des qu'une case connue pese.
+float cloudFogLevel(vec2 xz, out float known) {
+  vec2 uv = (xz - uCloudFogRect.xy) / uCloudFogRect.zw;
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { known = 0.0; return uCloudFogLevel.z; }
+  vec2 d = 1.0 / uCloudFogRect.zw;
+  float c = texture2D(tCloudFog, uv).r;
+  float s = c * 2.0;
+  s += texture2D(tCloudFog, uv + vec2(d.x, 0.0)).r + texture2D(tCloudFog, uv - vec2(d.x, 0.0)).r;
+  s += texture2D(tCloudFog, uv + vec2(0.0, d.y)).r + texture2D(tCloudFog, uv - vec2(0.0, d.y)).r;
+  s /= 6.0;
+  float edge = (cloudNoise(xz * 0.3 + uCloudSeed) - 0.5) * 0.2;
+  known = smoothstep(0.0, 0.3, s);
+  float explored = smoothstep(0.1 + edge, 0.45 + edge, s);
+  float visible = smoothstep(0.55 + edge * 0.5, 0.95 + edge * 0.5, max(c, s));
+  return mix(mix(uCloudFogLevel.z, uCloudFogLevel.y, explored), uCloudFogLevel.x, visible);
+}
+// Sources chaudes : teinte et luminance de la nappe pres d'une source, avec une portee verticale ;
+// \`known\` eteint tout en zone inexploree (aucune lumiere ne revele l'inconnu).
+vec3 cloudLit(vec2 xz, float h, vec3 base, inout float alpha, float known) {
   float warm = 0.0;
   vec3 warmColor = vec3(0.0);
   for (int i = 0; i < 4; i++) {
@@ -211,16 +272,19 @@ vec3 cloudLit(vec2 xz, float h, vec3 base, inout float alpha) {
     warmColor += uCloudLightCol[i].rgb * w;
   }
   if (warm <= 0.0) return base;
-  float t = clamp(warm, 0.0, 1.0);
+  float t = clamp(warm, 0.0, 1.0) * known;
   alpha *= 1.0 + uCloudWarm.x * t;
   return mix(base, warmColor / warm, uCloudWarm.y * t) * (1.0 + uCloudWarm.z * t);
 }
 vec4 mistCloudsLayers(vec3 world, vec3 forward) {
   vec4 acc = vec4(0.0);
-  if (uCloudGain <= 0.0 || world.y >= uCloudLayer[2].y) return acc;
-  // Poche du village : distance au centre du camp, cassee par un bruit lent (jamais un cercle).
-  float warp = (cloudNoise((world.xz + uCloudSeed) * 0.055 + vec2(31.0, 47.0)) - 0.5) * 12.0;
-  float pocket = mix(uCloudPocket, 1.0, smoothstep(6.0, 19.0, distance(world.xz, uCloudCenter) + warp));
+  if (uCloudGain <= 0.0) return acc;
+  float known;
+  float level = cloudFogLevel(world.xz, known);
+  // Inexplore : la surface n'existe pas pour les nappes (hauteur ramenee au sol) : ni silhouette, ni
+  // toit, ni relief ne modifie l'epaisseur traversee, rien n'est devine sous le noir.
+  float ys = world.y * known;
+  if (ys >= uCloudLayer[2].y) return acc;
   // Masque local (debug, force 0 en rendu normal : boucle sautee) : corps des unites visibles
   // proches (surfaces au-dessus de leur sol, dans un rayon court), jamais le terrain autour.
   float keep = 1.0;
@@ -236,12 +300,13 @@ vec4 mistCloudsLayers(vec3 world, vec3 forward) {
   }
   for (int k = 0; k < 3; k++) {
     vec4 Lr = uCloudLayer[k];
-    float bottom = max(Lr.x, world.y);
+    float bottom = max(Lr.x, ys);
     if (bottom >= Lr.y) continue;
     // Part de l'epaisseur de la couche devant la surface (absorption progressive, aucune coupe).
     float through = smoothstep(0.0, 1.0, (Lr.y - bottom) / (Lr.y - Lr.x));
     float hm = (bottom + Lr.y) * 0.5;
-    // Point de la couche sur la ligne de vue (monde) : la nappe appartient au monde.
+    // Point de la couche sur la ligne de vue (monde) : la nappe appartient au monde (ne depend que
+    // du rayon du pixel, jamais de la surface).
     vec3 P = world - forward * ((hm - world.y) / (-forward.y));
     vec4 D = uCloudDrift[k];
     vec2 q = (P.xz + D.zw + uCloudSeed + D.xy * uCloudTime) / Lr.z;
@@ -249,9 +314,9 @@ vec4 mistCloudsLayers(vec3 world, vec3 forward) {
     // de vrais trous (masses et vides, pas une couronne uniforme).
     float n = (cloudFbm(q) - 0.5) * 1.9 + 0.5;
     float s = smoothstep(uCloudLow, uCloudHigh, n);
-    float a = s * Lr.w * uCloudGain * pocket * through * keep;
+    float a = s * Lr.w * uCloudGain * level * through * keep;
     if (a <= 0.002) continue;
-    vec3 c = cloudLit(P.xz, hm, uCloudColor, a);
+    vec3 c = cloudLit(P.xz, hm, uCloudColor, a, known);
     a = clamp(a, 0.0, 1.0);
     acc = acc * (1.0 - a) + vec4(c * a, a);
   }

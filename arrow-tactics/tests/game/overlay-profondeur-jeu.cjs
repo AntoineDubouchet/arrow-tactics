@@ -66,7 +66,10 @@ async function roiDiff(helper, a, b, roi) {
   const helper = await browser.newPage();
   const png = (b) => 'data:image/png;base64,' + b.toString('base64');
   const results = {};
-  for (const [name, k] of [['devant', -3.2], ['derriere', 3.0]]) {
+  // Devant : a 4,4 cases du centre (3,2 avant le 2026-11-08), a l'ecart du feu de camp pose devant
+  // l'Hotel de ville (render/warmLights.ts) et de la Baliste, dont les volumes masqueraient
+  // legitimement une partie de l'anneau.
+  for (const [name, k] of [['devant', -4.4], ['derriere', 3.0]]) {
     const pos = at(k);
     await teleport(p, H, pos.x, pos.z); await L.wait(p, 350);
     const s = await p.evaluate(({ x, z }) => window.__toScreen(x, z, window.__S.surfaceY(x, z)), pos);

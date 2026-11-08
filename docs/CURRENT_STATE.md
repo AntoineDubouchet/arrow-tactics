@@ -2529,38 +2529,75 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
   « Mist Clouds » clos, choix d'Antoine ; `DESIGN_DECISIONS.md` A6). Sans
   aucun paramètre d'URL, en plus de ce qui précède, le jeu rend :
   - **Mist Clouds en espace monde** (`render/mistClouds.ts`) : grandes nappes
-    de brume aériennes autour du village, distinctes de la Ground Mist. Les
-    deux systèmes ont des rôles séparés : la **Ground Mist** fait
-    l'intégration basse (pieds des objets, fog exploré, ancrage) ; les **Mist
-    Clouds** font les grandes masses aériennes, la profondeur et
-    l'environnement autour du village. Aucun mesh ni draw call dans le
-    monde : **trois couches atmosphériques** horizontales épaisses (hauteurs
-    0,2 à 1,0, 0,8 à 1,9 et 1,5 à 2,8 unités au-dessus du sol ; alpha 0,75,
-    0,5 et **0,22** ; grande forme de 22, 30 et 40 cases ; bruit de valeur à
-    3 octaves, seuils 0,40 à 0,78 ; dérive lente et décalage propres à chaque
-    couche) sont intersectées par la ligne de vue dans la passe plein écran
-    du brouillard de guerre : la part de l'épaisseur située devant la surface
-    rendue donne l'absorption (un pieu ou un tronc disparaît progressivement
-    vers le bas, une cime ou un toit au-dessus de la couche reste net, aucune
-    ligne de coupe), et la forme est lue à la position **monde** de la couche
-    sur cette ligne de vue (parallaxe correcte quand la caméra tourne).
-    Couleur `#b9cac6`, de la famille de la Ground Mist. **Poche claire autour
-    du StartingBase** : densité résiduelle 0,18 au cœur, distance au centre
-    du camp déformée par un bruit lent (jamais un cercle). Aucun relief
-    interne, aucun plafond de couverture, aucune baisse globale de densité :
-    une nappe très dense peut volontairement voiler fortement une silhouette ;
-    les informations gameplay prioritaires restent lisibles par les repères
-    ci-dessous et les barres HTML. Aucune exception par type d'unité.
-    Déterministe : décalage du bruit tiré de la graine de la carte ;
-  - **intégration Fog of War** : les nappes sont composées **avant**
-    l'assombrissement de la passe, donc assombries en zone explorée hors
-    vision et noires en zone inexplorée, comme le sol qu'elles couvrent ;
-    la grille du brouillard est lue seule, rien n'est révélé ;
-  - **WarmLights** : les deux sources chaudes officielles (porte de l'Hôtel
-    de ville, montant de la porte de palissade) colorent légèrement les nappes
-    (mêmes 4 sources que la Ground Mist, lecture seule ; au cœur d'une source
-    : alpha +0,15, teinte chaude 0,85, luminance +0,45, portée verticale).
-    Aucune nouvelle lumière ;
+    de brume aériennes, distinctes de la Ground Mist. Les deux systèmes ont
+    des rôles séparés : la **Ground Mist** fait l'intégration basse (pieds des
+    objets, fog exploré, ancrage) ; les **Mist Clouds** font les grandes
+    masses aériennes, la profondeur, l'environnement, et sont la
+    **représentation visuelle du brouillard de guerre**. Aucun mesh ni draw
+    call dans le monde : **trois couches atmosphériques** horizontales
+    épaisses (hauteurs 0,2 à 1,0, 0,8 à 1,9 et 1,5 à 2,8 unités au-dessus du
+    sol ; alpha 0,75, 0,5 et **0,22** ; grande forme de 22, 30 et 40 cases ;
+    bruit de valeur à 3 octaves, seuils 0,40 à 0,78 ; dérive lente et
+    décalage propres à chaque couche) sont intersectées par la ligne de vue
+    dans la passe plein écran du brouillard de guerre : la part de
+    l'épaisseur située devant la surface rendue donne l'absorption (un pieu
+    ou un tronc disparaît progressivement vers le bas, une cime ou un toit
+    au-dessus de la couche reste net, aucune ligne de coupe), et la forme est
+    lue à la position **monde** de la couche sur cette ligne de vue
+    (parallaxe correcte quand la caméra tourne). Couleur `#b9cac6`, de la
+    famille de la Ground Mist. Aucun relief interne, aucun plafond de
+    couverture, aucune baisse globale de densité : une nappe dense peut
+    volontairement voiler fortement une silhouette ; les informations
+    gameplay prioritaires restent lisibles par les repères ci-dessous et les
+    barres HTML. Aucune exception par type d'unité. Déterministe : décalage
+    du bruit tiré de la graine de la carte ;
+  - **trois niveaux pilotés par la grille du brouillard de guerre**
+    (2026-11-08, lecture **clair, brume forte, noir**) : la densité des nappes
+    suit l'état de la case du pixel dans la grille déjà résolue du brouillard,
+    la même que l'assombrissement de la passe, aucune logique parallèle (ni
+    centre de camp, ni liste d'unités, ni rayon esthétique) :
+    - case **visible** par une source de vision alliée (Héros, Villageois,
+      unités, bâtiments, Baliste, toute source future) : nappes **faibles**,
+      **0,22** de REFERENCE, un peu d'humidité et quelques nappes fines,
+      terrain, unités et bâtiments lisibles ; le cœur du village couvert par
+      ses sources de vision reste clair ;
+    - case **explorée hors vision** : nappes **fortes**, **1,0** de
+      REFERENCE, la bande atmosphérique principale entre la vision réelle et
+      le noir, assombrie avec le terrain qu'elle couvre (×0,55) ;
+    - case **jamais explorée** : le noir du brouillard reste souverain ; des
+      nappes atténuées (couleur ×0,22) sont posées dessus comme matière
+      atmosphérique, jamais plus présentes que la bande explorée, et la
+      surface est ignorée (hauteur ramenée au sol) : ni silhouette, ni toit,
+      ni relief ne module l'épaisseur, rien n'est deviné.
+    Transitions : état lu au point même et en cinq points à une case d'écart
+    (fondu sur trois cases environ côté brume), la case du pixel fait foi
+    pour la vision (l'intérieur d'une zone visible ne récupère pas la densité
+    de ses voisines explorées), seuils ondulés par un bruit lent (frontière
+    esthétique organique, jamais un cercle net ; la frontière gameplay de
+    l'assombrissement reste exacte). La réaction suit la grille image par
+    image : une unité qui arrive dans une ancienne zone la dégage, la brume
+    revient dès qu'elle repart ;
+  - **sources chaudes** : les deux sources officielles colorent légèrement
+    les nappes (mêmes 4 sources que la Ground Mist, lecture seule ; au cœur
+    d'une source : alpha +0,15, teinte chaude 0,85, luminance +0,45, portée
+    verticale ; nulles en zone inexplorée). Elles ont maintenant de vrais
+    supports (`render/fireProps.ts`, 2026-11-08) : un **feu de camp**
+    low-poly devant l'Hôtel de ville (cercle de pierres, quatre bûches,
+    braises, flammes ; diamètre environ 1 case, flammes à environ 0,9 ;
+    position dérivée de l'orientation réelle du bâtiment, de côté pour
+    laisser l'axe des marches aux unités ; sa PointLight est ancrée sur le
+    cœur des flammes) et une **torche** par montant de porte de palissade,
+    fixée à la face **intérieure** du poteau, côté défendu, inclinée vers
+    l'intérieur du camp (toute porte en porte deux, camp de départ comme
+    porte construite). Flammes de la famille des feux de camps neutres,
+    fusionnées en un mesh par foyer et animées dans le vertex shader
+    (aucun travail CPU par torche). Budget de lumières : 1 PointLight pour le
+    feu et un **réservoir de 2 PointLights** partagées pour les portes, posées
+    au centre de la paire de torches des deux portes les plus proches du
+    point visé (hystérésis, fondu), nombre constant quel que soit le nombre
+    de portes ; feu et chaque porte vivante alimentent la brume et les nappes
+    (4 sources au plus en shader). Purement décoratifs : ni collision, ni
+    interaction, ni effet sur le pathfinding ;
   - **calcul half-res** : les nappes sont évaluées dans une passe dédiée de la
     moitié de la taille (cible HalfFloat d'un quart de l'écran, un draw call
     et un programme de plus), puis recomposées par un suréchantillonnage
@@ -2570,29 +2607,45 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
     silhouettes des bancs et intégration des objets identiques au calcul par
     pixel (écart moyen mesuré inférieur à 0,4 niveau, au scintillement des
     lumières près). Pas de quart de résolution ;
-  - **performance** (session du 2026-11-08, 1600 × 900, RTX 2070 partagée
+  - **performance** (sessions du 2026-11-08, 1600 × 900, RTX 2070 partagée
     avec une application tierce : valeurs absolues contaminées, mais
-    comparaisons A/B/C entrelacées cohérentes ; ce n'est pas un benchmark
-    matériel universel) : calcul par pixel environ +1,8 à +2,2 ms GPU,
-    half-res environ +0,2 à +0,45 ms, soit environ 80 % de moins ;
+    comparaisons entrelacées cohérentes ; ce n'est pas un benchmark matériel
+    universel) : calcul par pixel environ +1,8 à +2,2 ms GPU, half-res
+    environ +0,2 à +0,6 ms selon la vue (lecture de la grille comprise), soit
+    environ 75 à 80 % de moins ; les supports des sources chaudes ajoutent
+    environ 15 draw calls et 1 100 triangles ;
   - **repères gameplay depth-aware** (`GAMEPLAY_OVERLAY_LAYER`,
     `render/fogOfWar.ts`) : plaque de placement, anneaux de sélection,
     anneau de dépôt des ressources et marqueurs de ralliement sont rendus
     **après** la composition brouillard + nappes (jamais voilés ni
     assombris) **mais** testés contre la DepthTexture de la scène déjà
-    rendue (`makeOverlayDepthAware`, biais 0,01 unité) : un anneau derrière
-    l'Hôtel de ville est masqué par le bâtiment. L'ancien comportement
-    « rayons X » (repères visibles à travers les bâtiments) est corrigé.
-    Aucune passe, aucun draw call ni texture supplémentaire. Les **barres
-    HTML** (vie, mana, files) ne sont pas concernées et peuvent toujours
-    passer devant un bâtiment (KI-77, préexistant) ;
+    rendue (`makeOverlayDepthAware`) : un anneau derrière l'Hôtel de ville
+    est masqué par le bâtiment. L'ancien comportement « rayons X » (repères
+    visibles à travers les bâtiments) est corrigé. Biais de référence 0,01
+    unité pour la plaque, l'anneau de dépôt et les marqueurs ; les **anneaux
+    d'unité** n'en prennent qu'un dixième (0,001), car l'arc avant de
+    l'anneau et les pieds de l'unité ne sont séparés que de quelques
+    millimètres de profondeur : avec 0,01 entier les pieds ne le masquaient
+    plus et l'anneau semblait peint devant les jambes (corrigé le
+    2026-11-08 : l'anneau passe sous les pieds, le terrain reste derrière,
+    un bâtiment devant le masque). Aucune passe, aucun draw call ni texture
+    supplémentaire. Les **barres HTML** (vie, mana, files) ne sont pas
+    concernées et peuvent toujours passer devant un bâtiment (KI-77,
+    préexistant) ;
+  - **flash de sélection** (2026-11-08) : à une vraie sélection du joueur
+    (clic, Maj + clic, rectangle, double-clic, suivi du Héros, inspection
+    d'un bâtiment ou d'un groupe de bâtiments), les anneaux concernés
+    gonflent de 22 % puis reviennent en 240 ms, tous ensemble pour un
+    groupe ; jamais en boucle, le simple maintien de la sélection ne pulse
+    pas (`render/unitSelectionRing.ts`, `selectionPulseScale`) ;
   - **débogage** : `?mistClouds=off` (passe du brouillard strictement
     identique à celle d'avant les nappes), `subtle`, `strong` (limites) ;
     `?mistCloudsRes=full` (nappes calculées par pixel, comparaison) ;
     `?mistUnitMask=on` (masque local de densité autour des 12 unités visibles
     les plus proches du point visé, outil de comparaison non retenu) ;
     `?overlayDepth=off` (repères à travers les bâtiments, comparaison).
-    Test permanent : `tests/game/overlay-profondeur-jeu.cjs` ;
+    Tests permanents : `tests/game/overlay-profondeur-jeu.cjs`,
+    `mist-clouds-fog-jeu.cjs`, `selection-flash-jeu.cjs` ;
 - **Direction graphique officielle par défaut** (2026-11-02, choix
   d'Antoine) : `look=stylized`, `groundLook=rich` (`meadow` depuis le
   2026-11-06), `surfaceBlend=organic`,

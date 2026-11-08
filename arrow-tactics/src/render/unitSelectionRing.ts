@@ -33,6 +33,22 @@ const TEAM_COLORS: Record<Team, number> = {
 const RING_RADIUS_FACTOR = 0.765;
 /** Hauteur au-dessus du sol, pour eviter le scintillement avec le terrain. */
 const RING_HEIGHT = 0.03;
+/** Part du biais de profondeur des reperes (render/fogOfWar.ts, OVERLAY_DEPTH_BIAS) pour un anneau
+ *  d'unite : 0,001 unite monde. L'arc avant de l'anneau passe sous les pieds de l'unite, a quelques
+ *  millimetres de profondeur seulement : avec le biais entier (0,01) les pieds ne le masquaient plus
+ *  et l'anneau semblait peint devant les jambes (2026-11-08). RING_HEIGHT suffit a l'ecarter du
+ *  terrain (~0,025 sur la ligne de vue), aucun scintillement. */
+const RING_DEPTH_BIAS_SCALE = 0.1;
+
+/** Flash de selection (2026-11-08) : au moment d'une VRAIE selection du joueur (clic, Maj + clic,
+ *  rectangle, double-clic, inspection d'un batiment), l'anneau gonfle puis revient en
+ *  SELECTION_PULSE_MS ; jamais en boucle, le simple maintien de la selection ne pulse pas.
+ *  `elapsedMs` : temps ecoule depuis l'evenement ; 1 hors de la fenetre. */
+export const SELECTION_PULSE_MS = 240;
+export function selectionPulseScale(elapsedMs: number): number {
+  if (!(elapsedMs >= 0) || elapsedMs >= SELECTION_PULSE_MS) return 1;
+  return 1 + 0.22 * Math.sin(Math.PI * (elapsedMs / SELECTION_PULSE_MS));
+}
 
 /** Geometrie de rayon 1, partagee par tous les anneaux (mise a l'echelle).
  *  Bande de 20 % du rayon : un anneau compact reste lisible. */
@@ -66,8 +82,8 @@ export function createUnitSelectionRing(team: Team): THREE.Mesh {
   ring.rotation.x = -Math.PI / 2;
   ring.raycast = () => {};
   // Repere prioritaire : rendu apres brouillard et nappes, profondeur de la scene relue
-  // (render/fogOfWar.ts).
-  markGameplayOverlay(ring);
+  // (render/fogOfWar.ts), biais reduit pour passer sous les pieds.
+  markGameplayOverlay(ring, RING_DEPTH_BIAS_SCALE);
   return ring;
 }
 
@@ -79,7 +95,7 @@ export function createAnimatedUnitRing(team: Team): THREE.Mesh {
   const ring = new THREE.Mesh(ringGeometry, ringMaterial(team).clone());
   ring.rotation.x = -Math.PI / 2;
   ring.raycast = () => {};
-  markGameplayOverlay(ring);
+  markGameplayOverlay(ring, RING_DEPTH_BIAS_SCALE);
   return ring;
 }
 

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { WallSegment } from '../core/wallLine';
 import { surfaceY } from './terrainSurface';
 import { applyContactShading } from './contactMap';
+import { buildTorch } from './fireProps';
 
 /**
  * Rendu PROCEDURAL de la Palissade V2 (2026-11-02) : aucun asset adapte dans
@@ -39,6 +40,13 @@ const POST_HEIGHT = 1.3;
 /** Porte nettement plus haute que le mur (2026-11-06, demande d'Antoine : on ne la
  *  distinguait pas ; 1,42 et 0,95 avant). Rendu seulement. */
 const GATE_POST_HEIGHT = 2.2;
+/** Torches des montants de porte (2026-11-08, render/fireProps.ts, EN COURS DE VALIDATION) : base du
+ *  manche a TORCH_HEIGHT sur la face INTERIEURE du montant (-Z local, le cote defendu : celui des
+ *  traverses, pour toute porte, camp de depart ou construite), inclinee de TORCH_TILT vers
+ *  l'interieur ; sommet des flammes ~2,05, sous le haut du montant. Rendu seulement. Les lumieres,
+ *  elles, sont un reservoir partage (render/warmLights.ts). */
+const TORCH_HEIGHT = 1.0;
+const TORCH_TILT = 0.3;
 /** Vantail : pieux un peu plus fins que ceux du mur. */
 const LEAF_STAKE_RADIUS = 0.07;
 const LEAF_STAKE_HEIGHT = 1.6;
@@ -203,6 +211,18 @@ export function buildPalisadeGate(s: WallSegment): THREE.Group {
   const right = buildDoorLeaf(leafWidth, 'palisade_door_right', -1);
   right.position.set(half - POST_RADIUS - 0.01, ground - 0.03, 0);
   group.add(left, right);
+  // Torches : une par montant, dans un sous-groupe (pas un mesh direct du cadre : BuildingView et
+  // porte-jeu.cjs comptent le cadre), fixees a la face interieure du poteau (-Z local, cote des
+  // traverses), inclinees vers l'interieur du camp.
+  const torches = new THREE.Group();
+  torches.name = 'palisade_torches';
+  for (const [x, g] of [[-half, groundAt(0)], [half, groundAt(1)]] as const) {
+    const torch = buildTorch().group;
+    torch.position.set(x, g + TORCH_HEIGHT, -(POST_RADIUS + 0.01));
+    torch.rotation.x = -TORCH_TILT;
+    torches.add(torch);
+  }
+  group.add(torches);
   return group;
 }
 
@@ -232,6 +252,8 @@ export function disposeWallPieceView(view: THREE.Object3D): void {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     mesh.geometry.dispose();
+    // Torches : materiaux partages par tous les feux (render/fireProps.ts), jamais liberes ici.
+    if (mesh.userData['sharedMaterial']) return;
     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const m of mats) m.dispose();
   });

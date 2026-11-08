@@ -994,16 +994,21 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
   - Mist Clouds et repères depth-aware (2026-11-08, `DESIGN_DECISIONS.md`
     A6) : `render/mistClouds.ts` (modes `?mistClouds=` et `?mistCloudsRes=`
     lus à l'import ; `mistCloudUniforms` ; `MIST_CLOUDS_GLSL` : fonctions
-    GLSL `mistCloudsLayers` (couleur prémultipliée et couverture des trois
-    couches situées devant la surface) et `mistClouds` ; `setMistCloudsScene`
-    : centre de la poche et graine, appelé par `main.ts` au chargement d'une
+    GLSL `cloudFogLevel` (facteur de densité par état de la grille du
+    brouillard de guerre, `tCloudFog` et `uCloudFogRect` remplis par la
+    passe : visible faible, exploré hors vision fort, inexploré sur le noir
+    avec surface ignorée ; lecture au point et en cinq points, seuils
+    ondulés), `mistCloudsLayers` (couleur prémultipliée et couverture des
+    trois couches situées devant la surface) et `mistClouds` ;
+    `setMistCloudsScene` : graine, appelé par `main.ts` au chargement d'une
     carte ; `tickMistClouds` : horloge cosmétique ; les 4 sources chaudes de
     `mistShared` sont lues, rien d'autre n'est partagé avec la Ground Mist :
     voile au sol par matériau d'un côté, masses aériennes dans la passe de
     l'autre). **Aucun mesh** : les nappes sont évaluées dans `FogOfWarPass`
     (`render/fogOfWar.ts`) à partir de la DepthTexture de la scène et
     composées **avant** l'assombrissement du brouillard de guerre
-    (assombries ou noires comme le sol couvert). Traitement half-res (défaut)
+    (assombries comme le sol couvert ; en inexploré, posées atténuées,
+    `uCloudUnseen`, sur la couleur du noir). Traitement half-res (défaut)
     : `cloudMaterial` rend les couches dans `cloudTarget` (HalfFloat, moitié
     de la taille, recréé au redimensionnement), puis `halfMaterial` compose
     l'image : lecture du brouillard d'abord (rien n'est relu sur un pixel
@@ -1012,18 +1017,37 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     de contour sans voisin compatible. `material` reste la composition pleine
     résolution (`?mistCloudsRes=full` ; `cloudsHalfRes` commutable à chaud) ;
     en `?mistClouds=off`, le shader historique est inchangé. Couche gameplay
-    overlay : `GAMEPLAY_OVERLAY_LAYER` (couche 1) ; `markGameplayOverlay`
-    met un objet sur cette couche et rend ses matériaux depth-aware
+    overlay : `GAMEPLAY_OVERLAY_LAYER` (couche 1) ; `markGameplayOverlay(objet,
+    facteur)` met un objet sur cette couche et rend ses matériaux depth-aware
     (`makeOverlayDepthAware` : `onBeforeCompile`, `discard` du fragment situé
     derrière la profondeur opaque lue dans `overlayDepthUniforms`, biais
-    `OVERLAY_DEPTH_BIAS` converti en profondeur normalisée ; un matériau
-    cloné doit être re-marqué). `FogOfWarPass.render` rend la couche 0 dans
-    sa cible, compose, puis rend la couche 1 par-dessus avec la DepthTexture
-    de la cible, et coupe le test ensuite. Sans passe (éditeur, test de
-    scénario), la caméra a la couche 1 activée (`Renderer`) et ces objets se
-    rendent comme les autres. Utilisé par `render/unitSelectionRing.ts`,
+    `OVERLAY_DEPTH_BIAS` converti en profondeur normalisée et multiplié par
+    le facteur du matériau, uniform `uOverlayBiasScale` : 1 par défaut, 0,1
+    pour les anneaux d'unité ; un matériau cloné doit être re-marqué).
+    `FogOfWarPass.render` rend la couche 0 dans sa cible, compose, puis rend
+    la couche 1 par-dessus avec la DepthTexture de la cible, et coupe le test
+    ensuite. Sans passe (éditeur, test de scénario), la caméra a la couche 1
+    activée (`Renderer`) et ces objets se rendent comme les autres. Utilisé
+    par `render/unitSelectionRing.ts` (qui expose aussi `selectionPulseScale`
+    : échelle du flash de sélection, appliquée par `BattleSelection.sync`
+    après `pulse()` et par `main.ts` sur les anneaux d'inspection),
     `render/resourcePiles.ts`, `render/rallyMarkers.ts` et la plaque de
-    placement (`main.ts`). Test : `tests/game/overlay-profondeur-jeu.cjs`.
+    placement (`main.ts`). Tests : `tests/game/overlay-profondeur-jeu.cjs`,
+    `mist-clouds-fog-jeu.cjs`, `selection-flash-jeu.cjs`.
+  - Sources chaudes avec supports (2026-11-08) : `render/fireProps.ts`
+    (`buildCampfire`, `buildTorch` : un mesh éclairé fusionné à couleurs par
+    sommet et un mesh de flammes par objet ; `flameMaterial` partagé, cônes
+    animés en vertex shader par `tickFlames` ; `disposeFireProp` ; matériaux
+    partagés marqués `userData.sharedMaterial`, jamais libérés par
+    `disposeWallPieceView`). `render/palisade.ts` ajoute deux torches par
+    porte dans un sous-groupe `palisade_torches`, face intérieure des
+    montants (−Z local, côté des traverses). `render/warmLights.ts` pose le
+    feu de camp depuis la disposition du camp (`place`), reçoit chaque image
+    les portes vivantes du joueur (`syncGates`, `main.ts`) et le point visé
+    (`setFocus`), affecte un réservoir de deux PointLights aux portes les plus
+    proches (`animate`), et fournit feu et portes comme `MistLightSource`
+    (`sources`). Le rendu ne lit du `World` que les segments de porte
+    vivants.
   - Habillage du relief (`render/reliefLook.ts`, `setReliefLook`,
     `?relief=` lu par `main.ts`), rendu `faceted-plus` seulement :
     `reliefParams()` (null en `baseline` : aucun calcul, rendu inchangé ;
