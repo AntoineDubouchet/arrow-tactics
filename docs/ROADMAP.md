@@ -710,4 +710,12 @@ buffs), jamais par la simulation directement.
      l'œil le demande un jour, sans décision à prendre aujourd'hui : rayons
      1,75 / 5,5 cases, exclusion ou non de la Baliste ;
   6. **feu de camp** : position validée (x local +0,8, z +3,0, 2026-11-08).
-     Rien à faire.
+     Rien à faire ;
+  7. **lisière du brouillard** (2026-11-09, `render/fogEdge.ts`,
+     `DESIGN_DECISIONS.md` A6) : forme organique et deux dégradés
+     **validés** (amplitude 3 cases, biais 1,6 ; `FOG_EDGE_DARK_FADE` 0,6 /
+     2,4 ; `FOG_EDGE_BLACK_FADE` 0,6 / 2,4, courbe 2,5). Rien à faire ;
+  8. **mouvement du brouillard** (2026-11-09, `FOG_EDGE_TIMING`) : **clos**,
+     durées validées en jeu par Antoine (ouverture 0,5 s, délai 2 s, retour
+     1,5 s). Rien à faire. Observation, sans action prévue : la barre de vie
+     d'un ennemi blessé apparaît au plus 0,5 s sur un terrain encore sombre.

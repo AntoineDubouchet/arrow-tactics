@@ -142,7 +142,18 @@ pied d'un segment (crochet rendu : sources de vision des bâtiments retirées de
 bâtiment ; feu de camp à x local +0,8, z +3,0 de l'Hôtel de ville, au sol ; captures),
 `selection-flash-jeu.cjs` (flash de sélection : l'anneau d'une unité cliquée, ou d'un bâtiment
 inspecté, gonfle puis revient en ~240 ms ; aucun pulse tant que la sélection est seulement
-maintenue ; échelle échantillonnée image par image, aucun pixel).
+maintenue ; échelle échantillonnée image par image, aucun pixel),
+`lisiere-brouillard-jeu.cjs` (2026-11-09 : lisière du brouillard : texture de la grille en RGBA
+avec les distances signées aux lisières du visible et de l'exploré, états et `isVisible` inchangés ;
+à bruit plein, couverture des nappes dans la première case visible égale à celle de la zone explorée
+et divisée par deux ou plus sept cases à l'intérieur ; couverture ancrée au terrain quand seule la
+caméra bouge ; recalcul des distances seulement quand un ensemble de cases change, sous 3 ms en médiane ;
+mouvement du brouillard, à pas de temps imposés sur une grille autonome : état de jeu exact à l'image
+près, délai figé puis retour à la durée prévue, demi-tour pendant le délai sans fermeture, retour
+pendant la reformation sans saut, ouverture continue jamais en avance sur la grille, inconnu intact ;
+ennemi hors de vision masqué avec sa barre à l'instant, terrain encore clair ; captures).
+Depuis le 2026-11-09 (retour différé), `mist-clouds-fog-jeu` et `mist-clearance-jeu` attendent la fin
+du délai visuel avant de lire la brume revenue ; valeurs stabilisées attendues inchangées.
 G53 (2026-11-08) : `depart-jeu`, `noyau-jeu`, `cargo-jeu`, `villageois-jeu`, `porte-jeu` et
 `ergonomie-jeu` recalés sur l'Hôtel de ville (dépôt, production du Villageois, touche A), les
 portes posées fermées (ouvertes par la simulation quand le test examine les vantaux ouverts) et

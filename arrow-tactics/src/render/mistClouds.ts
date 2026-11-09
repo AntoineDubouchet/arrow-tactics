@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { setFogEdgeSeed } from './fogEdge';
 import { mistShared } from './groundMist';
 
 /**
@@ -20,11 +21,12 @@ import { mistShared } from './groundMist';
  *   (uCloudUnseen, render/fogOfWar.ts) sont posees dessus, jamais plus presentes que la bande
  *   exploree ; la surface est ignoree (hauteur ramenee au sol), rien de ce qui est dessous n'est
  *   devine.
- * Lecture : CLAIR -> BRUME FORTE -> NOIR. Transitions : etat lu au point meme et en cinq points a une
- * case d'ecart (fondu sur trois cases environ cote brume) ; la case du pixel fait foi pour la vision
- * (une zone visible ne recupere pas la densite de ses voisines explorees) ; seuils legerement
- * decales par un bruit lent (frontiere esthetique organique ; la frontiere GAMEPLAY, elle, reste
- * exacte : l'assombrissement de la passe lit la grille telle quelle).
+ * Lecture : CLAIR -> BRUME FORTE -> NOIR. Transitions (lisiere, render/fogEdge.ts, 2026-11-09) :
+ * distances signees aux lisieres lues dans la grille, deplacees par un bruit en espace monde biaise
+ * vers l'interieur (la lisiere visuelle, commune a l'assombrissement et aux nappes, est continue et
+ * irreguliere, et deborde sur le terrain visible, jamais l'inverse) ; la densite visible n'est
+ * atteinte qu'a quelques cases a l'interieur, pour qu'une unite qui entre en vision soit encore
+ * enveloppee. La GRILLE reste seule juge de la visibilite gameplay (FogOfWar.isVisible).
  *
  * SECOND FACTEUR (2026-11-08, VALIDE) : la presence locale de nos BATIMENTS CONSTRUITS
  * (render/mistClearance.ts : carte de clairiere en espace monde, union des empreintes reelles, fondu
@@ -198,6 +200,7 @@ if (mode !== 'off') {
 export function setMistCloudsScene(seed: number): void {
   const s = seed >>> 0;
   mistCloudUniforms.uCloudSeed.value.set((s % 883) * 1.71, ((s >>> 9) % 907) * 1.13);
+  setFogEdgeSeed(seed);
 }
 
 /** Carte de clairiere des batiments construits du joueur (render/mistClearance.ts), ou null (facteur
@@ -282,29 +285,24 @@ float cloudClearance(vec2 xz) {
   return smoothstep(0.08 + e, 0.92 + e, raw) * uCloudClear.x;
 }
 // Facteur de densite des nappes selon la visibilite GAMEPLAY du pixel (uCloudFogLevel) : case
-// visible FAIBLE, exploree hors vision FORTE, inexploree (sur le noir) ; etat lu dans la grille du
-// brouillard (0 inexplore, 0,5 explore, 1 visible) au point meme (\`c\`) et en cinq points a une case
-// d'ecart (\`s\`, transition sur trois cases environ). La case du pixel fait foi pour la vision :
-// \`max(c, s)\`, l'interieur d'une zone visible revient tout de suite au niveau faible, seul le cote
-// brume est adouci ; les seuils ondulent avec un bruit lent (frontiere esthetique organique, la
-// frontiere gameplay de l'assombrissement reste exacte). Hors de la grille : inexplore. \`known\` :
-// 0 au coeur de l'inexplore, 1 des qu'une case connue pese. Second facteur : la clairiere des
-// batiments construits (cloudClearance) ramene le niveau vers uCloudClear.y (sous le niveau visible),
-// SEULEMENT la ou la case est connue (\`explored\` : nul au coeur de l'inexplore, rien n'est revele)
-// et jamais au-dessus du niveau deja atteint (min).
+// visible FAIBLE, exploree hors vision FORTE, inexploree (sur le noir). Lisiere (render/fogEdge.ts,
+// 2026-11-09) : la grille porte les distances signees du point aux lisieres du visible et de
+// l'explore ; deplacees par le bruit de lisiere (espace monde, biaise vers l'interieur), elles
+// donnent une frontiere continue et irreguliere, la meme que celle de l'assombrissement. La densite
+// VISIBLE n'est atteinte qu'a uFogEdge.w cases a l'interieur de la lisiere deplacee : une unite qui
+// entre dans sa premiere case visible (affichee par la grille) est encore enveloppee par les nappes
+// (la densite est lue au xz de la surface rendue, son corps compris) et se precise en avancant. Hors
+// de la grille : inexplore. \`known\` : 0 au coeur de l'inexplore, 1 des que la case est connue.
+// Second facteur : la clairiere des batiments construits (cloudClearance) ramene le niveau vers
+// uCloudClear.y (sous le niveau visible), SEULEMENT la ou la case est connue (\`explored\` : nul au
+// coeur de l'inexplore, rien n'est revele) et jamais au-dessus du niveau deja atteint (min).
 float cloudFogLevel(vec2 xz, out float known) {
   vec2 uv = (xz - uCloudFogRect.xy) / uCloudFogRect.zw;
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { known = 0.0; return uCloudFogLevel.z; }
-  vec2 d = 1.0 / uCloudFogRect.zw;
-  float c = texture2D(tCloudFog, uv).r;
-  float s = c * 2.0;
-  s += texture2D(tCloudFog, uv + vec2(d.x, 0.0)).r + texture2D(tCloudFog, uv - vec2(d.x, 0.0)).r;
-  s += texture2D(tCloudFog, uv + vec2(0.0, d.y)).r + texture2D(tCloudFog, uv - vec2(0.0, d.y)).r;
-  s /= 6.0;
-  float edge = (cloudNoise(xz * 0.3 + uCloudSeed) - 0.5) * 0.2;
-  known = smoothstep(0.0, 0.3, s);
-  float explored = smoothstep(0.1 + edge, 0.45 + edge, s);
-  float visible = smoothstep(0.55 + edge * 0.5, 0.95 + edge * 0.5, max(c, s));
+  vec2 fd = fogEdgeDistances(texture2D(tCloudFog, uv)) + fogEdgeShift(xz);
+  known = smoothstep(-1.0, 0.5, fd.y);
+  float explored = smoothstep(-uFogEdge.z, uFogEdge.z, fd.y);
+  float visible = smoothstep(0.0, uFogEdge.w, fd.x);
   float level = mix(mix(uCloudFogLevel.z, uCloudFogLevel.y, explored), uCloudFogLevel.x, visible);
   float clear = cloudClearance(xz) * explored;
   return mix(level, min(level, uCloudClear.y), clear);

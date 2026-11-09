@@ -1002,8 +1002,10 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     GLSL `cloudFogLevel` (facteur de densité par état de la grille du
     brouillard de guerre, `tCloudFog` et `uCloudFogRect` remplis par la
     passe : visible faible, exploré hors vision fort, inexploré sur le noir
-    avec surface ignorée ; lecture au point et en cinq points, seuils
-    ondulés), `mistCloudsLayers` (couleur prémultipliée et couverture des
+    avec surface ignorée ; depuis le 2026-11-09, lecture des distances
+    signées aux lisières portées par la grille, déplacées par
+    `fogEdgeShift`, densité visible atteinte à `uFogEdge.w` cases à
+    l'intérieur), `mistCloudsLayers` (couleur prémultipliée et couverture des
     trois couches situées devant la surface) et `mistClouds` ;
     `setMistCloudsScene` : graine, appelé par `main.ts` au chargement d'une
     carte ; `tickMistClouds` : horloge cosmétique ; les 4 sources chaudes de
@@ -1028,6 +1030,33 @@ Consommation dans `main.ts` (`onStep`, après `world.step`) :
     (`mistClearance`, même rectangle) et la recalcule dans `updateFogOfWar`
     par `syncMistClearance` seulement quand la signature des ids éligibles
     change ; la grille du brouillard et la vision ne la lisent jamais.
+    Lisière (2026-11-09) : `render/fogEdge.ts` (`FOG_EDGE` : amplitude,
+    biais vers l'intérieur, demi-largeur du fondu, largeur de la densité
+    visible, PROVISOIRES ; `fogEdgeUniforms` ; `FOG_EDGE_GLSL` : bruit de
+    lisière en espace monde `fogEdgeShift(xz)` toujours ≤ 0, décodage
+    `fogEdgeDistances(texel)` ; `setFogEdgeSeed`, appelé par
+    `setMistCloudsScene`). `FogOfWar.texture` est RGBA : R état (0, 128,
+    255), G et B distances signées (cases, 128 + d × 15, bornées à ±8) aux
+    lisières du visible et de l'explore, positives à l'intérieur, calculées
+    par transformée de distance (chamfer, deux balayages) dans
+    `edgeField`, seulement quand un ensemble de cases change
+    (`refreshTargets` ; `lastEdgeMs` pour le contrôle). Mouvement
+    (2026-11-09, `FOG_EDGE_TIMING`, validé) : ces canaux portent les
+    valeurs **affichées** ; `update(sources, dt?)` tient, en plus de l'état
+    exact (`state`, seul lu par le jeu), une vision retenue (`held`,
+    `holdLeft`), un délai après retour en vision (`graceLeft`), et par canal
+    cible, valeur affichée et vitesse ; `animateChannel` avance les rampes
+    à chaque image tant qu'une case n'est pas arrivée, dans la bande
+    `FOG_EDGE_ANIM_BAND` où la distance change l'image ; `paused` (posé par
+    `main.ts` quand `timeScale` vaut 0) arrête l'horloge ; `dt` imposé :
+    contrôles déterministes (`tests/game/lisiere-brouillard-jeu.cjs`). La composition lit ces distances
+    déplacées (`seenT` : fondu asymétrique `uFogEdgeFade`, 0,6 case vers
+    l'extérieur et 2,4 vers l'intérieur, `FOG_EDGE_DARK_FADE` ; `knownT` :
+    fondu du noir `uFogEdgeBlack`, 0,6 case vers l'inconnu et 2,4 vers
+    l'exploré, élevé à la puissance 2,5, `FOG_EDGE_BLACK_FADE`) au lieu de
+    l'état en bilinéaire ; `FogOfWar.isVisible` (canal R, état) reste la seule source
+    de la visibilité gameplay. `FOG_EDGE_GLSL` est inclus avant
+    `MIST_CLOUDS_GLSL` dans les trois matériaux de la passe.
     **Aucun mesh** : les nappes sont évaluées dans `FogOfWarPass`
     (`render/fogOfWar.ts`) à partir de la DepthTexture de la scène et
     composées **avant** l'assombrissement du brouillard de guerre

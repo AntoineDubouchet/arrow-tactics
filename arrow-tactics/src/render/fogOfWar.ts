@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { FOG_EDGE_ANIM_BAND, FOG_EDGE_GLSL, FOG_EDGE_RANGE, FOG_EDGE_SCALE, FOG_EDGE_TIMING, fogEdgeUniforms } from './fogEdge';
 import { MIST_CLOUDS_GLSL, mistCloudsHalfRes, mistCloudsMode, mistCloudUniforms, tickMistClouds } from './mistClouds';
 
 /**
@@ -11,6 +12,20 @@ import { MIST_CLOUDS_GLSL, mistCloudsHalfRes, mistCloudsMode, mistCloudUniforms,
  * (Heros, Baliste, unites, batiments) ; rendue par une passe plein ecran qui
  * relit la profondeur (FogOfWarPass), donc pour tout le decor sans toucher
  * aux materiaux.
+ *
+ * Lisiere (2026-11-09, render/fogEdge.ts) : la texture de la grille porte,
+ * en plus de l'etat (R), la distance signee de chaque case a la lisiere du
+ * visible (G) et a celle de l'explore (B). La passe et les Mist Clouds lisent
+ * ces distances, deplacees par un bruit en espace monde, au lieu de l'etat
+ * lu en bilineaire : la frontiere visuelle est continue et irreguliere au
+ * lieu de suivre les bords des cases. L'etat (FogOfWar.state, isVisible) reste
+ * seul juge de la visibilite gameplay.
+ *
+ * Mouvement (2026-11-09, durees FOG_EDGE_TIMING VALIDEES en jeu, voir
+ * docs/DESIGN_DECISIONS.md A6) : la texture porte le
+ * champ AFFICHE, anime par case vers sa cible. Cible recalculee seulement
+ * quand un ensemble de cases change ; animation a chaque image tant qu'une
+ * case n'a pas rejoint sa cible. L'etat de jeu, lui, change instantanement.
  */
 export const FOG_UNSEEN = 0;
 export const FOG_EXPLORED = 1;
@@ -106,9 +121,46 @@ export class FogOfWar {
   readonly minZ: number;
   /** Etat par case (FOG_*). */
   readonly state: Uint8Array;
-  /** Texture de la grille (0, 128, 255), lue par la passe plein ecran. */
+  /** Texture de la grille, RGBA par case, valeurs AFFICHEES (animees) : R etat (0, 128, 255) ; G et B
+   *  distances signees (cases, 128 + d * FOG_EDGE_SCALE, bornees a +-FOG_EDGE_RANGE) a la lisiere du
+   *  visible et a celle de l'explore, positives a l'interieur (render/fogEdge.ts). Une fois le
+   *  mouvement termine, valeurs exactes de la vision reelle. Lue par la passe plein ecran et la
+   *  Ground Mist ; jamais par le gameplay (state, isVisible, isExplored). */
   readonly texture: THREE.DataTexture;
   private readonly pixels: Uint8Array;
+  /** Tampons de la transformee de distance (reutilises a chaque mise a jour). */
+  private readonly mask: Uint8Array;
+  private readonly distIn: Float32Array;
+  private readonly distOut: Float32Array;
+  /** Vision RETENUE, rendu seulement : case visible maintenant ou depuis moins de
+   *  FOG_EDGE_TIMING.hold secondes (holdLeft : temps restant). La lisiere du visible AFFICHEE est
+   *  calculee sur cet ensemble ; le gameplay ne le lit jamais. */
+  private readonly held: Uint8Array;
+  private readonly holdLeft: Float32Array;
+  /** Case revenue en vision depuis moins de FOG_EDGE_TIMING.hold secondes (temps restant) : elle ne
+   *  se referme pas devant la source qui revient, alors que sa cible est encore en train de monter. */
+  private readonly graceLeft: Float32Array;
+  /** Case deja connue (etat non inexplore). */
+  private readonly known: Uint8Array;
+  /** Par canal : cible, valeur affichee, vitesse de la rampe en cours (0 : a calculer). */
+  private readonly targetVis: Float32Array;
+  private readonly shownVis: Float32Array;
+  private readonly rateVis: Float32Array;
+  private readonly targetKnown: Float32Array;
+  private readonly shownKnown: Float32Array;
+  private readonly rateKnown: Float32Array;
+  private readonly targetState: Float32Array;
+  private readonly shownState: Float32Array;
+  private readonly rateState: Float32Array;
+  private initialized = false;
+  private animating = false;
+  private lastTime = -1;
+  /** Horloge du mouvement arretee (partie en pause) : rien ne s'ouvre ni ne se referme. */
+  paused = false;
+  /** Duree (ms) du calcul des distances a la derniere image (0 si aucun ensemble n'a change). */
+  lastEdgeMs = 0;
+  /** Duree (ms) de l'animation a la derniere image (0 si tout est stabilise). */
+  lastAnimMs = 0;
 
   constructor(width: number, height: number) {
     this.width = width;
@@ -116,10 +168,161 @@ export class FogOfWar {
     this.minX = -width / 2;
     this.minZ = -height / 2;
     this.state = new Uint8Array(width * height);
-    this.pixels = new Uint8Array(width * height);
-    this.texture = new THREE.DataTexture(this.pixels, width, height, THREE.RedFormat, THREE.UnsignedByteType);
+    this.pixels = new Uint8Array(width * height * 4);
+    this.mask = new Uint8Array(width * height);
+    this.distIn = new Float32Array(width * height);
+    this.distOut = new Float32Array(width * height);
+    const n = width * height;
+    this.held = new Uint8Array(n);
+    this.holdLeft = new Float32Array(n);
+    this.graceLeft = new Float32Array(n);
+    this.known = new Uint8Array(n);
+    this.targetVis = new Float32Array(n);
+    this.shownVis = new Float32Array(n);
+    this.rateVis = new Float32Array(n);
+    this.targetKnown = new Float32Array(n);
+    this.shownKnown = new Float32Array(n);
+    this.rateKnown = new Float32Array(n);
+    this.targetState = new Float32Array(n);
+    this.shownState = new Float32Array(n);
+    this.rateState = new Float32Array(n);
+    this.texture = new THREE.DataTexture(this.pixels, width, height, THREE.RGBAFormat, THREE.UnsignedByteType);
     this.texture.magFilter = THREE.LinearFilter;
     this.texture.minFilter = THREE.LinearFilter;
+    this.texture.needsUpdate = true;
+  }
+
+  /** Distance (cases) de chaque case marquee (mask = 1) a la case non marquee la plus proche
+   *  (chamfer 1 / racine de 2, deux balayages ; hors grille = non marque). 0 pour une case non
+   *  marquee. */
+  private chamfer(dist: Float32Array): void {
+    const { width: w, height: h, mask } = this;
+    const SQ = Math.SQRT2;
+    for (let i = 0; i < dist.length; i++) dist[i] = mask[i] ? 1e6 : 0;
+    for (let z = 0; z < h; z++) {
+      for (let x = 0; x < w; x++) {
+        const i = z * w + x;
+        let d = dist[i]!;
+        if (d === 0) continue;
+        if (x === 0 || z === 0) d = Math.min(d, 1);
+        if (x > 0) d = Math.min(d, dist[i - 1]! + 1);
+        if (z > 0) {
+          d = Math.min(d, dist[i - w]! + 1);
+          if (x > 0) d = Math.min(d, dist[i - w - 1]! + SQ);
+          if (x < w - 1) d = Math.min(d, dist[i - w + 1]! + SQ);
+        }
+        dist[i] = d;
+      }
+    }
+    for (let z = h - 1; z >= 0; z--) {
+      for (let x = w - 1; x >= 0; x--) {
+        const i = z * w + x;
+        let d = dist[i]!;
+        if (d === 0) continue;
+        if (x === w - 1 || z === h - 1) d = Math.min(d, 1);
+        if (x < w - 1) d = Math.min(d, dist[i + 1]! + 1);
+        if (z < h - 1) {
+          d = Math.min(d, dist[i + w]! + 1);
+          if (x < w - 1) d = Math.min(d, dist[i + w + 1]! + SQ);
+          if (x > 0) d = Math.min(d, dist[i + w - 1]! + SQ);
+        }
+        dist[i] = d;
+      }
+    }
+  }
+
+  /** Distance signee (cases, bornee) a la lisiere de l'ensemble `inside`, ecrite dans `target` :
+   *  positive dedans, negative dehors. Une case dont la cible change DANS la bande visible repart de
+   *  ce qui est affiche ; hors de la bande, la rampe en cours garde sa vitesse (sa duree reste exacte). */
+  private edgeField(inside: Uint8Array, target: Float32Array, rate: Float32Array): void {
+    const { mask, distIn, distOut } = this;
+    mask.set(inside);
+    this.chamfer(distIn);
+    for (let i = 0; i < mask.length; i++) mask[i] = 1 - mask[i]!;
+    this.chamfer(distOut);
+    const range = FOG_EDGE_RANGE;
+    const { lo, hi } = FOG_EDGE_ANIM_BAND;
+    for (let i = 0; i < mask.length; i++) {
+      const d = inside[i] ? distIn[i]! : -distOut[i]!;
+      const c = d > range ? range : d < -range ? -range : d;
+      const old = target[i]!;
+      if (old === c) continue;
+      target[i] = c;
+      const oldBand = old < lo ? lo : old > hi ? hi : old;
+      const newBand = c < lo ? lo : c > hi ? hi : c;
+      if (oldBand !== newBand) rate[i] = 0;
+    }
+  }
+
+  /** Cibles recalculees seulement si l'ensemble des cases retenues ou connues a change. */
+  private refreshTargets(heldChanged: boolean, knownChanged: boolean): void {
+    this.lastEdgeMs = 0;
+    if (!heldChanged && !knownChanged && this.initialized) return;
+    const t0 = performance.now();
+    const { held, known, targetState, rateState } = this;
+    if (heldChanged || !this.initialized) this.edgeField(held, this.targetVis, this.rateVis);
+    if (knownChanged || !this.initialized) this.edgeField(known, this.targetKnown, this.rateKnown);
+    for (let i = 0; i < held.length; i++) {
+      const v = held[i] ? 255 : known[i] ? 128 : 0;
+      if (targetState[i] !== v) { targetState[i] = v; rateState[i] = 0; }
+    }
+    this.lastEdgeMs = performance.now() - t0;
+    this.animating = true;
+  }
+
+  /** Rampe d'un canal vers sa cible : ouverture en FOG_EDGE_TIMING.open secondes, fermeture en
+   *  .close. Vitesse fixee a chaque changement de cible, depuis la valeur affichee : le mouvement se
+   *  poursuit sans a-coup, et devient regulier quand la cible avance par pas reguliers. La rampe se
+   *  fait dans la bande [lo, hi] ou la valeur change l'image ; hors de cette bande elle est sautee.
+   *  `blockClosing` : une case quittee pendant son delai, ou revenue en vision depuis peu, ne se
+   *  referme pas. Vrai si le canal bouge encore. */
+  private animateChannel(channel: number, shown: Float32Array, target: Float32Array, rate: Float32Array, lo: number, hi: number, offset: number, scale: number, dt: number, blockClosing: boolean): boolean {
+    const { held, state, pixels, graceLeft } = this;
+    let active = false;
+    for (let i = 0; i < shown.length; i++) {
+      const t = target[i]!;
+      let d = shown[i]!;
+      if (d === t) continue;
+      if (blockClosing && t < d && ((held[i] && state[i] !== FOG_VISIBLE) || graceLeft[i]! > 0)) { active = true; continue; }
+      const from = d < lo ? lo : d > hi ? hi : d;
+      const to = t < lo ? lo : t > hi ? hi : t;
+      const gap = Math.abs(to - from);
+      if (rate[i] === 0 && gap > 0) rate[i] = gap / (to > from ? FOG_EDGE_TIMING.open : FOG_EDGE_TIMING.close);
+      const step = rate[i]! * dt;
+      if (gap <= step || gap === 0) { d = t; rate[i] = 0; } else { d = from + (to > from ? step : -step); active = true; }
+      shown[i] = d;
+      pixels[i * 4 + channel] = Math.round(offset + d * scale);
+    }
+    return active;
+  }
+
+  private animate(dt: number): void {
+    this.lastAnimMs = 0;
+    if (!this.animating) return;
+    const t0 = performance.now();
+    const { lo, hi } = FOG_EDGE_ANIM_BAND;
+    const a = this.animateChannel(0, this.shownState, this.targetState, this.rateState, 0, 255, 0, 1, dt, false);
+    const b = this.animateChannel(1, this.shownVis, this.targetVis, this.rateVis, lo, hi, 128, FOG_EDGE_SCALE, dt, true);
+    const c = this.animateChannel(2, this.shownKnown, this.targetKnown, this.rateKnown, lo, hi, 128, FOG_EDGE_SCALE, dt, false);
+    this.animating = a || b || c;
+    this.texture.needsUpdate = true;
+    this.lastAnimMs = performance.now() - t0;
+  }
+
+  /** Premiere image : les valeurs affichees sont directement les cibles, sans animation. */
+  private snapToTargets(): void {
+    const { pixels, shownVis, targetVis, shownKnown, targetKnown, shownState, targetState } = this;
+    shownVis.set(targetVis);
+    shownKnown.set(targetKnown);
+    shownState.set(targetState);
+    for (let i = 0; i < shownVis.length; i++) {
+      pixels[i * 4] = Math.round(shownState[i]!);
+      pixels[i * 4 + 1] = Math.round(128 + shownVis[i]! * FOG_EDGE_SCALE);
+      pixels[i * 4 + 2] = Math.round(128 + shownKnown[i]! * FOG_EDGE_SCALE);
+      pixels[i * 4 + 3] = 255;
+    }
+    this.initialized = true;
+    this.animating = false;
     this.texture.needsUpdate = true;
   }
 
@@ -153,19 +356,20 @@ export class FogOfWar {
       for (let cx = 0; cx < width; cx++) {
         const dx = cx + this.minX + 0.5 - x;
         const i = cz * width + cx;
-        if (state[i] === FOG_UNSEEN && dx * dx + dz * dz <= r2) {
-          state[i] = FOG_EXPLORED;
-          this.pixels[i] = 128;
-        }
+        if (state[i] === FOG_UNSEEN && dx * dx + dz * dz <= r2) state[i] = FOG_EXPLORED;
       }
     }
-    this.texture.needsUpdate = true;
   }
 
   /** Vision du moment : le visible precedent redevient explore, puis chaque
-   *  source rend visibles les cases dont le centre est dans son rayon. */
-  update(sources: readonly VisionSource[]): void {
-    const { state, width, height } = this;
+   *  source rend visibles les cases dont le centre est dans son rayon. L'etat est exact a l'image
+   *  pres ; le champ affiche suit (retenue, puis rampes). `dt` : pas impose (controles), sinon
+   *  horloge du rendu. */
+  update(sources: readonly VisionSource[], dt?: number): void {
+    const now = performance.now();
+    const elapsed = dt ?? (this.lastTime < 0 || this.paused ? 0 : Math.min((now - this.lastTime) / 1000, 0.5));
+    this.lastTime = now;
+    const { state, width, height, held, holdLeft, graceLeft, known, rateVis } = this;
     for (let i = 0; i < state.length; i++) if (state[i] === FOG_VISIBLE) state[i] = FOG_EXPLORED;
     for (const s of sources) {
       const r = s.radius;
@@ -182,8 +386,30 @@ export class FogOfWar {
         }
       }
     }
-    for (let i = 0; i < state.length; i++) this.pixels[i] = state[i] === FOG_VISIBLE ? 255 : state[i] === FOG_EXPLORED ? 128 : 0;
-    this.texture.needsUpdate = true;
+    let heldChanged = false;
+    let knownChanged = false;
+    for (let i = 0; i < state.length; i++) {
+      const s = state[i]!;
+      if (graceLeft[i]! > 0) {
+        graceLeft[i] = graceLeft[i]! - elapsed;
+        if (graceLeft[i]! <= 0) { graceLeft[i] = 0; rateVis[i] = 0; }
+        this.animating = true;
+      }
+      if (s === FOG_VISIBLE) {
+        // Case qui revient en vision (elle n'y etait pas a l'image precedente).
+        if (this.initialized && holdLeft[i]! < FOG_EDGE_TIMING.hold) { graceLeft[i] = FOG_EDGE_TIMING.hold; rateVis[i] = 0; this.animating = true; }
+        holdLeft[i] = FOG_EDGE_TIMING.hold;
+        if (!held[i]) { held[i] = 1; heldChanged = true; }
+      } else if (held[i]) {
+        holdLeft[i] = holdLeft[i]! - elapsed;
+        if (holdLeft[i]! <= 0) { held[i] = 0; holdLeft[i] = 0; heldChanged = true; rateVis[i] = 0; }
+        this.animating = true;
+      }
+      if (s !== FOG_UNSEEN && !known[i]) { known[i] = 1; knownChanged = true; }
+    }
+    this.refreshTargets(heldChanged, knownChanged);
+    if (!this.initialized) this.snapToTargets();
+    else this.animate(elapsed);
   }
 
   dispose(): void {
@@ -254,14 +480,14 @@ export class FogOfWarPass {
     if (this.clouds) {
       this.halfMaterial = this.compositeMaterial('half');
       this.cloudMaterial = new THREE.ShaderMaterial({
-        uniforms: { ...this.sceneUniforms, ...mistCloudUniforms },
+        uniforms: { ...this.sceneUniforms, ...fogEdgeUniforms, ...mistCloudUniforms },
         vertexShader: FULLSCREEN_VERTEX,
         fragmentShader: /* glsl */ `
           uniform sampler2D tDepth;
           uniform mat4 projectionInverse;
           uniform mat4 cameraWorld;
           uniform bool fogBackground;
-          varying vec2 vUv;${MIST_CLOUDS_GLSL}
+          varying vec2 vUv;${FOG_EDGE_GLSL}${MIST_CLOUDS_GLSL}
           void main() {
             float depth = texture2D(tDepth, vUv).x;
             vec4 cl = vec4(0.0);
@@ -333,7 +559,7 @@ export class FogOfWarPass {
           return sum / wsum;
         }`;
     return new THREE.ShaderMaterial({
-      uniforms: { ...this.sceneUniforms, ...(clouds !== 'off' ? mistCloudUniforms : {}), ...(clouds === 'half' ? this.cloudUniforms : {}) },
+      uniforms: { ...this.sceneUniforms, ...fogEdgeUniforms, ...(clouds !== 'off' ? mistCloudUniforms : {}), ...(clouds === 'half' ? this.cloudUniforms : {}) },
       vertexShader: FULLSCREEN_VERTEX,
       fragmentShader: /* glsl */ `
         uniform sampler2D tColor;
@@ -343,7 +569,7 @@ export class FogOfWarPass {
         uniform mat4 cameraWorld;
         uniform vec4 fogRect;
         uniform bool fogBackground;
-        varying vec2 vUv;${clouds === 'full' ? MIST_CLOUDS_GLSL : clouds === 'half' ? MIST_CLOUDS_GLSL + upsample : ''}
+        varying vec2 vUv;${FOG_EDGE_GLSL}${clouds === 'full' ? MIST_CLOUDS_GLSL : clouds === 'half' ? MIST_CLOUDS_GLSL + upsample : ''}
         void main() {
           vec4 color = texture2D(tColor, vUv);
           float depth = texture2D(tDepth, vUv).x;
@@ -355,11 +581,22 @@ export class FogOfWarPass {
             if (depth >= 1.0) world -= forward * (world.y / forward.y);
             vec2 fogUv = (world.xz - fogRect.xy) / fogRect.zw;
             bool inside = fogUv.x >= 0.0 && fogUv.x <= 1.0 && fogUv.y >= 0.0 && fogUv.y <= 1.0;
-            float seen = inside ? texture2D(tFog, fogUv).r : 0.0;${cloudsEval}${cloudsOver}
+            // Lisiere (render/fogEdge.ts) : distances signees aux lisieres du visible (x) et de
+            // l'explore (y), deplacees par le bruit de lisiere (ancre au monde, biaise vers
+            // l'interieur) : frontiere continue et irreguliere, plus de marches de cases ; le
+            // terrain hors vision n'est jamais eclairci, l'inexplore jamais devoile. Fondu de
+            // l'assombrissement asymetrique (uFogEdgeFade : court vers l'exterieur, etire vers
+            // l'interieur, dans la bande ou la densite des nappes decroit) ; fondu du noir
+            // asymetrique lui aussi (uFogEdgeBlack : court vers l'inconnu, etire vers l'explore),
+            // avec une courbe en puissance (melange en lumiere lineaire : sans elle, tout le
+            // changement percu se concentre pres du noir). Hors grille : inexplore.
+            vec2 fd = inside ? fogEdgeDistances(texture2D(tFog, fogUv)) + fogEdgeShift(world.xz) : vec2(-100.0);
+            float seenT = smoothstep(-uFogEdgeFade.x, uFogEdgeFade.y, fd.x);
+            float knownT = pow(smoothstep(-uFogEdgeBlack.x, uFogEdgeBlack.y, fd.y), uFogEdgeBlack.z);${cloudsEval}${cloudsOver}
             float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
             vec3 explored = mix(color.rgb, vec3(luma), 0.45) * 0.55;
             vec3 unseen = vec3(0.012, 0.014, 0.02);${cloudsUnseen}
-            color.rgb = seen < 0.5 ? mix(unseen, explored, seen * 2.0) : mix(explored, color.rgb, (seen - 0.5) * 2.0);
+            color.rgb = mix(unseen, mix(explored, color.rgb, seenT), knownT);
           }
           gl_FragColor = color;
           #include <tonemapping_fragment>

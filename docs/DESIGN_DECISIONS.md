@@ -339,7 +339,11 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
     abandonné : trop peu lisible entre le clair et le noir. La case du pixel
     fait foi pour la vision (pas de densité héritée des voisines explorées),
     le côté brume est adouci sur trois cases et ondulé par un bruit, la
-    frontière gameplay de l'assombrissement reste exacte ;
+    frontière gameplay de l'assombrissement reste exacte (**remplacé le
+    2026-11-09** par la lisière déplacée, voir le complément ci-dessous :
+    la frontière de l'assombrissement est désormais elle aussi irrégulière,
+    déplacée vers l'intérieur ; seule la grille reste exacte pour le
+    gameplay) ;
   - **aucun mesh ni draw call monde pour les nappes** : elles sont calculées
     dans la passe plein écran du brouillard de guerre, à partir de la
     profondeur déjà résolue. Raisons : parallaxe correcte (forme lue à la
@@ -455,6 +459,98 @@ sont pas listés ici : voir `ARCHITECTURE.md`.
   indépendant du bâti) : la clarté dérive de la **visibilité réelle** (grille
   du brouillard) et de la **clairière esthétique des bâtiments réellement
   construits**, deux choses distinctes.
+- **Complément du 2026-11-09 (Antoine ; réglages PROVISOIRES, à valider
+  en jeu) : lisière du brouillard.** Constat d'Antoine sur capture : le bord
+  gris derrière les arbres laissait suivre les marches des cases, et un
+  ennemi qui entrait dans sa première case visible apparaissait d'un coup,
+  entièrement net. Décisions : (1) une **lisière continue et irrégulière**,
+  banc de brume avec avancées et creux, qui peut déborder par endroits sur
+  le terrain réellement visible ; (2) **critère principal : l'apparition
+  d'un ennemi** : encore enveloppé de brume dans sa première case visible,
+  silhouette qui se précise en avançant, qui se perd dans la nappe avant de
+  quitter la vision en reculant, le voile couvrant le corps de l'unité ;
+  (3) la **grille reste seule juge** de la visibilité gameplay (affichage,
+  barres, sélection, aggro, Baliste AUTO) : un ennemi hors vision n'est
+  trahi par rien, un ennemi visible peut être ciblable alors que la brume le
+  voile encore ; (4) clairière 0,08 et densités de référence (0,22 visible,
+  1,0 exploré hors vision, inexploré opaque) conservées loin de la lisière.
+  Choix de la passe (`render/fogEdge.ts`) : distance signée à la lisière
+  portée par la grille (transformée de distance CPU, recalcul seulement
+  quand une case change), déplacée par un bruit en espace monde **biaisé
+  vers l'intérieur** (la brume déborde sur le visible, jamais l'inverse :
+  aucun terrain hors vision éclairci, aucun inexploré dévoilé), appliquée à
+  l'assombrissement ET aux nappes (une seule frontière visuelle : un simple
+  flou des nappes aurait laissé deviner l'escalier de l'assombrissement) ;
+  densité visible atteinte à 3,5 cases à l'intérieur de la lisière
+  déplacée. Ce complément remplace la règle A6 « la frontière gameplay de
+  l'assombrissement reste exacte » : c'est l'état (R) qui reste exact, pas
+  son dessin. **Validé par Antoine le 2026-11-09** : la forme organique de
+  la lisière (amplitude 3 cases, biais 1,6) et la façon dont les ennemis
+  émergent du nuage. **Retouche du même jour, PROVISOIRE jusqu'au retour
+  d'Antoine sur les captures : le dégradé.** Constat : la démarcation entre
+  brume légère (0,22) et brume dense (1,0) restait trop tranchée. Cause
+  mesurée (profil de luminance sur une traversée) : le fondu de
+  l'assombrissement, symétrique ±0,6 case, tombait là où les nappes sont
+  encore à leur densité explorée ; la nappe claire (non assombrie) à
+  l'intérieur et la nappe assombrie à l'extérieur se touchaient sur une case,
+  d'où une bosse claire puis une chute de 30 points de luminance. Réglage :
+  fondu de l'assombrissement **asymétrique**, 0,6 case vers l'extérieur
+  (inchangé : la brume ne s'avance pas plus loin vers la palissade) et
+  **2,4 cases vers l'intérieur** (`FOG_EDGE_DARK_FADE`), réparti dans la
+  bande de 3,5 cases où la densité des nappes décroît déjà ; la bande n'a
+  pas été élargie. Références loin de la transition, clairière 0,08,
+  opacité de l'inexploré et règles de la grille inchangées. **Ce dégradé
+  visible → exploré convient à Antoine (2026-11-09).**
+- **Retouche du 2026-11-09 (suite), réglage C validé par Antoine le même
+  jour : passage au noir.** Constat d'Antoine : la ligne où le noir prend le
+  dessus sur la brume grise se suit encore du regard. Cause mesurée (profil
+  de luminance sur le tronçon est) : le fondu du noir était symétrique
+  ±0,6 case et **linéaire**, or le mélange vers le noir se fait en lumière
+  linéaire : la clarté perçue variant comme la racine de la luminance, tout
+  le changement perçu se concentrait contre le noir (chute de 52 points en
+  1,25 case, pente maximale 18 par quart de case). Réglage
+  (`FOG_EDGE_BLACK_FADE`) : fondu **asymétrique**, 0,6 case vers l'inconnu
+  (inchangé : aucun élément de l'inconnu ne devient perceptible avant sa
+  découverte, le noir profond reste opaque) et **2,4 cases vers le terrain
+  déjà exploré**, avec une **courbe en puissance 2,5** qui répartit la
+  variation perçue sur toute la largeur : pente maximale 12,7. Cinq
+  réglages ont été comparés sur la même image ; 3 cases avec une courbe 3
+  descend à 9,3 mais forme un halo sombre qui mange presque toute la bande
+  grise du départ (4 cases d'exploré autour de la vision de 21), écarté.
+  Le dégradé visible → exploré (0,6 / 2,4), le tracé organique de la
+  lisière, la clairière 0,08 et les règles de la grille sont inchangés.
+- **Complément du 2026-11-09 (Antoine ; validé en jeu) : le brouillard
+  bouge.** La forme de la lisière et les deux dégradés sont validés ; ce qui
+  accrochait l'œil, c'est le terrain qui se découvrait case par case.
+  Décisions : (1) à l'ouverture, **le banc de brume se retire devant le
+  Héros** d'un mouvement continu, le noir, l'assombrissement, les nappes et
+  la Ground Mist ensemble, environ **0,5 s** ; si le Héros continue
+  d'avancer, le mouvement repart de l'aspect déjà affiché ; (2) quand une
+  portion de terrain perd sa dernière source de vision, **2 s de délai**
+  local, puis **1,5 s de retour** à la brume grise, réglables séparément ;
+  un demi-tour pendant l'attente ne referme rien, un retour pendant la
+  reformation repart de la densité courante ; un terrain exploré revient au
+  gris et garde ses décors ; (3) ces délais sont **purement visuels** : un
+  ennemi hors de la vision réelle cesse à l'instant d'être affiché,
+  sélectionnable et ciblable, sa barre disparaît avec lui ; rien ne se
+  dévoile avant que la grille l'autorise. Choix de la passe : la texture
+  porte désormais le champ **affiché**, animé par case vers sa cible, et
+  `FogOfWar.state` reste seul lu par le jeu ; la lisière du visible est
+  calculée sur une **vision retenue** (case vue maintenant ou depuis moins de
+  2 s), recalculée seulement quand un ensemble de cases change, y compris à
+  l'expiration du délai (donc jamais à chaque image) ; rampes linéaires à
+  vitesse fixée au changement de cible, réparties sur la partie de la
+  distance qui change réellement l'image (sinon une ouverture ou un retour
+  ne dureraient visuellement qu'une fraction de leur durée) ; une case qui
+  revient en vision ne se referme pas pendant 2 s, sinon elle se refermait
+  devant le Héros en train de revenir. **Observation** : la barre de vie
+  d'un ennemi blessé apparaît dès que la grille l'autorise, donc au plus
+  0,5 s sur un terrain encore sombre ; conforme à la règle, aucune action
+  prévue. **Validé par Antoine après essai en jeu (2026-11-09)** : découverte
+  fluide, rythme du retour au gris retenu. Valeurs de référence de
+  `FOG_EDGE_TIMING` : `open` 0,5 s pour l'ouverture, `hold` 2 s d'attente
+  après la perte de la dernière source de vision, `close` 1,5 s pour le
+  retour progressif à la brume grise.
 - **À ne pas faire** : ne pas réintroduire le relief interne ni une poche
   claire centrée sur le camp à rayon fixe, ni une liste d'unités comme
   source de clarté (la grille du brouillard et la clairière des bâtiments

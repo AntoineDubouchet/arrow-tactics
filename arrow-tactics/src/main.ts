@@ -1651,7 +1651,11 @@ function updateFogOfWar(): void {
   }
   syncContactMap();
   syncMistClearance();
-  if (on) fogOfWar!.update(visionSources());
+  if (on) {
+    // Horloge du mouvement du brouillard (rendu seulement) arretee en pause.
+    fogOfWar!.paused = loop.timeScale === 0;
+    fogOfWar!.update(visionSources());
+  }
   // Decors instancies (carte generee) : reveles a l'exploration (KI-35).
   if (on && board.decor && ++decorRevealFrame % 6 === 0) board.decor.reveal((x, z) => fogOfWar!.isExplored(x, z));
   unitViews.hiddenFilter = on ? hiddenByFog : null;

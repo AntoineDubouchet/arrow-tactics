@@ -1116,6 +1116,56 @@ lu par la simulation) :
 - rendu par une passe plein écran qui relit la profondeur (tout le décor,
   sans toucher aux matériaux) ; actif sur la carte procédurale, hors
   éditeur et « Tester le scénario » ; remis à zéro à chaque run ;
+- **lisière** (2026-11-09, `render/fogEdge.ts`, réglages **PROVISOIRES**) :
+  la frontière visuelle entre visible et exploré (assombrissement) et entre
+  exploré et inexploré (noir) ne suit plus les bords des cases. La grille
+  porte, par case, la **distance signée** à chaque lisière (canaux G et B
+  de sa texture, recalculés par transformée de distance seulement quand une
+  case change d'état, environ 1,3 ms par recalcul) ; le shader la déplace
+  par un bruit en espace monde (ancré au terrain, graine de la carte ;
+  amplitude 3 cases) **biaisé vers l'intérieur** (1,6 case) : la lisière
+  est continue et irrégulière, avancées et creux, et déborde sur le terrain
+  réellement visible, jamais l'inverse (aucun terrain hors vision éclairci,
+  aucun terrain inexploré dévoilé). Fondu de l'assombrissement
+  **asymétrique** (retouche du 2026-11-09, PROVISOIRE) : 0,6 case vers
+  l'extérieur, **2,4 cases vers l'intérieur**, réparti dans la bande où la
+  densité des nappes décroît ; le fondu symétrique ±0,6 tombait là où les
+  nappes étaient encore à leur densité explorée et dessinait un trait net
+  entre nappe assombrie et nappe claire (profil de luminance mesuré : bosse
+  de +20 puis chute de 30 sur une case ; après la retouche, descente
+  régulière). Ce dégradé visible → exploré **convient à Antoine**
+  (2026-11-09). **Fondu du noir** (lisière de l'exploré ; réglage validé par
+  Antoine le 2026-11-09) : asymétrique lui aussi, 0,6 case vers l'inconnu
+  (inchangé : rien de l'inconnu ne devient perceptible avant sa
+  découverte) et **2,4 cases vers le terrain exploré**, avec une **courbe
+  en puissance 2,5** appliquée au fondu avant le mélange : le mélange vers
+  le noir se fait en lumière linéaire et concentrerait sinon tout le
+  changement perçu contre le noir (ligne nette même avec un fondu large).
+  Mesure sur le tronçon est : pente maximale 12,7 points de luminance par
+  quart de case au lieu de 18 ; un réglage plus large (3 cases, courbe 3)
+  descend à 9,3 mais mange presque toute la bande grise du départ. La
+  forme irrégulière de la lisière (amplitude, biais) est **validée** par
+  Antoine.
+  La **grille reste seule juge** de la visibilité gameplay : affichage des ennemis, barres de
+  vie, sélection, aggro et Baliste AUTO lisent `isVisible` comme avant ; un
+  ennemi peut donc être ciblable alors que la brume voile encore sa
+  silhouette (voulu : voir les Mist Clouds, §6 septies) ;
+- **mouvement du brouillard** (2026-11-09, `FOG_EDGE_TIMING`, durées
+  validées par Antoine en jeu, rendu seulement) : la texture de la grille porte le champ
+  **affiché**, animé par case. Une case nouvellement vue se dégage en
+  **0,5 s** (noir, assombrissement, Mist Clouds et Ground Mist ensemble), à
+  partir de l'aspect déjà affiché si le Héros continue d'avancer. Une case
+  qui perd sa dernière source de vision reste affichée telle quelle pendant
+  **2 s** (délai local), puis revient à la brume grise en **1,5 s** ; elle
+  garde ses décors connus. Demi-tour pendant le délai : rien ne se referme ;
+  retour pendant la reformation : la brume repart de sa densité courante.
+  Partie en pause : le mouvement s'arrête. L'état de jeu, lui, change à
+  l'image près : un ennemi hors de la vision réelle n'est plus affiché ni
+  sélectionnable ni ciblable, sa barre disparaît, même si le terrain reste
+  clair un instant, et rien ne se dévoile avant la grille. Distances
+  recalculées seulement quand un ensemble de cases change (vision, délai
+  expiré, exploration), jamais à chaque image ; une fois le Héros arrêté et
+  la brume stabilisée, le rendu est exactement le rendu validé ;
 - les **décors** (arbres, rochers, petits décors) d'une case jamais explorée
   ne sont pas dessinés du tout (plus de silhouettes noires) ; ils
   apparaissent à l'exploration (`render/decorInstancing.ts`).
@@ -2615,14 +2665,22 @@ Sources : `config/terrainElevation.ts`, `sim/world.ts` (`setMap`),
       atmosphérique, jamais plus présentes que la bande explorée, et la
       surface est ignorée (hauteur ramenée au sol) : ni silhouette, ni toit,
       ni relief ne module l'épaisseur, rien n'est deviné.
-    Transitions : état lu au point même et en cinq points à une case d'écart
-    (fondu sur trois cases environ côté brume), la case du pixel fait foi
-    pour la vision (l'intérieur d'une zone visible ne récupère pas la densité
-    de ses voisines explorées), seuils ondulés par un bruit lent (frontière
-    esthétique organique, jamais un cercle net ; la frontière gameplay de
-    l'assombrissement reste exacte). La réaction suit la grille image par
-    image : une unité qui arrive dans une ancienne zone la dégage, la brume
-    revient dès qu'elle repart ;
+    Transitions (**lisière**, 2026-11-09, `render/fogEdge.ts`, réglages
+    PROVISOIRES) : la densité est pilotée par la **distance signée à la
+    lisière** portée par la grille, déplacée par le même bruit en espace
+    monde, biaisé vers l'intérieur, que l'assombrissement (une seule
+    frontière visuelle, continue et irrégulière, plus de marches de cases).
+    La densité **visible** n'est atteinte qu'à **3,5 cases à l'intérieur**
+    de la lisière déplacée (soit environ 4 à 6,5 cases à l'intérieur de la
+    vraie frontière de vision) : un ennemi qui entre dans sa première case
+    visible est affiché mais encore **enveloppé** par les nappes (densité
+    lue au pied de la surface rendue, son corps compris : mesure à bruit
+    plein, couverture 0,90 dans la première case visible comme en zone
+    explorée, 0,22 sept cases plus loin) ; il se précise en avançant vers le
+    village et se perd dans la nappe avant de quitter la vision en reculant.
+    La réaction suit la grille image par image : une unité qui arrive dans
+    une ancienne zone la dégage ; quand elle repart, la brume revient après le
+    délai du mouvement du brouillard (2 s, puis 1,5 s) ;
   - **clairière des bâtiments construits** (2026-11-08, second facteur de
     densité ; `render/mistClearance.ts`) : nos bâtiments **construits**
     repoussent visuellement les nappes autour d'eux, jusqu'à un niveau sous

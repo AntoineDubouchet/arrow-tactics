@@ -91,7 +91,9 @@ const spawnHouse = (p, x, z, site) => p.evaluate(async ({ x, z, site }) => {
   // Crochet RENDU : la grille du brouillard ignore les sources de vision des batiments (la Maison et la
   // palissade restent en zone exploree hors vision) ; la simulation n'est pas touchee.
   await p.evaluate(() => { const fog = window.__R.fog; const orig = fog.update.bind(fog); fog.update = (src) => orig(src.filter((s) => !window.__world.entities.some((e) => e.isBuilding && Math.hypot(e.x - s.x, e.z - s.z) < 0.01))); });
-  await L.setView(p, { targetX: 0.5, targetZ: -20, viewHeight: 44 }); await L.wait(p, 900); await L.texturesReady(p);
+  // Les zones qui viennent de perdre la vision des batiments reviennent a la brume avec le delai
+  // visuel (FOG_EDGE_TIMING : 2 s + 1,5 s) : on lit l'etat stabilise.
+  await L.setView(p, { targetX: 0.5, targetZ: -20, viewHeight: 44 }); await L.wait(p, 4400); await L.texturesReady(p);
   const flat = await p.evaluate(async () => { const mc = await import('/src/render/mistClouds.ts'); const u = mc.mistCloudUniforms; const saved = [u.uCloudLow.value, u.uCloudHigh.value]; u.uCloudLow.value = -1; u.uCloudHigh.value = -0.5; return saved; });
   await L.wait(p, 400);
   const WALL_N = [-2.04, -13.99];
@@ -114,7 +116,8 @@ const spawnHouse = (p, x, z, site) => p.evaluate(async ({ x, z, site }) => {
   check('Maison au bord de l\'inexplore : la clairiere couvre le point inexplore voisin (masque > 0) mais la couverture des nappes n\'y change pas (facteur coupe hors zone exploree)', stU[1] === 0 && clU > 0 && covU0 > 0.8 && Math.abs(covU1 - covU0) <= 0.05, { stU, clU, covU0, covU1 });
   // Zone VISIBLE : le Heros (vision 9) est place entre la Maison et le point lointain ; les deux
   // deviennent visibles, seul le pied de la Maison est dans la clairiere.
-  await p.evaluate(() => { const h = window.__world.entities.find((e) => e.hero && e.alive); h.x = h.prevX = 6; h.z = h.prevZ = -31.5; h.path = null; });
+  // Heros fige : un camp neutre voisin tire sur la Maison de test, la defense locale l'attirerait hors de portee du point lointain.
+  await p.evaluate(() => { const h = window.__world.entities.find((e) => e.hero && e.alive); h.x = h.prevX = 6; h.z = h.prevZ = -31.5; h.path = null; h.order = { type: 'guard' }; h.stats.moveSpeed = 0; });
   await L.wait(p, 800);
   const stV = await states(p, [HOUSE, FAR]);
   const covV = await coverage(p, [HOUSE, FAR]);

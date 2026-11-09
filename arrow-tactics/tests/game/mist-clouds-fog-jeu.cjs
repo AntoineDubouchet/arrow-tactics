@@ -73,7 +73,8 @@ const teleport = (p, id, x, z) => p.evaluate(({ id, x, z }) => { const e = windo
   await L.setView(p, { targetX: 0.5, targetZ: -30, viewHeight: 22 }); await L.wait(p, 500);
   await p.screenshot({ path: L.OUT + 'mist-clouds-fog-villageois-present.png' });
   await L.setView(p, { targetX: 0.5, targetZ: -18, viewHeight: 48 }); await L.wait(p, 300);
-  await teleport(p, vil.id, vil.x, vil.z); await L.wait(p, 700);
+  // Retour de la brume differe (render/fogEdge.ts, FOG_EDGE_TIMING : 2 s + 1,5 s) : on lit l'etat stabilise.
+  await teleport(p, vil.id, vil.x, vil.z); await L.wait(p, 4200);
   const after = (await coverage(p, [PTS.explored]))[0];
   const stAfter = (await states(p, [PTS.explored]))[0];
   await L.setView(p, { targetX: 0.5, targetZ: -30, viewHeight: 22 }); await L.wait(p, 500);
@@ -90,7 +91,7 @@ const teleport = (p, id, x, z) => p.evaluate(({ id, x, z }) => { const e = windo
   await L.wait(p, 700);
   const duringQ = (await coverage(p, [Q]))[0];
   await p.evaluate((id) => { const e = window.__world.getById(id); e.alive = false; e.hp = 0; }, fid);
-  await L.wait(p, 700);
+  await L.wait(p, 4200);
   const afterQ = (await coverage(p, [Q]))[0];
   check('Fantassin apparu dans une autre zone exploree : couverture divisee par deux au moins, puis revenue apres sa disparition', stQ === 1 && beforeQ > 0.1 && duringQ <= beforeQ / 2 && Math.abs(afterQ - beforeQ) <= 0.25 * beforeQ + 0.02, { beforeQ, duringQ, afterQ, stQ });
 
